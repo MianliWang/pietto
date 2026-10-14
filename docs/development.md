@@ -357,6 +357,21 @@ PostgreSQL and 34,659,873 bytes for MySQL; the bounded reserve covers those
 complete receipts. The historical Slice15/Slice16 sizes above remain their
 original measurements.
 
+The current receipt format is `pietto.target-conformance-receipt.v3`, which the
+owner approved on 2026-10-14. v3 stores each public emission document once, in its
+`generation.emission.records[]` entry. Before v3, each `cases[].variants[]` entry
+also held a byte-identical copy of that document. A v3 variant keeps only
+`variant`, `public_sha256` and its submission counts. Strict verification binds
+each variant to the single generation record with the same case id and variant,
+checks that the variant's digest matches that record's bytes, and reads only the
+record's bytes for every later check. A v2 reader rejects a v3 receipt at the format
+identity, and a v3 reader rejects a v2 receipt the same way. A v3 variant that still
+carries `public` is refused. The 34 MiB reserve does not change, and the format
+change adds no compression, sharding or document trimming. On this tree, the
+harness's offline synthetic receipts measure 34,647,171 bytes (PostgreSQL) and
+34,660,067 bytes (MySQL) in v2. In v3 they measure 17,642,772 and 18,184,260 bytes,
+which is 49.08% and 47.54% smaller.
+
 
 The post-publication residual supplement keeps that denominator and receipt format. Its
 `A_window_frame/range` witness retains both original outputs and adds one literal-carrier

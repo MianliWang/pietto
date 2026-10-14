@@ -1189,7 +1189,7 @@ def selected_observations(receipts, context):
     for target in ("postgres", "mysql"):
         receipt = receipts[target]
         if (
-            receipt.get("format") != "pietto.target-conformance-receipt.v2"
+            receipt.get("format") != "pietto.target-conformance-receipt.v3"
             or receipt["commit"] != context["checkout"]
             or receipt["run_id"] != context["run_id"]
             or type(receipt["run_attempt"]) is not int
@@ -1211,7 +1211,9 @@ def selected_observations(receipts, context):
                 raise ValueError("receipt selected observation denominator")
             record, observation = selected["variants"][0], selected["observations"][0]
             if (
-                type(record["submission_before"]) is not int
+                set(record)
+                != {"variant", "public_sha256", "submission_before", "submission_after"}
+                or type(record["submission_before"]) is not int
                 or type(record["submission_after"]) is not int
                 or record["variant"] != variant
                 or record["submission_after"] - record["submission_before"] != 1
@@ -1232,6 +1234,7 @@ def selected_observations(receipts, context):
                 if r["id"] == case
             ] != [entry]:
                 raise ValueError("receipt source/contract input")
+            # Receipt v3 holds the document once, in this generation record.
             generated = [
                 r
                 for r in receipt["generation"]["emission"]["records"]
@@ -1242,11 +1245,12 @@ def selected_observations(receipts, context):
                 variant=variant,
                 source_sha256=entry["source_sha256"],
                 contract_sha256=entry["contract_sha256"],
-                public=record["public"],
+                public=generated[0].get("public"),
                 public_sha256=record["public_sha256"],
             ):
                 raise ValueError("receipt generation/artifact association")
-            association_value = association(cell, recipe, record["public"].encode())
+            public = generated[0]["public"].encode()
+            association_value = association(cell, recipe, public)
             document = verify_association(cell, association_value)
             if record["public_sha256"] != association_value["public_sha256"]:
                 raise ValueError("receipt public bytes")

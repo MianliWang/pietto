@@ -1221,7 +1221,6 @@ def valid_receipts(
                 row["variants"].append(
                     {
                         "variant": record["variant"],
-                        "public": record["public"],
                         "public_sha256": record["public_sha256"],
                         "submission_before": before,
                         "submission_after": submissions,
@@ -1916,12 +1915,8 @@ def test_new_installed_public_chain_corruptions_are_rejected(
             if case["id"] == record["id"]:
                 for variant in case["variants"]:
                     if variant["variant"] == record["variant"]:
-                        variant["public"], variant["public_sha256"] = (
-                            record["public"],
-                            record["public_sha256"],
-                        )
+                        variant["public_sha256"] = record["public_sha256"]
     elif mutation == "case_record_swap":
-        receipt["cases"][6]["variants"][0]["public"] = emission["records"][1]["public"]
         receipt["cases"][6]["variants"][0]["public_sha256"] = emission["records"][1][
             "public_sha256"
         ]
@@ -1953,6 +1948,63 @@ def test_new_installed_public_chain_corruptions_are_rejected(
         facility.verify_receipt(
             receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
         )
+
+
+@pytest.mark.parametrize(
+    "mutation,reason",
+    (
+        ("v2_receipt", "stale or malformed receipt identity"),
+        ("v2_label", "stale or malformed receipt identity"),
+        ("stray_public", "emission transfer fields"),
+        ("variant_digest", "public artifact transfer substitution"),
+        ("missing_record", "emission variant denominator mismatch"),
+    ),
+)
+@pytest.mark.parametrize("target", cases.TARGETS)
+def test_v3_variants_bind_the_one_generation_document(
+    valid_receipts: Any, target: str, mutation: str, reason: str
+) -> None:
+    pins, pins_digest, expected, receipts = valid_receipts
+    receipt = deepcopy(receipts[target])
+    records = receipt["generation"]["emission"]["records"]
+    by_input = {(r["id"], r["variant"]): r for r in records}
+    variant = next(c for c in receipt["cases"] if c["id"] == records[0]["id"])[
+        "variants"
+    ][0]
+    if mutation == "v2_receipt":
+        # The v2 layout: every variant also carried its document's bytes.
+        receipt["format"] = "pietto.target-conformance-receipt.v2"
+        for case in receipt["cases"]:
+            for item in case.get("variants", ()):
+                item["public"] = by_input[case["id"], item["variant"]]["public"]
+    elif mutation == "v2_label":
+        receipt["format"] = "pietto.target-conformance-receipt.v2"
+    elif mutation == "stray_public":
+        variant["public"] = records[0]["public"]
+    elif mutation == "variant_digest":
+        # A real document digest, but another variant's.
+        variant["public_sha256"] = records[1]["public_sha256"]
+    else:
+        records.pop(0)
+    with pytest.raises(ValueError, match="invalid target receipt") as error:
+        facility.verify_receipt(
+            receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
+        )
+    assert str(error.value.__cause__) == reason
+
+
+def test_emission_case_needs_exactly_one_generation_record(
+    valid_receipts: Any,
+) -> None:
+    receipt = valid_receipts[3]["postgres"]
+    records = receipt["generation"]["emission"]["records"]
+    case = next(c for c in receipt["cases"] if c["id"] == records[0]["id"])
+    cases.check_case(case, "postgres", receipt["generation"])
+    for damaged in (records[1:], [records[0], *records]):
+        with pytest.raises(ValueError, match="record missing or duplicated"):
+            cases.check_case(case, "postgres", {"emission": {"records": damaged}})
+    with pytest.raises(ValueError, match="case denominator"):
+        cases.check_case(case, "postgres", None)
 
 
 def server_error_observation(*, privilege: bool, native: bool = True) -> dict[str, Any]:

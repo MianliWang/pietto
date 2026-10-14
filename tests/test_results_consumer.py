@@ -168,7 +168,6 @@ def synthetic_receipts(tmp_path_factory):
                     variants=[
                         dict(
                             variant=variant,
-                            public=public.decode(),
                             public_sha256=probe.digest(public),
                             submission_before=0,
                             submission_after=1,
@@ -178,7 +177,7 @@ def synthetic_receipts(tmp_path_factory):
                 )
             )
         result[target] = dict(
-            format="pietto.target-conformance-receipt.v2",
+            format="pietto.target-conformance-receipt.v3",
             commit=context["checkout"],
             run_id=context["run_id"],
             run_attempt=1,
@@ -363,7 +362,12 @@ def test_aggregate_replay_is_required_after_original_strict_and_keeps_topology()
 @pytest.mark.parametrize(
     "change",
     (
-        lambda r: r["postgres"].update(format="pietto.target-conformance-receipt.v3"),
+        # A v2 receipt, its label or its variant copy, is never a v3 receipt.
+        lambda r: r["postgres"].update(format="pietto.target-conformance-receipt.v2"),
+        lambda r: r["postgres"]["cases"][0]["variants"][0].update(
+            public=r["postgres"]["generation"]["emission"]["records"][0]["public"]
+        ),
+        lambda r: r["postgres"]["generation"]["emission"]["records"][0].pop("public"),
         lambda r: r["postgres"]["cases"][0]["variants"][0].update(
             submission_before=False
         ),

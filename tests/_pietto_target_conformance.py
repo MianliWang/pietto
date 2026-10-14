@@ -36,7 +36,7 @@ from _pietto_target_conformance_resources import (
 
 ROOT = Path(__file__).resolve().parents[1]
 PINS = Path(__file__).with_name("phase66_target_pins.json")
-FORMAT = "pietto.target-conformance-receipt.v2"
+FORMAT = "pietto.target-conformance-receipt.v3"
 # The installed candidate must match the current package declaration.
 CANDIDATE_VERSION = tomllib.loads(
     (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -973,10 +973,10 @@ def execute_case(
                         prepared=True,
                     )
                 )
+            # Receipt v3: the document stays once in its generation record.
             result["variants"].append(
                 {
                     "variant": record["variant"],
-                    "public": record["public"],
                     "public_sha256": record["public_sha256"],
                     "submission_before": before,
                     "submission_after": query.submission_count,
@@ -1289,10 +1289,9 @@ def _verify_receipt(
                 for r in receipt["generation"]["emission"]["records"]
                 if r["id"] == case["id"]
             ]
-            if [
-                (v["variant"], v["public"], v["public_sha256"])
-                for v in case["variants"]
-            ] != [(r["variant"], r["public"], r["public_sha256"]) for r in records]:
+            if [(v["variant"], v["public_sha256"]) for v in case["variants"]] != [
+                (r["variant"], r["public_sha256"]) for r in records
+            ]:
                 raise ValueError("installed public artifact/case substitution")
         if case["id"] == emission.CONSOLE_CASE and [
             (w["witness"], w["public_sha256"]) for w in case["witnesses"]

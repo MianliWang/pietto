@@ -1311,23 +1311,39 @@ def check_result_case(observation, document, target, case_id, variant):
         raise ValueError("result boundary positional logical metadata mismatch")
 
 
-def check_emission_case(case, target):
-    if set(case) != {"id", "observations", "variants"} or [
-        v["variant"] for v in case["variants"]
-    ] != list(emission.VARIANTS[case["id"]]):
+def check_emission_case(case, target, generation):
+    """Receipt v3 stores each public document once, in its generation record.
+
+    A variant carries only its SHA-256 and is bound to the one record of the
+    same (case id, variant); every check reads that record's bytes."""
+    if (
+        generation is None
+        or set(case) != {"id", "observations", "variants"}
+        or [v["variant"] for v in case["variants"]]
+        != list(emission.VARIANTS[case["id"]])
+    ):
         raise ValueError("emission case denominator mismatch")
     observed = iter(case["observations"])
     for variant in case["variants"]:
         if set(variant) != {
             "variant",
-            "public",
             "public_sha256",
             "submission_before",
             "submission_after",
         }:
             raise ValueError("emission transfer fields")
-        data = variant["public"].encode("utf-8")
-        if hashlib.sha256(data).hexdigest() != variant["public_sha256"]:
+        records = [
+            r
+            for r in generation["emission"]["records"]
+            if (r["id"], r["variant"]) == (case["id"], variant["variant"])
+        ]
+        if len(records) != 1:
+            raise ValueError("emission generation record missing or duplicated")
+        data = records[0]["public"].encode("utf-8")
+        if (
+            hashlib.sha256(data).hexdigest() != variant["public_sha256"]
+            or records[0]["public_sha256"] != variant["public_sha256"]
+        ):
             raise ValueError("public artifact transfer substitution")
         document = emission.decode_public(data)
         before, after = variant["submission_before"], variant["submission_after"]
@@ -2212,7 +2228,7 @@ def check_case(case: dict[str, Any], target: str, generation: Any = None) -> Non
     case_id = case.get("id")
     observations = case.get("observations", [])
     if case_id in emission.VARIANTS:
-        check_emission_case(case, target)
+        check_emission_case(case, target, generation)
     elif case_id == emission.CONSOLE_CASE:
         check_console_case(case, target, generation)
     elif case_id in SLICE2_CASE_IDS[:3]:
