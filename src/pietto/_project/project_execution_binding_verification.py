@@ -255,7 +255,7 @@ def _obligations(before, after, image):
             a is b
             or x.problems
             or y.problems
-            or b.owner.definition is not image[id(a.owner.definition)]
+            or b.owner.authored is not image[id(a.owner.authored)]
             or b.use.clause is not image[id(a.use.clause)]
             or b.scope is not a.scope
             or b.unit is not a.unit
@@ -331,8 +331,8 @@ def verify_binding(binding):
             b.accepted_bytes != a.accepted_bytes
             or b.target_request is not a.target_request
             or b.verification.literal_policy is not a.verification.literal_policy
-            or b.verification.selected_owner.definition
-            is not image[id(a.verification.selected_owner.definition)]
+            or b.verification.selected_owner.authored
+            is not image[id(a.verification.selected_owner.authored)]
             or (a.scalar_meaning is None) != (b.scalar_meaning is None)
         ):
             raise BindingError("BINDING_CONTEXT")
@@ -348,7 +348,7 @@ def verify_binding(binding):
                 x.tag is not y.tag
                 or p.role is not q.role
                 or q.literal is not image[id(p.literal)]
-                or q.owner.definition is not image[id(p.owner.definition)]
+                or q.owner.authored is not image[id(p.owner.authored)]
                 or len(p.ancestry) != len(q.ancestry)
                 or any(
                     image[id(u)] is not v or i != j

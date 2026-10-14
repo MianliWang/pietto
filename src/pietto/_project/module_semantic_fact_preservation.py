@@ -2678,7 +2678,7 @@ def _build_project_module_semantic_fact_set(
 
         catalog_relation_owners = tuple(
             occurrence
-            for occurrence in catalog.occurrences
+            for occurrence in catalog.relation_owners
             if type(occurrence.definition)
             in {SourceDef, TableDef, QueryDef, SetRelationDef}
         )

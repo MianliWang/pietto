@@ -1,5 +1,6 @@
 """Shared binding fixtures for execution-layer tests."""
 
+import textwrap
 from dataclasses import replace
 
 from _pietto_execution_postgres_rows_probe import template as template
@@ -13,7 +14,7 @@ def bind(template_, *values):
     )
 
 
-def proof_artifact(directory, *, proved=True, retained=False):
+def proof_artifact(directory, *, proved=True, retained: bool | str = False):
     import _pietto_sql_emission as probe
     from pietto._project.project_completed_semantics import (
         with_project_single_match_requests,
@@ -45,7 +46,15 @@ query result:
         value = lhs.id
 """
     if retained:
-        source += "query unused:" + source.split("query result:", 1)[1]
+        unused = source.split("query result:", 1)[1]
+        if retained == "let":
+            # The unselected request owner is a relation let of `unused`.
+            unused = (
+                "\n    let j:"
+                + textwrap.indent(unused, "    ")
+                + "    from j\n    select:\n        value\n"
+            )
+        source += "query unused:" + unused
     if not proved:
         source = source.replace("    limit 1\n", "")
     item = probe.join_witness("postgres", source, policy="bind_safe_literals")

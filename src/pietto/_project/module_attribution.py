@@ -167,12 +167,15 @@ class ProjectDeclarationOccurrenceIdentity:
     identity: ProjectNominalDeclarationIdentity
     module_position: int
     declaration_position: int
+    let_position: int | None = None
 
     def __post_init__(self) -> None:
         if type(self.identity) is not ProjectNominalDeclarationIdentity:
             raise TypeError("Declaration occurrence identity requires a nominal ID.")
         _validate_position(self.module_position, "module")
         _validate_position(self.declaration_position, "declaration")
+        if self.let_position is not None:
+            _validate_position(self.let_position, "let")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1109,7 +1112,12 @@ class ProjectModuleAttributionFactSet:
             "relation output fields",
         )
         _require_unique(self.row_lineages, lambda item: item.owner, "row lineages")
-        declaration_ids = {item.identity for item in self.declarations}
+        # Relation lets own references and outputs but are not declarations.
+        declaration_ids = {item.identity for item in self.declarations} | {
+            _declaration_identity(let)
+            for catalog in self._authority.catalogs.catalogs
+            for let in catalog.lets
+        }
         import_ids = {item.identity for item in self.imports}
         facades_by_id = {item.identity: item for item in self.facades}
         reference_ids = {item.identity for item in self.references}
@@ -1492,16 +1500,24 @@ def _derive_project_module_attribution_fact_collections(
     )
     references = _collect_reference_attributions(catalogs)
 
+    # A relation let is reached only through its own scope: one self path.
     local_origins = tuple(
         ProjectModuleOriginPath(
-            owning_module_path=attribution.identity.identity.module_path,
-            namespace=attribution.identity.identity.namespace,
-            declaration_kind=attribution.identity.identity.declaration_kind,
-            local_name=attribution.identity.identity.declared_name,
-            target_occurrence=attribution.identity,
-            local_occurrence=attribution.identity,
+            owning_module_path=identity.identity.module_path,
+            namespace=identity.identity.namespace,
+            declaration_kind=identity.identity.declaration_kind,
+            local_name=identity.identity.declared_name,
+            target_occurrence=identity,
+            local_occurrence=identity,
         )
-        for attribution in declarations
+        for identity in (
+            *(attribution.identity for attribution in declarations),
+            *(
+                _declaration_identity(let)
+                for catalog in catalogs.catalogs
+                for let in catalog.lets
+            ),
+        )
     )
     imported_origins = tuple(
         _binding_origin_path(binding, catalogs, exports, bindings)
@@ -1817,7 +1833,7 @@ def _collect_reference_attributions(
 ) -> tuple[ProjectModuleReferenceAttribution, ...]:
     attributions: list[ProjectModuleReferenceAttribution] = []
     for catalog in catalogs.catalogs:
-        for occurrence in catalog.occurrences:
+        for occurrence in catalog.relation_owners:
             owner = _declaration_identity(occurrence)
             definition = occurrence.definition
             if type(definition) is TypeDef:
@@ -2587,7 +2603,7 @@ def _validate_builder_inputs(
         expected_relation_references: list[
             ProjectModuleReferenceOccurrenceIdentity
         ] = []
-        for occurrence in catalog.occurrences:
+        for occurrence in catalog.relation_owners:
             owner = _declaration_identity(occurrence)
             definition = occurrence.definition
             if type(definition) is TypeDef:
@@ -2643,7 +2659,7 @@ def _validate_builder_inputs(
             raise ValueError("Relation references must cover exact catalog references.")
         expected = tuple(
             occurrence
-            for occurrence in catalog.occurrences
+            for occurrence in catalog.relation_owners
             if occurrence.identity.declaration_kind in _RELATION_KINDS
         )
         actual = tuple(fact.owner for fact in environment.row_facts)
@@ -2753,17 +2769,17 @@ def _validate_resolution_identity_closure(
     occurrences: tuple[object, ...] = tuple(
         occurrence
         for catalog in catalogs.catalogs
-        for occurrence in catalog.occurrences
+        for occurrence in catalog.relation_owners
     )
     occurrence_identities: tuple[object, ...] = tuple(
         occurrence.identity
         for catalog in catalogs.catalogs
-        for occurrence in catalog.occurrences
+        for occurrence in catalog.relation_owners
     )
     select_items: tuple[object, ...] = tuple(
         select_item
         for catalog in catalogs.catalogs
-        for occurrence in catalog.occurrences
+        for occurrence in catalog.relation_owners
         if type(occurrence.definition) in {TableDef, QueryDef}
         for select_item in cast(TableDef | QueryDef, occurrence.definition).select_items
     )
@@ -2989,8 +3005,11 @@ def _validate_relation_identity_closure(
             raise ValueError(
                 "Attribution resolver facts must retain exact current roots."
             )
-        symbols: tuple[object, ...] = tuple(environment.symbols)
-        for symbol in environment.symbols:
+        symbols: tuple[object, ...] = (
+            *environment.symbols,
+            *environment.let_symbols,
+        )
+        for symbol in (*environment.symbols, *environment.let_symbols):
             if (
                 not _is_exact_member(symbol.target_occurrence, occurrences)
                 or symbol.target_identity is not symbol.target_occurrence.identity
@@ -3279,6 +3298,7 @@ def _declaration_identity(
         identity=occurrence.identity,
         module_position=occurrence.module_position,
         declaration_position=occurrence.declaration_position,
+        let_position=occurrence.let_position,
     )
 
 
@@ -3533,6 +3553,7 @@ class CompiledDeclarationOccurrence:
     namespace: str
     kind: str
     name: str
+    let_position: int | None = None
 
     def __post_init__(self) -> None:
         from pietto._project.model import CompiledProjectInput
@@ -3555,6 +3576,7 @@ class CompiledDeclarationOccurrence:
                 self.namespace,
                 self.kind,
                 self.name,
+                self.let_position,
             )
         ):
             raise CompiledError("COMPILED_DECLARATION_CORRESPONDENCE")

@@ -352,21 +352,22 @@ def test_compile_refusals_are_the_project_command_documents(tmp_path):
 def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
     tmp_path,
 ):
-    """A relation let anywhere in the project blocks compilation with the
-    command's own BLOCKED document, never an internal PIE-R1999 refusal."""
+    """A relation let whose VALUES body is not yet admitted, anywhere in the
+    project, blocks compilation with the command's own BLOCKED document, never
+    an internal PIE-R1999 refusal."""
     project = api.write_example(tmp_path)
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + "\nquery gated:\n    let l:\n        from items\n        select:\n"
-        "            id\n    from l\n    select:\n        id\n"
+        + "\nquery gated:\n    let l:\n        values(id: Int not null):\n"
+        "            1\n    from l\n    select:\n        id\n"
     )
     with pytest.raises(execution.CompileRejected) as refused:
         compiled(project)
     assert refused.value.status == "BLOCKED"
     assert refused.value.emission == emit(project).stdout
     document = json.loads(refused.value.emission)
-    assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2345"]
+    assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2347"]
 
 
 @pytest.mark.parametrize(

@@ -27,6 +27,7 @@ from pietto._project.module_attribution import (
     ProjectModuleFacadeAttribution,
     ProjectModuleReferenceAttribution,
     ProjectModuleReferenceProvenance,
+    _declaration_identity,
 )
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerification,
@@ -102,6 +103,9 @@ _KNOWN_NODES = frozenset(
         ast.SetOperand,
         ast.SetOperationBody,
         ast.SetRelationDef,
+        ast.BlockRelationDef,
+        ast.LetRelationDef,
+        ast.SelectBody,
         ast.Script,
     }
 )
@@ -395,10 +399,12 @@ def _children(value):
 def membership(plan):
     """Read the retained parsed modules once. No loading, parsing or name lookup."""
     authority = plan.scope.analysis_bundle.root.base_plan.attribution._authority
+    # A block owner is met at its authored node; its definition view shares
+    # every clause node and stands for that authored node.
     owners = {
-        (id(catalog.module), id(owner.definition)): owner
+        (id(catalog.module), id(owner.authored)): owner
         for catalog in authority.catalogs.catalogs
-        for owner in catalog.occurrences
+        for owner in catalog.relation_owners
     }
     members = {}
     containers = (
@@ -420,7 +426,7 @@ def membership(plan):
                 raise ValueError("Unknown source AST node")
             declaration = owners.get((id(module), id(value)))
             if declaration is not None:
-                owner, container = declaration, value
+                owner, container = declaration, declaration.definition
             elif isinstance(value, containers):
                 container = value
             if isinstance(value, ast.Node):
@@ -436,6 +442,16 @@ def membership(plan):
                         declaration=owner,
                     )
                 )
+                if declaration is not None and declaration.authored_block is value:
+                    view = declaration.definition
+                    members.setdefault((module.position, id(view)), []).append(
+                        _Member(
+                            module=module,
+                            node=view,
+                            container=view,
+                            declaration=owner,
+                        )
+                    )
             pending.extend(
                 (child, owner, container) for child in reversed(_children(value))
             )
@@ -538,7 +554,12 @@ def source_tables(plan, members) -> _SourceTables:
         sources={source.ref: source for source in plan.sources},
         windows={window.ref: window for window in plan.windows},
         declarations={
-            value.identity: value.occurrence for value in attribution.declarations
+            **{value.identity: value.occurrence for value in attribution.declarations},
+            **{
+                _declaration_identity(let): let
+                for catalog in attribution._authority.catalogs.catalogs
+                for let in catalog.lets
+            },
         },
         imports=_buckets(attribution.imports, lambda value: value.identity),
         exports=_buckets(attribution.facades, lambda value: value.identity),

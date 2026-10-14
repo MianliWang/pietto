@@ -3,6 +3,7 @@
 from copy import copy, deepcopy
 from dataclasses import replace
 import json
+from pathlib import Path
 from time import perf_counter
 
 import pytest
@@ -12,7 +13,10 @@ from pietto._project.project_sql_emission import (
     emit_project_sql,
     serialize_project_sql_emission,
 )
+from pietto._project.module_catalog import ProjectSymbolNamespace
+from pietto._project.project_postgres_source_assurance import qualification_roots
 from pietto._project.project_sql_emission_ast import SQLSelect
+from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_emission_scopes import (
     build_emission_layout,
     verify_emission_layout,
@@ -773,3 +777,351 @@ def test_flat_cte_sizes_are_measured_and_bounded(tmp_path, record_property, dept
         assert blocked.status == "BLOCKED" and any(
             b.code == "PIE-B1007" for b in blocked.blockers
         )
+
+
+# --- relation lets ------------------------------------------------------------
+# A closed relation let is its own named producer block of its declaration, so
+# each let shape must emit exactly its module-level equivalent's SQL, and every
+# source read only inside a let is a source of the statement.
+
+TARGETS = ("postgres", "mysql")
+# Each let shape and the module-level declarations it is equivalent to.
+EQUIVALENTS = {
+    "hidden_join": (
+        """query result:
+    let picked:
+        from rhs
+        where id > 0
+        select:
+            rid = id
+            key
+    from lhs
+    inner join picked as p:
+        from lhs
+        on lhs.id == p.rid
+    select:
+        a = lhs.id
+        b = p.key
+""",
+        """query picked:
+    from rhs
+    where id > 0
+    select:
+        rid = id
+        key
+query result:
+    from lhs
+    inner join picked as p:
+        from lhs
+        on lhs.id == p.rid
+    select:
+        a = lhs.id
+        b = p.key
+""",
+    ),
+    "join_inside_let": (
+        """query result:
+    let pairs:
+        from lhs
+        inner join rhs as r:
+            from lhs
+            on lhs.id == r.id
+        select:
+            a = lhs.id
+            b = r.key
+    from pairs
+    select:
+        a
+        b
+""",
+        """query pairs:
+    from lhs
+    inner join rhs as r:
+        from lhs
+        on lhs.id == r.id
+    select:
+        a = lhs.id
+        b = r.key
+query result:
+    from pairs
+    select:
+        a
+        b
+""",
+    ),
+    "set_body": (
+        """query result:
+    let left_ids:
+        from lhs
+        select:
+            id
+    let right_ids:
+        from rhs
+        select:
+            id
+    union all:
+        from left_ids
+        from right_ids
+""",
+        """query left_ids:
+    from lhs
+    select:
+        id
+query right_ids:
+    from rhs
+    select:
+        id
+query result:
+    union all:
+        from left_ids
+        from right_ids
+""",
+    ),
+    "set_let": (
+        """query result:
+    let both:
+        union all:
+            from lhs
+            from rhs
+    from both
+    where id > 1
+    select:
+        id
+""",
+        """query both:
+    union all:
+        from lhs
+        from rhs
+query result:
+    from both
+    where id > 1
+    select:
+        id
+""",
+    ),
+    "grouped": (
+        """query result:
+    let counts:
+        from lhs
+        group by:
+            id
+        select:
+            id
+            n = count()
+    from counts
+    where n > 1
+    select:
+        id
+""",
+        """query counts:
+    from lhs
+    group by:
+        id
+    select:
+        id
+        n = count()
+query result:
+    from counts
+    where n > 1
+    select:
+        id
+""",
+    ),
+}
+
+
+def _emit(tmp_path: Path, target: str, body: str, *, contract=None):
+    item = probe.join_witness(target, body)
+    checked, outcome = probe.build_case(
+        tmp_path, item["source"], contract or item["contract"], item["policy"]
+    )
+    return checked, outcome, json.loads(serialize_project_sql_emission(outcome))
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_let_chain_emits_the_module_chain(tmp_path: Path, target: str) -> None:
+    module = probe.fixture(target, "M_named_chain", "query_bag")
+    item = probe.fixture(target, "L_let_relations", "chain")
+    _, module_outcome = probe.build_case(
+        tmp_path / "module", module["source"], module["contract"], module["policy"]
+    )
+    checked, outcome = probe.build_case(
+        tmp_path / "let", item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == module_outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    expected = probe.decode_public(serialize_project_sql_emission(module_outcome))
+    assert public["sql"] == expected["sql"]
+    assert public["columns"] == expected["columns"]
+    owners = [
+        d.original.entry.owner for d in outcome.artifact.request.layout.definitions
+    ]
+    assert [(o.definition.name, o.let_position) for o in owners] == [
+        ("rows", None),
+        ("first", 0),
+        ("second", 1),
+        ("result", None),
+    ]
+    # Both lets share their declaration's coordinates and only the let position
+    # tells them apart; neither is a module declaration.
+    assert {o.declaration_position for o in owners[1:]} == {
+        owners[3].declaration_position
+    }
+    catalogs = checked.completed.semantic_result.module_catalogs
+    assert catalogs is not None
+    catalog = catalogs.catalogs[0]
+    assert owners[1] not in catalog.occurrences and owners[1] in catalog.lets
+    assert catalog.find_namespace_name(ProjectSymbolNamespace.RELATION, "first") == ()
+    # The let's CTE maps back to the let declaration, not to its parent.
+    let_line = item["source"].splitlines().index("    let first:") + 1
+    lines = {
+        source["location"]["line"]
+        for mapped in public["ranges"]
+        for origin in mapped.get("origins", ())
+        for source in origin.get("sources", ())
+        if source.get("location")
+    }
+    assert let_line in lines
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("case", sorted(EQUIVALENTS))
+def test_let_shapes_emit_their_module_level_equivalent(
+    tmp_path: Path, target: str, case: str
+) -> None:
+    let_body, module_body = EQUIVALENTS[case]
+    _, outcome, document = _emit(tmp_path / "let", target, let_body)
+    _, module_outcome, expected = _emit(tmp_path / "module", target, module_body)
+    assert document["status"] == expected["status"] == "VERIFIED", document
+    assert document["sql"] == expected["sql"]
+    assert [c["label"] for c in document["columns"]] == [
+        c["label"] for c in expected["columns"]
+    ]
+    assert outcome.artifact is not None and module_outcome.artifact is not None
+    assert [(s.namespace, s.name) for s in outcome.artifact.request.sources] == [
+        (s.namespace, s.name) for s in module_outcome.artifact.request.sources
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_source_read_only_inside_a_let_is_a_source_of_the_query(
+    tmp_path: Path, target: str
+) -> None:
+    checked, outcome, document = _emit(tmp_path, target, EQUIVALENTS["hidden_join"][0])
+    assert document["status"] == "VERIFIED"
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    assert [s.declaration.name for s in plan.sources] == ["lhs", "rhs"]
+    assert outcome.artifact is not None
+    request = outcome.artifact.request
+    assert [s.name for s in request.sources] == ["phase66 lhs é", "phase66 rhs é"]
+    # Both PostgreSQL source-assurance roots and the MySQL closure roots are the
+    # emitted sources in this order.
+    assert qualification_roots(request.sources, ()) == tuple(
+        (s.namespace, s.name) for s in request.sources
+    )
+    let_uses = [
+        use
+        for use in request.report.report.input_uses
+        if use.binding.target_occurrence.definition.name == "rhs"
+    ]
+    assert len(let_uses) == 1
+    assert let_uses[0].dependency.consumer.let_position == 0
+    assert request.report.report.indexes.by_input_use[let_uses[0].ref]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_let_source_needs_its_contract_and_target_family(
+    tmp_path: Path, target: str
+) -> None:
+    body = EQUIVALENTS["hidden_join"][0]
+    item = probe.join_witness(target, body)
+    contract = json.loads(item["contract"])
+    contract["sources"] = contract["sources"][:1]
+    _, _, document = _emit(
+        tmp_path / "missing", target, body, contract=json.dumps(contract)
+    )
+    assert document["status"] == "BLOCKED"
+    assert {(b["code"], b["subject"]["detail"]) for b in document["blockers"]} == {
+        ("PIE-B1001", "source_mapping_missing")
+    }
+    other = "mysql" if target == "postgres" else "postgres"
+    foreign = item["source"].replace(
+        f'source rhs: Row is {target}.table("rhs")',
+        f'source rhs: Row is {other}.table("rhs")',
+    )
+    _, outcome = probe.build_case(
+        tmp_path / "foreign", foreign, item["contract"], item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "BLOCKED"
+    mismatch = [
+        b
+        for b in document["blockers"]
+        if b["subject"]["detail"] == "source_family_mismatch"
+    ]
+    assert [(b["code"], b["location"]["line"]) for b in mismatch] == [("PIE-B1001", 5)]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_an_unselected_let_expression_keeps_its_static_requirement(
+    tmp_path: Path, target: str
+) -> None:
+    body = """query result:
+    let wide:
+        from lhs
+        select:
+            id
+            big = id * id
+    from wide
+    select:
+        id
+"""
+    _, _, document = _emit(tmp_path / "blocked", target, body)
+    assert document["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"])
+        for b in document["blockers"]
+    ] == [("PIE-B1002", "arithmetic_outside_physical_range", 11)]
+    # Over a narrow source the same unselected column is admitted: it stays in
+    # the let's CTE and every one of its demands stays in the requirement report.
+    item = probe.join_fixture(target, "W_join_values", "left_marker")
+    header = item["source"].split("table enriched:")[0]
+    reports = []
+    for name, text in (
+        (
+            "let",
+            "query result:\n    let wide:\n        from rows\n"
+            "        select:\n            id\n            next_id = id + 1\n"
+            "    from wide\n    select:\n        id\n",
+        ),
+        (
+            "module",
+            "query wide:\n    from rows\n    select:\n        id\n"
+            "        next_id = id + 1\nquery result:\n    from wide\n"
+            "    select:\n        id\n",
+        ),
+    ):
+        checked, outcome = probe.build_case(
+            tmp_path / name, header + text, item["contract"], item["policy"]
+        )
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        assert type(checked.plan) is ProjectSQLPlan
+        (wide,) = (
+            d
+            for d in checked.plan.bindings.definitions
+            if d.entry.owner.definition.name == "wide"
+        )
+        report = outcome.artifact.request.report.report
+        reports.append(
+            (
+                outcome.artifact.rendered.sql,
+                sorted(
+                    str(entry.family)
+                    for entry in report.indexes.by_definition[wide.ref]
+                ),
+            )
+        )
+    assert reports[0] == reports[1]
+    assert b" + CAST(1 AS " in reports[0][0]

@@ -221,36 +221,27 @@ def _closure(
 ) -> tuple[ProjectIRQueryBlockEntry, ...]:
     # Coordinates index already-owned occurrences; every edge checks object identity.
     root = bundle.root
-    owners = {(o.module_position, o.declaration_position): o for o in root.owners}
-    incoming: dict[tuple[int, int], list[ProjectCompletionDependency]] = {
+    owners = {_owner_key(o): o for o in root.owners}
+    incoming: dict[tuple[int, int, int], list[ProjectCompletionDependency]] = {
         k: [] for k in owners
     }
     for dependency in root.dependencies:
-        consumer = (
-            dependency.consumer.module_position,
-            dependency.consumer.declaration_position,
-        )
-        target = (
-            dependency.target.module_position,
-            dependency.target.declaration_position,
-        )
+        consumer = _owner_key(dependency.consumer)
+        target = _owner_key(dependency.target)
         if (
             owners.get(consumer) is not dependency.consumer
             or owners.get(target) is not dependency.target
         ):
             raise ValueError("ProjectSQLPlan dependency has foreign endpoints.")
         incoming[consumer].append(dependency)
-    pending = [(selected.module_position, selected.declaration_position)]
+    pending = [_owner_key(selected)]
     entries_by_owner = {_owner_key(e.owner): e for e in root.entries}
-    reached: set[tuple[int, int]] = set()
+    reached: set[tuple[int, int, int]] = set()
     while pending:
         key = pending.pop()
         if key not in reached:
             reached.add(key)
-            pending.extend(
-                (d.target.module_position, d.target.declaration_position)
-                for d in incoming[key]
-            )
+            pending.extend(_owner_key(d.target) for d in incoming[key])
             for join in joining.join_images(root, entries_by_owner[key]):
                 for image in join.inputs:
                     producer = image.producer
@@ -261,11 +252,7 @@ def _closure(
                                 "JOIN evidence closure has a foreign producer."
                             )
                         pending.append(producer_key)
-    return tuple(
-        e
-        for e in root.entries
-        if (e.owner.module_position, e.owner.declaration_position) in reached
-    )
+    return tuple(e for e in root.entries if _owner_key(e.owner) in reached)
 
 
 class ProjectSQLPlanBlockerKind(StrEnum):
@@ -1400,8 +1387,11 @@ class ProjectSQLPlan:
         return self.scope.completed.diagnostics
 
 
-def _owner_key(owner: ProjectDeclarationOccurrence) -> tuple[int, int]:
-    return owner.module_position, owner.declaration_position
+def _owner_key(owner: ProjectDeclarationOccurrence) -> tuple[int, int, int]:
+    """Coordinates of one relation-body owner; a relation let has its own."""
+
+    let_position = -1 if owner.let_position is None else owner.let_position
+    return owner.module_position, owner.declaration_position, let_position
 
 
 def _dependency_symbol(
@@ -1440,9 +1430,9 @@ def _binding_label(dependency: ProjectCompletionDependency) -> str:
 
 def _origin_index(
     scope: ProjectSQLPlanScope,
-) -> dict[tuple[str, int, int], ProjectModuleOriginPath]:
+) -> dict[tuple[str, int, int, int], ProjectModuleOriginPath]:
     """Index existing complete origin paths; no path construction or name lookup."""
-    result: dict[tuple[str, int, int], ProjectModuleOriginPath] = {}
+    result: dict[tuple[str, int, int, int], ProjectModuleOriginPath] = {}
     attribution = scope.analysis_bundle.root.base_plan.attribution
     for origin in attribution.origins:
         if origin.import_occurrence is not None:
@@ -1451,11 +1441,17 @@ def _origin_index(
                 origin.owning_module_path,
                 occurrence.module_statement_position,
                 occurrence.item_position,
+                -1,
             )
         else:
             assert origin.local_occurrence is not None
             occurrence = origin.local_occurrence
-            key = (origin.owning_module_path, -1, occurrence.declaration_position)
+            key = (
+                origin.owning_module_path,
+                -1,
+                occurrence.declaration_position,
+                -1 if occurrence.let_position is None else occurrence.let_position,
+            )
         if key in result:
             raise ValueError("Origin occurrence index must not choose a winner.")
         result[key] = origin
@@ -1464,20 +1460,23 @@ def _origin_index(
 
 def _binding_origin(
     symbol: ProjectResolvedModuleRelationSymbol,
-    index: Mapping[tuple[str, int, int], ProjectModuleOriginPath],
+    index: Mapping[tuple[str, int, int, int], ProjectModuleOriginPath],
 ) -> ProjectModuleOriginPath:
     imported = symbol.imported_binding
+    target = symbol.target_occurrence
     key = (
         (
             imported.identity.owning_module_path,
             imported.request.module_statement_position,
             imported.request.item_position,
+            -1,
         )
         if imported is not None
         else (
             symbol.owning_module_path,
             -1,
-            symbol.target_occurrence.declaration_position,
+            target.declaration_position,
+            -1 if target.let_position is None else target.let_position,
         )
     )
     origin = index.get(key)
@@ -1513,17 +1512,17 @@ def _root_inventory(
     dependencies = tuple(
         d for d in root.dependencies if _owner_key(d.consumer) in reached
     )
-    historical: dict[tuple[int, int], list[ProjectIRCrossRelationEdge]] = {}
+    historical: dict[tuple[int, int, int], list[ProjectIRCrossRelationEdge]] = {}
     for edge in root.base_plan.cross_relation_edges:
         historical.setdefault(
             _owner_key(edge.consumer.semantic_facts.owner), []
         ).append(edge)
     by_owner = {_owner_key(e.owner): e for e in concrete}
-    per_owner: dict[tuple[int, int], list[ProjectCompletionDependency]] = {}
+    per_owner: dict[tuple[int, int, int], list[ProjectCompletionDependency]] = {}
     for dep in dependencies:
         dep.__post_init__()
         per_owner.setdefault(_owner_key(dep.consumer), []).append(dep)
-    images: dict[tuple[tuple[int, int], int], ProjectSQLInputEdge] = {}
+    images: dict[tuple[tuple[int, int, int], int], ProjectSQLInputEdge] = {}
     for entry in concrete:
         key = _owner_key(entry.owner)
         deps = per_owner.get(key, ())

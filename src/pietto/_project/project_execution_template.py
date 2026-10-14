@@ -132,7 +132,7 @@ def _requests(original, completed, image):
         matches = tuple(
             c
             for c in completed.roots.join_conditions.entries
-            if c.use.owner.definition is image[id(request.owner.definition)]
+            if c.use.owner.authored is image[id(request.owner.authored)]
             and c.use.clause is image[id(request.use.clause)]
         )
         if len(matches) != 1 or old.condition is None or old.problems:
@@ -205,8 +205,7 @@ def _specialize(template, values):
     selected = tuple(
         owner
         for owner in ir.owners
-        if owner.definition
-        is image[id(original.verification.selected_owner.definition)]
+        if owner.authored is image[id(original.verification.selected_owner.authored)]
     )
     if len(selected) != 1:
         raise BindingError("BINDING_OWNER")

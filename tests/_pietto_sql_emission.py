@@ -34,6 +34,8 @@ VARIANTS = {
     ),
     "M_named_chain": ("table_bag", "query_bag", "empty", "long_intermediate"),
     "N_imported_chain": ("bag", "empty"),
+    # Phase70 S03: closed relation lets, each emitted as its own named block.
+    "L_let_relations": ("chain", "imported", "hidden_join"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -425,6 +427,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return fixed_fixture(target, case, variant)
     if case in {"M_named_chain", "N_imported_chain", "O_named_later"}:
         return chain_fixture(target, case, variant)
+    if case == "L_let_relations":
+        return let_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
@@ -1711,6 +1715,86 @@ query result:
         if variant == "query_bag"
         else "preserve_literals",
     }
+
+
+def _as_let(name, declaration):
+    """One `table`/`query` body, re-indented as a relation let of that name."""
+    body = declaration.split(":\n", 1)[1]
+    return f"    let {name}:\n" + "".join(
+        "    " + line + "\n" for line in body.splitlines()
+    )
+
+
+def let_fixture(target, variant):
+    """Relation lets over published sources and data, with independent oracles.
+
+    `chain` is M_named_chain/query_bag with both producers as lets of `result`;
+    `imported` is N_imported_chain/bag whose imported table reads its source
+    only inside a let; `hidden_join` joins the published source with a let that
+    alone reads a second source (the `p0` relation, which holds the same rows).
+    """
+    if variant == "hidden_join":
+        item = join_fixture(target, "W_join_shapes", "inner")
+        contract = json.loads(item["contract"])
+        other = deepcopy(contract["sources"][0])
+        other["selector"]["name"] = "other"
+        other["relation"]["name"] = "p0"
+        contract["sources"].append(other)
+        header = item["source"].split("query result:", 1)[0]
+        source = (
+            header
+            + f'source other: Row is {target}.table("other")\n'
+            + """query result:
+    let picked:
+        from other
+        select:
+            id
+    from rows
+    inner join picked as r:
+        from rows
+        on rows.id == r.id
+    select:
+        a = rows.id
+"""
+        )
+        return {
+            "source": source,
+            "contract": encoded(contract).decode(),
+            "policy": item["policy"],
+        }
+    if variant == "chain":
+        item = chain_fixture(target, "M_named_chain", "query_bag")
+        source = item["source"]
+        head, rest = source.split("query first:", 1)
+        first, rest = rest.split("table second:", 1)
+        second, final = rest.split("query result:\n", 1)
+        item["source"] = (
+            head
+            + "query result:\n"
+            + _as_let("first", "first:" + first)
+            + _as_let("second", "second:" + second)
+            + final
+        )
+        return item
+    item = chain_fixture(target, "N_imported_chain", "bag")
+    modules = dict(item["source"])
+    head, rest = modules["a.pietto"].split("table first:", 1)
+    first, exported = rest.split("export:", 1)
+    names = [
+        line.strip().split(" = ")[0]
+        for line in first.split("select:\n", 1)[1].splitlines()
+    ]
+    modules["a.pietto"] = (
+        head
+        + "table first:\n"
+        + _as_let("staged", "staged:" + first)
+        + "    from staged\n    select:\n"
+        + "".join(f"        {name}\n" for name in names)
+        + "export:"
+        + exported
+    )
+    item["source"] = modules
+    return item
 
 
 ROW_DIRECT_BODY = """    from rows

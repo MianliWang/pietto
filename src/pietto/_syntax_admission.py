@@ -6,6 +6,7 @@ from dataclasses import fields, is_dataclass
 from typing import cast
 
 from pietto.ast_nodes import (
+    BlockRelationDef,
     CaptureClause,
     LetRelationDef,
     Node,
@@ -53,8 +54,36 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
 }
 
 
-def unadmitted_syntax_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
-    """Report every parsed occurrence of a form no existing reader may see."""
+# Families whose semantics exist only for EXPLICIT_MODULES projects.
+_EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset({LetRelationDef})
+# D70.07: one table or query declares at most this many relation lets.
+_MAX_RELATION_LETS = 64
+
+
+def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def unadmitted_syntax_diagnostics(
+    script: Script, *, explicit_modules: bool = False
+) -> tuple[Diagnostic, ...]:
+    """Report every parsed occurrence of a form no existing reader may see.
+
+    Single-file and LEGACY_FLAT callers keep every family gated; an
+    EXPLICIT_MODULES caller admits the families its readers implement, up to
+    ``_MAX_RELATION_LETS`` relation lets per table or query.
+    """
 
     found: list[Diagnostic] = []
     pending: list[object] = [script]
@@ -71,21 +100,21 @@ def unadmitted_syntax_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
         ):
             continue
         family = _UNADMITTED.get(cast(type[Node], kind))
-        if family is not None:
-            span = cast(Node, value).span
-            found.append(
-                Diagnostic(
-                    code=family[0],
-                    severity=Severity.ERROR,
-                    message=family[1],
-                    location=SourceLocation(
-                        path=span.path,
-                        line=span.line,
-                        column=span.column,
-                        end_line=span.end_line,
-                        end_column=span.end_column,
-                    ),
+        if family is not None and not (
+            explicit_modules and kind in _EXPLICIT_MODULES_ADMITTED
+        ):
+            found.append(_diagnostic(*family, cast(Node, value).span))
+        if explicit_modules and kind is BlockRelationDef:
+            found.extend(
+                _diagnostic(
+                    "PIE-S2357",
+                    "A table or query declares at most "
+                    f"{_MAX_RELATION_LETS} relation lets.",
+                    let.span,
                 )
+                for let in cast(BlockRelationDef, value).let_relations[
+                    _MAX_RELATION_LETS:
+                ]
             )
         pending.extend(getattr(value, item.name) for item in fields(value))
     return tuple(

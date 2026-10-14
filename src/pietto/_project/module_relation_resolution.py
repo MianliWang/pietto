@@ -110,6 +110,16 @@ class ProjectModuleRelationResolutionIssueStatus(StrEnum):
     MODULE_GRAPH_CYCLE_BLOCKED = "module_graph_cycle_blocked"
     MODULE_DIAGNOSTIC_BLOCKED = "module_diagnostic_blocked"
     TYPE_SOURCE_DIAGNOSTIC_BLOCKED = "type_source_diagnostic_blocked"
+    LET_RELATION_NAME_COLLISION = "let_relation_name_collision"
+    LET_RELATION_READ_UNAVAILABLE = "let_relation_read_unavailable"
+
+
+_LET_ISSUE_STATUSES = frozenset(
+    {
+        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
+        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -262,11 +272,9 @@ class ProjectResolvedSetOperand:
                 "Set operand resolution requires its exact environment owner."
             )
         name = reference.operand.relation_name
-        candidates = self.environment.find_relation_name(name)
+        candidates = self.environment.find_scoped_relation_name(reference.owner, name)
         blockers = (
-            tuple(
-                issue for issue in self.environment.issues if issue.local_name == name
-            )
+            self.environment.find_scoped_issues(reference.owner, name)
             if not candidates
             else ()
         )
@@ -410,9 +418,14 @@ class ProjectModuleRelationResolutionEnvironment:
     resolutions: tuple[ProjectResolvedModuleRelationReference, ...] = ()
     row_facts: tuple[ProjectModuleRelationRowFact, ...] = ()
     issues: tuple[ProjectModuleRelationResolutionIssue, ...] = ()
+    let_symbols: tuple[ProjectResolvedModuleRelationSymbol, ...] = ()
+    blocked_let_scopes: tuple[tuple[int, str], ...] = ()
     _symbols_by_name: Mapping[str, tuple[ProjectResolvedModuleRelationSymbol, ...]] = (
         field(init=False, repr=False, compare=False, hash=False)
     )
+    _let_symbols_by_scope: Mapping[
+        tuple[int, str], tuple[ProjectResolvedModuleRelationSymbol, ...]
+    ] = field(init=False, repr=False, compare=False, hash=False)
     _resolutions_by_from_clause: Mapping[
         FromClause, tuple[ProjectResolvedModuleRelationReference, ...]
     ] = field(init=False, repr=False, compare=False, hash=False)
@@ -455,6 +468,38 @@ class ProjectModuleRelationResolutionEnvironment:
             ProjectModuleRelationResolutionIssue,
             "Relation environment issues",
         )
+        _require_tuple_items(
+            self.let_symbols,
+            ProjectResolvedModuleRelationSymbol,
+            "Relation environment let symbols",
+        )
+        if type(self.blocked_let_scopes) is not tuple or any(
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not int
+            or type(item[1]) is not str
+            for item in self.blocked_let_scopes
+        ):
+            raise TypeError("Relation environment blocked let scopes must be exact.")
+        let_scopes: dict[
+            tuple[int, str], list[ProjectResolvedModuleRelationSymbol]
+        ] = {}
+        for symbol in self.let_symbols:
+            let = symbol.local_occurrence
+            if (
+                let is None
+                or let.let_position is None
+                or symbol.owning_module_path != self.module.path
+            ):
+                raise ValueError("Let symbols must retain their module-local let.")
+            let_scopes.setdefault(
+                (let.declaration_position, symbol.local_name), []
+            ).append(symbol)
+        if any(len(items) != 1 for items in let_scopes.values()) or set(
+            let_scopes
+        ) & set(self.blocked_let_scopes):
+            raise ValueError("Let symbol scopes cannot select a winner.")
+        object.__setattr__(self, "_let_symbols_by_scope", _tuple_mapping(let_scopes))
         module_path = self.module.path
         if any(symbol.owning_module_path != module_path for symbol in self.symbols):
             raise ValueError("Relation environment symbols must be module-local.")
@@ -515,6 +560,48 @@ class ProjectModuleRelationResolutionEnvironment:
         if type(local_name) is not str:
             raise TypeError("Relation-name lookup requires a string.")
         return self._symbols_by_name.get(local_name, ())
+
+    def find_scoped_relation_name(
+        self, owner: ProjectDeclarationOccurrence, local_name: str
+    ) -> tuple[ProjectResolvedModuleRelationSymbol, ...]:
+        """Return the bucket a relation name read by one owner's body names.
+
+        A declaration's lets and the module namespace share one scope; a let
+        name in collision or not yet readable resolves to nothing, never to
+        the module symbol it would otherwise hide.
+        """
+
+        if type(owner) is not ProjectDeclarationOccurrence:
+            raise TypeError("Scoped relation lookup requires an owner occurrence.")
+        if type(local_name) is not str:
+            raise TypeError("Relation-name lookup requires a string.")
+        scope = (owner.declaration_position, local_name)
+        if scope in self.blocked_let_scopes:
+            return ()
+        return self._let_symbols_by_scope.get(scope) or self.find_relation_name(
+            local_name
+        )
+
+    def find_scoped_issues(
+        self, owner: ProjectDeclarationOccurrence, local_name: str
+    ) -> tuple[ProjectModuleRelationResolutionIssue, ...]:
+        """Return the issues named like a relation one owner's body reads.
+
+        A let issue belongs to its own declaration's scope only.
+        """
+
+        if type(owner) is not ProjectDeclarationOccurrence:
+            raise TypeError("Scoped issue lookup requires an owner occurrence.")
+        return tuple(
+            issue
+            for issue in self.issues
+            if issue.local_name == local_name
+            and (
+                issue.status not in _LET_ISSUE_STATUSES
+                or issue.occurrences[0].declaration_position
+                == owner.declaration_position
+            )
+        )
 
     def find_from_clause(
         self, from_clause: FromClause
@@ -638,6 +725,8 @@ class _RelationResolutionDraft:
     issues: list[ProjectModuleRelationResolutionIssue]
     blocked_names: set[str]
     ambiguous_names: set[str]
+    let_symbols: list[ProjectResolvedModuleRelationSymbol] = field(default_factory=list)
+    blocked_let_scopes: set[tuple[int, str]] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -723,6 +812,7 @@ def _build_project_module_relation_resolution_set(
             cycle_by_path=cycle_by_path,
             module_diagnostics=module_diagnostics,
         )
+        _collect_let_symbols(draft)
         _collect_and_resolve_references(draft)
         cycles = _local_relation_cycles(draft)
         _append_local_cycle_issues(draft, cycles)
@@ -742,10 +832,12 @@ def _build_project_module_relation_resolution_set(
             resolutions=tuple(draft.resolutions),
             row_facts=tuple(
                 draft.row_facts[occurrence]
-                for occurrence in draft.catalog.occurrences
+                for occurrence in draft.catalog.relation_owners
                 if occurrence in draft.row_facts
             ),
             issues=ordered_issues,
+            let_symbols=tuple(draft.let_symbols),
+            blocked_let_scopes=tuple(sorted(draft.blocked_let_scopes)),
         )
         environments.append(environment)
         environment_by_path[module.path] = environment
@@ -920,6 +1012,151 @@ def _collect_local_symbols(draft: _RelationResolutionDraft) -> None:
             )
 
 
+def _let_scope_reads(
+    owners: tuple[ProjectDeclarationOccurrence, ...],
+) -> tuple[tuple[ProjectDeclarationOccurrence, str], ...]:
+    """Return every relation-name read written in one declaration scope."""
+
+    reads: list[tuple[ProjectDeclarationOccurrence, str]] = []
+    for owner in owners:
+        definition = owner.definition
+        if type(definition) is SetRelationDef:
+            reads.extend(
+                (owner, operand.relation_name) for operand in definition.body.operands
+            )
+        elif type(definition) in {TableDef, QueryDef}:
+            relation_definition = cast(TableDef | QueryDef, definition)
+            reads.append((owner, relation_definition.from_clause.source_name))
+            reads.extend(
+                (owner, join.target_relation_name)
+                for join in relation_definition.join_clauses
+            )
+        else:
+            raise ValueError("Let scope owner must be a relation body.")
+    return tuple(reads)
+
+
+def _collect_let_symbols(draft: _RelationResolutionDraft) -> None:
+    """Bind each declaration's lets in its own scope, never in the module.
+
+    A let named like another let of the declaration, a local relation or a
+    relation import binding, resolved or not, is a collision with no winner.
+    Until reuse and forward reads are available, each let must be read
+    exactly once, by a later let or by the declaration body.
+    """
+
+    module_names: dict[str, list[ProjectDeclarationOccurrence]] = {}
+    for occurrence in draft.catalog.occurrences:
+        if occurrence.identity.namespace is ProjectSymbolNamespace.RELATION:
+            module_names.setdefault(occurrence.identity.declared_name, []).append(
+                occurrence
+            )
+    imported: dict[str, list[SourceLocation]] = {}
+    for request in draft.binding_environment.requests:
+        if request.identity.namespace is ProjectSymbolNamespace.RELATION:
+            item = request.source_item
+            imported.setdefault(request.identity.local_binding_name, []).append(
+                _location(
+                    item.local_name_span or item.exported_name_span,
+                    fallback_path=draft.module.path,
+                )
+            )
+    for occurrence in draft.catalog.occurrences:
+        lets = draft.catalog.find_lets(occurrence.declaration_position)
+        if not lets:
+            continue
+        reads = _let_scope_reads((*lets, occurrence))
+        by_name: dict[str, list[ProjectDeclarationOccurrence]] = {}
+        for let in lets:
+            by_name.setdefault(let.identity.declared_name, []).append(let)
+        for name, items in by_name.items():
+            scope = (occurrence.declaration_position, name)
+            others = tuple(
+                _location(item.definition.span, fallback_path=draft.module.path)
+                for item in module_names.get(name, ())
+            )
+            others += tuple(
+                _location(join.span, fallback_path=draft.module.path)
+                for owner in (*lets, occurrence)
+                if type(owner.definition) in {TableDef, QueryDef}
+                for join in cast(TableDef | QueryDef, owner.definition).join_clauses
+                if join.target_binding_name == name
+                and join.target_relation_name != name
+            )
+            others += tuple(imported.get(name, ()))
+            if len(items) > 1 or others:
+                draft.blocked_let_scopes.add(scope)
+                primary = items[1] if len(items) > 1 else items[0]
+                location = _location(
+                    primary.definition.span, fallback_path=draft.module.path
+                )
+                draft.issues.append(
+                    ProjectModuleRelationResolutionIssue(
+                        status=ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
+                        owning_module_path=draft.module.path,
+                        local_name=name,
+                        location=location,
+                        related_locations=_ordered_related_locations(
+                            location,
+                            (
+                                *(
+                                    _location(
+                                        item.definition.span,
+                                        fallback_path=draft.module.path,
+                                    )
+                                    for item in items
+                                ),
+                                *others,
+                            ),
+                        ),
+                        diagnostic=_diagnostic(
+                            code="PIE-S2001",
+                            message=(
+                                f"Duplicate symbol name in relation namespace: {name}"
+                            ),
+                            location=location,
+                        ),
+                        occurrences=tuple(items),
+                    )
+                )
+                continue
+            if name in draft.blocked_names or name in draft.ambiguous_names:
+                draft.blocked_let_scopes.add(scope)
+                continue
+            let = items[0]
+            readers = tuple(owner for owner, read in reads if read == name)
+            if any(
+                reader.let_position is not None
+                and let.let_position is not None
+                and reader.let_position <= let.let_position
+                for reader in readers
+            ):
+                problem = "is read before it is declared; a forward let read"
+            elif not readers:
+                problem = "is never read; an unread let"
+            elif len(readers) > 1:
+                problem = "is read more than once; let reuse"
+            else:
+                draft.let_symbols.append(_local_relation_symbol(draft.module.path, let))
+                continue
+            draft.blocked_let_scopes.add(scope)
+            location = _location(let.definition.span, fallback_path=draft.module.path)
+            draft.issues.append(
+                ProjectModuleRelationResolutionIssue(
+                    status=ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
+                    owning_module_path=draft.module.path,
+                    local_name=name,
+                    location=location,
+                    diagnostic=_diagnostic(
+                        code="PIE-S2345",
+                        message=f"Let relation {name} {problem} is not yet available.",
+                        location=location,
+                    ),
+                    occurrences=(let,),
+                )
+            )
+
+
 def _collect_imported_symbols(
     draft: _RelationResolutionDraft,
     *,
@@ -1077,7 +1314,11 @@ def _exact_imported_target_blocker_roots(
 
 def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
     symbols_by_name = {symbol.local_name: symbol for symbol in draft.symbols}
-    for occurrence in draft.catalog.occurrences:
+    lets_by_scope = {
+        (symbol.target_occurrence.declaration_position, symbol.local_name): symbol
+        for symbol in draft.let_symbols
+    }
+    for occurrence in draft.catalog.relation_owners:
         definition = occurrence.definition
         if type(definition) not in {TableDef, QueryDef}:
             continue
@@ -1088,9 +1329,16 @@ def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
         )
         draft.references.append(reference)
         local_name = relation_definition.from_clause.source_name
-        if local_name in draft.blocked_names or local_name in draft.ambiguous_names:
+        scope = (occurrence.declaration_position, local_name)
+        if scope in draft.blocked_let_scopes:
             continue
-        symbol = symbols_by_name.get(local_name)
+        symbol = lets_by_scope.get(scope)
+        if symbol is None and (
+            local_name in draft.blocked_names or local_name in draft.ambiguous_names
+        ):
+            continue
+        if symbol is None:
+            symbol = symbols_by_name.get(local_name)
         if symbol is None:
             location = _location(
                 relation_definition.from_clause.span,
@@ -1124,13 +1372,16 @@ def _local_relation_cycles(
 ) -> tuple[_LocalRelationCycle, ...]:
     local_symbols = tuple(
         symbol
-        for symbol in draft.symbols
+        for symbol in (*draft.symbols, *draft.let_symbols)
         if symbol.local_occurrence is not None
         and symbol.declaration_kind
         in {ProjectSymbolKind.TABLE, ProjectSymbolKind.QUERY}
     )
+    owner_order = {
+        owner: position for position, owner in enumerate(draft.catalog.relation_owners)
+    }
     occurrence_order = {
-        symbol.target_occurrence: symbol.target_occurrence.declaration_position
+        symbol.target_occurrence: owner_order[symbol.target_occurrence]
         for symbol in local_symbols
     }
     resolution_by_owner = {
@@ -1266,7 +1517,7 @@ def _build_module_row_facts(
     cycle_members = {occurrence for cycle in cycles for occurrence in cycle.occurrences}
     local_symbol_by_occurrence = {
         symbol.local_occurrence: symbol
-        for symbol in draft.symbols
+        for symbol in (*draft.symbols, *draft.let_symbols)
         if symbol.local_occurrence is not None
     }
     resolution_by_owner = {
@@ -1293,7 +1544,7 @@ def _build_module_row_facts(
             state=state,
         )
 
-    for occurrence in draft.catalog.occurrences:
+    for occurrence in draft.catalog.relation_owners:
         if type(occurrence.definition) is SetRelationDef:
             draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
                 owner=occurrence,
@@ -1302,7 +1553,7 @@ def _build_module_row_facts(
                 ),
             )
     pending: list[ProjectDeclarationOccurrence] = []
-    for occurrence in draft.catalog.occurrences:
+    for occurrence in draft.catalog.relation_owners:
         if type(occurrence.definition) not in {TableDef, QueryDef}:
             continue
         if occurrence not in local_symbol_by_occurrence:
@@ -1343,6 +1594,17 @@ def _build_module_row_facts(
                 resolution,
                 target_fact.state,
             )
+            if (
+                occurrence.let_position is not None
+                and state.status is ProjectRelationRowSchemaStatus.CONCRETE
+            ):
+                # Minimal module row facts cover module declarations only; a
+                # relation let's rows belong to the completed block semantics.
+                state = ProjectRelationRowSchemaState(
+                    status=ProjectRelationRowSchemaStatus.DEFERRED,
+                    schema=None,
+                    reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+                )
             draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
                 owner=occurrence,
                 state=state,
@@ -2123,6 +2385,37 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
             and issue.diagnostic is None
             and tuple(root.code for root in issue.suppressing_diagnostics)
             == ("PIE-S2703",)
+        )
+    elif status in {
+        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
+        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
+    }:
+        valid = (
+            bool(issue.occurrences)
+            and all(
+                item.let_position is not None
+                and item.declaration_position
+                == issue.occurrences[0].declaration_position
+                for item in issue.occurrences
+            )
+            and (
+                len(issue.occurrences) == 1
+                or status
+                is ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION
+            )
+            and issue.reference is None
+            and issue.select_item is None
+            and not issue.binding_issues
+            and issue.module_cycle is None
+            and not issue.relation_cycle
+            and not issue.type_source_issues
+            and code
+            == (
+                "PIE-S2001"
+                if status
+                is ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION
+                else "PIE-S2345"
+            )
         )
     elif status is ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED:
         valid = (

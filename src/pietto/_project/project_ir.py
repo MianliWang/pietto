@@ -112,6 +112,7 @@ def _declaration_identity(
         identity=occurrence.identity,
         module_position=occurrence.module_position,
         declaration_position=occurrence.declaration_position,
+        let_position=occurrence.let_position,
     )
 
 

@@ -430,6 +430,7 @@ def _semantic_identity(
         identity=owner.identity,
         module_position=owner.module_position,
         declaration_position=owner.declaration_position,
+        let_position=owner.let_position,
     )
 
 

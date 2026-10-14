@@ -301,7 +301,9 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 
 ## Relation blocks and relation references
 
-The parser accepts the following forms, but none of them is available yet:
+The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
+relation let is available, as described after the example; every other form is
+not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -391,8 +393,31 @@ example `from x:`, a nested `let NAME:`, `let NAME:` after `from`, `capture`
 outside the start of a let body, `query q():`, a one-part `scalar r` or
 `capture a, b`.
 
-Every occurrence of these forms receives its temporary ERROR diagnostic in
-every check mode before any semantic reader runs: PIE-S2345 relation let,
+In an EXPLICIT_MODULES project (`schema_version = 2`) a relation let whose body
+is a FROM-based or set operation body, without `capture`, is its own query
+block. It is not a module declaration: it cannot be exported or imported, read
+from another declaration, or selected by `emit-sql --project` or
+`compile_query`, and project SQL emits it as one named CTE like a module-level
+table or query. A table or query declares at most 64 lets; each let after the
+64th is PIE-S2357 at the let, reported like the temporary diagnostics below. A
+let name shares one scope with the module's relation names, including every
+relation import binding whether or not it resolves, the other lets of its
+declaration and that declaration's JOIN bindings; a let named like any of them
+is PIE-S2001 at the let, and inside the declaration a `from`, JOIN target or
+set operand with that name then resolves to no relation. A let never hides
+another name. Until reuse and forward reads are available, each let is read
+exactly once, by `from`, a JOIN target or a set operand of a later let or of
+the declaration body; a let that is never read, read more than once, or read by
+itself or an earlier let is PIE-S2345 at the let. A source read only inside a
+let is a source of the query like any other: the emission contract describes
+it, and the compiled query, source qualification and R2 source requirements
+include it.
+
+In EXPLICIT_MODULES the `let NAME:` line itself is admitted, so a let there
+never receives the temporary PIE-S2345; a VALUES body, `capture` line or other
+form inside it still receives its own code. Every other occurrence of these
+forms receives its temporary ERROR diagnostic in every check mode before any
+semantic reader runs: PIE-S2345 relation let,
 PIE-S2346 query header parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read,
 PIE-S2349 EXISTS reference, PIE-S2350 IN reference, PIE-S2351 capture line and
 PIE-S2352 table-function FROM input. That run then reports no other semantic
@@ -401,7 +426,8 @@ semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks, project
 `emit-sql` and `compile_query` report them with the owning file's parse
 diagnostics, alongside other files' parse errors.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT retain their existing availability
-boundaries: a later family becomes available only for EXPLICIT_MODULES.
+boundaries: relation lets and every later family become available only for
+EXPLICIT_MODULES.
 PACKAGE_ROOT `explain --project` does not read relation bodies, so a package
 module using these forms can be explained; that does not make its relations
 available.

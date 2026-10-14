@@ -321,11 +321,13 @@ def emit_project(
             verify_project_query_block_ir(ir)
         )
         modules = completed.semantic_result.modules
-        # The same three public owner coordinates the artifact publishes.
+        # The same three public owner coordinates the artifact publishes; a
+        # relation let is a block of its declaration, never a selectable owner.
         owners = [
             owner
             for owner in ir.owners
-            if modules[owner.module_position].path == module
+            if owner.let_position is None
+            and modules[owner.module_position].path == module
             and owner.identity.declaration_kind.value == kind
             and owner.definition.name == name
         ]

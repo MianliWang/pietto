@@ -595,7 +595,7 @@ class ProjectModuleBindingEnvironment:
                     if (
                         occurrence.module_position != self.module.position
                         or occurrence.declaration_position != position
-                        or occurrence.definition is not definition
+                        or occurrence.authored is not definition
                     ):
                         raise ValueError(
                             "Local collision evidence must retain source definitions."

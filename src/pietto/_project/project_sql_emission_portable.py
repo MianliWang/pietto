@@ -294,11 +294,16 @@ def _nominal(identity):
 def _occurrence(occurrence):
     if occurrence is None:
         return None
-    return {
+    encoded = {
         "identity": _nominal(occurrence.identity),
         "module_position": occurrence.module_position,
         "declaration_position": occurrence.declaration_position,
     }
+    # A relation let stays apart from its declaration; a declaration's own
+    # occurrence keeps its existing encoding.
+    if occurrence.let_position is not None:
+        encoded["let_position"] = occurrence.let_position
+    return encoded
 
 
 def _import(occurrence):

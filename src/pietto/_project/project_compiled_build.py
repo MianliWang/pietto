@@ -14,6 +14,7 @@ from pietto._project.project_compiled_schema import (
     Record,
     Scalar,
     content_pin,
+    declaration_values,
     encode,
 )
 from pietto._project.project_compiled_loading import supported_compatibility
@@ -111,15 +112,7 @@ class _Export:
     def declaration(self, owner):
         key = id(owner)
         if key not in self.declarations:
-            self.declarations[key] = self.add(
-                "declaration",
-                owner.identity.module_path,
-                owner.module_position,
-                owner.declaration_position,
-                owner.identity.namespace.value,
-                owner.identity.declaration_kind.value,
-                owner.identity.declared_name,
-            )
+            self.declarations[key] = self.add("declaration", *declaration_values(owner))
         return self.declarations[key]
 
     def source_meaning(self, field):

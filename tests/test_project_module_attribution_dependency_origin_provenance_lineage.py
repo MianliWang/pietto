@@ -203,6 +203,7 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
             "identity",
             "module_position",
             "declaration_position",
+            "let_position",
         ),
         module_attribution.ProjectModuleImportOccurrenceIdentity: (
             "binding_identity",

@@ -2735,9 +2735,14 @@ def _identity_data(value: object) -> object:
             | ProjectModuleRowFieldIdentity,
             value,
         )
+        # A module declaration has no let position; only a relation let's
+        # locator carries one.
         return {
             item.name: _identity_data(getattr(identity, item.name))
             for item in dataclass_fields(identity)
+            if not (
+                item.name == "let_position" and getattr(identity, item.name) is None
+            )
         }
     raise TypeError("Portable identity requires a closed semantic locator.")
 

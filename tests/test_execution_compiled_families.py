@@ -718,13 +718,16 @@ def _compare_requirements(reference, observed):
     )
 
 
+@pytest.mark.parametrize("retained", (True, "let"))
 def test_retained_unselected_requests_rederive_without_execution_or_source(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, retained
 ):
     from pietto._project.project_execution_template import prepare_template, bind_values
     from pietto._project import project_execution_template
 
-    source = proof_artifact(tmp_path / "retained-source", retained=True).artifact
+    # With "let" the retained request owner is a let of the unselected query,
+    # and the compiled closure carries that let without its block.
+    source = proof_artifact(tmp_path / "retained-source", retained=retained).artifact
     assert source is not None
     original = prepare_template(source)
     assert len(original.slots) == 1
@@ -749,6 +752,45 @@ def test_retained_unselected_requests_rederive_without_execution_or_source(
         accepted_producer=built.producer,
         accepted_compatibility=built.compatibility,
     )
+    if retained == "let":
+        import dataclasses
+        from pietto._project.project_compiled_schema import (
+            FIELDS,
+            CompiledError,
+            Record,
+        )
+        from pietto._project.project_compiled_verification import (
+            verify_description,
+        )
+
+        # Moved under the selected query, whose closure never reads it, the
+        # retained let is refused: a block reads every let of it.
+        description = built.root.description
+        names = FIELDS["declaration"]
+        (result,) = (
+            r
+            for r in description.records
+            if r.address.kind == "declaration" and r.get("label") == "result"
+        )
+
+        def moved(record):
+            if record.address.kind != "declaration" or record.get("label") != "j":
+                return record
+            values = dict(zip(names, record.values, strict=True)) | {
+                n: result.get(n) for n in ("module", "module_position", "position")
+            }
+            return Record(record.address, tuple(values[n] for n in names))
+
+        forged = dataclasses.replace(
+            description,
+            members=tuple(
+                (name, tuple(moved(r) for r in records))
+                for name, records in description.members
+            ),
+        )
+        assert forged != description
+        with pytest.raises(CompiledError, match="DECLARATION"):
+            verify_description(forged)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("source specialization must not run for a compiled bind")

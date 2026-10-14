@@ -4788,14 +4788,14 @@ def _complete_set_output(
         )
 
     environment = scope.references[0].environment
-    owner_symbols = environment.find_relation_name(definition.name)
+    owner_symbols = environment.find_scoped_relation_name(
+        base_entry.owner, definition.name
+    )
     if (
         len(owner_symbols) != 1
         or owner_symbols[0].target_occurrence is not base_entry.owner
     ):
-        issues = tuple(
-            issue for issue in environment.issues if issue.local_name == definition.name
-        )
+        issues = environment.find_scoped_issues(base_entry.owner, definition.name)
         owner_diagnostics = tuple(
             d
             for issue in issues

@@ -3386,6 +3386,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("relation", "module_graph_cycle_blocked", "*"),
                     ("relation", "module_diagnostic_blocked", "present"),
                     ("relation", "type_source_diagnostic_blocked", "present"),
+                    ("relation", "let_relation_name_collision", "present"),
+                    ("relation", "let_relation_read_unavailable", "present"),
                 ),
             ),
         ),

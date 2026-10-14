@@ -1058,6 +1058,7 @@ def valid_receipts(
                         "M_named_chain",
                         "N_imported_chain",
                         "O_named_later",
+                        "L_let_relations",
                     }
                     types = (
                         [25, 20, 16, 1700, 701]
@@ -1663,6 +1664,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "J_emission_query_empty",
         "K_emission_rejected",
         "L_emission_blocked",
+        "L_let_relations",
         "M_metamorphic_composition",
         "M_named_chain",
         "N_imported_chain",

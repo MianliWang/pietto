@@ -17,6 +17,7 @@ from pietto._project.project_compiled_schema import (
     Record,
     Scalar,
     VERSIONS,
+    declaration_values,
     scalar_wire,
     selected_relations,
 )
@@ -214,7 +215,14 @@ def verify_description(value: Description) -> None:
         "TARGET_CONTRACT",
     )
     entry = records[value.query]
-    ref(entry.get("declaration"), {"declaration"})
+    selected = ref(entry.get("declaration"), {"declaration"})
+    # `compile_query` selects one module-level table or query, never a let.
+    need(
+        selected.get("let") is None
+        and (selected.get("namespace"), selected.get("kind"))
+        in (("relation", "table"), ("relation", "query")),
+        "QUERY",
+    )
     ref(entry.get("terminal"), RELATIONS)
     exports = refs(entry.get("exports"), {"port"})
     refs(entry.get("requests"), {"request"})
@@ -258,6 +266,15 @@ def verify_description(value: Description) -> None:
                 )
                 and type(get("label")) is str
                 and bool(get("label")),
+                "DECLARATION",
+            )
+            need(
+                get("let") is None
+                or (
+                    type(get("let")) is int
+                    and get("let") >= 0
+                    and (get("namespace"), get("kind")) == ("relation", "query")
+                ),
                 "DECLARATION",
             )
         elif kind == "source":
@@ -1165,6 +1182,70 @@ def verify_description(value: Description) -> None:
             reached.add(address)
             retained_pending.extend(incoming[address])
     need(reached == set(incoming), "RELATION_INVENTORY_CLOSURE")
+
+    # A let is a block of the table or query record at its coordinates. It is
+    # read once, by its block or a later let of it, so a closure reaches a let
+    # only through its block, and a block reads every let: positions 0, 1, 2,
+    # .... The one other root is a retained request owner that is a let of an
+    # unselected block; its closure is that let and what it reads.
+    def coordinates(record):
+        return tuple(record.get(n) for n in ("module", "module_position", "position"))
+
+    blocks: dict[tuple, list[Record]] = {}
+    lets: dict[tuple, set[Address]] = {}
+    for record in records.values():
+        if record.address.kind == "declaration":
+            if record.get("let") is None:
+                blocks.setdefault(coordinates(record), []).append(record)
+            else:
+                lets.setdefault(coordinates(record), set()).add(record.address)
+    for place, members in lets.items():
+        positions = [records[a].get("let") for a in members]
+        parents = blocks.get(place, [])
+        need(
+            len(set(positions)) == len(positions)
+            and (
+                not parents
+                or (
+                    len(parents) == 1
+                    and parents[0].get("namespace") == "relation"
+                    and parents[0].get("kind") in ("table", "query")
+                    and sorted(positions) == list(range(len(positions)))
+                )
+            ),
+            "DECLARATION",
+        )
+    read_owners = set()
+    for terminal in (entry.get("terminal"), *retained):
+        root = records[records[terminal].get("owner")]
+        closure, closure_pending = set(), [terminal]
+        while closure_pending:
+            address = closure_pending.pop()
+            if address not in closure:
+                closure.add(address)
+                closure_pending.extend(incoming[address])
+        owners = {records[a].get("owner") for a in closure if a.kind != "source"}
+        read_owners |= owners
+        for owner in owners:
+            record = records[owner]
+            place = coordinates(record)
+            if record.get("let") is None:
+                need(lets.get(place, set()) <= owners, "DECLARATION")
+            else:
+                parents = blocks.get(place, [])
+                need(
+                    (bool(parents) and parents[0].address in owners)
+                    or (root.get("let") is not None and coordinates(root) == place),
+                    "DECLARATION",
+                )
+    need(
+        all(
+            members <= read_owners
+            and all(p.address in read_owners for p in blocks.get(place, ()))
+            for place, members in lets.items()
+        ),
+        "DECLARATION",
+    )
     active, complete = set(), set()
     for relation in incoming:
         relation_pending = [(relation, False)]
@@ -1474,8 +1555,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             need(type(scope) is tuple and len(scope) == 2, "EXPORT_PREMISE_SCOPE")
             described_owner, described_context = records[scope[0]], records[scope[1]]
             need(
-                described_owner.get("module") == owner.identity.module_path
-                and described_owner.get("position") == owner.declaration_position,
+                described_owner.values == declaration_values(owner),
                 "EXPORT_PREMISE_OWNER",
             )
             need(
@@ -1509,8 +1589,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         else:
             described = records[scope]
             need(
-                described.get("module") == premise.scope.identity.module_path
-                and described.get("position") == premise.scope.declaration_position,
+                described.values == declaration_values(premise.scope),
                 "EXPORT_PREMISE_OWNER",
             )
     need(len(grouped["site"]) == len(original.plan.literal_sites), "EXPORT_SITES")
@@ -1541,16 +1620,9 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
 
     def check_declaration(address, owner):
         record = records[address]
-        expected = (
-            owner.identity.module_path,
-            owner.module_position,
-            owner.declaration_position,
-            owner.identity.namespace.value,
-            owner.identity.declaration_kind.value,
-            owner.identity.declared_name,
-        )
         need(
-            record.address.kind == "declaration" and record.values == expected,
+            record.address.kind == "declaration"
+            and record.values == declaration_values(owner),
             "EXPORT_DECLARATION",
         )
         previous = expected_declarations.setdefault(address, owner)
@@ -3879,15 +3951,7 @@ def verify_retained_export(description, selected, artifact, requests):
         owner = records[record.get("owner")]
         actual = request.owner
         need(
-            owner.values
-            == (
-                actual.identity.module_path,
-                actual.module_position,
-                actual.declaration_position,
-                actual.identity.namespace.value,
-                actual.identity.declaration_kind.value,
-                actual.identity.declared_name,
-            )
+            owner.values == declaration_values(actual)
             and record.get("scope") == request.scope.value
             and record.get("unit") == request.unit.value,
             "RETAINED_REQUEST_OWNER",
@@ -3962,15 +4026,7 @@ def verify_logical_export(description, checked, references):
 
     def owner(address, original):
         need(
-            records[address].values
-            == (
-                original.identity.module_path,
-                original.module_position,
-                original.declaration_position,
-                original.identity.namespace.value,
-                original.identity.declaration_kind.value,
-                original.identity.declared_name,
-            ),
+            records[address].values == declaration_values(original),
             "RETAINED_DECLARATION",
         )
 

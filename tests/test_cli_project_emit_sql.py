@@ -356,6 +356,28 @@ def test_owner_selection_is_exact_and_never_first_match(
     assert [b["code"] for b in document["blockers"]] == ["PIE-B1001"]
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_relation_lets_emit_with_their_declaration_and_are_never_selected(
+    tmp_path: Path, target: str
+) -> None:
+    root, item = project(tmp_path, target, "L_let_relations", "chain")
+    expected = api_bytes(tmp_path, item)
+    assert item["policy"] == "bind_safe_literals"
+    arguments = argv(root, target, kind="query", literal_policy="bind-safe")
+    assert run(arguments) == (0, expected, "")
+    document = probe.decode_public(expected)
+    assert document["request"]["owner"] == {
+        "module": "main.pietto",
+        "kind": "query",
+        "name": "result",
+    }
+    # A let is a block of its declaration: its name is no owner, in any kind.
+    for kind, name in (("query", "first"), ("query", "second"), ("table", "first")):
+        arguments = argv(root, target, kind=kind)
+        arguments[8] = name
+        assert kinds(run(arguments)[1]) == [("emission_selector", None)], name
+
+
 # --- contract read boundary ------------------------------------------------------
 
 
@@ -603,11 +625,11 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             "PIE-S2105",
         ),
         (
-            "unadmitted_sibling_let",
+            "unadmitted_sibling_let_values",
             "table result:\n    from rows\n    select:\n        id\n"
-            "query other:\n    let l:\n        from rows\n        select:\n"
-            "            id\n    from l\n    select:\n        id\n",
-            "PIE-S2345",
+            "query other:\n    let l:\n        values(id: Int not null):\n"
+            "            1\n    from l\n    select:\n        id\n",
+            "PIE-S2347",
         ),
     ):
         root, item = project(tmp_path, target, name=name)
@@ -620,7 +642,7 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             d["code"].startswith(prefix) and d["severity"] == "error"
             for d in document["diagnostics"]
         )
-        if prefix in ("PIE-S2105", "PIE-S2345"):
+        if prefix in ("PIE-S2105", "PIE-S2347"):
             assert len(document["diagnostics"]) == 1
         assert probe.decode_public(out)["blockers"] == []
         code, out, err = run(argv(root, target, format="text"))

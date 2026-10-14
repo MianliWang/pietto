@@ -389,7 +389,11 @@ def test_module_catalog_is_frozen_slotted_tuple_backed_and_retains_exact_owner()
     catalog = module_catalog._build_project_module_catalog_set((module,)).catalogs[0]
 
     assert is_dataclass(catalog)
-    assert tuple(field.name for field in fields(catalog)) == ("module", "occurrences")
+    assert tuple(field.name for field in fields(catalog)) == (
+        "module",
+        "occurrences",
+        "lets",
+    )
     assert not hasattr(catalog, "__dict__")
     assert catalog.module is module
     assert catalog.module_path == "main.pietto"
@@ -876,12 +880,15 @@ def test_private_catalog_surface_and_package_version_remain_exact() -> None:
         "module_position",
         "declaration_position",
         "definition",
+        "let_position",
+        "authored_block",
     )
     assert tuple(
         field.name for field in fields(module_catalog.ProjectModuleCatalog)
     ) == (
         "module",
         "occurrences",
+        "lets",
     )
     assert tuple(
         field.name for field in fields(module_catalog.ProjectModuleCatalogSet)

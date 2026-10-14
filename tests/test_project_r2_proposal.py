@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -199,3 +200,62 @@ def test_live_witness_refuses_plain_copied_and_mismatched_requests(tmp_path):
     )
     with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_ORDER"):
         proposal.prepare_live_refinement(_query, binding, (wrong,))
+
+
+def test_live_refinement_requires_a_source_read_only_inside_a_let(tmp_path):
+    import _pietto_execution_api as api
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-let")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        "table tagged_items:\n    let tagged:\n        from tags\n"
+        "        select:\n            tag_id = id\n    from items\n"
+        "    inner join tagged as t:\n        from items\n"
+        "        on items.id == t.tag_id\n    select:\n        id = items.id\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="tagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    sources = binding.artifact.request.sources
+    assert [(s.namespace, s.name) for s in sources] == [
+        ("fixture", "items"),
+        ("fixture", "tags"),
+    ]
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in sources
+    )
+    assert proposal.prepare_live_refinement(query, binding, inputs) is not None
+    with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])

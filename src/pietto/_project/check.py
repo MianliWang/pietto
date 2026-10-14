@@ -78,6 +78,10 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
         ) = _parse_selected_input(
             pinned_root,
             entry,
+            explicit_modules=(
+                selection_result.compilation_mode
+                is ProjectCompilationMode.EXPLICIT_MODULES
+            ),
         )
         inputs.append(parsed_input)
         if parsed_semantic_input is not None:
@@ -118,6 +122,8 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
 def _parse_selected_input(
     pinned_root: ProjectPinnedRoot,
     selected_input: ProjectSelectedInputEntry,
+    *,
+    explicit_modules: bool = False,
 ) -> tuple[
     ProjectInput,
     ProjectParsedInput | None,
@@ -187,7 +193,9 @@ def _parse_selected_input(
         *diagnostics,
         *(
             _with_project_relative_path(diagnostic, selected_input.identity.path)
-            for diagnostic in unadmitted_syntax_diagnostics(parse_result.ast)
+            for diagnostic in unadmitted_syntax_diagnostics(
+                parse_result.ast, explicit_modules=explicit_modules
+            )
         ),
     )
     return (

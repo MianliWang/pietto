@@ -844,10 +844,14 @@ MIGRATED_JOIN_ROWS = {
     + [[_int("0")], [_int("1")]],
     ("V_row_blocked", "match_join"): [[_int(BIG_TEXT)] for _ in range(4)]
     + [[_int("0")], [_int("1")]],
+    # The let reads only `p0`, which holds the published rows: the INNER oracle.
+    ("L_let_relations", "hidden_join"): [[_int(BIG_TEXT)] for _ in range(4)]
+    + [[_int("0")], [_int("1")]],
 }
 MIGRATED_JOIN_LABELS = {
     ("O_named_later", "self_join"): ("id",),
     ("V_row_blocked", "match_join"): ("record_id",),
+    ("L_let_relations", "hidden_join"): ("a",),
 }
 
 
@@ -1585,7 +1589,12 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ) or [c["label"] for c in document["columns"]] != list(labels):
             raise ValueError("window positional logical metadata mismatch")
         return
-    named = case_id in {"M_named_chain", "N_imported_chain", "O_named_later"}
+    named = case_id in {
+        "M_named_chain",
+        "N_imported_chain",
+        "O_named_later",
+        "L_let_relations",
+    }
     expected_rows = (chain_rows if named else emission_rows)(
         target, empty=variant_name == "empty"
     )

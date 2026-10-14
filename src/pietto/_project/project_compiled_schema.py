@@ -12,7 +12,8 @@ from typing import Any
 __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.compiled-execution.v1"
-VERSIONS = (1, 1, 1, 1)
+# schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``.
+VERSIONS = (2, 1, 2, 1)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20
@@ -39,6 +40,8 @@ FIELDS = {
         "fields",
     ),
     "policy": ("literal_policy", "guarded", "refinement", "sources"),
+    # ``let`` is null for a module declaration and the source position of one
+    # relation let inside the declaration at ``position`` otherwise.
     "declaration": (
         "module",
         "module_position",
@@ -46,6 +49,7 @@ FIELDS = {
         "namespace",
         "kind",
         "label",
+        "let",
     ),
     "source": ("declaration", "namespace", "name", "fields", "family"),
     "source_unique": (
@@ -494,6 +498,20 @@ def content_pin(raw: bytes) -> str:
     return hashlib.sha256(
         CONTENT_DOMAIN + len(raw).to_bytes(8, "big") + raw
     ).hexdigest()
+
+
+def declaration_values(owner) -> tuple:
+    """The exact ``declaration`` record values of one live relation owner."""
+
+    return (
+        owner.identity.module_path,
+        owner.module_position,
+        owner.declaration_position,
+        owner.identity.namespace.value,
+        owner.identity.declaration_kind.value,
+        owner.identity.declared_name,
+        owner.let_position,
+    )
 
 
 def selected_relations(records, entry):

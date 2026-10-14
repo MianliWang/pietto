@@ -115,10 +115,14 @@ _ISSUE_STATES = {
 }
 
 _AMBIGUOUS_RELATION_ISSUES = frozenset(
-    {ProjectModuleRelationResolutionIssueStatus.AMBIGUOUS_LOCAL_RELATION_NAME}
+    {
+        ProjectModuleRelationResolutionIssueStatus.AMBIGUOUS_LOCAL_RELATION_NAME,
+        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
+    }
 )
 _BLOCKED_RELATION_ISSUES = frozenset(
     {
+        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
         ProjectModuleRelationResolutionIssueStatus.LOCAL_RELATION_CYCLE,
         ProjectModuleRelationResolutionIssueStatus.MODULE_GRAPH_CYCLE_BLOCKED,
         ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED,
@@ -139,6 +143,7 @@ def _owner_identity(
         identity=owner.identity,
         module_position=owner.module_position,
         declaration_position=owner.declaration_position,
+        let_position=owner.let_position,
     )
 
 
@@ -679,7 +684,7 @@ class ProjectRelationshipUseSet:
         expected = tuple(
             occurrence
             for catalog in catalogs.catalogs
-            for occurrence in catalog.occurrences
+            for occurrence in catalog.relation_owners
             if _is_join_bearing(occurrence)
         )
         if len(self.ledgers) != len(expected) or any(
@@ -727,9 +732,16 @@ class ProjectRelationshipUseSet:
 
 def _relation_issues(
     environment: ProjectModuleRelationResolutionEnvironment,
+    owner: ProjectDeclarationOccurrence,
     name: str,
     site: FromClause | None = None,
 ) -> tuple[ProjectModuleRelationResolutionIssue, ...]:
+    scoped = {
+        id(issue)
+        for issue in environment.find_scoped_issues(owner, name)
+        if issue.status
+        is not ProjectModuleRelationResolutionIssueStatus.UNKNOWN_DIRECT_FIELD
+    }
     return tuple(
         issue
         for issue in environment.issues
@@ -738,11 +750,7 @@ def _relation_issues(
             and issue.reference is not None
             and issue.reference.from_clause is site
         )
-        or (
-            issue.local_name == name
-            and issue.status
-            is not ProjectModuleRelationResolutionIssueStatus.UNKNOWN_DIRECT_FIELD
-        )
+        or id(issue) in scoped
     )
 
 
@@ -796,13 +804,13 @@ def _binding(
         name = relation_name = site.source_name
         resolutions = environment.find_from_clause(site)
         targets = tuple(item.target_symbol for item in resolutions)
-        issues = _relation_issues(environment, relation_name, site)
+        issues = _relation_issues(environment, owner, relation_name, site)
     else:
         site = definition.join_clauses[position - 1]
         name = site.target_binding_name
         relation_name = site.target_relation_name
-        targets = environment.find_relation_name(relation_name)
-        issues = _relation_issues(environment, relation_name)
+        targets = environment.find_scoped_relation_name(owner, relation_name)
+        issues = _relation_issues(environment, owner, relation_name)
     target = targets[0] if len(targets) == 1 else None
     output = None if target is None else _final_output(index, target)
     if duplicate or len(targets) > 1:
@@ -1380,7 +1388,7 @@ def build_project_relationship_uses(
             raise ValueError("JOIN-use module roots must be exact and complete.")
         relation_environment = relation_environments[0]
         relationship_subjects = relationship_environments[0].subjects
-        for owner in catalog.occurrences:
+        for owner in catalog.relation_owners:
             if not _is_join_bearing(owner):
                 continue
             definition = _derived_definition(owner)

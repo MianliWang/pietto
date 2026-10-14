@@ -671,6 +671,75 @@ def test_minimal_normal_source_vertical_and_mandatory_terminal(tmp_path, monkeyp
     assert portable.verify_project_sql_plan_portable(product, verified).verified
 
 
+LET_ORDER = """shape Row:
+    id: Int not null
+    key: Int nullable
+source lhs: Row is postgres.table("lhs")
+query result:
+    let o:
+        from lhs
+        select:
+            id
+            key
+        order by:
+            id desc
+    from o
+    select:
+        id
+"""
+OCCURRENCE_KINDS = (
+    "project_declaration_occurrence",
+    "project_declaration_occurrence_identity",
+)
+
+
+def test_a_relation_let_keeps_an_identity_apart_from_its_declaration(tmp_path):
+    from _pietto_plan_windows import _planned
+
+    _, _, verified, _ = _planned(tmp_path, LET_ORDER)
+    product = portable.build_project_sql_plan_portable(verified)
+    assert portable.verify_project_sql_plan_portable(product, verified).verified
+    originals = dict(product.bindings)
+    blocks = {}
+    for record in product.document.records:
+        if record.kind in OCCURRENCE_KINDS:
+            content = tuple(f.value for f in record.fields if f.name != "definition")
+            blocks.setdefault((record.kind, content), set()).add(
+                getattr(originals[record.ref], "let_position")
+            )
+    # The let `o` and its declaration `result` share both positions; every
+    # encoded occurrence and identity still names exactly one of the two.
+    assert all(len(positions) == 1 for positions in blocks.values())
+    assert set().union(*blocks.values()) == {None, 0}
+    absent = schema.Value(schema.Tag.ABSENT, None)
+    for kind in OCCURRENCE_KINDS:
+        merged = replace(
+            product.document,
+            records=tuple(
+                replace(
+                    r,
+                    fields=tuple(
+                        replace(f, value=absent) if f.name == "let_position" else f
+                        for f in r.fields
+                    ),
+                )
+                if r.kind == kind
+                else r
+                for r in product.document.records
+            ),
+        )
+        assert (
+            pure.evaluate_project_sql_plan_document(merged).status
+            is pure.Status.INVALID_RELATION
+        )
+        graft = copy(product)
+        object.__setattr__(graft, "document", merged)
+        assert not portable._corresponds(graft)
+        assert portable.verify_project_sql_plan_portable(graft, verified).issues == (
+            portable.RuntimeIssue.CORRESPONDENCE,
+        )
+
+
 def test_coherent_document_is_not_runtime_authentication(tmp_path):
     verified = construction(tmp_path / "source", CORPUS[0][1], CORPUS[0][2])
     product = portable.build_project_sql_plan_portable(verified)

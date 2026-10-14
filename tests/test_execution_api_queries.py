@@ -34,6 +34,7 @@ from pietto._project import project_execution as ex
 from pietto._project import project_execution_postgres as pg
 from pietto._project import project_public_execution as composition
 from pietto._project.project_compiled_build import build_compiled
+from pietto._project.project_compiled_verification import verify_description
 from pietto._project.project_compiled_schema import (
     FIELDS,
     VERSIONS,
@@ -1156,3 +1157,181 @@ def test_a_compiled_query_keeps_the_project_it_was_compiled_from(tmp_path, uncon
     assert execution.export_bundle(query) == exported
     shutil.rmtree(project)
     assert bound(run(query)) == before
+
+
+LET_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table tagged_items:
+    let tagged:
+        from tags
+        where id > 2
+        select:
+            tag_id = id
+    from items
+    inner join tagged as t:
+        from items
+        on items.id == t.tag_id
+    select:
+        id = items.id
+        label = items.label
+"""
+
+
+def let_example(directory):
+    """The documented project plus a table whose let alone reads `tags`."""
+    project = api.write_example(directory)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + LET_TAGS, encoding="utf-8")
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = "tags"
+    tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return project
+
+
+def _with_declaration(description, label, **changes):
+    """`description` with fields of the declaration record `label` changed."""
+    names = FIELDS["declaration"]
+
+    def changed(record):
+        values = dict(zip(names, record.values, strict=True)) | changes
+        return Record(record.address, tuple(values[name] for name in names))
+
+    return dataclasses.replace(
+        description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    changed(r)
+                    if r.address.kind == "declaration" and r.values[5] == label
+                    else r
+                    for r in records
+                ),
+            )
+            for name, records in description.members
+        ),
+    )
+
+
+def test_a_compiled_query_carries_each_let_as_its_own_block(tmp_path):
+    project = let_example(tmp_path)
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="tagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = description.records
+    declarations = sorted(r.values for r in records if r.address.kind == "declaration")
+    # The let shares its declaration's coordinates and is told apart by `let`.
+    assert declarations == [
+        ("main.pietto", 0, 1, "relation", "source", "items", None),
+        ("main.pietto", 0, 3, "relation", "source", "tags", None),
+        ("main.pietto", 0, 4, "relation", "query", "tagged", 0),
+        ("main.pietto", 0, 4, "relation", "table", "tagged_items", None),
+    ]
+    assert sorted(r.get("name") for r in records if r.address.kind == "source") == [
+        "items",
+        "tags",
+    ]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    # A `let` position belongs to a query block only.
+    for label, changed in (
+        ("tagged", -1),
+        ("tagged", True),
+        ("tagged", "0"),
+        ("tags", 0),
+    ):
+        with pytest.raises(CompiledError, match="DECLARATION"):
+            verify_description(_with_declaration(description, label, let=changed))
+    # Well-typed forgeries: the selected table posing as a let or a source, and
+    # a let naming a position or a parent block the closure does not have.
+    for label, changes, category in (
+        ("tagged_items", {"let": 0}, "QUERY"),
+        ("tagged_items", {"kind": "source"}, "QUERY"),
+        ("tagged", {"let": 1}, "DECLARATION"),
+        ("tagged", {"position": 3}, "DECLARATION"),
+        ("tagged", {"module_position": 1}, "DECLARATION"),
+    ):
+        with pytest.raises(CompiledError, match=category):
+            verify_description(_with_declaration(description, label, **changes))
+    # A let is not a module declaration and cannot be selected.
+    with pytest.raises(execution.CompileRejected):
+        execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name="tagged",
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+
+
+def test_each_route_prepares_a_let_query_with_its_let_source(tmp_path, unconnected):
+    """An unopened attempt of every route binds the let's source like any other."""
+    import _pietto_sql_emission as probe
+
+    query = execution.compile_query(
+        let_example(tmp_path / "postgres"),
+        module="main.pietto",
+        kind="table",
+        name="tagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        request = handle._owner.request
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+        assert [s.name for s in request.binding.artifact.request.sources] == [
+            "items",
+            "tags",
+        ]
+    item = probe.fixture("mysql", "L_let_relations", "hidden_join")
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    mysql_query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    handle = execution.execute(
+        mysql_query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+    )
+    assert handle.route == "mysql_rows" and handle.outcome.end == "NOT_STARTED"
+    # The MySQL source closure starts from exactly these roots.
+    assert [s.name for s in handle._owner.request.artifact.request.sources] == [
+        "phase66 source é",
+        "p0",
+    ]

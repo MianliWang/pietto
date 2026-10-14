@@ -1477,18 +1477,26 @@ def _derive_inspection(
         package_identity.declaration_assets
     )
 
+    # Relation lets are block-local owners, not declarations: this
+    # declaration-level projection leaves every fact a let owns or targets out.
     origins_by_path: dict[str, list[ProjectModuleOriginPath]] = {}
     for origin_path in attribution.origins:
+        if origin_path.target_occurrence.let_position is not None:
+            continue
         origins_by_path.setdefault(origin_path.owning_module_path, []).append(
             origin_path
         )
     dependencies_by_path: dict[str, list[ProjectModuleDependencyFact]] = {}
     for dependency_fact in attribution.dependencies:
+        if _touches_let(dependency_fact):
+            continue
         dependencies_by_path.setdefault(
             dependency_fact.reference.owner.identity.module_path, []
         ).append(dependency_fact)
     lineages_by_path: dict[str, list[ProjectModuleRelationLineage]] = {}
     for relation_lineage in attribution.row_lineages:
+        if relation_lineage.owner.let_position is not None:
+            continue
         lineages_by_path.setdefault(
             relation_lineage.owner.identity.module_path, []
         ).append(relation_lineage)
@@ -1917,6 +1925,18 @@ def _derive_relation_resolutions(
             resolution=resolution,
         )
         for resolution in environments[0].resolutions
+        if resolution.reference.owner.let_position is None
+        and resolution.target_symbol.target_occurrence.let_position is None
+    )
+
+
+def _touches_let(dependency_fact: ProjectModuleDependencyFact) -> bool:
+    target = dependency_fact.target_declaration
+    row_field = dependency_fact.target_row_field
+    return (
+        dependency_fact.reference.owner.let_position is not None
+        or (target is not None and target.let_position is not None)
+        or (row_field is not None and row_field.owner.let_position is not None)
     )
 
 
@@ -1967,6 +1987,7 @@ def _derive_semantic_facts(
             facts=relation_facts,
         )
         for relation_facts in environments[0].relation_facts
+        if relation_facts.owner.let_position is None
     )
 
 

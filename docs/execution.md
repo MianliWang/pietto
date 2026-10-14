@@ -283,7 +283,8 @@ token_columns, role, provider_guarantee)` declares one qualified source. R2
 requires an ordinary live `CompiledQuery` from `compile_query`; a loaded bundle
 is refused, and callers cannot manufacture a guard or refinement. Its
 `source_requirements` must be one `R2SourceInput` for every compiled source,
-in the compiled source order, including guarded and refined sources; a partial,
+in the compiled source order, including guarded and refined sources and sources
+read only inside a relation let; a partial,
 reordered or substituted tuple is refused. It is not an option on
 `compile_query`.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,

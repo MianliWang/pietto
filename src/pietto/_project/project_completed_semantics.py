@@ -1758,6 +1758,7 @@ def verify_compiled_semantics(value):
                 declaration.namespace,
                 declaration.kind,
                 declaration.name,
+                declaration.let_position,
             )
             == record.values,
             "SEMANTIC_DECLARATION",

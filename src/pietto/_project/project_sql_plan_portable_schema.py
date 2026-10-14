@@ -3541,6 +3541,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule("module_position", INTEGER),
                 FieldRule("declaration_position", INTEGER),
+                FieldRule("let_position", union(INTEGER, optional)),
                 FieldRule(
                     "definition",
                     union(
@@ -4027,6 +4028,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule("module_position", INTEGER),
                 FieldRule("declaration_position", INTEGER),
+                FieldRule("let_position", union(INTEGER, optional)),
             ),
         ),
         "project_ir_relation_row_output": RecordRule(

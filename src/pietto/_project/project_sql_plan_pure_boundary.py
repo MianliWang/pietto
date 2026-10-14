@@ -294,7 +294,11 @@ def _provided_ordering_relationships(
 
     def owner_key(owner):
         value = fields[owner]
-        return value["module_position"], value["declaration_position"]
+        return (
+            value["module_position"],
+            value["declaration_position"],
+            value["let_position"],
+        )
 
     def output_owner(output):
         require(declared[output].kind == "project_ir_relation_row_output")
@@ -462,6 +466,17 @@ def _relationships(document, declared):
         values = kinds.get(kind, ())
         require(len(values) == 1)
         return values[0]
+
+    # A relation let shares its declaration's positions; only `let_position`
+    # tells the two blocks apart, so no two occurrences may share all three.
+    coordinates = [
+        tuple(
+            fields[ref][name]
+            for name in ("module_position", "declaration_position", "let_position")
+        )
+        for ref in kinds.get("project_declaration_occurrence", ())
+    ]
+    require(len(set(coordinates)) == len(coordinates))
 
     roles = {
         "definition": ("definition",),

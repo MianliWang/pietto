@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pietto.ast_nodes import SetRelationDef
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pietto._project.model import (
     ProjectSymbolKind,
@@ -17,13 +17,21 @@ from pietto._project.module_carrier import (
     ProjectModuleIdentity,
 )
 from pietto.ast_nodes import (
+    BlockRelationDef,
     ConstraintDef,
     Definition,
     DeriveDef,
     EnumDef,
+    FromClause,
+    LetRelationDef,
+    ModuleDeclarationKind,
     QueryDef,
+    RelationBody,
+    SelectBody,
+    SetOperationBody,
     ShapeDef,
     SourceDef,
+    Span,
     TableDef,
     TypeDef,
 )
@@ -66,14 +74,107 @@ class ProjectNominalDeclarationIdentity:
             )
 
 
+_SELECT_FIELDS = (
+    "from_clause",
+    "where_clause",
+    "group_by_clause",
+    "select_items",
+    "order_by_clause",
+    "limit_clause",
+    "satisfying_clause",
+    "qualify_clause",
+    "let_clause",
+    "named_windows",
+    "join_clauses",
+    "distinct_clause",
+)
+
+
+def _relation_block_view(
+    *, span: Span, name: str, kind: ModuleDeclarationKind, body: RelationBody
+) -> TableDef | QueryDef | SetRelationDef:
+    """Present one authored block body in the existing relation-definition shape.
+
+    The view owns no clause of its own: every clause is the authored node, so
+    spans and AST identities are those of the source.
+    """
+
+    if type(body) is SetOperationBody:
+        return SetRelationDef(span=span, name=name, kind=kind, body=body)
+    if type(body) is SelectBody and type(body.from_clause) is FromClause:
+        relation = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
+        return relation(
+            span=span,
+            name=name,
+            **{item: getattr(body, item) for item in _SELECT_FIELDS},
+        )
+    raise ValueError(f"Unadmitted relation block body: {type(body).__name__}")
+
+
+def _is_relation_block_view(
+    view: Definition,
+    *,
+    span: Span,
+    name: str,
+    kind: ModuleDeclarationKind,
+    body: RelationBody,
+) -> bool:
+    if view.span != span or view.name != name:
+        return False
+    if type(body) is SetOperationBody:
+        return type(view) is SetRelationDef and view.kind is kind and view.body is body
+    expected = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
+    return (
+        type(body) is SelectBody
+        and type(view) is expected
+        and all(getattr(view, item) is getattr(body, item) for item in _SELECT_FIELDS)
+    )
+
+
+def _block_kind(authored: BlockRelationDef | LetRelationDef) -> ModuleDeclarationKind:
+    """A declaration keeps its own kind; a relation let is always a query."""
+
+    if type(authored) is BlockRelationDef:
+        return authored.kind
+    return ModuleDeclarationKind.QUERY
+
+
+def _block_view_of(
+    authored: BlockRelationDef | LetRelationDef,
+) -> TableDef | QueryDef | SetRelationDef:
+    return _relation_block_view(
+        span=authored.span,
+        name=authored.name,
+        kind=_block_kind(authored),
+        body=authored.body,
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectDeclarationOccurrence:
-    """One source-ordered AST occurrence of a nominal declaration identity."""
+    """One source-ordered AST occurrence of a nominal declaration identity.
+
+    A declaration written with relation lets is retained as ``authored_block``
+    and presented through ``definition`` as the existing relation shape of its
+    body. Each ``let NAME:`` of it is its own occurrence: it shares the parent's
+    module and declaration positions, is told apart by ``let_position``, and
+    never enters a module namespace, so its nominal identity is display only.
+    """
 
     identity: ProjectNominalDeclarationIdentity
     module_position: int
     declaration_position: int
     definition: Definition
+    let_position: int | None = None
+    authored_block: BlockRelationDef | LetRelationDef | None = field(
+        default=None, compare=False, hash=False, repr=False
+    )
+
+    @property
+    def authored(self) -> Definition | LetRelationDef:
+        """Return the exact source node this occurrence was built from."""
+
+        return self.definition if self.authored_block is None else self.authored_block
 
     def __post_init__(self) -> None:
         """Reject occurrence facts inconsistent with the retained definition."""
@@ -95,6 +196,26 @@ class ProjectDeclarationOccurrence:
             or self.definition.name != self.identity.declared_name
         ):
             raise ValueError("Declaration occurrence must match its nominal identity.")
+        block = self.authored_block
+        if self.let_position is not None and (
+            type(self.let_position) is not int
+            or self.let_position < 0
+            or type(block) is not LetRelationDef
+            or declaration_kind is not ProjectSymbolKind.QUERY
+        ):
+            raise ValueError("Let occurrence requires its exact let declaration.")
+        if block is not None and (
+            type(block)
+            is not (BlockRelationDef if self.let_position is None else LetRelationDef)
+            or not _is_relation_block_view(
+                self.definition,
+                span=block.span,
+                name=block.name,
+                kind=_block_kind(block),
+                body=block.body,
+            )
+        ):
+            raise ValueError("Block occurrence must present its authored body.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -103,6 +224,7 @@ class ProjectModuleCatalog:
 
     module: ProjectLogicalModule
     occurrences: tuple[ProjectDeclarationOccurrence, ...] = ()
+    lets: tuple[ProjectDeclarationOccurrence, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject incomplete, reordered, or mismatched module catalogs."""
@@ -128,11 +250,63 @@ class ProjectModuleCatalog:
                 occurrence.identity.module_path != self.module.path
                 or occurrence.module_position != self.module.position
                 or occurrence.declaration_position != position
-                or occurrence.definition is not definition
+                or occurrence.let_position is not None
+                or occurrence.authored is not definition
             ):
                 raise ValueError(
                     "Module catalog occurrences must match source-ordered definitions."
                 )
+        expected_lets = tuple(
+            (position, let_position, let)
+            for position, definition in enumerate(definitions)
+            if type(definition) is BlockRelationDef
+            for let_position, let in enumerate(definition.let_relations)
+        )
+        if type(self.lets) is not tuple or len(self.lets) != len(expected_lets):
+            raise ValueError("Module catalog must retain every relation let.")
+        for occurrence, (position, let_position, let) in zip(
+            self.lets, expected_lets, strict=True
+        ):
+            if (
+                type(occurrence) is not ProjectDeclarationOccurrence
+                or occurrence.identity.module_path != self.module.path
+                or occurrence.module_position != self.module.position
+                or occurrence.declaration_position != position
+                or occurrence.let_position != let_position
+                or occurrence.authored is not let
+            ):
+                raise ValueError("Module catalog lets must match source-ordered lets.")
+
+    @property
+    def relation_owners(self) -> tuple[ProjectDeclarationOccurrence, ...]:
+        """Return every relation-body owner: each declaration after its lets.
+
+        Module-level readers (namespaces, exports, packages) keep reading
+        ``occurrences``; relation-body readers read this sequence instead.
+        """
+
+        if not self.lets:
+            return self.occurrences
+        lets_by_position: dict[int, list[ProjectDeclarationOccurrence]] = {}
+        for let in self.lets:
+            lets_by_position.setdefault(let.declaration_position, []).append(let)
+        return tuple(
+            owner
+            for occurrence in self.occurrences
+            for owner in (
+                *lets_by_position.get(occurrence.declaration_position, ()),
+                occurrence,
+            )
+        )
+
+    def find_lets(
+        self, declaration_position: int
+    ) -> tuple[ProjectDeclarationOccurrence, ...]:
+        """Return the source-ordered let occurrences of one declaration."""
+
+        return tuple(
+            let for let in self.lets if let.declaration_position == declaration_position
+        )
 
     @property
     def module_path(self) -> str:
@@ -237,25 +411,49 @@ def _build_project_module_catalog_set(
         module_paths.add(module.path)
 
         occurrences: list[ProjectDeclarationOccurrence] = []
+        lets: list[ProjectDeclarationOccurrence] = []
         for declaration_position, definition in enumerate(
             module.parsed_input.script.definitions
         ):
-            namespace, declaration_kind = _classify_project_definition(definition)
+            block = definition if type(definition) is BlockRelationDef else None
+            view = definition if block is None else _block_view_of(block)
+            namespace, declaration_kind = _classify_project_definition(view)
             occurrences.append(
                 ProjectDeclarationOccurrence(
                     identity=ProjectNominalDeclarationIdentity(
                         module_path=module.path,
                         namespace=namespace,
                         declaration_kind=declaration_kind,
-                        declared_name=definition.name,
+                        declared_name=view.name,
                     ),
                     module_position=module.position,
                     declaration_position=declaration_position,
-                    definition=definition,
+                    definition=view,
+                    authored_block=block,
                 )
             )
+            for let_position, let in enumerate(
+                () if block is None else block.let_relations
+            ):
+                lets.append(
+                    ProjectDeclarationOccurrence(
+                        identity=ProjectNominalDeclarationIdentity(
+                            module_path=module.path,
+                            namespace=ProjectSymbolNamespace.RELATION,
+                            declaration_kind=ProjectSymbolKind.QUERY,
+                            declared_name=let.name,
+                        ),
+                        module_position=module.position,
+                        declaration_position=declaration_position,
+                        definition=_block_view_of(let),
+                        let_position=let_position,
+                        authored_block=let,
+                    )
+                )
         catalogs.append(
-            ProjectModuleCatalog(module=module, occurrences=tuple(occurrences))
+            ProjectModuleCatalog(
+                module=module, occurrences=tuple(occurrences), lets=tuple(lets)
+            )
         )
 
     return ProjectModuleCatalogSet(catalogs=tuple(catalogs))
