@@ -1051,7 +1051,8 @@ def test_each_slot_is_one_literal_in_the_compiler_order(tmp_path, unconnected):
     """The definitions a query reads come first, in the compiler's schedule
     rather than the order the query names them; within one definition, let
     before where before select, each expression left to right; a definition
-    read twice has its literals once. A loaded bundle keeps the order."""
+    or relation let read twice has its literals once. A loaded bundle keeps
+    the order."""
     stages, text = project_with(
         tmp_path / "stages",
         "table active_items:\n    from items\n    let:\n        bonus = id + 30\n"
@@ -1094,6 +1095,21 @@ def test_each_slot_is_one_literal_in_the_compiler_order(tmp_path, unconnected):
     )
     query = compiled(twice, kind="query")
     assert query.slots == ("Int",) and literals(query, text) == ["3"]
+    # Relation lets come before their query, each after the lets it reads,
+    # otherwise as written; `base`, read twice, has its literal once.
+    lets, text = project_with(
+        tmp_path / "lets",
+        "query active_items:\n"
+        "    let low:\n        from base\n        where id < 50\n"
+        "        select:\n            id\n"
+        "    let high:\n        from base\n        where id > 10\n"
+        "        select:\n            id\n"
+        "    let base:\n        from items\n        where id > 3\n"
+        "        select:\n            id\n"
+        "    union all:\n        from low\n        from high\n",
+    )
+    query = compiled(lets, kind="query")
+    assert query.slots == ("Int",) * 3 and literals(query, text) == ["3", "50", "10"]
 
 
 def test_repeated_calls_share_only_the_template(live, bundle, unconnected):
@@ -1359,3 +1375,94 @@ def test_each_route_prepares_a_let_query_with_its_let_source(tmp_path, unconnect
         "phase66 source é",
         "p0",
     ]
+
+
+REUSED_LETS = {
+    # `base` is read by two lets declared before it, both read by the body.
+    "diamond": (
+        """table result:
+    let low:
+        from base
+        where id < 50
+        select:
+            id
+    let high:
+        from base
+        where id > 10
+        select:
+            id
+    let base:
+        from items
+        select:
+            id
+    union all:
+        from low
+        from high
+""",
+        [
+            ("base", "items", 0),
+            ("low", "base", 0),
+            ("high", "base", 0),
+            ("result", "low", 0),
+            ("result", "high", 1),
+        ],
+    ),
+    "self_join": (
+        """table result:
+    let a:
+        from items
+        select:
+            id
+    from a
+    inner join a as b:
+        from a
+        on a.id == b.id
+    select:
+        x = a.id
+""",
+        [("a", "items", 0), ("result", "a", 0), ("result", "a", 1)],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REUSED_LETS))
+def test_a_reused_let_is_one_producer_with_distinct_uses(tmp_path, case):
+    text, expected = REUSED_LETS[case]
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + text, encoding="utf-8")
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    records = {r.address: r for r in decode(bundle.payload).records}
+    labels = [
+        r.get("label") for r in records.values() if r.address.kind == "declaration"
+    ]
+    # One declaration record per let and declaration, never one per read.
+    assert sorted(labels) == sorted({label for use in expected for label in use[:2]})
+
+    def owner(address):
+        record = records[address]
+        field = "declaration" if address.kind == "source" else "owner"
+        return records[record.get(field)].get("label")
+
+    crossing = [
+        (owner(r.get("consumer")), owner(r.get("producer")), r.get("ordinal"))
+        for r in records.values()
+        if r.address.kind == "use"
+        and owner(r.get("consumer")) != owner(r.get("producer"))
+    ]
+    assert crossing == expected
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload

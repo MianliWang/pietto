@@ -265,10 +265,16 @@ def _cycle_components(
         )
         if len(members) == 1 and not internal:
             continue
-        canonical = tuple(owner for owner in owners if id(owner) in members)
-        # The first internal edge starts at the canonical first member. BFS
-        # finds one return path, without enumerating all simple cycles.
-        first = internal[0]
+        canonical = tuple(
+            sorted(
+                (owner for owner in owners if id(owner) in members),
+                key=lambda owner: owner.source_order,
+            )
+        )
+        # The witness starts with the first internal edge of the member
+        # written first. BFS finds one return path, without enumerating all
+        # simple cycles.
+        first = next(edge for edge in internal if edge.consumer is canonical[0])
         start, target = id(first.consumer), id(first.target)
         parents = {target: None}
         queue = deque((target,))

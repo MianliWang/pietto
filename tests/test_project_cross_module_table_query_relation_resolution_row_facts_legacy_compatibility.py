@@ -145,7 +145,8 @@ def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_o
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED,
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED,
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
-        relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
+        relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_UNREAD,
+        relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NESTING_LIMIT,
     )
     expected_fields = {
         relation_resolution.ProjectResolvedModuleRelationSymbol: (

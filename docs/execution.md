@@ -712,11 +712,15 @@ Slot order is the compiler's order of the literals:
   it reads, then the query itself. This is the compiler's schedule, not the
   order in which the query names its inputs: in a `union all` of `from a` and
   `from b`, the literals of `b` come first when `b` is declared before `a`. A
-  table that the query reads twice contributes its literals once.
-- Within one table or query, the literals of `let` come before those of
-  `where`, and those before the ones of `select`; each expression is read from
-  left to right. With `let: bonus = id + 30`, `where id > 1 and label != "x"`
-  and `select: more = bonus + 7`, the slots are `30`, `1`, `"x"` and `7`.
+  table that the query reads twice contributes its literals once. The relation
+  lets of a table or query come before it, each after the lets it reads and
+  otherwise in the order they are written; a let read twice also contributes
+  its literals once.
+- Within one table or query, the literals of its row-level `let:` come before
+  those of `where`, and those before the ones of `select`; each expression is
+  read from left to right. With `let: bonus = id + 30`, `where id > 1 and
+  label != "x"` and `select: more = bonus + 7`, the slots are `30`, `1`, `"x"`
+  and `7`.
 - The live query's `emission` shows every slot: `fixed_values[i]` is slot `i`
   with its tag and compiled value, and the `ranges` entry of kind `parameter`
   whose `subject` is that record's `site` locates the literal in your source

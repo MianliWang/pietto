@@ -5,6 +5,7 @@ from __future__ import annotations
 from pietto.ast_nodes import SetRelationDef
 
 from dataclasses import dataclass, field
+import heapq
 
 from pietto._project.model import (
     ProjectSymbolKind,
@@ -150,6 +151,51 @@ def _block_view_of(
     )
 
 
+def relation_reads(definition: Definition) -> tuple[str, ...]:
+    """Every relation name one relation body reads: FROM, JOIN targets, operands."""
+
+    if type(definition) is SetRelationDef:
+        return tuple(operand.relation_name for operand in definition.body.operands)
+    if type(definition) is TableDef or type(definition) is QueryDef:
+        return (
+            definition.from_clause.source_name,
+            *(join.target_relation_name for join in definition.join_clauses),
+        )
+    raise ValueError("Relation reads require a relation body.")
+
+
+def _read_ordered(
+    lets: list[ProjectDeclarationOccurrence],
+) -> tuple[ProjectDeclarationOccurrence, ...]:
+    """Order one declaration's lets so each follows every sibling it reads.
+
+    Ties keep source order; lets that no order can place (cycle members and
+    their readers) follow in source order. Duplicate names read nothing.
+    """
+
+    names = [let.identity.declared_name for let in lets]
+    unique = {name: i for i, name in enumerate(names) if names.count(name) == 1}
+    readers: list[list[int]] = [[] for _ in lets]
+    pending = [0] * len(lets)
+    for i, let in enumerate(lets):
+        for j in {unique[n] for n in relation_reads(let.definition) if n in unique}:
+            if j != i:
+                readers[j].append(i)
+                pending[i] += 1
+    ready = [i for i, count in enumerate(pending) if count == 0]
+    ordered: list[int] = []
+    while ready:
+        i = heapq.heappop(ready)
+        ordered.append(i)
+        for reader in readers[i]:
+            pending[reader] -= 1
+            if pending[reader] == 0:
+                heapq.heappush(ready, reader)
+    placed = set(ordered)
+    ordered.extend(i for i in range(len(lets)) if i not in placed)
+    return tuple(lets[i] for i in ordered)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectDeclarationOccurrence:
     """One source-ordered AST occurrence of a nominal declaration identity.
@@ -175,6 +221,17 @@ class ProjectDeclarationOccurrence:
         """Return the exact source node this occurrence was built from."""
 
         return self.definition if self.authored_block is None else self.authored_block
+
+    @property
+    def source_order(self) -> tuple[int, int, bool, int]:
+        """Return the written order, each declaration's lets before it."""
+
+        return (
+            self.module_position,
+            self.declaration_position,
+            self.let_position is None,
+            self.let_position or 0,
+        )
 
     def __post_init__(self) -> None:
         """Reject occurrence facts inconsistent with the retained definition."""
@@ -281,8 +338,10 @@ class ProjectModuleCatalog:
     def relation_owners(self) -> tuple[ProjectDeclarationOccurrence, ...]:
         """Return every relation-body owner: each declaration after its lets.
 
-        Module-level readers (namespaces, exports, packages) keep reading
-        ``occurrences``; relation-body readers read this sequence instead.
+        A declaration's lets come in read order: each after every other let
+        of the declaration it reads, otherwise (and inside a cycle) in source
+        order. Module-level readers (namespaces, exports, packages) keep
+        reading ``occurrences``; relation-body readers read this sequence.
         """
 
         if not self.lets:
@@ -294,7 +353,9 @@ class ProjectModuleCatalog:
             owner
             for occurrence in self.occurrences
             for owner in (
-                *lets_by_position.get(occurrence.declaration_position, ()),
+                *_read_ordered(
+                    lets_by_position.get(occurrence.declaration_position, [])
+                ),
                 occurrence,
             )
         )

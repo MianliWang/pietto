@@ -1,9 +1,10 @@
 """Closed relation lets of explicit-module projects: scope, identity, availability.
 
 A let is its own owner with its own occurrence identity; it is never a module
-declaration, shares one name scope with the module's relations and its
-declaration's JOIN bindings, and until reuse is available is read exactly once
-by a later let or by its declaration body.
+declaration and shares one name scope with the module's relations and its
+declaration's JOIN bindings. Any block of its declaration may read it any
+number of times, before or after it, while the reads stay acyclic; a let no
+block reads, or one nested deeper than 16 query blocks, is an error.
 """
 
 from __future__ import annotations
@@ -91,79 +92,6 @@ DIAGNOSTICS = {
         "        from lhs\n        on lhs.id == a.id\n    select:\n        id = lhs.id\n",
         [("PIE-S2001", "Duplicate symbol name in relation namespace: a", 7, 5)],
     ),
-    "unread": (
-        "query q:\n" + LET + "    from lhs\n    select:\n        id\n",
-        [
-            (
-                "PIE-S2345",
-                "Let relation a is never read; an unread let is not yet available.",
-                7,
-                5,
-            )
-        ],
-    ),
-    "read_twice": (
-        "query q:\n" + LET + "    from a\n    inner join a as b:\n        from a\n"
-        "        on a.id == b.id\n    select:\n        id = a.id\n",
-        [
-            (
-                "PIE-S2345",
-                "Let relation a is read more than once; let reuse is not yet "
-                "available.",
-                7,
-                5,
-            ),
-            ("PIE-S2334", "JOIN-local ON semantics are not implemented.", 14, 9),
-            ("PIE-S2335", JOIN_ON, 12, 5),
-            ("PIE-S2335", "JOIN ON reference is unavailable.", 14, 12),
-            ("PIE-S2335", "JOIN ON reference is unavailable.", 14, 20),
-        ],
-    ),
-    "forward": (
-        "query q:\n    let b:\n        from a\n        select:\n            id\n"
-        + LET
-        + "    from b\n    select:\n        id\n",
-        [
-            (
-                "PIE-S2345",
-                "Let relation a is read before it is declared; a forward let read is "
-                "not yet available.",
-                11,
-                5,
-            ),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: b",
-                7,
-                5,
-            ),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
-        ],
-    ),
-    "self": (
-        "query q:\n    let a:\n        from a\n        select:\n            id\n"
-        "    from lhs\n    select:\n        id\n",
-        [
-            (
-                "PIE-S2345",
-                "Let relation a is read before it is declared; a forward let read is "
-                "not yet available.",
-                7,
-                5,
-            ),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: a",
-                7,
-                5,
-            ),
-        ],
-    ),
     "cycle_through_parent": (
         "query q:\n    let a:\n        from q\n        select:\n            id\n"
         "    from a\n    select:\n        id\n",
@@ -187,12 +115,7 @@ DIAGNOSTICS = {
         "query q:\n" + LET + "    from lhs\n    select:\n        id\n"
         "query r:\n    union all:\n        from a\n        from lhs\n",
         [
-            (
-                "PIE-S2345",
-                "Let relation a is never read; an unread let is not yet available.",
-                7,
-                5,
-            ),
+            ("PIE-S2359", "Let relation a is never read.", 7, 5),
             ("PIE-S2301", "Unknown relation: a", 16, 9),
             ("PIE-S2334", "Set-operation semantics are not implemented.", 15, 5),
         ],
@@ -216,13 +139,15 @@ def test_let_scope_and_readability_diagnostics(tmp_path: Path, case: str) -> Non
     assert _check(tmp_path, body) == (1, expected)
 
 
-def _let_chain(count: int) -> str:
+def _let_chains(count: int) -> str:
+    """`count` lets in chains of 16 (the nesting limit), one operand per chain."""
     lets = "".join(
-        f"    let l{i}:\n        from {'lhs' if i == 0 else f'l{i - 1}'}\n"
+        f"    let l{i}:\n        from {f'l{i + 1}' if (i + 1) % 16 else 'lhs'}\n"
         "        select:\n            id\n"
         for i in range(count)
     )
-    return f"query q:\n{lets}    from l{count - 1}\n    select:\n        id\n"
+    heads = "".join(f"        from l{i}\n" for i in range(0, count, 16))
+    return f"query q:\n{lets}    union all:\n{heads}"
 
 
 @pytest.mark.parametrize("count", (64, 65))
@@ -235,9 +160,247 @@ def test_a_declaration_declares_at_most_64_lets(tmp_path: Path, count: int) -> N
             5,
         )
     ]
-    assert _check(tmp_path, _let_chain(count)) == (
+    assert _check(tmp_path, _let_chains(count)) == (
         (0, []) if count == 64 else (1, expected)
     )
+
+
+def _let(name: str, source: str, *, where: str = "") -> str:
+    """One relation let `name` projecting `id` from `source`."""
+    return (
+        f"    let {name}:\n        from {source}\n{where}"
+        "        select:\n            id\n"
+    )
+
+
+def _set_let(name: str, *operands: str) -> str:
+    """One relation let `name` that is a UNION ALL of `operands`."""
+    reads = "".join(f"            from {operand}\n" for operand in operands)
+    return f"    let {name}:\n        union all:\n{reads}"
+
+
+def _chain(depth: int) -> str:
+    """`query q` reading l0, each l(i) reading l(i+1) and the last one lhs."""
+    lets = "".join(
+        _let(f"l{i}", f"l{i + 1}" if i + 1 < depth else "lhs") for i in range(depth)
+    )
+    return "query q:\n" + lets + "    from l0\n    select:\n        id\n"
+
+
+def test_lets_may_be_read_repeatedly_and_before_they_are_declared(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "query q:\n"
+        + _let("low", "base", where="        where id < 2\n")
+        + _let("high", "base", where="        where id > 0\n")
+        + _let("base", "lhs")
+        + "    union all:\n        from low\n        from high\n"
+    )
+    assert _check(tmp_path, body) == (0, [])
+    semantic = build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    assert semantic.module_catalogs is not None
+    (catalog,) = semantic.module_catalogs.catalogs
+    assert [let.definition.name for let in catalog.lets] == ["low", "high", "base"]
+    # Relation-body readers meet each let after every let it reads; source
+    # positions stay the let identities.
+    assert [(o.definition.name, o.let_position) for o in catalog.relation_owners] == [
+        ("Row", None),
+        ("lhs", None),
+        ("rhs", None),
+        ("base", 2),
+        ("low", 0),
+        ("high", 1),
+        ("q", None),
+    ]
+    # Sixteen nested query blocks below the body are the limit.
+    assert _check(tmp_path / "deep", _chain(16)) == (0, [])
+
+
+# Every let read error in full: one diagnostic per problem and no cascade.
+READ_ERRORS = {
+    "unread": (
+        "query q:\n"
+        + _let("a", "lhs")
+        + _let("b", "a")
+        + "    from lhs\n    select:\n        id\n",
+        [("PIE-S2359", "Let relation b is never read.", 11, 5)],
+    ),
+    "self": (
+        "query q:\n" + _let("a", "a") + "    from lhs\n    select:\n        id\n",
+        [("PIE-S2302", "Relation cycle detected: a -> a", 8, 9)],
+    ),
+    "cycle": (
+        "query q:\n"
+        + _let("a", "c")
+        + _let("b", "a")
+        + _let("c", "b")
+        + "    from a\n    select:\n        id\n",
+        [("PIE-S2302", "Relation cycle detected: a -> c -> b -> a", 12, 9)],
+    ),
+    # A cycle starts with its member written first, lets before their
+    # declaration, even when `a` is read after `b` is.
+    "cycle_through_parent_forward": (
+        "query q:\n"
+        + _let("a", "b")
+        + _let("b", "q")
+        + "    from a\n    select:\n        id\n",
+        [("PIE-S2302", "Relation cycle detected: a -> b -> q -> a", 15, 5)],
+    ),
+    "set_cycle_through_parent_forward": (
+        "query q:\n"
+        + _set_let("a", "lhs", "b")
+        + _let("b", "q")
+        + "    from a\n    select:\n        id\n",
+        [
+            ("PIE-S2302", "Relation cycle detected: a -> b -> q -> a", 15, 5),
+            ("PIE-S2334", "Set-operation semantics are not implemented.", 8, 9),
+        ],
+    ),
+    # a reads b and c, both read a: the message follows one of the cycles.
+    "cycles_sharing_a_member": (
+        "query q:\n"
+        + _set_let("a", "b", "c")
+        + _let("b", "a")
+        + _let("c", "a")
+        + "    from a\n    select:\n        id\n",
+        [
+            ("PIE-S2302", "Relation cycle detected: a -> b -> a", 12, 9),
+            ("PIE-S2334", "Set-operation semantics are not implemented.", 8, 9),
+        ],
+    ),
+    "nested_17": (
+        _chain(17),
+        [
+            (
+                "PIE-S2360",
+                "Let relation l16 is nested 17 query blocks deep; the limit is 16.",
+                71,
+                5,
+            )
+        ],
+    ),
+    "nested_18": (
+        _chain(18),
+        [
+            (
+                "PIE-S2360",
+                f"Let relation l{depth - 1} is nested {depth} query blocks deep; "
+                "the limit is 16.",
+                7 + 4 * (depth - 1),
+                5,
+            )
+            for depth in (17, 18)
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(READ_ERRORS))
+def test_let_read_errors(tmp_path: Path, case: str) -> None:
+    body, expected = READ_ERRORS[case]
+    assert _check(tmp_path, body) == (1, expected)
+
+
+def test_an_unread_let_keeps_its_own_static_checks(tmp_path: Path) -> None:
+    unread = _let("b", "lhs").replace("            id\n", "            missing\n")
+    body = "query q:\n" + unread + "    from lhs\n    select:\n        id\n"
+    code, diagnostics = _check(tmp_path, body)
+    assert code == 1
+    assert diagnostics[0] == ("PIE-S2359", "Let relation b is never read.", 7, 5)
+    assert ("PIE-S2102", "Unknown field: missing", 10, 13) in diagnostics
+
+
+def _readers(name: str) -> str:
+    """`query s` reads `name` as a set operand and `query t` as a JOIN target."""
+    return (
+        f"query s:\n    union all:\n        from lhs\n        from {name}\n"
+        f"query t:\n    from lhs\n    inner join {name} as x:\n        from lhs\n"
+        "        on lhs.id == x.id\n    select:\n        id = lhs.id\n"
+    )
+
+
+JOIN_TAIL = [
+    (
+        "PIE-S2335",
+        "JOIN pre-match input or relationship authority is unavailable.",
+        12,
+        5,
+    ),
+    ("PIE-S2335", "JOIN ON reference is unavailable.", 14, 22),
+]
+
+
+def _unknown_to_readers(name: str) -> list[tuple[str, str, int, int]]:
+    """What `_readers(name)` reports when `name` is unknown in s and t."""
+    return [
+        ("PIE-S2301", f"Unknown relation: {name}", 9, 9),
+        ("PIE-S2334", "Set-operation semantics are not implemented.", 7, 5),
+        ("PIE-S2334", "JOIN-local ON semantics are not implemented.", 14, 9),
+    ]
+
+
+# `query q` after the readers has an error about the name they read; each
+# reader still meets an unknown relation, exactly as without q.
+ELSEWHERE = {
+    "unread": (
+        "a",
+        "query q:\n" + _let("a", "lhs") + "    from lhs\n    select:\n        id\n",
+        [
+            ("PIE-S2359", "Let relation a is never read.", 18, 5),
+            *_unknown_to_readers("a"),
+            *JOIN_TAIL,
+        ],
+    ),
+    "cycle": (
+        "a",
+        "query q:\n"
+        + _let("a", "b")
+        + _let("b", "a")
+        + "    from a\n    select:\n        id\n",
+        [
+            ("PIE-S2302", "Relation cycle detected: a -> b -> a", 23, 9),
+            *_unknown_to_readers("a"),
+            *JOIN_TAIL,
+        ],
+    ),
+    "unknown_read_in_a_let": (
+        "zz",
+        "query q:\n" + _let("a", "zz") + "    from a\n    select:\n        id\n",
+        [
+            ("PIE-S2301", "Unknown relation: zz", 19, 9),
+            *_unknown_to_readers("zz"),
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: a",
+                18,
+                5,
+            ),
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: q",
+                17,
+                1,
+            ),
+            *JOIN_TAIL,
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ELSEWHERE))
+def test_a_let_error_stays_in_its_own_declaration(tmp_path: Path, case: str) -> None:
+    name, declaration, expected = ELSEWHERE[case]
+    assert _check(tmp_path, _readers(name) + declaration) == (1, expected)
+    semantic = build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    assert semantic.module_catalogs is not None
+    assert semantic.module_relation_resolutions is not None
+    (catalog,) = semantic.module_catalogs.catalogs
+    (environment,) = semantic.module_relation_resolutions.environments
+    owners = {o.definition.name: o for o in catalog.occurrences}
+    assert environment.find_scoped_issues(owners["q"], name)
+    assert environment.find_scoped_issues(owners["s"], name) == ()
+    assert environment.find_scoped_issues(owners["t"], name) == ()
 
 
 def _imported(tmp_path: Path, imports: str, let: str):

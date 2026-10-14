@@ -35,7 +35,8 @@ VARIANTS = {
     "M_named_chain": ("table_bag", "query_bag", "empty", "long_intermediate"),
     "N_imported_chain": ("bag", "empty"),
     # Phase70 S03: closed relation lets, each emitted as its own named block.
-    "L_let_relations": ("chain", "imported", "hidden_join"),
+    # S05: `diamond_limit` reads one let from two lets declared before it.
+    "L_let_relations": ("chain", "imported", "hidden_join", "diamond_limit"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -1930,8 +1931,38 @@ def let_fixture(target, variant):
     `chain` is M_named_chain/query_bag with both producers as lets of `result`;
     `imported` is N_imported_chain/bag whose imported table reads its source
     only inside a let; `hidden_join` joins the published source with a let that
-    alone reads a second source (the `p0` relation, which holds the same rows).
+    alone reads a second source (the `p0` relation, which holds the same rows);
+    `diamond_limit` reads one LIMIT let, declared last, from two filtering lets
+    whose WHERE must stay outside that LIMIT.
     """
+    if variant == "diamond_limit":
+        item = join_fixture(target, "W_join_shapes", "inner")
+        item["source"] = (
+            item["source"].split("query result:", 1)[0]
+            + """query result:
+    let low:
+        from top
+        where id < 2
+        select:
+            a = id
+    let high:
+        from top
+        where id > 0
+        select:
+            a = id
+    let top:
+        from rows
+        select:
+            id
+        order by:
+            id
+        limit 3
+    union all:
+        from low
+        from high
+"""
+        )
+        return item
     if variant == "hidden_join":
         item = join_fixture(target, "W_join_shapes", "inner")
         contract = json.loads(item["contract"])

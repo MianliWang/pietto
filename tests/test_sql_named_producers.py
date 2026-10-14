@@ -1125,3 +1125,138 @@ def test_an_unselected_let_expression_keeps_its_static_requirement(
         )
     assert reports[0] == reports[1]
     assert b" + CAST(1 AS " in reports[0][0]
+
+
+# A let read many times, before its position, or by two lets that are both read
+# is still one CTE, emitted after every CTE it reads and referenced at each use.
+def _let(name: str, source: str, where: str = "") -> str:
+    return f"    let {name}:\n        from {source}\n{where}        select:\n            id\n"
+
+
+LET_READS = {
+    "diamond": (
+        "query result:\n"
+        + _let("low", "base", "        where id < 2\n")
+        + _let("high", "base", "        where id > 0\n")
+        + _let("base", "lhs")
+        + "    union all:\n        from low\n        from high\n",
+        'WITH "p0" ("c0") AS (SELECT "s0"."order.id" AS "c0" FROM "public"."phase66 lhs é"'
+        ' AS "s0"), "p1" ("c0") AS (SELECT "s1"."c0" AS "c0" FROM "p0" AS "s1" WHERE'
+        ' ("s1"."c0" < CAST(2 AS pg_catalog.int8))), "p2" ("c0") AS (SELECT "t2"."c0" AS'
+        ' "c0" FROM "p1" AS "t2"), "p3" ("c0") AS (SELECT "s2"."c0" AS "c0" FROM "p0" AS'
+        ' "s2" WHERE ("s2"."c0" > CAST(0 AS pg_catalog.int8))), "p4" ("c0") AS (SELECT'
+        ' "t4"."c0" AS "c0" FROM "p3" AS "t4") (SELECT "o0"."c0" AS "id" FROM "p2" AS'
+        ' "o0") UNION ALL (SELECT "o1"."c0" AS "id" FROM "p4" AS "o1")',
+        "WITH `p0` (`c0`) AS (SELECT `s0`.`order.id` AS `c0` FROM `phase66`.`phase66 lhs"
+        " é` AS `s0`), `p1` (`c0`) AS (SELECT `s1`.`c0` AS `c0` FROM `p0` AS `s1` WHERE"
+        " (`s1`.`c0` < CAST(2 AS SIGNED))), `p2` (`c0`) AS (SELECT `t2`.`c0` AS `c0` FROM"
+        " `p1` AS `t2`), `p3` (`c0`) AS (SELECT `s2`.`c0` AS `c0` FROM `p0` AS `s2` WHERE"
+        " (`s2`.`c0` > CAST(0 AS SIGNED))), `p4` (`c0`) AS (SELECT `t4`.`c0` AS `c0` FROM"
+        " `p3` AS `t4`) (SELECT `o0`.`c0` AS `id` FROM `p2` AS `o0`) UNION ALL (SELECT"
+        " `o1`.`c0` AS `id` FROM `p4` AS `o1`)",
+    ),
+    "self_join": (
+        "query result:\n"
+        + _let("a", "lhs")
+        + "    from a\n    inner join a as b:\n        from a\n"
+        "        on a.id == b.id\n    select:\n        x = a.id\n",
+        'WITH "p0" ("c0") AS (SELECT "s0"."order.id" AS "c0" FROM "public"."phase66 lhs é"'
+        ' AS "s0"), "p1" ("c0", "c1") AS (SELECT "m0"."c0" AS "c0", "m1"."c0" AS "c1"'
+        ' FROM "p0" AS "m0" INNER JOIN "p0" AS "m1" ON ("m0"."c0" = "m1"."c0")) SELECT'
+        ' "t0"."c0" AS "x" FROM "p1" AS "t0"',
+        "WITH `p0` (`c0`) AS (SELECT `s0`.`order.id` AS `c0` FROM `phase66`.`phase66 lhs"
+        " é` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `m0`.`c0` AS `c0`, `m1`.`c0` AS `c1`"
+        " FROM `p0` AS `m0` INNER JOIN `p0` AS `m1` ON (`m0`.`c0` = `m1`.`c0`)) SELECT"
+        " `t0`.`c0` AS `x` FROM `p1` AS `t0`",
+    ),
+    "union_twice": (
+        "query result:\n" + _let("a", "lhs") + "    union all:\n        from a\n"
+        "        from a\n",
+        'WITH "p0" ("c0") AS (SELECT "s0"."order.id" AS "c0" FROM "public"."phase66 lhs é"'
+        ' AS "s0") (SELECT "o0"."c0" AS "id" FROM "p0" AS "o0") UNION ALL (SELECT'
+        ' "o1"."c0" AS "id" FROM "p0" AS "o1")',
+        "WITH `p0` (`c0`) AS (SELECT `s0`.`order.id` AS `c0` FROM `phase66`.`phase66 lhs"
+        " é` AS `s0`) (SELECT `o0`.`c0` AS `id` FROM `p0` AS `o0`) UNION ALL (SELECT"
+        " `o1`.`c0` AS `id` FROM `p0` AS `o1`)",
+    ),
+    # The outer WHERE stays outside the let's LIMIT: no predicate moves inside.
+    "limit_where": (
+        "query result:\n    let top:\n        from lhs\n        select:\n            id\n"
+        "        order by:\n            id\n        limit 2\n"
+        "    from top\n    where id > 0\n    select:\n        id\n",
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."order.id" AS "c0", "s0"."order.id" AS'
+        ' "c1" FROM "public"."phase66 lhs é" AS "s0"), "p1" ("c0") AS (SELECT "t0"."c0"'
+        ' AS "c0" FROM "p0" AS "t0" ORDER BY "t0"."c1" ASC LIMIT 2), "p2" ("c0") AS'
+        ' (SELECT "s1"."c0" AS "c0" FROM "p1" AS "s1" WHERE ("s1"."c0" > CAST(0 AS'
+        ' pg_catalog.int8))) SELECT "t2"."c0" AS "id" FROM "p2" AS "t2"',
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`order.id` AS"
+        " `c1` FROM `phase66`.`phase66 lhs é` AS `s0`), `p1` (`c0`) AS (SELECT `t0`.`c0`"
+        " AS `c0` FROM `p0` AS `t0` ORDER BY `t0`.`c1` ASC LIMIT 2), `p2` (`c0`) AS"
+        " (SELECT `s1`.`c0` AS `c0` FROM `p1` AS `s1` WHERE (`s1`.`c0` > CAST(0 AS"
+        " SIGNED))) SELECT `t2`.`c0` AS `id` FROM `p2` AS `t2`",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("case", sorted(LET_READS))
+def test_reused_and_forward_lets_emit_one_cte_each(
+    tmp_path: Path, target: str, case: str
+) -> None:
+    body, postgres, mysql = LET_READS[case]
+    _, outcome, document = _emit(tmp_path, target, body)
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == (postgres if target == "postgres" else mysql)
+    assert outcome.artifact is not None
+    # Each let is one definition, whatever its number of reads.
+    owners = [
+        (d.original.entry.owner.definition.name, d.original.entry.owner.let_position)
+        for d in outcome.artifact.request.layout.definitions
+    ]
+    assert len(owners) == len(set(owners))
+
+
+# Each let read before its position, by FROM, a JOIN target or a set operand,
+# and the let it reads (moved first, in source order, in the backward form).
+FORWARD_READS = {
+    "from": (LET_READS["diamond"][0], _let("base", "lhs")),
+    "join": (
+        "query result:\n    let pairs:\n        from lhs\n"
+        "        inner join later as l:\n            from lhs\n"
+        "            on lhs.id == l.id\n        select:\n            id = lhs.id\n"
+        + _let("later", "rhs")
+        + "    from pairs\n    select:\n        id\n",
+        _let("later", "rhs"),
+    ),
+    "set": (
+        "query result:\n    let both:\n        union all:\n            from later\n"
+        "            from lhs\n"
+        + _let("later", "rhs").replace("id\n", "id\n            key\n")
+        + "    from both\n    select:\n        id\n",
+        _let("later", "rhs").replace("id\n", "id\n            key\n"),
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("case", sorted(FORWARD_READS))
+def test_a_forward_let_read_emits_its_source_ordered_sql(
+    tmp_path: Path, target: str, case: str
+) -> None:
+    forward, read = FORWARD_READS[case]
+    backward = forward.replace(read, "").replace(
+        "query result:\n", "query result:\n" + read
+    )
+    _, outcome, document = _emit(tmp_path / "forward", target, forward)
+    _, _, expected = _emit(tmp_path / "backward", target, backward)
+    assert document["status"] == expected["status"] == "VERIFIED"
+    assert document["sql"] == expected["sql"]
+    assert outcome.artifact is not None
+    if case == "from":
+        assert [
+            (
+                d.original.entry.owner.definition.name,
+                d.original.entry.owner.let_position,
+            )
+            for d in outcome.artifact.request.layout.definitions
+        ] == [("lhs", None), ("base", 2), ("low", 0), ("high", 1), ("result", None)]

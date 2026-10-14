@@ -406,13 +406,24 @@ relation import binding whether or not it resolves, the other lets of its
 declaration and that declaration's JOIN bindings; a let named like any of them
 is PIE-S2001 at the let, and inside the declaration a `from`, JOIN target or
 set operand with that name then resolves to no relation. A let never hides
-another name. Until reuse and forward reads are available, each let is read
-exactly once, by `from`, a JOIN target or a set operand of a later let or of
-the declaration body; a let that is never read, read more than once, or read by
-itself or an earlier let is PIE-S2345 at the let. A source read only inside a
-let is a source of the query like any other: the emission contract describes
-it, and the compiled query, source qualification and R2 source requirements
-include it.
+another name. The other lets and the body of its declaration may read a let any
+number of times, by `from`, a JOIN target or a set operand, whether the let is
+written before or after them. A let that no block of its declaration reads is
+PIE-S2359 at the let. Reads must not form a cycle: a let reading itself, lets
+reading each other, or a let reading its own declaration while that declaration
+reads the let, directly or through other lets, is PIE-S2302. Its message
+follows one cycle of reads, starting with the member written first, where a
+declaration's lets count as written before it; when cycles share members, it
+names one of them. The declaration body is at nesting depth 0 and a
+let read by a block at depth d is at depth d + 1 on its deepest read path; a
+let deeper than 16 is PIE-S2360 at the let. These errors fail the project like
+any other ERROR. Project SQL emits each let once, after the lets it reads, and
+every read refers to that one CTE: two lets reading one let, or one block
+reading a let twice, never duplicate it. A let keeps its own LIMIT: a filter
+written where the let is read stays outside that LIMIT. A source read only
+inside a let is a source of the query like any other: the emission contract
+describes it, and the compiled query, source qualification and R2 source
+requirements include it.
 
 In EXPLICIT_MODULES the `let NAME:` line itself is admitted, so a let there
 never receives the temporary PIE-S2345; a VALUES body, `capture` line or other

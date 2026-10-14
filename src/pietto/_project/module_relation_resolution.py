@@ -40,6 +40,7 @@ from pietto._project.module_catalog import (
     ProjectModuleCatalog,
     ProjectModuleCatalogSet,
     ProjectNominalDeclarationIdentity,
+    relation_reads,
 )
 from pietto._project.module_exports import (
     ProjectModuleExportIssue,
@@ -99,6 +100,11 @@ _KeyT = TypeVar("_KeyT")
 _ObjectT = TypeVar("_ObjectT")
 _ValueT = TypeVar("_ValueT")
 
+# Phase70 relation-let errors (D70.07 nesting limit).
+LET_UNREAD_CODE = "PIE-S2359"
+LET_NESTING_CODE = "PIE-S2360"
+LET_NESTING_LIMIT = 16
+
 
 class ProjectModuleRelationResolutionIssueStatus(StrEnum):
     """Closed private failure and suppression facts for Slice 10."""
@@ -111,15 +117,17 @@ class ProjectModuleRelationResolutionIssueStatus(StrEnum):
     MODULE_DIAGNOSTIC_BLOCKED = "module_diagnostic_blocked"
     TYPE_SOURCE_DIAGNOSTIC_BLOCKED = "type_source_diagnostic_blocked"
     LET_RELATION_NAME_COLLISION = "let_relation_name_collision"
-    LET_RELATION_READ_UNAVAILABLE = "let_relation_read_unavailable"
+    LET_RELATION_UNREAD = "let_relation_unread"
+    LET_RELATION_NESTING_LIMIT = "let_relation_nesting_limit"
 
 
-_LET_ISSUE_STATUSES = frozenset(
-    {
-        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
-        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
-    }
-)
+_LET_ISSUE_CODES = {
+    ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION: "PIE-S2001",
+    ProjectModuleRelationResolutionIssueStatus.LET_RELATION_UNREAD: LET_UNREAD_CODE,
+    ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NESTING_LIMIT: (
+        LET_NESTING_CODE
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -567,8 +575,8 @@ class ProjectModuleRelationResolutionEnvironment:
         """Return the bucket a relation name read by one owner's body names.
 
         A declaration's lets and the module namespace share one scope; a let
-        name in collision or not yet readable resolves to nothing, never to
-        the module symbol it would otherwise hide.
+        name in collision resolves to nothing, never to the module symbol it
+        would otherwise hide.
         """
 
         if type(owner) is not ProjectDeclarationOccurrence:
@@ -585,9 +593,11 @@ class ProjectModuleRelationResolutionEnvironment:
     def find_scoped_issues(
         self, owner: ProjectDeclarationOccurrence, local_name: str
     ) -> tuple[ProjectModuleRelationResolutionIssue, ...]:
-        """Return the issues named like a relation one owner's body reads.
+        """Return the issues naming a relation one owner's body reads.
 
-        A let issue belongs to its own declaration's scope only.
+        An issue whose evidence holds a let (an occurrence, a member of its
+        relation cycle or the owner of its reference) belongs to that let's
+        declaration only; every other issue stays visible to the whole module.
         """
 
         if type(owner) is not ProjectDeclarationOccurrence:
@@ -596,10 +606,14 @@ class ProjectModuleRelationResolutionEnvironment:
             issue
             for issue in self.issues
             if issue.local_name == local_name
-            and (
-                issue.status not in _LET_ISSUE_STATUSES
-                or issue.occurrences[0].declaration_position
-                == owner.declaration_position
+            and all(
+                item.let_position is None
+                or item.declaration_position == owner.declaration_position
+                for item in (
+                    *issue.occurrences,
+                    *issue.relation_cycle,
+                    *(() if issue.reference is None else (issue.reference.owner,)),
+                )
             )
         )
 
@@ -1017,23 +1031,45 @@ def _let_scope_reads(
 ) -> tuple[tuple[ProjectDeclarationOccurrence, str], ...]:
     """Return every relation-name read written in one declaration scope."""
 
-    reads: list[tuple[ProjectDeclarationOccurrence, str]] = []
-    for owner in owners:
-        definition = owner.definition
-        if type(definition) is SetRelationDef:
-            reads.extend(
-                (owner, operand.relation_name) for operand in definition.body.operands
-            )
-        elif type(definition) in {TableDef, QueryDef}:
-            relation_definition = cast(TableDef | QueryDef, definition)
-            reads.append((owner, relation_definition.from_clause.source_name))
-            reads.extend(
-                (owner, join.target_relation_name)
-                for join in relation_definition.join_clauses
-            )
-        else:
-            raise ValueError("Let scope owner must be a relation body.")
-    return tuple(reads)
+    return tuple(
+        (owner, name) for owner in owners for name in relation_reads(owner.definition)
+    )
+
+
+def _let_nesting_depths(
+    lets: tuple[ProjectDeclarationOccurrence, ...],
+    reads: tuple[tuple[ProjectDeclarationOccurrence, str], ...],
+) -> dict[int, int]:
+    """Return each let's deepest read-path depth below its declaration body.
+
+    The body (key -1) is depth 0 and a let read by a block at depth ``d`` is at
+    least ``d + 1``. A let on or below a cycle, or read by no path from the
+    body, has no depth: the cycle or the unread let is its own error.
+    """
+
+    position = {let.identity.declared_name: cast(int, let.let_position) for let in lets}
+    edges = {
+        (-1 if owner.let_position is None else owner.let_position, position[name])
+        for owner, name in reads
+        if name in position
+    }
+    pending = {key: 0 for key in (-1, *position.values())}
+    for _reader, target in edges:
+        pending[target] += 1
+    depths: dict[int, int] = {-1: 0}
+    ready = [key for key, count in pending.items() if count == 0]
+    while ready:
+        reader = ready.pop()
+        for edge_reader, target in edges:
+            if edge_reader != reader:
+                continue
+            if reader in depths:
+                depths[target] = max(depths.get(target, 0), depths[reader] + 1)
+            pending[target] -= 1
+            if pending[target] == 0:
+                ready.append(target)
+    depths.pop(-1)
+    return depths
 
 
 def _collect_let_symbols(draft: _RelationResolutionDraft) -> None:
@@ -1041,8 +1077,9 @@ def _collect_let_symbols(draft: _RelationResolutionDraft) -> None:
 
     A let named like another let of the declaration, a local relation or a
     relation import binding, resolved or not, is a collision with no winner.
-    Until reuse and forward reads are available, each let must be read
-    exactly once, by a later let or by the declaration body.
+    Any block of the declaration may read a let any number of times, before or
+    after it; a let no block reads, or one nested deeper than the query-block
+    limit, is an error. A cycle through lets is a relation cycle (PIE-S2302).
     """
 
     module_names: dict[str, list[ProjectDeclarationOccurrence]] = {}
@@ -1066,6 +1103,7 @@ def _collect_let_symbols(draft: _RelationResolutionDraft) -> None:
         if not lets:
             continue
         reads = _let_scope_reads((*lets, occurrence))
+        readable: list[ProjectDeclarationOccurrence] = []
         by_name: dict[str, list[ProjectDeclarationOccurrence]] = {}
         for let in lets:
             by_name.setdefault(let.identity.declared_name, []).append(let)
@@ -1123,34 +1161,35 @@ def _collect_let_symbols(draft: _RelationResolutionDraft) -> None:
             if name in draft.blocked_names or name in draft.ambiguous_names:
                 draft.blocked_let_scopes.add(scope)
                 continue
-            let = items[0]
-            readers = tuple(owner for owner, read in reads if read == name)
-            if any(
-                reader.let_position is not None
-                and let.let_position is not None
-                and reader.let_position <= let.let_position
-                for reader in readers
-            ):
-                problem = "is read before it is declared; a forward let read"
-            elif not readers:
-                problem = "is never read; an unread let"
-            elif len(readers) > 1:
-                problem = "is read more than once; let reuse"
+            readable.append(items[0])
+        # Both errors leave the let readable: the project fails as a whole and
+        # every block keeps its own static checks without a cascade.
+        depths = _let_nesting_depths(tuple(readable), reads)
+        for let in readable:
+            draft.let_symbols.append(_local_relation_symbol(draft.module.path, let))
+            name = let.identity.declared_name
+            depth = depths.get(cast(int, let.let_position), 0)
+            if depth > LET_NESTING_LIMIT:
+                status = ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NESTING_LIMIT
+                message = (
+                    f"Let relation {name} is nested {depth} query blocks deep; "
+                    f"the limit is {LET_NESTING_LIMIT}."
+                )
+            elif not any(read == name for _owner, read in reads):
+                status = ProjectModuleRelationResolutionIssueStatus.LET_RELATION_UNREAD
+                message = f"Let relation {name} is never read."
             else:
-                draft.let_symbols.append(_local_relation_symbol(draft.module.path, let))
                 continue
-            draft.blocked_let_scopes.add(scope)
             location = _location(let.definition.span, fallback_path=draft.module.path)
+            code = _LET_ISSUE_CODES[status]
             draft.issues.append(
                 ProjectModuleRelationResolutionIssue(
-                    status=ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
+                    status=status,
                     owning_module_path=draft.module.path,
                     local_name=name,
                     location=location,
                     diagnostic=_diagnostic(
-                        code="PIE-S2345",
-                        message=f"Let relation {name} {problem} is not yet available.",
-                        location=location,
+                        code=code, message=message, location=location
                     ),
                     occurrences=(let,),
                 )
@@ -1377,11 +1416,8 @@ def _local_relation_cycles(
         and symbol.declaration_kind
         in {ProjectSymbolKind.TABLE, ProjectSymbolKind.QUERY}
     )
-    owner_order = {
-        owner: position for position, owner in enumerate(draft.catalog.relation_owners)
-    }
     occurrence_order = {
-        symbol.target_occurrence: owner_order[symbol.target_occurrence]
+        symbol.target_occurrence: symbol.target_occurrence.source_order
         for symbol in local_symbols
     }
     resolution_by_owner = {
@@ -1428,7 +1464,6 @@ def _local_relation_cycles(
                 cycle = _canonical_local_cycle(
                     tuple(stack[start:]),
                     tuple((*stack_references[start:], reference)),
-                    occurrence_order,
                 )
                 cycles_by_members.setdefault(frozenset(cycle.occurrences), cycle)
         stack.pop()
@@ -1451,13 +1486,14 @@ def _local_relation_cycles(
 def _canonical_local_cycle(
     occurrences: tuple[ProjectDeclarationOccurrence, ...],
     references: tuple[ProjectModuleRelationReference, ...],
-    occurrence_order: Mapping[ProjectDeclarationOccurrence, int],
 ) -> _LocalRelationCycle:
+    """Start the cycle at its member written first, lets before declarations."""
+
     if not occurrences or len(occurrences) != len(references):
         raise ValueError("Local relation cycle requires aligned nodes and edges.")
     start = min(
         range(len(occurrences)),
-        key=lambda position: occurrence_order[occurrences[position]],
+        key=lambda position: occurrences[position].source_order,
     )
     return _LocalRelationCycle(
         occurrences=(*occurrences[start:], *occurrences[:start]),
@@ -2386,10 +2422,7 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
             and tuple(root.code for root in issue.suppressing_diagnostics)
             == ("PIE-S2703",)
         )
-    elif status in {
-        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
-        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
-    }:
+    elif status in _LET_ISSUE_CODES:
         valid = (
             bool(issue.occurrences)
             and all(
@@ -2409,13 +2442,7 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
             and issue.module_cycle is None
             and not issue.relation_cycle
             and not issue.type_source_issues
-            and code
-            == (
-                "PIE-S2001"
-                if status
-                is ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION
-                else "PIE-S2345"
-            )
+            and code == _LET_ISSUE_CODES[status]
         )
     elif status is ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED:
         valid = (

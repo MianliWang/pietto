@@ -122,7 +122,6 @@ _AMBIGUOUS_RELATION_ISSUES = frozenset(
 )
 _BLOCKED_RELATION_ISSUES = frozenset(
     {
-        ProjectModuleRelationResolutionIssueStatus.LET_RELATION_READ_UNAVAILABLE,
         ProjectModuleRelationResolutionIssueStatus.LOCAL_RELATION_CYCLE,
         ProjectModuleRelationResolutionIssueStatus.MODULE_GRAPH_CYCLE_BLOCKED,
         ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED,

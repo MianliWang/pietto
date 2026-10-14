@@ -390,3 +390,105 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
     assert before == {
         n for n in sys.modules if n.split(".")[0] in {"psycopg", "pyarrow"}
     }
+
+
+def test_a_reused_let_refines_like_its_module_level_equivalent(tmp_path):
+    """R2 coordinates of a diamond of lets are those of the module-level diamond."""
+    import _pietto_execution_api as api
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    module_level = """query base:
+    from items
+    select:
+        id
+query low:
+    from base
+    where id < 50
+    select:
+        id
+query high:
+    from base
+    where id > 10
+    select:
+        id
+table result:
+    union all:
+        from low
+        from high
+"""
+    lets = """table result:
+    let low:
+        from base
+        where id < 50
+        select:
+            id
+    let high:
+        from base
+        where id > 10
+        select:
+            id
+    let base:
+        from items
+        select:
+            id
+    union all:
+        from low
+        from high
+"""
+    refined = []
+    for name, text in (("module", module_level), ("lets", lets)):
+        project = api.write_example(Path(tmp_path) / name)
+        main = project / "main.pietto"
+        main.write_text(main.read_text(encoding="utf-8") + text, encoding="utf-8")
+        query = compile_query(
+            project,
+            module="main.pietto",
+            kind="table",
+            name="result",
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+        values = tuple(
+            slot.original.site.position.literal.value for slot in query._template.slots
+        )
+        binding = bind_values(
+            query._template, tuple(zip(query._template.slots, values))
+        )
+        inputs = tuple(
+            R2SourceInput(
+                s.namespace,
+                s.name,
+                "provider",
+                "v1",
+                "r1",
+                s.namespace,
+                "registry",
+                "SELECT 1",
+                ("id",),
+                "pietto_query",
+                "retained",
+            )
+            for s in binding.artifact.request.sources
+        )
+        refinement = proposal.prepare_live_refinement(query, binding, inputs).refinement
+        refined.append(
+            (
+                binding.artifact.rendered.sql,
+                refinement.prefix,
+                [
+                    (u.rule, u.dependencies, u.key_names, len(u.coordinates))
+                    for u in refinement.units
+                ],
+            )
+        )
+    assert refined[0] == refined[1]
+    # `base` is one unit read by both branches.
+    assert [unit[1] for unit in refined[1][2]] == [
+        (-1,),
+        (0,),
+        (1,),
+        (0,),
+        (3,),
+        (2, 4),
+    ]

@@ -847,11 +847,21 @@ MIGRATED_JOIN_ROWS = {
     # The let reads only `p0`, which holds the published rows: the INNER oracle.
     ("L_let_relations", "hidden_join"): [[_int(BIG_TEXT)] for _ in range(4)]
     + [[_int("0")], [_int("1")]],
+    # The ids [BIG, BIG, 0, 1] ordered and limited to three are 0, 1, BIG; the
+    # filters then keep 0, 1 and 1, BIG. A filter moved below the LIMIT would
+    # keep a second BIG instead.
+    ("L_let_relations", "diamond_limit"): [
+        [_int("0")],
+        [_int("1")],
+        [_int("1")],
+        [_int(BIG_TEXT)],
+    ],
 }
 MIGRATED_JOIN_LABELS = {
     ("O_named_later", "self_join"): ("id",),
     ("V_row_blocked", "match_join"): ("record_id",),
     ("L_let_relations", "hidden_join"): ("a",),
+    ("L_let_relations", "diamond_limit"): ("a",),
 }
 
 

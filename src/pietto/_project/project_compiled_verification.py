@@ -1224,11 +1224,12 @@ def verify_description(value: Description) -> None:
             retained_pending.extend(incoming[address])
     need(reached == set(incoming), "RELATION_INVENTORY_CLOSURE")
 
-    # A let is a block of the table or query record at its coordinates. It is
-    # read once, by its block or a later let of it, so a closure reaches a let
-    # only through its block, and a block reads every let: positions 0, 1, 2,
-    # .... The one other root is a retained request owner that is a let of an
-    # unselected block; its closure is that let and what it reads.
+    # A let is a block of the table or query record at its coordinates. Only
+    # its block and that block's other lets read it, any number of times and in
+    # any written order, so a closure reaches a let only through its block,
+    # and a block reaches every let: positions 0, 1, 2, .... The one other root
+    # is a retained request owner that is a let of an unselected block; its
+    # closure is that let and what it reads.
     def coordinates(record):
         return tuple(record.get(n) for n in ("module", "module_position", "position"))
 
