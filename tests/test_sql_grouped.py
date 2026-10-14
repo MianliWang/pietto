@@ -114,6 +114,434 @@ def test_a_constant_valued_determinant_groups_by_its_established_value(
     public(outcome)
 
 
+_PG_SCAN = (
+    'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT'
+    ' "s0"."group key" AS "c0", "s0"."value é" AS "c1", "s0"."flag value" AS "c2",'
+    ' "s0"."text `""é" AS "c3", "s0"."amount value" AS "c4",'
+    ' "s0"."ratio value" AS "c5", "s0"."row id" AS "c6", '
+)
+_MY_SCAN = (
+    "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT"
+    " `s0`.`group key` AS `c0`, `s0`.`value é` AS `c1`, `s0`.`flag value` AS `c2`,"
+    ' `s0`.`text ``"é` AS `c3`, `s0`.`amount value` AS `c4`,'
+    " `s0`.`ratio value` AS `c5`, `s0`.`row id` AS `c6`, "
+)
+_PG_CARRY = (
+    ' "p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT'
+    ' "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3",'
+    ' "t1"."c4" AS "c4", "t1"."c5" AS "c5", "t1"."c6" AS "c6", "t1"."c7" AS "c7", '
+)
+_MY_CARRY = (
+    " `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT"
+    " `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`,"
+    " `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5`, `t1`.`c6` AS `c6`, `t1`.`c7` AS `c7`, "
+)
+_PG_TAIL = (
+    ' "p2" ("c0", "c1", "c2") AS (SELECT "t2"."c7" AS "c0", COUNT(*) AS "c1",'
+    ' MAX("t2"."c8") AS "c2" FROM "p1" AS "t2" GROUP BY "t2"."c7") SELECT'
+    ' "t3"."c0" AS "b", "t3"."c1" AS "total", "t3"."c2" AS "top" FROM "p2" AS "t3"'
+)
+_MY_TAIL = (
+    " `p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c7` AS `c0`, COUNT(*) AS `c1`,"
+    " MAX(`t2`.`c8`) AS `c2` FROM `p1` AS `t2` GROUP BY `t2`.`c7`) SELECT"
+    " `t3`.`c0` AS `b`, `t3`.`c1` AS `total`, `t3`.`c2` AS `top` FROM `p2` AS `t3`"
+)
+# S05g: each LET value is established once by its own stage; GROUP BY names the
+# qualified LET column, never the expression, an ordinal or an output alias.
+COMPUTED_SQL = {
+    ("postgres", "let_key"): _PG_SCAN
+    + '(CASE WHEN ("s0"."group key" > CAST(1 AS pg_catalog.int8)) THEN CAST(1 AS'
+    ' pg_catalog.int8) ELSE CAST(0 AS pg_catalog.int8) END) AS "c7" FROM'
+    ' "public"."phase66 agg é" AS "s0"),'
+    + _PG_CARRY
+    + '(CASE WHEN ("t1"."c1" > CAST(15 AS pg_catalog.int8)) THEN CAST(2 AS'
+    ' pg_catalog.int8) ELSE CAST(1 AS pg_catalog.int8) END) AS "c8" FROM "p0" AS'
+    ' "t1"),' + _PG_TAIL,
+    ("postgres", "bind"): _PG_SCAN
+    + '(CASE WHEN ("s0"."group key" > CAST($1 AS pg_catalog.int8)) THEN CAST($2 AS'
+    ' pg_catalog.int8) ELSE CAST($3 AS pg_catalog.int8) END) AS "c7" FROM'
+    ' "public"."phase66 agg é" AS "s0"),'
+    + _PG_CARRY
+    + '(CASE WHEN ("t1"."c1" > CAST($4 AS pg_catalog.int8)) THEN CAST($5 AS'
+    ' pg_catalog.int8) ELSE CAST($6 AS pg_catalog.int8) END) AS "c8" FROM "p0" AS'
+    ' "t1"),' + _PG_TAIL,
+    ("mysql", "let_key"): _MY_SCAN
+    + "(CASE WHEN (`s0`.`group key` > CAST(1 AS SIGNED)) THEN CAST(1 AS SIGNED)"
+    " ELSE CAST(0 AS SIGNED) END) AS `c7` FROM `phase66`.`phase66 agg é` AS `s0`),"
+    + _MY_CARRY
+    + "(CASE WHEN (`t1`.`c1` > CAST(15 AS SIGNED)) THEN CAST(2 AS SIGNED)"
+    " ELSE CAST(1 AS SIGNED) END) AS `c8` FROM `p0` AS `t1`)," + _MY_TAIL,
+    ("mysql", "bind"): _MY_SCAN
+    + "(CASE WHEN (`s0`.`group key` > CAST(? AS SIGNED)) THEN CAST(? AS SIGNED)"
+    " ELSE CAST(? AS SIGNED) END) AS `c7` FROM `phase66`.`phase66 agg é` AS `s0`),"
+    + _MY_CARRY
+    + "(CASE WHEN (`t1`.`c1` > CAST(? AS SIGNED)) THEN CAST(? AS SIGNED)"
+    " ELSE CAST(? AS SIGNED) END) AS `c8` FROM `p0` AS `t1`)," + _MY_TAIL,
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("variant", ("let_key", "bind"))
+def test_a_computed_let_determinant_groups_by_its_let_stage_column(
+    tmp_path, target, variant
+):
+    outcome = emit(tmp_path, target, "Y_aggregate_computed", variant)
+    data = document(outcome)
+    assert data["sql"] == COMPUTED_SQL[target, variant]
+    assert data["sql"].count(" GROUP BY ") == 1
+    assert data["sql"].count("CASE WHEN") == 2
+    assert len(data["parameter_uses"]) == (6 if variant == "bind" else 0)
+    # The determinant carries its LET-site proven range; MAX keeps the range of
+    # its own LET argument and only gains the empty-input NULL.
+    key, total, top = (column(data, label) for label in ("b", "total", "top"))
+    assert key["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "0",
+        "max": "1",
+    }
+    assert key["nullable"] is False
+    assert total["nullable"] is False
+    assert top["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "1",
+        "max": "2",
+    }
+    assert top["nullable"] is True
+    assert origin(data, "b")["role"] == "group_key"
+    assert origin(data, "top")["function"] == "max"
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("let", "logical", "nullable"),
+    (
+        ("grp = value > 5", ("Bool", None), "unknown"),
+        ("grp = lower(label)", ("Text", None), False),
+        ("grp = abs(amount)", ("Decimal", {"precision": 9, "scale": 2}), False),
+        ("grp = key + 0", ("Int", None), "unknown"),
+        ("grp = 1.5 + 0.5", None, None),
+        ("grp = ratio", None, None),
+    ),
+)
+def test_computed_determinants_keep_the_reviewed_comparison_domains(
+    tmp_path, target, let, logical, nullable
+):
+    """Bool, Text, Decimal and Int keep their domains; Float stays refused."""
+    # A refused key is not selected, so its one blocker is the key's own.
+    selected = "" if logical is None else "        g = grp\n"
+    outcome = emit_source(
+        tmp_path,
+        target,
+        f"""query result:
+    from agg
+    let:
+        {let}
+    group by:
+        grp
+    select:
+{selected}        total = count()
+""",
+    )
+    data = document(outcome)
+    if logical is None:
+        assert data["status"] == "BLOCKED"
+        (blocker,) = data["blockers"]
+        assert blocker["code"] == "PIE-B1003"
+        assert blocker["subject"] == {
+            "reference": {"kind": "group_key", "position": 0},
+            "detail": "group_key_type_outside_reviewed_comparison_domain",
+        }
+    else:
+        quote = '"' if target == "postgres" else "`"
+        assert data["status"] == "VERIFIED"
+        assert f" GROUP BY {quote}t1{quote}.{quote}c7{quote}" in data["sql"]
+        key = column(data, "g")
+        name, parameters = logical
+        assert key["logical_type"] == {
+            "kind": "builtin",
+            "name": name,
+            "parameters": parameters,
+        }
+        assert key["nullable"] == nullable
+    public(outcome)
+
+
+ORDERED_COMPUTED_KEY = """query result:
+    from agg
+    let:
+        bucket = {value}
+    group by:
+        bucket
+    select:
+        b = bucket
+        total = count()
+    order by:
+        b desc
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("value", "nullable"), (("1 if key > 1 else 0", False), ("key + 0", "unknown"))
+)
+def test_grouped_order_by_a_computed_key_keeps_its_null_posture_law(
+    tmp_path, target, value, nullable
+):
+    """Only a key whose LET value is proven non-null omits the NULL posture."""
+    outcome = emit_source(tmp_path, target, ORDERED_COMPUTED_KEY.format(value=value))
+    data = document(outcome)
+    quote = '"' if target == "postgres" else "`"
+    assert data["sql"].endswith(f" ORDER BY {quote}t0{quote}.{quote}c2{quote} DESC")
+    assert column(data, "b")["nullable"] == nullable
+    postures = [r for r in data["requirements"] if r["kind"] == "order_null_posture"]
+    assert len(postures) == (0 if nullable is False else 1)
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("claim", ("column", "missing_posture", "redundant_posture"))
+def test_public_null_claims_over_a_computed_key_follow_its_proof(
+    tmp_path, target, claim
+):
+    """A nullable key keeps its posture; a proven key carries none."""
+    value = "1 if key > 1 else 0" if claim == "redundant_posture" else "key + 0"
+    data = document(
+        emit_source(tmp_path, target, ORDERED_COMPUTED_KEY.format(value=value))
+    )
+    probe.decode_public(probe.encoded(data))
+    requirements = data["requirements"]
+    if claim == "column":
+        key = column(data, "b")
+        key["nullable"] = key["representation"]["nullable"] = False
+        message = "NON_NULL claimed over a nullable operand: b"
+    else:
+        if claim == "missing_posture":
+            (posture,) = (r for r in requirements if r["kind"] == "order_null_posture")
+            requirements.remove(posture)
+        else:
+            (item,) = (r for r in requirements if r["kind"] == "order_item")
+            requirements.insert(
+                requirements.index(item) + 1, {**item, "kind": "order_null_posture"}
+            )
+        generated = (r for r in requirements if r["denominator"] == "generated")
+        for ordinal, requirement in enumerate(generated):
+            requirement["ordinal"] = ordinal
+        message = "generated requirement denominator"
+    with pytest.raises(ValueError, match=message):
+        probe.decode_public(probe.encoded(data))
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_global_extrema_over_a_let_value_keep_its_range(tmp_path, target):
+    outcome = emit_source(
+        tmp_path,
+        target,
+        """query result:
+    from agg
+    let:
+        weight = 2 if value > 15 else 1
+    select:
+        lo = min(weight)
+        hi = max(weight)
+""",
+    )
+    data = document(outcome)
+    quote = '"' if target == "postgres" else "`"
+    let_column = f"{quote}t1{quote}.{quote}c7{quote}"
+    assert f"MIN({let_column})" in data["sql"] and f"MAX({let_column})" in data["sql"]
+    for label in ("lo", "hi"):
+        assert column(data, label)["representation"]["domain"] == {
+            "kind": "int_range",
+            "min": "1",
+            "max": "2",
+        }
+        assert column(data, label)["nullable"] is True
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "other_let_column",
+        "repeated_expression",
+        "output_alias",
+        "unqualified",
+        "ordinal",
+        "dropped",
+    ),
+)
+def test_public_computed_determinant_corruptions_are_rejected(
+    tmp_path, target, mutation
+):
+    data = document(emit(tmp_path, target, "Y_aggregate_computed", "let_key"))
+    probe.decode_public(probe.encoded(data))
+    sql = data["sql"]
+    q = '"' if target == "postgres" else "`"
+    int8 = "pg_catalog.int8" if target == "postgres" else "SIGNED"
+    grouping = f" GROUP BY {q}t2{q}.{q}c7{q}"
+    replacement = {
+        "other_let_column": f" GROUP BY {q}t2{q}.{q}c8{q}",
+        "repeated_expression": f" GROUP BY (CASE WHEN ({q}t2{q}.{q}c0{q} > CAST(1 AS"
+        f" {int8})) THEN CAST(1 AS {int8}) ELSE CAST(0 AS {int8}) END)",
+        "output_alias": f" GROUP BY {q}c0{q}",
+        "unqualified": f" GROUP BY {q}c7{q}",
+        "ordinal": " GROUP BY 1",
+        "dropped": "",
+    }[mutation]
+    data["sql"] = sql.replace(grouping, replacement, 1)
+    assert data["sql"] != sql
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(data))
+
+
+# Each pair is one computation as a relation let and as a module query.
+LET_FORMS = {
+    "key_inside_let": (
+        """query result:
+    let g:
+        from agg
+        let:
+            bucket = 1 if key > 1 else 0
+        group by:
+            bucket
+        select:
+            b = bucket
+            total = count()
+    from g
+    select:
+        b
+        total
+""",
+        """query g:
+    from agg
+    let:
+        bucket = 1 if key > 1 else 0
+    group by:
+        bucket
+    select:
+        b = bucket
+        total = count()
+query result:
+    from g
+    select:
+        b
+        total
+""",
+    ),
+    "key_over_let": (
+        """query result:
+    let base:
+        from agg
+        select:
+            key
+            value
+    from base
+    let:
+        bucket = 1 if key > 1 else 0
+    group by:
+        bucket
+    select:
+        b = bucket
+        total = count()
+""",
+        """query base:
+    from agg
+    select:
+        key
+        value
+query result:
+    from base
+    let:
+        bucket = 1 if key > 1 else 0
+    group by:
+        bucket
+    select:
+        b = bucket
+        total = count()
+""",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("form", tuple(LET_FORMS))
+def test_a_computed_key_inside_or_over_a_relation_let_groups_like_a_module_query(
+    tmp_path, target, form
+):
+    let_form, module_form = LET_FORMS[form]
+    outcome = emit_source(tmp_path / "let", target, let_form)
+    data = document(outcome)
+    module = document(emit_source(tmp_path / "module", target, module_form))
+    assert data["status"] == module["status"] == "VERIFIED"
+    assert data["sql"] == module["sql"]
+    assert data["sql"].count(" GROUP BY ") == 1
+    assert data["sql"].count("CASE WHEN") == 1
+    assert column(data, "b")["nullable"] is False
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_joined_computed_key_inside_a_relation_let_stays_refused(tmp_path, target):
+    """A JOIN inside a let refuses a computed key exactly like a top-level JOIN."""
+
+    def diagnostics(name, body):
+        item = probe.join_witness(target, body)
+        _, outcome = probe.build_case(
+            tmp_path / name, item["source"], item["contract"], item["policy"]
+        )
+        data = document(outcome)
+        assert data["status"] == "BLOCKED"
+        return [
+            (d["code"], d["location"]["line"], d["location"]["column"], d["message"])
+            for d in data["diagnostics"]
+        ]
+
+    top = diagnostics(
+        "top",
+        """query result:
+    from lhs
+    inner join rhs as r:
+        from lhs
+        on lhs.id == r.id
+    let:
+        k = lhs.id + 1
+    group by:
+        k
+    select:
+        kk = k
+        n = count()
+""",
+    )
+    nested = diagnostics(
+        "let",
+        """query result:
+    let pairs:
+        from lhs
+        inner join rhs as r:
+            from lhs
+            on lhs.id == r.id
+        let:
+            k = lhs.id + 1
+        group by:
+            k
+        select:
+            kk = k
+            n = count()
+    from pairs
+    select:
+        kk
+        n
+""",
+    )
+    assert [item[0] for item in top] == ["PIE-S2102", "PIE-S2102"]
+    # The let body is one line lower and one indentation level deeper.
+    assert nested == [
+        (code, line + 1, column + 4, message) for code, line, column, message in top
+    ]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_hidden_determinant_stays_out_of_the_visible_result(tmp_path, target):
     outcome = emit(tmp_path, target, "X_aggregate_grouped", "hidden")

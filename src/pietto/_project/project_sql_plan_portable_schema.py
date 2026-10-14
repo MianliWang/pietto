@@ -343,6 +343,7 @@ ANCHOR = Shape(
         "project_relation_clause_dependency_fact",
         "project_aggregate_grouped_clause_readiness",
         "project_group_key_fact",
+        "project_computed_group_key_fact",
         "project_aggregate_expression_analysis",
         "project_grouped_selected_result",
         "project_module_window_output_fact",
@@ -1027,6 +1028,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         ),
                         union(
                             ref("project_group_key_fact"),
+                            ref("project_computed_group_key_fact"),
                             ref("project_joined_group_key_occurrence"),
                         ),
                         union(
@@ -1722,6 +1724,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         union(
                             union(
                                 ref("project_group_key_fact"),
+                                ref("project_computed_group_key_fact"),
                                 ref("project_joined_group_key_occurrence"),
                             ),
                             ref("select_item"),
@@ -2501,6 +2504,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     seq(
                         union(
                             ref("project_group_key_fact"),
+                            ref("project_computed_group_key_fact"),
                             ref("project_joined_group_key_occurrence"),
                         )
                     ),
@@ -2554,6 +2558,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         union(
                             union(
                                 ref("project_group_key_fact"),
+                                ref("project_computed_group_key_fact"),
                                 ref("project_joined_group_key_occurrence"),
                             ),
                             ref("select_item"),
@@ -2630,6 +2635,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     "source",
                     union(
                         ref("project_group_key_fact"),
+                        ref("project_computed_group_key_fact"),
                         ref("project_joined_group_key_occurrence"),
                     ),
                 ),
@@ -5279,7 +5285,11 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule(
                     "target_occurrence",
-                    union(ref("project_group_key_fact"), ref("select_item")),
+                    union(
+                        ref("project_group_key_fact"),
+                        ref("project_computed_group_key_fact"),
+                        ref("select_item"),
+                    ),
                 ),
                 FieldRule("target_field", ref("project_row_field")),
                 FieldRule(
@@ -5333,6 +5343,15 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule("field_identity", TEXT),
                 FieldRule("input_field", ref("project_row_field")),
+            ),
+        ),
+        "project_computed_group_key_fact": RecordRule(
+            "project_computed_group_key_fact",
+            (
+                FieldRule("item", ref("group_by_item")),
+                FieldRule("binding", ref("let_binding")),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("key_field", ref("project_row_field")),
             ),
         ),
         "project_aggregate_expression_analysis": RecordRule(

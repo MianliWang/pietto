@@ -286,7 +286,9 @@ is refused, and callers cannot manufacture a guard or refinement. Its
 in the compiled source order, including guarded and refined sources and sources
 read only inside a relation let; a partial,
 reordered or substituted tuple is refused. It is not an option on
-`compile_query`.
+`compile_query`. A query that groups by a value its own `let:` computes is not
+an R2 shape yet: `save_recoverable` and `recover` refuse it with `PIE-R1004`
+(`PUBLIC_R2_COMPUTED_GROUP_KEY`) before any workspace access or connection.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,
 access, premise, limits, isolation="stable", values=None, job=None) ->
 SaveReply` records R2 retention before progress. `recover(workspace, *, job,
@@ -1242,6 +1244,10 @@ still running. Interpreter exit waits for the deadline timer, up to
   registry or revocation.
 - Bundles with a guard program or a refinement, which `compile_query` does not
   produce, are refused (`PIE-R1004`).
+- R2 checks every page against its own reading of the native SQL, which does
+  not yet read conditional (`if ... else`), `between`, literal-list `in`,
+  `cast`, scalar-call or `not` expressions. An R2 attempt whose statement
+  contains one fails closed at its first page.
 - `cancel()` asks the route's control owner to cancel a running attempt and
   returns `None`; its `Outcome` keeps the observed cancellation, transaction and
   cleanup facts. A deadline and server-side statement limit remain separate, and

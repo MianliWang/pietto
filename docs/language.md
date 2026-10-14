@@ -583,7 +583,9 @@ is rejected until an aggregate-range proof exists; Decimal `sum`/`avg` require
 an exact aggregate range/scale and division proof, and Float `sum`/`avg`
 require a finite-result proof. A source range, free JSON declaration, renderer
 spelling, or database default rounding rule is not such proof. `min` and `max`
-retain their bounded direct-field surface.
+retain their bounded direct-field surface; in EXPLICIT_MODULES projects without
+JOIN inputs they also accept one row `let` name, and the result keeps that
+value's proven range while admitting NULL.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
@@ -591,6 +593,20 @@ current retained contract says otherwise.
 Grouped relations preserve group-key order and selected aggregate output
 identity. `satisfying` and grouped result ordering use the current selected
 output rules; they are not general post-aggregate expression languages.
+
+In EXPLICIT_MODULES projects without JOIN inputs, a group key may also name one
+row `let` binding whose value is computed, such as `bucket = amount * 2` with
+`group by: bucket`; the key is selected by that `let` name. Emitted SQL
+establishes the value once in its LET stage and groups by that qualified
+column, never by a repeated expression, an ordinal, or an output alias. Such a
+key is not assumed injective and never supplies source-row grain. It passes the
+same comparison-domain check as a field key: Int keys use the LET site's proven
+range, Decimal keys keep the value's exact precision and scale, Bool and Text
+keys keep their comparison domains, and Float keys stay refused. Grouped result
+ordering may name the key's selected output. A `satisfying` reference to that
+output, a `let` alias of a computed binding, window references to the key, JOIN
+inputs, single-file checks, and LEGACY_FLAT projects keep their existing
+rejection.
 
 ## Windows
 

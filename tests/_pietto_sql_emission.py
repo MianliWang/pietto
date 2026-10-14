@@ -94,6 +94,9 @@ VARIANTS = {
     "X_aggregate_global": ("bag", "empty", "all_null", "where_false"),
     "X_aggregate_grouped": ("hidden", "visible", "empty"),
     "Y_aggregate_constant": ("grouped", "empty"),
+    # S05g: an explicit-module computed LET determinant and MAX over a LET value;
+    # the bound variant carries every literal as one CTE-stage native parameter.
+    "Y_aggregate_computed": ("let_key", "bind"),
     "Y_aggregate_satisfying": ("retained", "let_reference", "bind", "before_input"),
     "Y_aggregate_domains": ("bool_key", "text_key", "decimal_key"),
     "Z_aggregate_composition": (
@@ -235,6 +238,7 @@ AGGREGATE_CASES = (
     "X_aggregate_global",
     "X_aggregate_grouped",
     "Y_aggregate_constant",
+    "Y_aggregate_computed",
     "Y_aggregate_satisfying",
     "Y_aggregate_domains",
     "Z_aggregate_composition",
@@ -964,6 +968,20 @@ GLOBAL_BODY = """query result:
         lo = min(value)
         hi = max(value)
 """
+# The determinant is the established LET column and only that column is grouped;
+# MAX reads another LET column and keeps that value's own proven range.
+AGGREGATE_COMPUTED = """query result:
+    from agg
+    let:
+        bucket = 1 if key > 1 else 0
+        weight = 2 if value > 15 else 1
+    group by:
+        bucket
+    select:
+        b = bucket
+        total = count()
+        top = max(weight)
+"""
 GROUPED_HIDDEN = """query result:
     from agg
     group by:
@@ -1076,6 +1094,8 @@ query result:
         m = amount
         total = count()
 """,
+    ("Y_aggregate_computed", "let_key"): AGGREGATE_COMPUTED,
+    ("Y_aggregate_computed", "bind"): AGGREGATE_COMPUTED,
     ("Z_aggregate_composition", "let_where"): """query result:
     from agg
     let:
@@ -1220,6 +1240,7 @@ AGGREGATE_LABELS = {
     ("X_aggregate_grouped", "empty"): ("total", "cf"),
     ("X_aggregate_grouped", "visible"): ("f", "renamed", "again", "total"),
     ("Y_aggregate_constant", None): ("c0", "total"),
+    ("Y_aggregate_computed", None): ("b", "total", "top"),
     ("Y_aggregate_satisfying", "retained"): ("k", "total", "lo"),
     ("Y_aggregate_satisfying", "bind"): ("k", "total", "lo"),
     ("Y_aggregate_satisfying", "before_input"): ("k", "total", "lo"),
@@ -1246,6 +1267,7 @@ AGGREGATE_LOGICAL = {
     ("X_aggregate_grouped", "empty"): ("Int", "Int"),
     ("X_aggregate_grouped", "visible"): ("Bool", "Int", "Int", "Int"),
     ("Y_aggregate_constant", None): ("Int", "Int"),
+    ("Y_aggregate_computed", None): ("Int", "Int", "Int"),
     ("Y_aggregate_satisfying", "retained"): ("Int", "Int", "Int"),
     ("Y_aggregate_satisfying", "bind"): ("Int", "Int", "Int"),
     ("Y_aggregate_satisfying", "before_input"): ("Int", "Int", "Int"),
@@ -6959,8 +6981,10 @@ def _decode_fixed_public(document, limits):
                 nullable is True or nullable is False or nullable == "unknown",
                 "computed nullability",
             )
+            # A carried computed determinant keeps its producer's own proof.
+            strict = root["strict"] if root is not None else read.get("proof", False)
             _need(
-                nullable is not False or root["strict"],
+                nullable is not False or strict,
                 "NON_NULL claimed over a nullable operand: " + label,
             )
             realization = {**realization, "nullable": nullable}
@@ -7773,6 +7797,15 @@ def _decode_fixed_public(document, limits):
                         if root is None
                         else root.get("strict", realization["nullable"] is False)
                     ),
+                    # A carried computed value keeps its producer's own non-null
+                    # proof; only a later NON_NULL claim may consume it.
+                    "proof": (
+                        root.get("strict", False)
+                        if root is not None
+                        else read is not None
+                        and node["kind"] in CARRIED_KINDS
+                        and read.get("proof", False)
+                    ),
                 }
             )
             columns.append(
@@ -8092,9 +8125,17 @@ def _decode_fixed_public(document, limits):
                         evidence,
                     )
                 )
-                if entry["read"]["realization"]["nullable"] is not False and not entry[
-                    "read"
-                ].get("strict", False):
+                value = entry["read"]
+                # A carried computed value omits the posture exactly when its own
+                # producer proof shows it non-null, as for a published column.
+                claimed = value["realization"]["nullable"] is None and value.get(
+                    "proof", False
+                )
+                if (
+                    value["realization"]["nullable"] is not False
+                    and not value.get("strict", False)
+                    and not claimed
+                ):
                     row_generated.append(
                         ("order_null_posture", entry["item"], "R19", [], evidence)
                     )

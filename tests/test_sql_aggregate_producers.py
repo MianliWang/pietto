@@ -342,7 +342,8 @@ def test_a_joined_field_aggregate_without_grain_evidence_stays_unavailable(
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_computed_group_key_is_still_not_an_admitted_source_shape(tmp_path, target):
+def test_a_computed_group_key_needs_its_let_site_range_proof(tmp_path, target):
+    """S05g admits the determinant; its Int range is still the LET site's proof."""
     header = probe.AGGREGATE_HEADER.format(target=target)
     item = probe.aggregate_fixture(target, "X_aggregate_grouped", "hidden")
     body = """query result:
@@ -358,7 +359,10 @@ def test_a_computed_group_key_is_still_not_an_admitted_source_shape(tmp_path, ta
         tmp_path, header + body, item["contract"], item["policy"]
     )
     assert outcome.status == "BLOCKED"
-    assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+    assert outcome.diagnostics == ()
+    assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+        ("PIE-B1002", "arithmetic_outside_physical_range")
+    ]
 
 
 @pytest.mark.parametrize("target", TARGETS)

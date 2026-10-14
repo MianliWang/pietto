@@ -729,6 +729,7 @@ _ADAPTERS: Mapping[type, str] = {
     aggregate_grouped_clause_facts.ProjectRelationClauseDependencyFact: "project_relation_clause_dependency_fact",
     aggregate_grouped_clause_facts.ProjectAggregateGroupedClauseReadiness: "project_aggregate_grouped_clause_readiness",
     aggregate_grouped_schema.ProjectGroupKeyFact: "project_group_key_fact",
+    aggregate_grouped_schema.ProjectComputedGroupKeyFact: "project_computed_group_key_fact",
     aggregate_grouped_schema.ProjectAggregateExpressionAnalysis: "project_aggregate_expression_analysis",
     aggregate_grouped_schema.ProjectGroupedSelectedResult: "project_grouped_selected_result",
     module_semantic_fact_preservation.ProjectModuleWindowOutputFact: "project_module_window_output_fact",

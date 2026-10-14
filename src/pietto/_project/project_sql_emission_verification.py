@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from pietto._project import project_sql_plan as plans
+from pietto._project.aggregate_grouped_schema import ProjectComputedGroupKeyFact
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
@@ -1832,6 +1833,15 @@ def _verify_aggregate_body(
         read = columns.get(key.input)
         retained = grouping.key_logical(key.source)
         label = f"c{index}"
+        incoming = ports.get(key.input)
+        if type(key.source) is ProjectComputedGroupKeyFact and (
+            incoming is None
+            or incoming.key is not key.source.binding
+            or read is None
+            or read.field is not None
+        ):
+            # A computed determinant reads exactly its own established LET value.
+            raise ValueError("computed group determinant")
         if (
             type(column) is not grouping.AggregateKeyColumn
             or column.ordinal != index

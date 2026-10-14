@@ -1548,6 +1548,7 @@ def compiled_requirement_rule(plan, entry, *, generated_scopes):
     from pietto._project import project_sql_emission_aggregation as aggregate_rules
     from pietto._project import project_sql_emission_windows as window_rules
     from pietto._project import project_sql_emission_results as result_rules
+    from pietto._project import project_sql_emission_rows as row_rules
     from pietto._project.project_compiled_schema import Address
 
     if type(plan) is not sql.CompiledSQLPlan or type(entry) is not CompiledDemandEntry:
@@ -1578,9 +1579,9 @@ def compiled_requirement_rule(plan, entry, *, generated_scopes):
             if record.address.kind == "operation":
                 role, token = record.get("operator")
                 if role == "binary":
-                    rules.append("R06" if token in ("and", "or") else "R05")
+                    rules.append("R06" if token in row_rules.LOGICAL else "R05")
                     continue
-                if role in ("comparison", "null_test"):
+                if role in row_rules.R05_OPERATIONS.values():
                     rules.append("R05")
                     continue
             rules.append("R01" if record.address.kind == "read" else "R04")

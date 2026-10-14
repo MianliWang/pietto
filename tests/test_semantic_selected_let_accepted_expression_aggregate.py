@@ -694,17 +694,6 @@ def test_expression_and_row_let_aggregate_relations_are_concrete_private_and_per
     assert "effective_semantic_aggregate_argument_expression" in argument_source
     assert "is_supported_semantic_aggregate_argument_expression" in argument_source
     assert "ProjectRowSchema(" not in selected_source
-    finalizer_signature = inspect.signature(
-        aggregate_module.build_project_aggregate_grouped_schema_finalization
-    )
-    assert tuple(finalizer_signature.parameters) == (
-        "definition",
-        "input_schema",
-        "upstream_symbol",
-        "fallback_path",
-        "let_scope_facts",
-    )
-    assert finalizer_signature.parameters["let_scope_facts"].default is None
     for name in (
         "ProjectAggregateSchemaFacts",
         "ProjectGroupedSchemaFacts",

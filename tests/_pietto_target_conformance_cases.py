@@ -885,6 +885,10 @@ AGGREGATE_EXPECTED = {
     ("X_aggregate_grouped", "empty"): (),
     ("Y_aggregate_constant", "grouped"): ((1, 5),),
     ("Y_aggregate_constant", "empty"): (),
+    # key [1, 1, 2, NULL, 3] gives bucket [0, 0, 1, 0, 1] (UNKNOWN takes ELSE) and
+    # value [10, NULL, 20, NULL, 30] gives weight [1, 1, 2, 1, 2].
+    ("Y_aggregate_computed", "let_key"): ((0, 3, 1), (1, 2, 2)),
+    ("Y_aggregate_computed", "bind"): ((0, 3, 1), (1, 2, 2)),
     ("Y_aggregate_satisfying", "retained"): ((2, 1, 20), (3, 1, 30)),
     ("Y_aggregate_satisfying", "bind"): ((2, 1, 20), (3, 1, 30)),
     ("Y_aggregate_satisfying", "before_input"): ((1, 1, 10), (2, 1, 20), (3, 1, 30)),

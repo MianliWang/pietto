@@ -165,6 +165,36 @@ def _live_root(template, binding, *, reanchor):
     return binding.artifact
 
 
+def _computed_group_key(artifact):
+    """Whether the statement groups by a value that its own `let:` computes.
+
+    R2 does not take this shape yet (D70.05), so it is refused before any
+    workspace or connection.
+    """
+    from pietto._project.project_compiled_schema import selected_relations
+
+    root = artifact.request.verification.completed.root
+    records = root.records
+    for address in selected_relations(records, records[root.description.query]):
+        if address.kind != "aggregate":
+            continue
+        aggregate = records[address]
+        for key in aggregate.get("keys"):
+            port = records[records[key].get("port")]
+            # A later `where:` or `let:` stage carries the key on by a read;
+            # the value is computed where that read chain ends.
+            while port.get("source").kind == "read":
+                port = records[records[port.get("source")].get("port")]
+            unit = records[port.get("owner")]
+            if (
+                unit.address.kind == "row"
+                and unit.get("stage") == "let"
+                and unit.get("owner") == aggregate.get("owner")
+            ):
+                return True
+    return False
+
+
 def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=False):
     """Create the sole non-policy compiled refinement authority.
 
@@ -175,6 +205,8 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
     from pietto._project.project_compiled_schema import Address
 
     artifact = _live_root(template, binding, reanchor=reanchor)
+    if _computed_group_key(artifact):
+        raise ValueError("PUBLIC_R2_COMPUTED_GROUP_KEY")
     policy = artifact.request.verification.completed.root.records[Address("policy", 0)]
     if policy.get("refinement") is not None:
         expected = compiled_source_requirements(artifact)

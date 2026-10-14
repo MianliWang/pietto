@@ -13,6 +13,7 @@ import pytest
 import pietto
 import pietto._project as project_package
 from pietto._project.aggregate_grouped_schema import (
+    ProjectGroupKeyFact,
     ProjectGroupedSchemaFacts,
     ProjectGroupedSelectedResult,
     build_project_aggregate_schema_facts,
@@ -580,10 +581,13 @@ def test_direct_and_chained_group_key_lets_compose_with_direct_aggregates(
         "status",
         "region",
     )
-    assert isinstance(facts.group_keys[0].effective_expression, NameExpr)
-    assert facts.group_keys[0].effective_expression.name == "status"
-    assert isinstance(facts.group_keys[1].effective_expression, DottedNameExpr)
-    assert facts.group_keys[1].effective_expression.parts == ("users", "region")
+    first, second = facts.group_keys
+    assert isinstance(first, ProjectGroupKeyFact)
+    assert isinstance(second, ProjectGroupKeyFact)
+    assert isinstance(first.effective_expression, NameExpr)
+    assert first.effective_expression.name == "status"
+    assert isinstance(second.effective_expression, DottedNameExpr)
+    assert second.effective_expression.parts == ("users", "region")
     assert tuple(result.field.name for result in facts.selected_results.values()) == (
         "status",
         "renamed",

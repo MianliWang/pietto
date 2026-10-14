@@ -52,6 +52,7 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleSelectFact,
     ProjectModuleWindowOutputFact,
     _clause_dependency_facts,
+    _computed_group_keys,
     _order_expression_reference_facts,
     _project_symbol_for_resolution,
     _window_output_facts,
@@ -5133,6 +5134,7 @@ def _complete_no_join_output(
             upstream_symbol=upstream_symbol,
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
+            let_computed_keys=True,
         )
         base_state = aggregate_readiness.finalization.state
         if (
@@ -5238,6 +5240,7 @@ def _complete_no_join_output(
         grouped_order_state=window_state,
         let_scope=let_scope,
         aggregate_result_facts=aggregate_result_facts,
+        computed_group_keys=_computed_group_keys(aggregate_readiness),
     )
     qualify = _no_join_qualify(
         owner=owner,

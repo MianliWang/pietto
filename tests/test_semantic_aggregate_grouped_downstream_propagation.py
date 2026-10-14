@@ -17,7 +17,6 @@ from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadinessReason,
     ProjectAggregateGroupedClauseReadinessStatus,
     ProjectRelationClauseDependencyKind,
-    build_project_aggregate_grouped_clause_readiness,
 )
 from pietto._project.aggregate_grouped_dependency_lineage import (
     ProjectAggregateGroupedDependencyLineageReadiness,
@@ -28,7 +27,6 @@ from pietto._project.aggregate_grouped_persistence import (
     build_project_aggregate_grouped_persistence,
 )
 from pietto._project.aggregate_grouped_schema import (
-    build_project_aggregate_grouped_schema_finalization,
     build_project_group_key_schema_facts,
 )
 from pietto._project.check import check_project_parse_only
@@ -119,46 +117,22 @@ def test_persistence_bundle_is_frozen_atomic_and_retains_one_slice9_result(
         parameter.default is inspect.Parameter.empty
         for parameter in signature.parameters.values()
     )
-    for helper, parameter_names in (
-        (
-            build_project_aggregate_grouped_schema_finalization,
-            (
-                "definition",
-                "input_schema",
-                "upstream_symbol",
-                "fallback_path",
-                "let_scope_facts",
-            ),
-        ),
-        (
-            build_project_aggregate_grouped_clause_readiness,
-            (
-                "definition",
-                "input_schema",
-                "upstream_symbol",
-                "fallback_path",
-                "let_scope_facts",
-            ),
-        ),
-        (
-            build_project_aggregate_grouped_dependency_lineage_readiness,
-            (
-                "definition",
-                "input_schema",
-                "upstream_symbol",
-                "upstream_lineage",
-                "fallback_path",
-                "let_scope_facts",
-            ),
-        ),
-    ):
-        helper_signature = inspect.signature(helper)
-        assert tuple(helper_signature.parameters) == parameter_names
-        assert all(
-            parameter.kind is inspect.Parameter.KEYWORD_ONLY
-            for parameter in helper_signature.parameters.values()
-        )
-        assert helper_signature.parameters["let_scope_facts"].default is None
+    helper_signature = inspect.signature(
+        build_project_aggregate_grouped_dependency_lineage_readiness
+    )
+    assert tuple(helper_signature.parameters) == (
+        "definition",
+        "input_schema",
+        "upstream_symbol",
+        "upstream_lineage",
+        "fallback_path",
+        "let_scope_facts",
+    )
+    assert all(
+        parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        for parameter in helper_signature.parameters.values()
+    )
+    assert helper_signature.parameters["let_scope_facts"].default is None
     assert tuple(
         inspect.signature(build_project_group_key_schema_facts).parameters
     ) == (

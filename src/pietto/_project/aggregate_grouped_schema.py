@@ -38,6 +38,7 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     Expression,
     GroupByItem,
+    LetBinding,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -91,12 +92,74 @@ class ProjectGroupKeyFact:
         if self.field_identity != self.input_field.name:
             raise ValueError("Project group-key fact field identity mismatch")
 
+    @property
+    def key_field(self) -> ProjectRowField:
+        """The row field whose value this determinant compares."""
+
+        return self.input_field
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectComputedGroupKeyFact:
+    """One project-private group key whose value is one admitted row LET value.
+
+    The determinant reads the binding's established LET value, never an input
+    field, so its field is LET_DERIVED and it asserts no injectivity.
+    """
+
+    item: GroupByItem
+    binding: LetBinding
+    value_type: ValueType
+    key_field: ProjectRowField
+
+    def __post_init__(self) -> None:
+        """Validate one computed group-key candidate fact."""
+
+        provenance = self.key_field.provenance
+        if (
+            not isinstance(self.item, GroupByItem)
+            or type(self.item.key) is not NameExpr
+            or type(self.binding) is not LetBinding
+            or self.item.key.name != self.binding.name
+            or type(self.binding.expression) in {NameExpr, DottedNameExpr}
+        ):
+            raise ValueError("Computed group key requires its exact LET binding")
+        if (
+            type(self.value_type) is not ValueType
+            or self.value_type.kind is not ValueTypeKind.KNOWN
+            or self.value_type.resolved_type.kind is not TypeKind.BUILTIN
+        ):
+            raise ValueError("Computed group key requires a known builtin value")
+        if (
+            type(self.key_field) is not ProjectRowField
+            or self.key_field.name != self.binding.name
+            or self.key_field.field_def is not None
+            or self.key_field.resolved_type
+            != ProjectResolvedType(
+                name=self.value_type.resolved_type.name,
+                kind=ProjectResolvedTypeKind.BUILTIN,
+            )
+            or self.key_field.nullability.value != self.value_type.nullability.value
+            or provenance is None
+            or provenance.kind is not ProjectRowFieldProvenanceKind.LET_DERIVED
+        ):
+            raise ValueError("Computed group key requires its LET_DERIVED field")
+
+    @property
+    def field_identity(self) -> str:
+        """The determinant identity: its LET binding name."""
+
+        return self.binding.name
+
+
+ProjectAnyGroupKeyFact = ProjectGroupKeyFact | ProjectComputedGroupKeyFact
+
 
 @dataclass(frozen=True, slots=True)
 class ProjectGroupKeySchemaFacts:
     """Complete private group-key candidates for one grouped relation."""
 
-    group_keys: tuple[ProjectGroupKeyFact, ...]
+    group_keys: tuple[ProjectAnyGroupKeyFact, ...]
     selected_fields: Mapping[SelectItem, ProjectRowField]
 
     def __post_init__(self) -> None:
@@ -106,7 +169,7 @@ class ProjectGroupKeySchemaFacts:
             raise ValueError("Project group-key facts require a tuple")
         identities: set[str] = set()
         for fact in self.group_keys:
-            if not isinstance(fact, ProjectGroupKeyFact):
+            if not isinstance(fact, ProjectAnyGroupKeyFact):
                 raise ValueError("Project group-key facts require fact values")
             if fact.field_identity in identities:
                 raise ValueError("Project group-key facts require unique identities")
@@ -335,7 +398,7 @@ class ProjectGroupedSelectedResult:
 class ProjectGroupedSchemaFacts:
     """Complete unpersisted grouped selected-result candidates."""
 
-    group_keys: tuple[ProjectGroupKeyFact, ...]
+    group_keys: tuple[ProjectAnyGroupKeyFact, ...]
     selected_results: Mapping[SelectItem, ProjectGroupedSelectedResult]
 
     def __post_init__(self) -> None:
@@ -343,9 +406,9 @@ class ProjectGroupedSchemaFacts:
 
         if type(self.group_keys) is not tuple or not self.group_keys:
             raise ValueError("Grouped schema facts require non-empty tuple keys")
-        group_keys_by_identity: dict[str, ProjectGroupKeyFact] = {}
+        group_keys_by_identity: dict[str, ProjectAnyGroupKeyFact] = {}
         for fact in self.group_keys:
-            if not isinstance(fact, ProjectGroupKeyFact):
+            if not isinstance(fact, ProjectAnyGroupKeyFact):
                 raise ValueError("Grouped schema facts require group-key facts")
             if fact.field_identity in group_keys_by_identity:
                 raise ValueError("Grouped schema facts require unique key identities")
@@ -379,10 +442,10 @@ class ProjectGroupedSchemaFacts:
                     raise ValueError("Grouped key result output identity mismatch")
                 if (
                     selected_result.field.resolved_type
-                    != key_fact.input_field.resolved_type
+                    != key_fact.key_field.resolved_type
                     or selected_result.field.nullability
-                    is not key_fact.input_field.nullability
-                    or selected_result.field.field_def != key_fact.input_field.field_def
+                    is not key_fact.key_field.nullability
+                    or selected_result.field.field_def != key_fact.key_field.field_def
                 ):
                     raise ValueError("Grouped key result input field mismatch")
                 continue
@@ -440,7 +503,7 @@ class ProjectAggregateGroupedCandidateAttempt:
     facts: _AggregateGroupedSchemaFacts | None
     failure_reason: ProjectRelationRowSchemaReason | None
     analyses: tuple[ProjectAggregateExpressionAnalysis, ...] = ()
-    group_projections: tuple[tuple[SelectItem, ProjectGroupKeyFact], ...] = ()
+    group_projections: tuple[tuple[SelectItem, ProjectAnyGroupKeyFact], ...] = ()
 
     def __post_init__(self) -> None:
         """Require exactly one well-formed attempt outcome."""
@@ -492,7 +555,7 @@ class ProjectAggregateGroupedSchemaFinalization:
     analyses: tuple[ProjectAggregateExpressionAnalysis, ...] = dataclass_field(
         default=(), init=False
     )
-    group_projections: tuple[tuple[SelectItem, ProjectGroupKeyFact], ...] = (
+    group_projections: tuple[tuple[SelectItem, ProjectAnyGroupKeyFact], ...] = (
         dataclass_field(default=(), init=False)
     )
     _construction: InitVar[ProjectAggregateGroupedCandidateAttempt | None] = None
@@ -776,6 +839,7 @@ def _build_project_group_key_schema_attempt(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    let_computed_keys: bool = False,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured group-key candidate attempt."""
 
@@ -799,7 +863,7 @@ def _build_project_group_key_schema_attempt(
             project_row_schema_to_semantic_row_schema(input_schema),
         )
     )
-    group_keys: list[ProjectGroupKeyFact] = []
+    group_keys: list[ProjectAnyGroupKeyFact] = []
     declared_group_identities: set[str] = set()
     group_key_identities: set[str] = set()
     failure_reasons: list[ProjectRelationRowSchemaReason] = []
@@ -819,6 +883,21 @@ def _build_project_group_key_schema_attempt(
                     ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY
                 )
             declared_group_identities.add(declared_identity)
+        computed = (
+            _computed_group_key(
+                item,
+                let_scope_facts=let_scope_facts,
+                upstream_symbol=upstream_symbol,
+                fallback_path=fallback_path,
+            )
+            if let_computed_keys
+            else None
+        )
+        if computed is not None:
+            if computed.field_identity not in group_key_identities:
+                group_key_identities.add(computed.field_identity)
+                group_keys.append(computed)
+            continue
         resolved = _resolve_input_field(
             definition,
             effective_expression,
@@ -851,8 +930,17 @@ def _build_project_group_key_schema_attempt(
         )
 
     selected_fields: dict[SelectItem, ProjectRowField] = {}
-    keys_by_input = {id(key.input_field): key for key in group_keys}
-    selected_key_targets: dict[SelectItem, ProjectGroupKeyFact] = {}
+    keys_by_input = {
+        id(key.input_field): key
+        for key in group_keys
+        if isinstance(key, ProjectGroupKeyFact)
+    }
+    computed_keys = {
+        key.field_identity: key
+        for key in group_keys
+        if isinstance(key, ProjectComputedGroupKeyFact)
+    }
+    selected_key_targets: dict[SelectItem, ProjectAnyGroupKeyFact] = {}
     seen_items: set[SelectItem] = set()
     for item in definition.select_items:
         if item in seen_items:
@@ -875,6 +963,29 @@ def _build_project_group_key_schema_attempt(
             )
             continue
 
+        computed_key = (
+            computed_keys.get(selected_expression.name)
+            if type(selected_expression) is NameExpr
+            else None
+        )
+        if computed_key is not None:
+            selected_key_targets[item] = computed_key
+            selected_fields[item] = ProjectRowField(
+                name=item.alias or computed_key.field_identity,
+                resolved_type=computed_key.key_field.resolved_type,
+                nullability=computed_key.key_field.nullability,
+                field_def=None,
+                provenance=ProjectRowFieldProvenance(
+                    kind=ProjectRowFieldProvenanceKind.DIRECT_PROJECTION,
+                    symbol=upstream_symbol,
+                    location=_expression_location(
+                        selected_expression,
+                        fallback_path=fallback_path,
+                    ),
+                ),
+                result_role=ProjectRowResultRole.GROUP_KEY,
+            )
+            continue
         resolved = _resolve_input_field(
             definition,
             selected_expression,
@@ -955,6 +1066,7 @@ def _build_project_aggregate_schema_attempt(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    let_computed_keys: bool = False,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured aggregate-only candidate attempt."""
 
@@ -1011,6 +1123,7 @@ def _build_project_aggregate_schema_attempt(
             upstream_symbol=upstream_symbol,
             let_scope_facts=let_scope_facts,
             fallback_path=fallback_path,
+            let_extrema=let_computed_keys,
         )
         if selected_attempt.result is None:
             assert selected_attempt.failure_reason is not None
@@ -1059,8 +1172,13 @@ def build_project_aggregate_grouped_schema_finalization(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    let_computed_keys: bool = False,
 ) -> ProjectAggregateGroupedSchemaFinalization:
-    """Finalize one complete candidate without publishing it to the model."""
+    """Finalize one complete candidate without publishing it to the model.
+
+    ``let_computed_keys`` admits explicit-module computed LET group keys and
+    MIN/MAX over row LET values; every other caller keeps the field-only law.
+    """
 
     if definition.group_by_clause is None:
         attempt = _build_project_aggregate_schema_attempt(
@@ -1069,6 +1187,7 @@ def build_project_aggregate_grouped_schema_finalization(
             upstream_symbol=upstream_symbol,
             fallback_path=fallback_path,
             let_scope_facts=let_scope_facts,
+            let_computed_keys=let_computed_keys,
         )
     else:
         attempt = _build_project_grouped_schema_attempt(
@@ -1077,6 +1196,7 @@ def build_project_aggregate_grouped_schema_finalization(
             upstream_symbol=upstream_symbol,
             fallback_path=fallback_path,
             let_scope_facts=let_scope_facts,
+            let_computed_keys=let_computed_keys,
         )
     return _finalize_project_aggregate_grouped_candidate(
         definition=definition,
@@ -1092,6 +1212,7 @@ def _build_project_grouped_schema_attempt(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    let_computed_keys: bool = False,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured grouped candidate attempt."""
 
@@ -1116,6 +1237,7 @@ def _build_project_grouped_schema_attempt(
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
         let_scope_facts=let_scope_facts,
+        let_computed_keys=let_computed_keys,
     )
     group_key_facts = (
         group_key_attempt.facts
@@ -1211,6 +1333,7 @@ def _build_project_grouped_schema_attempt(
             upstream_symbol=upstream_symbol,
             let_scope_facts=let_scope_facts,
             fallback_path=fallback_path,
+            let_extrema=let_computed_keys,
         )
         if aggregate_attempt.result is None:
             assert aggregate_attempt.failure_reason is not None
@@ -1507,6 +1630,7 @@ def _build_project_aggregate_selected_result_attempt(
     upstream_symbol: ProjectSymbol,
     let_scope_facts: ProjectRelationLetScopeFacts,
     fallback_path: str,
+    let_extrema: bool = False,
 ) -> _ProjectAggregateSelectedResultAttempt:
     """Build one aggregate result or retain its exact failure category."""
 
@@ -1533,6 +1657,7 @@ def _build_project_aggregate_selected_result_attempt(
             argument=argument,
             input_schema=input_schema,
             let_scope_facts=let_scope_facts,
+            let_extrema=let_extrema,
         )
         if argument_attempt.value_type is None:
             assert argument_attempt.failure_reason is not None
@@ -1717,6 +1842,7 @@ def _project_aggregate_argument_type_attempt(
     argument: Expression,
     input_schema: ProjectRowSchema,
     let_scope_facts: ProjectRelationLetScopeFacts,
+    let_extrema: bool = False,
 ) -> _ProjectAggregateArgumentTypeAttempt:
     """Resolve one aggregate argument or retain its exact failure category."""
 
@@ -1730,12 +1856,13 @@ def _project_aggregate_argument_type_attempt(
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
     }
-    if (
+    is_let_extremum = (
         is_deferred_min_max
         and isinstance(argument, NameExpr)
         and let_expansions is not None
         and argument.name in let_expansions
-    ):
+    )
+    if is_let_extremum and not let_extrema:
         return _failed_argument_type_attempt(
             ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
         )
@@ -1744,7 +1871,7 @@ def _project_aggregate_argument_type_attempt(
         argument,
         let_expansions=let_expansions,
     )
-    is_direct_row_let = aggregate_argument_can_use_let_scope(
+    is_direct_row_let = is_let_extremum or aggregate_argument_can_use_let_scope(
         function_name,
         argument,
         let_expansions,
@@ -1950,6 +2077,59 @@ def _aggregate_field_fact_is_concrete_ready(
         and isinstance(fact, ProjectAggregateResultFact)
         and field.name == fact.output_name
         and provenance.location == fact.location
+    )
+
+
+def _computed_group_key(
+    item: GroupByItem,
+    *,
+    let_scope_facts: ProjectRelationLetScopeFacts | None,
+    upstream_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectComputedGroupKeyFact | None:
+    """Admit one key naming exactly one concrete computed row LET binding."""
+
+    key = item.key
+    if (
+        let_scope_facts is None
+        or let_scope_facts.status is not ProjectLetScopeFactsStatus.CONCRETE
+        or type(key) is not NameExpr
+    ):
+        return None
+    bindings = tuple(
+        binding for binding in let_scope_facts.bindings if binding.name == key.name
+    )
+    value_type = let_scope_facts.value_types.get(key.name)
+    if (
+        len(bindings) != 1
+        or type(bindings[0].expression) in {NameExpr, DottedNameExpr}
+        or value_type is None
+        or value_type.kind is not ValueTypeKind.KNOWN
+        or value_type.resolved_type.kind is not TypeKind.BUILTIN
+    ):
+        return None
+    binding = bindings[0]
+    return ProjectComputedGroupKeyFact(
+        item=item,
+        binding=binding,
+        value_type=value_type,
+        key_field=ProjectRowField(
+            name=binding.name,
+            resolved_type=ProjectResolvedType(
+                name=value_type.resolved_type.name,
+                kind=ProjectResolvedTypeKind.BUILTIN,
+            ),
+            nullability=ProjectRowFieldNullability(value_type.nullability.value),
+            field_def=None,
+            provenance=ProjectRowFieldProvenance(
+                kind=ProjectRowFieldProvenanceKind.LET_DERIVED,
+                symbol=upstream_symbol,
+                location=_expression_location(
+                    binding.expression,
+                    fallback_path=fallback_path,
+                ),
+            ),
+        ),
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -259,3 +260,123 @@ def test_live_refinement_requires_a_source_read_only_inside_a_let(tmp_path):
     assert proposal.prepare_live_refinement(query, binding, inputs) is not None
     with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
         proposal.prepare_live_refinement(query, binding, inputs[:1])
+
+
+def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypatch):
+    """A query that groups by its own `let:` value is not an R2 shape yet."""
+    import sys
+
+    import _pietto_execution_api as api
+    import pietto.execution as execution
+    from pietto._project import project_job_workspace as private_workspace
+    from pietto._project.project_execution_template import bind_values
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused R2 request opened workspace state")
+
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    before = {n for n in sys.modules if n.split(".")[0] in {"psycopg", "pyarrow"}}
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
+    access = execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw")
+    premise = execution.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+    computed = "    group by:\n        big\n    select:\n        flag = big\n"
+    for name, body, refused in (
+        ("computed", "    let:\n        big = id > 5\n" + computed, True),
+        # A later stage carries the key on by a read; it is still computed.
+        (
+            "let_where",
+            "    let:\n        big = id > 5\n    where id > 0\n" + computed,
+            True,
+        ),
+        (
+            "two_lets",
+            "    let:\n        big = id > 5\n        other = id + 0\n" + computed,
+            True,
+        ),
+        (
+            "field",
+            "    group by:\n        label\n    select:\n        label\n",
+            False,
+        ),
+    ):
+        project = api.write_example(Path(tmp_path) / name)
+        main = project / "main.pietto"
+        main.write_text(
+            main.read_text(encoding="utf-8")
+            + "table grouped:\n    from items\n"
+            + body
+            + "        total = count()\n",
+            encoding="utf-8",
+        )
+        query = execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="table",
+            name="grouped",
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+        values = tuple(
+            slot.original.site.position.literal.value for slot in query._template.slots
+        )
+        binding = bind_values(
+            query._template, tuple(zip(query._template.slots, values))
+        )
+        inputs = tuple(
+            execution.R2SourceInput(
+                s.namespace,
+                s.name,
+                "provider",
+                "v1",
+                "r1",
+                s.namespace,
+                "registry",
+                "SELECT 1",
+                ("id",),
+                "pietto_query",
+                "retained",
+            )
+            for s in binding.artifact.request.sources
+        )
+        if not refused:
+            # A field key is unchanged.
+            assert proposal.prepare_live_refinement(query, binding, inputs)
+            continue
+        with pytest.raises(ValueError, match="^PUBLIC_R2_COMPUTED_GROUP_KEY$"):
+            proposal.prepare_live_refinement(query, binding, inputs)
+        common: dict[str, Any] = dict(
+            query=query,
+            source_requirements=inputs,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=access,
+            premise=premise,
+            limits=execution.ExecutionLimits(),
+            values=values,
+        )
+        for call in (
+            lambda: execution.save_recoverable(workspace, **common),
+            lambda: execution.recover(
+                workspace,
+                job="job-" + "0" * 32,
+                generation="gen-" + "0" * 32,
+                checkpoint=None,
+                expected_pin="0" * 64,
+                accepted_producer="0" * 64,
+                accepted_compatibility="0",
+                purpose="r2-computed-key",
+                seconds=60,
+                **common,
+            ),
+        ):
+            with pytest.raises(execution.RequestRejected) as rejected:
+                call()
+            assert (rejected.value.code, rejected.value.detail) == (
+                "PIE-R1004",
+                "PUBLIC_R2_COMPUTED_GROUP_KEY",
+            )
+    assert before == {
+        n for n in sys.modules if n.split(".")[0] in {"psycopg", "pyarrow"}
+    }

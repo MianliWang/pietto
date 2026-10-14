@@ -76,6 +76,29 @@ def test_all_window_policy_variants_are_finite_typed_evidence(tmp_path, index):
     )
 
 
+def test_computed_let_determinant_is_finite_typed_portable_evidence(tmp_path):
+    from _pietto_plan_aggregate import _ordinary
+    from _pietto_plan_reports import _reported, _roots, P
+
+    roots = _roots(
+        tmp_path,
+        _ordinary(
+            "    let:\n        computed = id + 1\n    group by:\n        computed\n"
+            "    select:\n        computed\n        total = count()\n"
+        ),
+        None,
+    )
+    for policy in P:
+        _, plan, verified, _, report, _ = _reported(roots, policy)
+        product = portable.build_project_sql_plan_portable(verified, report=report)
+        assert portable.verify_project_sql_plan_portable(product, verified).verified
+        view = pure.Inspection(
+            pure.parse_project_sql_plan_document(product.canonical_bytes)
+        )
+        assert len(view.for_kind("project_computed_group_key_fact")) == 1
+        assert len(view.for_kind("project_sql_group_key")) == len(plan.group_keys)
+
+
 @pytest.mark.parametrize(
     "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
 )

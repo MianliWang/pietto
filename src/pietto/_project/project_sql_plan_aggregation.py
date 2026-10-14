@@ -24,6 +24,7 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectAggregateSelectedResult,
     ProjectGroupedSelectedResult,
     ProjectGroupKeyFact,
+    ProjectComputedGroupKeyFact,
     ProjectAggregateSchemaFacts,
     ProjectGroupedSchemaFacts,
 )
@@ -83,7 +84,9 @@ if TYPE_CHECKING:
 
 __all__: tuple[str, ...] = ()
 
-type GroupKey = ProjectGroupKeyFact | ProjectJoinedGroupKeyOccurrence
+type GroupKey = (
+    ProjectGroupKeyFact | ProjectComputedGroupKeyFact | ProjectJoinedGroupKeyOccurrence
+)
 type Aggregate = ProjectAggregateExpressionAnalysis | ProjectJoinedAggregateOccurrence
 type Output = (
     ProjectAggregateSelectedResult
@@ -527,7 +530,7 @@ def retained_members_valid(
         if not references:
             return False
         first = references[0]
-        if isinstance(key, ProjectGroupKeyFact):
+        if isinstance(key, (ProjectGroupKeyFact, ProjectComputedGroupKeyFact)):
             if (
                 not isinstance(first, ProjectModuleExpressionReferenceFact)
                 or first.owner is not owner
@@ -539,7 +542,16 @@ def retained_members_valid(
                 or first.status is not ProjectModuleCandidateBucketStatus.CONCRETE
             ):
                 return False
-            if (
+            if isinstance(key, ProjectComputedGroupKeyFact):
+                if (
+                    len(references) != 1
+                    or first.input_field is not None
+                    or first.expression is not key.item.key
+                    or len(first.let_candidates) != 1
+                    or first.let_candidates[0] is not key.binding
+                ):
+                    return False
+            elif (
                 first.input_field is not None
                 and first.input_field is not key.input_field
             ):

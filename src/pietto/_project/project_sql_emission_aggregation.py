@@ -8,7 +8,10 @@ from typing import Any
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
-from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
+from pietto._project.aggregate_grouped_schema import (
+    ProjectComputedGroupKeyFact,
+    ProjectGroupKeyFact,
+)
 from pietto._project.project_joined_aggregation import ProjectJoinedAggregationMode
 from pietto.ast_nodes import SourceDef
 from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
@@ -275,8 +278,8 @@ def function_name(source) -> str | None:
 
 def key_logical(key) -> tuple[str, bool | str] | None:
     """One group determinant's retained logical tag and nullability."""
-    if isinstance(key, ProjectGroupKeyFact):
-        field = key.input_field
+    if isinstance(key, (ProjectGroupKeyFact, ProjectComputedGroupKeyFact)):
+        field = key.key_field
         if field.resolved_type.kind is not ProjectResolvedTypeKind.BUILTIN:
             return None
         nullable = FIELD_NULLABILITY.get(field.nullability)

@@ -40,7 +40,10 @@ from typing import cast
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectRelationClauseDependencyKind,
 )
-from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
+from pietto._project.aggregate_grouped_schema import (
+    ProjectComputedGroupKeyFact,
+    ProjectGroupKeyFact,
+)
 from pietto._project.model import (
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
@@ -1938,15 +1941,15 @@ def _group_key_positions(
         for i, fact in enumerate(dependencies):
             key = fact.target_occurrence
             if (
-                type(key) is not ProjectGroupKeyFact
+                not isinstance(key, (ProjectGroupKeyFact, ProjectComputedGroupKeyFact))
                 or key.item is not items[i]
-                or key.input_field is not fact.target_field
+                or key.key_field is not fact.target_field
             ):
                 return None
             for item, projected_key in readiness.finalization.group_projections:
                 if (
                     projected_key.item is not key.item
-                    or projected_key.input_field is not key.input_field
+                    or projected_key.key_field is not key.key_field
                 ):
                     continue
                 if id(item) in selected or not any(
@@ -2058,6 +2061,11 @@ def _group_input_has_key(context, incoming, root) -> bool | None:
             return None
         for fact in readiness.dependency_facts:
             if fact.kind is not ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT:
+                continue
+            if type(fact.target_occurrence) is ProjectComputedGroupKeyFact:
+                # Independently: a computed determinant is never an input key.
+                if any(item.evidence is fact.target_field for item in incoming.fields):
+                    return None
                 continue
             matches = [
                 item.field_position

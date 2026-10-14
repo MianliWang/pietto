@@ -1700,6 +1700,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "W_join_values",
         "X_aggregate_global",
         "X_aggregate_grouped",
+        "Y_aggregate_computed",
         "Y_aggregate_constant",
         "Y_aggregate_domains",
         "Y_aggregate_satisfying",

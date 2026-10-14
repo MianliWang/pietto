@@ -38,7 +38,10 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import cast
 
-from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
+from pietto._project.aggregate_grouped_schema import (
+    ProjectAnyGroupKeyFact,
+    ProjectComputedGroupKeyFact,
+)
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
     ProjectRelationClauseDependencyFact,
@@ -3344,6 +3347,10 @@ def _group_input_classes(
         for fact in context.group_keys:
             if type(fact) is not ProjectRelationClauseDependencyFact:
                 raise TypeError("Replay group key requires exact dependency evidence.")
+            if type(fact.target_occurrence) is ProjectComputedGroupKeyFact:
+                # A computed LET determinant names no input class: it asserts no
+                # injectivity, so it never supports the reverse grain dependency.
+                continue
             matches = tuple(
                 member.field_position
                 for member in incoming.fields
@@ -3354,11 +3361,13 @@ def _group_input_classes(
             positions.append(matches[0])
     else:
         assert type(basis) is ProjectModuleRelationSemanticFacts
+        computed = _computed_key_fields(basis.aggregate_grouped_clause_readiness)
         targets = tuple(
             target
             for fact in basis.clause_dependencies
             if fact.role is ProjectModuleFactOccurrenceRole.GROUP_KEY
             for target in fact.target_fields
+            if not any(target is field for field in computed)
         )
         for target in targets:
             matches = tuple(
@@ -3377,6 +3386,21 @@ def _group_input_classes(
         ):
             selected.append(value_class)
     return tuple(selected)
+
+
+def _computed_key_fields(
+    readiness: ProjectAggregateGroupedClauseReadiness | None,
+) -> tuple[ProjectRowField, ...]:
+    """The exact LET_DERIVED fields of every retained computed determinant."""
+
+    if readiness is None:
+        return ()
+    return tuple(
+        fact.target_field
+        for fact in readiness.dependency_facts
+        if fact.kind is ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT
+        and type(fact.target_occurrence) is ProjectComputedGroupKeyFact
+    )
 
 
 def _group_output_positions(
@@ -3410,12 +3434,12 @@ def _group_output_positions(
             raise ValueError("GROUPED projection requires every determinant component.")
         for index, dependency in enumerate(dependencies):
             key = dependency.target_occurrence
-            if not isinstance(key, ProjectGroupKeyFact):
+            if not isinstance(key, ProjectAnyGroupKeyFact):
                 raise ValueError("GROUPED projection requires exact group-key facts.")
             for item, projected_key in readiness.finalization.group_projections:
                 if (
                     projected_key.item is not key.item
-                    or projected_key.input_field is not key.input_field
+                    or projected_key.key_field is not key.key_field
                 ):
                     continue
                 if id(item) in selected_keys:

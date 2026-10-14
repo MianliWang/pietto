@@ -8,6 +8,15 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
+from pietto._project.check import check_project_parse_only
+from pietto._project.model import (
+    ProjectCompilationMode,
+    ProjectRelationRowSchemaStatus,
+    build_empty_project_semantic_result,
+)
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.errors import Severity
 from pietto.ir import FieldRefIR, RelationIR, ScriptIR, build_ir
@@ -305,6 +314,149 @@ def test_non_slice4_group_by_let_consumers_remain_rejected(
     semantic = _semantic_for("query grouped_orders:\n" + body)
 
     assert expected_code in _error_codes(semantic)
+
+
+COMPUTED_KEY_RELATION = (
+    "query grouped_orders:\n"
+    "    from orders\n"
+    "    let:\n"
+    "        gross = amount + tax\n"
+    "    group by:\n"
+    "        gross\n"
+    "    select:\n"
+    "        gross\n"
+    "        largest = max(gross)\n"
+    "        total = count()\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "mode"),
+    (
+        (1, ProjectCompilationMode.LEGACY_FLAT),
+        (2, ProjectCompilationMode.EXPLICIT_MODULES),
+    ),
+)
+def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    schema_version: int,
+    mode: ProjectCompilationMode,
+) -> None:
+    """EXPLICIT_MODULES completes the relation; the other laws keep refusing it."""
+
+    assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == [
+        ("PIE-S2329", "Let binding conflicts with projection output name: gross"),
+        ("PIE-S2102", "Unknown field: gross"),
+        ("PIE-S2102", "Unknown field: gross"),
+    ]
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        f'schema_version = {schema_version}\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (root / "main.pietto").write_text(
+        SOURCE_PREFIX + COMPUTED_KEY_RELATION, encoding="utf-8"
+    )
+    assert cli.main(["check", "--project", str(root)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("Project check OK: .\n") and captured.err == ""
+
+    semantic_result = build_empty_project_semantic_result(
+        check_project_parse_only(root)
+    )
+    assert semantic_result.compilation_mode is mode
+    if mode is ProjectCompilationMode.LEGACY_FLAT:
+        assert semantic_result.model is not None
+        (state,) = semantic_result.model.relation_row_schema_states.values()
+        assert state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+        return
+    completed = build_project_completed_semantic_result(semantic_result)
+    assert completed.ok and completed.diagnostics == ()
+
+
+UNAVAILABLE = (
+    "PIE-S2333",
+    "Project relation semantic completion is unavailable: grouped_orders",
+)
+
+
+@pytest.mark.parametrize(
+    ("let_lines", "tail", "expected"),
+    (
+        (
+            "",
+            "    group by:\n        bucket\n    select:\n        bucket\n"
+            "        total = count()\n        r = row_number() window:\n"
+            "            order by:\n                bucket asc\n",
+            ("PIE-S2102", "Unknown field: bucket"),
+        ),
+        (
+            "",
+            "    group by:\n        bucket\n    select:\n        bucket\n"
+            "        total = count()\n        r = row_number() window:\n"
+            "            partition by:\n                bucket\n"
+            "            order by:\n                total asc\n",
+            ("PIE-S2102", "Unknown field: bucket"),
+        ),
+        (
+            "        alias = bucket\n",
+            "    group by:\n        alias\n    select:\n        total = count()\n",
+            UNAVAILABLE,
+        ),
+        (
+            "",
+            "    group by:\n        orders.bucket\n    select:\n"
+            "        total = count()\n",
+            UNAVAILABLE,
+        ),
+        (
+            "",
+            "    group by:\n        bucket\n        bucket\n    select:\n"
+            "        total = count()\n",
+            UNAVAILABLE,
+        ),
+        (
+            "",
+            "    group by:\n        bucket\n    select:\n        b = bucket\n"
+            "        total = count()\n    satisfying:\n        b > 0\n",
+            UNAVAILABLE,
+        ),
+    ),
+    ids=(
+        "window_order",
+        "window_partition",
+        "alias",
+        "qualified",
+        "duplicate",
+        "satisfying",
+    ),
+)
+def test_explicit_module_computed_keys_keep_their_documented_refusals(
+    tmp_path: Path,
+    let_lines: str,
+    tail: str,
+    expected: tuple[str, str],
+) -> None:
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        SOURCE_PREFIX
+        + "query grouped_orders:\n    from orders\n    let:\n"
+        + "        bucket = amount * 2\n"
+        + let_lines
+        + tail,
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+
+    assert not completed.ok
+    assert [(d.code, d.message) for d in completed.diagnostics] == [expected]
 
 
 def _semantic_for(source: str) -> SemanticResult:

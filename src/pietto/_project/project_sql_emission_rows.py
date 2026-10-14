@@ -1623,6 +1623,18 @@ REQUIREMENT_RULES = {
 }
 
 
+# Retained expression demands of these kinds belong to R05; the compiled replay
+# attributes its operation records by the same roles.
+R05_OPERATIONS = {
+    row.ProjectSQLComparison: "comparison",
+    row.ProjectSQLBetween: "between",
+    row.ProjectSQLIsNull: "null_test",
+    row.ProjectSQLConditional: "conditional",
+    row.ProjectSQLMembership: "membership",
+    row.ProjectSQLCast: "cast",
+}
+
+
 def demand_rule(plan, entry) -> str | None:
     """Slice6 rule attribution for the retained expression/filter demand families."""
     if entry.family.value == "filter":
@@ -1632,14 +1644,7 @@ def demand_rule(plan, entry) -> str | None:
     expression = plan.expressions[entry.subject.position]
     if type(expression) is row.ProjectSQLBinary:
         return "R06" if expression.expression.operator in LOGICAL else "R05"
-    if type(expression) in {
-        row.ProjectSQLComparison,
-        row.ProjectSQLBetween,
-        row.ProjectSQLIsNull,
-        row.ProjectSQLConditional,
-        row.ProjectSQLMembership,
-        row.ProjectSQLCast,
-    }:
+    if type(expression) in R05_OPERATIONS:
         return "R05"
     return None
 

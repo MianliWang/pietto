@@ -542,7 +542,7 @@ def test_group_key_forms_source_order_exact_retained_facts_and_no_ancestry(
     )
     assert tuple(fact.target_occurrence for fact in group_facts) == retained.group_keys
     assert tuple(fact.target_field for fact in group_facts) == tuple(
-        fact.input_field for fact in retained.group_keys
+        fact.key_field for fact in retained.group_keys
     )
     assert tuple(fact.field_identity for fact in retained.group_keys) == (
         "status",

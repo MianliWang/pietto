@@ -1360,7 +1360,13 @@ def _aggregate_structure(plan):
             ):
                 return False
             reference = refs[0]
-            if isinstance(source, aggregation.ProjectGroupKeyFact):
+            if isinstance(
+                source,
+                (
+                    aggregation.ProjectGroupKeyFact,
+                    aggregation.ProjectComputedGroupKeyFact,
+                ),
+            ):
                 if (
                     not isinstance(reference, ProjectModuleExpressionReferenceFact)
                     or reference.owner is not definition.entry.owner
@@ -1373,7 +1379,14 @@ def _aggregate_structure(plan):
                     is not ProjectModuleCandidateBucketStatus.CONCRETE
                 ):
                     return False
-                if (
+                if isinstance(source, aggregation.ProjectComputedGroupKeyFact):
+                    # The determinant reads exactly its own established LET port.
+                    if (
+                        reference.input_field is not None
+                        or reference.let_candidates != (source.binding,)
+                    ):
+                        return False
+                elif (
                     reference.input_field is not None
                     and reference.input_field is not source.input_field
                 ):

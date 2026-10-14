@@ -19,6 +19,8 @@ from pietto._project.project_sql_plan import build_project_sql_plan, ProjectSQLP
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project.project_sql_plan_expressions import ProjectSQLStagePortKind
+from pietto.ast_nodes import QueryDef
 from _pietto_plan_aggregate import _group_source, _joined_aggregates, _ordinary
 
 
@@ -592,7 +594,6 @@ def test_aggregate_inspection_uses_exact_refs(aggregation_plans):
     "body",
     (
         "    group by:\n        id\n    select:\n        id\n",
-        "    let:\n        computed = id + 1\n    group by:\n        computed\n    select:\n        total = count()\n",
         "    select:\n        total = sum(sum(value))\n",
         "    select:\n        total = sum(value) + 1\n",
         "    select:\n        id\n        total = sum(value)\n",
@@ -607,6 +608,83 @@ def test_invalid_aggregate_combinations_remain_unavailable(tmp_path: Path, body)
     result = build_project_sql_plan(*roots)
     assert isinstance(result, ProjectSQLPlanUnavailable)
     assert not verify_project_sql_plan(result, *roots).verified
+
+
+def test_plan_computed_let_determinant_reads_only_its_own_let_port(tmp_path: Path):
+    roots, plan, view = _plan_product(
+        tmp_path,
+        _ordinary("""    let:
+        computed = id + 1
+        other = id + 2
+    group by:
+        computed
+    select:
+        computed
+        total = count()
+        top = max(other)
+"""),
+    )
+    definition = roots[2].definition
+    assert isinstance(definition, QueryDef) and definition.let_clause is not None
+    computed, other = definition.let_clause.bindings
+    (stage,) = view.aggregations
+    (key,) = view.group_keys
+    source = key.source
+    assert type(source) is aggregation.ProjectComputedGroupKeyFact
+    assert stage.authority.keys == (source,) and source.binding is computed
+    ports = {port.ref: port for port in plan.stage_ports}
+    assert ports[key.input].key is computed
+    assert ports[key.result].type_evidence is source.value_type
+    assert [b.kind.value for b in plan.blocks] == [
+        "let",
+        "let",
+        "aggregate",
+        "projection",
+    ]
+    assert tuple(p.identity.name for p in view.exports) == ("computed", "total", "top")
+    foreign = next(
+        port
+        for port in plan.stage_ports
+        if port.block is ports[key.input].block
+        and port.kind is ProjectSQLStagePortKind.INPUT
+        and port.key is other
+    )
+    forged = _graft(key, input=foreign.ref)
+    assert not verify_project_sql_plan(
+        _graft(plan, group_keys=(forged,)), *roots
+    ).verified
+
+
+@pytest.mark.parametrize("replayed", (False, True))
+@pytest.mark.parametrize(("key", "reverse"), (("id", True), ("same", False)))
+def test_computed_determinant_never_supplies_the_reverse_grain_dependency(
+    tmp_path: Path, replayed, key, reverse
+):
+    """Grouping a unique field fixes each source row; its LET image never does."""
+    distinct = " distinct" if replayed else ""
+    source = _ordinary(
+        f"""    let:
+        same = id + 0
+    group by:
+        {key}
+    select{distinct}:
+        total = count()
+"""
+    ).replace(
+        "    value: Int nullable\n",
+        "    value: Int nullable\n    unique row_id on id\n",
+    )
+    _, _, view = _plan_product(tmp_path, source)
+    (stage,) = view.aggregations
+    assert (
+        type(stage.authority.context)
+        is ir.ProjectIRQueryBlockAggregateEvaluationContext
+    ) is replayed
+    grain = stage.authority.properties.grain
+    assert grain.state is ProjectGrainBasisState.FACTORIZED
+    assert any(edge.determinants == grain.active for edge in grain.dependencies) is (
+        reverse
+    )
 
 
 def test_joined_unique_aggregate_let_reference_reuses_result(tmp_path: Path):

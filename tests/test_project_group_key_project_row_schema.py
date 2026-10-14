@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import inspect
 import json
 from pathlib import Path
@@ -13,10 +13,13 @@ import pytest
 import pietto
 import pietto._project as project_package
 from pietto._project.aggregate_grouped_schema import (
+    ProjectComputedGroupKeyFact,
     ProjectGroupKeyFact,
     ProjectGroupKeySchemaFacts,
+    _build_project_group_key_schema_attempt,
     build_project_group_key_schema_facts,
 )
+from pietto._project.let_scope_facts import build_project_relation_let_scope_facts
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -27,6 +30,7 @@ from pietto._project.model import (
     ProjectResolvedTypeKind,
     ProjectRowField,
     ProjectRowFieldNullability,
+    ProjectRowFieldProvenanceKind,
     ProjectRowResultRole,
     ProjectRowSchema,
     ProjectSemanticResult,
@@ -104,7 +108,9 @@ def test_group_key_carriers_are_exact_frozen_slots_and_fail_closed(
         ProjectGroupKeySchemaFacts(
             group_keys=facts.group_keys,
             selected_fields={
-                next(iter(facts.selected_fields)): facts.group_keys[0].input_field
+                next(iter(facts.selected_fields)): _field_key(
+                    facts.group_keys[0]
+                ).input_field
             },
         )
 
@@ -141,7 +147,9 @@ def test_selected_fields_are_defensive_readonly_and_keep_select_item_order(
         cast(
             MutableMapping[SelectItem, ProjectRowField],
             copied.selected_fields,
-        )[next(iter(copied.selected_fields))] = built.group_keys[0].input_field
+        )[next(iter(copied.selected_fields))] = _field_key(
+            built.group_keys[0]
+        ).input_field
 
 
 @pytest.mark.parametrize("relation_kind", ("table", "query"))
@@ -168,8 +176,9 @@ def test_bare_qualified_renamed_and_repeated_selected_keys_are_exact(
         "status",
         "region",
     )
-    assert isinstance(facts.group_keys[0].effective_expression, NameExpr)
-    assert isinstance(facts.group_keys[1].effective_expression, DottedNameExpr)
+    first, second = (_field_key(fact) for fact in facts.group_keys)
+    assert isinstance(first.effective_expression, NameExpr)
+    assert isinstance(second.effective_expression, DottedNameExpr)
     assert tuple(field.name for field in facts.selected_fields.values()) == (
         "renamed",
         "region",
@@ -255,10 +264,11 @@ def test_direct_and_chained_let_keys_preserve_clause_and_selected_identity(
         "status",
         "region",
     )
-    assert isinstance(facts.group_keys[0].effective_expression, NameExpr)
-    assert facts.group_keys[0].effective_expression.name == "status"
-    assert isinstance(facts.group_keys[1].effective_expression, DottedNameExpr)
-    assert facts.group_keys[1].effective_expression.parts == ("users", "region")
+    first, second = (_field_key(fact) for fact in facts.group_keys)
+    assert isinstance(first.effective_expression, NameExpr)
+    assert first.effective_expression.name == "status"
+    assert isinstance(second.effective_expression, DottedNameExpr)
+    assert second.effective_expression.parts == ("users", "region")
     assert tuple(field.name for field in facts.selected_fields.values()) == (
         "status",
         "renamed",
@@ -415,6 +425,188 @@ def test_duplicate_equivalent_group_keys_have_no_first_winner(
         )
         is None
     )
+
+
+def test_explicit_module_law_admits_one_computed_let_binding_determinant(
+    tmp_path: Path,
+) -> None:
+    _, semantic_result, definition, input_schema, upstream_symbol = _group_key_inputs(
+        tmp_path,
+        "query grouped:\n"
+        "    from users\n"
+        "    let:\n"
+        "        bucket = score * 2\n"
+        "    group by:\n"
+        "        bucket\n"
+        "        status\n"
+        "    select:\n"
+        "        bucket\n"
+        "        renamed = bucket\n"
+        "        total = count()\n",
+    )
+    assert semantic_result.model is not None
+    # The LEGACY_FLAT model keeps its field-only law for the same relation.
+    assert (
+        semantic_result.model.relation_row_schema_states[definition].status
+        is not ProjectRelationRowSchemaStatus.CONCRETE
+    )
+    assert (
+        _computed_attempt(
+            definition, input_schema, upstream_symbol, admitted=False
+        ).failure_reason
+        is ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+    )
+
+    attempt = _computed_attempt(definition, input_schema, upstream_symbol)
+    facts = attempt.facts
+    assert isinstance(facts, ProjectGroupKeySchemaFacts)
+    computed, field_key = facts.group_keys
+    assert type(computed) is ProjectComputedGroupKeyFact
+    assert type(field_key) is ProjectGroupKeyFact
+    assert definition.let_clause is not None
+    assert computed.binding is definition.let_clause.bindings[0]
+    assert isinstance(computed.item.key, NameExpr)
+    assert computed.item.key.name == computed.field_identity == "bucket"
+    assert computed.field_identity not in input_schema.fields
+    key_field = computed.key_field
+    assert key_field.provenance is not None
+    assert key_field.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
+    assert key_field.provenance.symbol is upstream_symbol
+    assert key_field.field_def is None
+    assert key_field.resolved_type == ProjectResolvedType(
+        name="Int", kind=ProjectResolvedTypeKind.BUILTIN
+    )
+    assert key_field.nullability.value == computed.value_type.nullability.value
+    assert field_key.input_field is input_schema.fields["status"]
+
+    selected = tuple(facts.selected_fields.values())
+    assert tuple(field.name for field in selected) == ("bucket", "renamed")
+    for field in selected:
+        assert field.provenance is not None
+        assert field.provenance.kind is ProjectRowFieldProvenanceKind.DIRECT_PROJECTION
+        assert field.result_role is ProjectRowResultRole.GROUP_KEY
+        assert field.field_def is None
+        assert field.resolved_type == key_field.resolved_type
+    assert tuple(key for _, key in attempt.group_projections) == (computed, computed)
+
+
+def test_computed_group_key_carrier_fails_closed(tmp_path: Path) -> None:
+    _, _, definition, input_schema, upstream_symbol = _group_key_inputs(
+        tmp_path,
+        "query grouped:\n"
+        "    from users\n"
+        "    let:\n"
+        "        bucket = score * 2\n"
+        "    group by:\n"
+        "        bucket\n"
+        "    select:\n"
+        "        total = count()\n",
+    )
+    facts = _computed_attempt(definition, input_schema, upstream_symbol).facts
+    assert isinstance(facts, ProjectGroupKeySchemaFacts)
+    (computed,) = facts.group_keys
+    assert type(computed) is ProjectComputedGroupKeyFact
+    key_field = computed.key_field
+    provenance = key_field.provenance
+    assert provenance is not None
+    other_nullability = next(
+        value
+        for value in ProjectRowFieldNullability
+        if value is not key_field.nullability
+    )
+
+    for changes, message in (
+        (
+            {"binding": replace(computed.binding, expression=computed.item.key)},
+            "exact LET binding",
+        ),
+        (
+            {
+                "key_field": replace(
+                    key_field,
+                    provenance=replace(
+                        provenance, kind=ProjectRowFieldProvenanceKind.SOURCE_FIELD
+                    ),
+                )
+            },
+            "LET_DERIVED field",
+        ),
+        (
+            {"key_field": replace(key_field, nullability=other_nullability)},
+            "LET_DERIVED field",
+        ),
+        (
+            {
+                "key_field": replace(
+                    key_field, field_def=input_schema.fields["status"].field_def
+                )
+            },
+            "LET_DERIVED field",
+        ),
+    ):
+        with pytest.raises(ValueError, match=message):
+            replace(computed, **changes)
+
+
+@pytest.mark.parametrize(
+    ("relation_body", "reason"),
+    (
+        (
+            "    let:\n"
+            "        bucket = score * 2\n"
+            "        alias = bucket\n"
+            "    group by:\n"
+            "        alias\n"
+            "    select:\n"
+            "        total = count()\n",
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ),
+        (
+            "    let:\n"
+            "        bucket = score * 2\n"
+            "    group by:\n"
+            "        users.bucket\n"
+            "    select:\n"
+            "        total = count()\n",
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ),
+        (
+            "    let:\n"
+            "        bucket = score * 2\n"
+            "        other = score + 1\n"
+            "    group by:\n"
+            "        bucket\n"
+            "    select:\n"
+            "        other\n"
+            "        total = count()\n",
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ),
+        (
+            "    let:\n"
+            "        bucket = score * 2\n"
+            "    group by:\n"
+            "        bucket\n"
+            "        bucket\n"
+            "    select:\n"
+            "        total = count()\n",
+            ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY,
+        ),
+    ),
+)
+def test_computed_let_determinants_admit_no_alias_qualifier_or_winner(
+    tmp_path: Path,
+    relation_body: str,
+    reason: ProjectRelationRowSchemaReason,
+) -> None:
+    _, _, definition, input_schema, upstream_symbol = _group_key_inputs(
+        tmp_path,
+        "query grouped:\n    from users\n" + relation_body,
+    )
+
+    attempt = _computed_attempt(definition, input_schema, upstream_symbol)
+
+    assert attempt.facts is None
+    assert attempt.failure_reason is reason
 
 
 def test_repeated_selected_key_duplicate_output_names_are_not_overwritten(
@@ -630,6 +822,29 @@ def _build_facts(
     return facts
 
 
+def _computed_attempt(
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    *,
+    admitted: bool = True,
+):
+    upstream_definition = upstream_symbol.definition
+    assert isinstance(upstream_definition, SourceDef)
+    return _build_project_group_key_schema_attempt(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path="models.pietto",
+        let_scope_facts=build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_definition=upstream_definition,
+        ),
+        let_computed_keys=admitted,
+    )
+
+
 def _project_semantic_result(
     root: Path,
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
@@ -679,7 +894,12 @@ def _derived_definition(
     raise AssertionError(f"Derived relation not found: {name}")
 
 
-def _group_item_text(fact: ProjectGroupKeyFact) -> str:
+def _field_key(fact: object) -> ProjectGroupKeyFact:
+    assert type(fact) is ProjectGroupKeyFact
+    return fact
+
+
+def _group_item_text(fact: ProjectGroupKeyFact | ProjectComputedGroupKeyFact) -> str:
     key = fact.item.key
     if isinstance(key, NameExpr):
         return key.name

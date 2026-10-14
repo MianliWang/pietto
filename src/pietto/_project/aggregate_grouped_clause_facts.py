@@ -9,7 +9,9 @@ from enum import StrEnum
 
 from pietto._project.aggregate_grouped_schema import (
     ProjectAggregateGroupedSchemaFinalization,
-    ProjectGroupKeyFact,
+    ProjectAnyGroupKeyFact,
+    ProjectComputedGroupKeyFact,
+    ProjectGroupedSchemaFacts,
     ProjectGroupKeySchemaFacts,
     _build_project_group_key_schema_attempt,
     build_project_aggregate_grouped_schema_finalization,
@@ -124,7 +126,7 @@ class ProjectRelationClauseDependencyFact:
 
     kind: ProjectRelationClauseDependencyKind
     source_occurrence: GroupByItem | Expression | OrderItem
-    target_occurrence: ProjectGroupKeyFact | SelectItem
+    target_occurrence: ProjectAnyGroupKeyFact | SelectItem
     target_field: ProjectRowField
     aggregate_result_fact: ProjectAggregateResultFact | None
 
@@ -139,11 +141,11 @@ class ProjectRelationClauseDependencyFact:
         if self.kind is ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT:
             if not isinstance(self.source_occurrence, GroupByItem):
                 raise ValueError("Group dependency requires a group-by source")
-            if not isinstance(self.target_occurrence, ProjectGroupKeyFact):
+            if not isinstance(self.target_occurrence, ProjectAnyGroupKeyFact):
                 raise ValueError("Group dependency requires a group-key fact target")
             if self.target_occurrence.item is not self.source_occurrence:
                 raise ValueError("Group dependency source/fact identity mismatch")
-            if self.target_occurrence.input_field is not self.target_field:
+            if self.target_occurrence.key_field is not self.target_field:
                 raise ValueError("Group dependency input-field identity mismatch")
             if self.aggregate_result_fact is not None:
                 raise ValueError("Group dependency cannot carry an aggregate fact")
@@ -359,7 +361,7 @@ class _OutputTarget:
 
 @dataclass(frozen=True, slots=True)
 class _Evidence:
-    group_keys: tuple[ProjectGroupKeyFact, ...]
+    group_keys: tuple[ProjectAnyGroupKeyFact, ...]
     outputs: Mapping[str, _OutputTarget]
     missing: bool
     conflicting: bool
@@ -372,6 +374,7 @@ def build_project_aggregate_grouped_clause_readiness(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    let_computed_keys: bool = False,
 ) -> ProjectAggregateGroupedClauseReadiness:
     """Build atomic private clause facts over exactly one Slice 7 finalization."""
 
@@ -381,6 +384,7 @@ def build_project_aggregate_grouped_clause_readiness(
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
         let_scope_facts=let_scope_facts,
+        let_computed_keys=let_computed_keys,
     )
     if finalization.state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
         return ProjectAggregateGroupedClauseReadiness(
@@ -401,6 +405,7 @@ def build_project_aggregate_grouped_clause_readiness(
         fallback_path=fallback_path,
         finalization=finalization,
         let_scope_facts=let_scope_facts,
+        let_computed_keys=let_computed_keys,
     )
     if evidence.missing:
         return _failed_readiness(
@@ -471,7 +476,7 @@ def build_project_aggregate_grouped_clause_readiness(
             kind=ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT,
             source_occurrence=fact.item,
             target_occurrence=fact,
-            target_field=fact.input_field,
+            target_field=fact.key_field,
             aggregate_result_fact=None,
         )
         for fact in evidence.group_keys
@@ -546,10 +551,11 @@ def _retained_evidence(
     fallback_path: str,
     finalization: ProjectAggregateGroupedSchemaFinalization,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    let_computed_keys: bool = False,
 ) -> _Evidence:
     missing = False
     conflicting = False
-    group_keys: tuple[ProjectGroupKeyFact, ...] = ()
+    group_keys: tuple[ProjectAnyGroupKeyFact, ...] = ()
     if definition.group_by_clause is not None:
         if let_scope_facts is None:
             group_facts = build_project_group_key_schema_facts(
@@ -565,6 +571,7 @@ def _retained_evidence(
                 upstream_symbol=upstream_symbol,
                 fallback_path=fallback_path,
                 let_scope_facts=let_scope_facts,
+                let_computed_keys=let_computed_keys,
             )
             group_facts = (
                 group_attempt.facts
@@ -576,7 +583,12 @@ def _retained_evidence(
         elif not isinstance(group_facts, ProjectGroupKeySchemaFacts):
             conflicting = True
         else:
-            group_keys = tuple(group_facts.group_keys)
+            group_keys = tuple(
+                (_finalized_computed_key(fact, finalization) or fact)
+                if isinstance(fact, ProjectComputedGroupKeyFact)
+                else fact
+                for fact in group_facts.group_keys
+            )
             expected_items = tuple(definition.group_by_clause.items)
             if len(group_keys) < len(expected_items):
                 missing = True
@@ -586,6 +598,14 @@ def _retained_evidence(
                 item = expected_items[index]
                 if fact.item is not item:
                     conflicting = True
+                if isinstance(fact, ProjectComputedGroupKeyFact):
+                    assert let_scope_facts is not None
+                    finalized = _finalized_computed_key(fact, finalization)
+                    if finalized is not fact or not any(
+                        fact.binding is binding for binding in let_scope_facts.bindings
+                    ):
+                        conflicting = True
+                    continue
                 retained = input_schema.fields.get(fact.field_identity)
                 if retained is None:
                     missing = True
@@ -602,6 +622,25 @@ def _retained_evidence(
         missing=missing or output_missing,
         conflicting=conflicting or output_conflicting,
     )
+
+
+def _finalized_computed_key(
+    fact: ProjectComputedGroupKeyFact,
+    finalization: ProjectAggregateGroupedSchemaFinalization,
+) -> ProjectComputedGroupKeyFact | None:
+    """The finalized determinant object an equal re-derivation names, if any."""
+
+    candidate = finalization.candidate
+    matches = (
+        ()
+        if not isinstance(candidate, ProjectGroupedSchemaFacts)
+        else tuple(
+            key
+            for key in candidate.group_keys
+            if isinstance(key, ProjectComputedGroupKeyFact) and key.item is fact.item
+        )
+    )
+    return matches[0] if len(matches) == 1 and matches[0] == fact else None
 
 
 def _output_targets(
@@ -870,7 +909,7 @@ def _grouped_order_facts(
     *,
     definition: _DerivedRelation,
     input_schema: ProjectRowSchema,
-    group_keys: tuple[ProjectGroupKeyFact, ...],
+    group_keys: tuple[ProjectAnyGroupKeyFact, ...],
     outputs: Mapping[str, _OutputTarget],
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> tuple[

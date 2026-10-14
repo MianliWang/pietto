@@ -704,7 +704,9 @@ def stage_key_label(key):
         if key.alias is None:
             raise ValueError("Aggregate result ports require an authored alias")
         return key.alias
-    if isinstance(key, aggregation.ProjectGroupKeyFact):
+    if isinstance(
+        key, (aggregation.ProjectGroupKeyFact, aggregation.ProjectComputedGroupKeyFact)
+    ):
         return key.field_identity
     if isinstance(key, aggregation.ProjectJoinedGroupKeyOccurrence):
         return key.field_semantics.scalar_field.evidence.name

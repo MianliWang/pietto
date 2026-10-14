@@ -24,6 +24,8 @@ from pietto._project.aggregate_grouped_persistence import (
     _is_project_aggregate_grouped_definition,
 )
 from pietto._project.aggregate_grouped_schema import (
+    ProjectComputedGroupKeyFact,
+    ProjectGroupedSchemaFacts,
     _effective_group_key_expression,
 )
 from pietto._project.let_scope_facts import (
@@ -2957,6 +2959,7 @@ def _build_derived_relation_facts(
             upstream_symbol=upstream_symbol,
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
+            let_computed_keys=True,
         )
         base_state = _relation_state_from_aggregate_grouped_clause_readiness(readiness)
         aggregate_result_facts = tuple(
@@ -3017,6 +3020,7 @@ def _build_derived_relation_facts(
         grouped_order_state=window_state,
         let_scope=let_scope,
         aggregate_result_facts=aggregate_result_facts,
+        computed_group_keys=_computed_group_keys(readiness),
     )
     state = _apply_clause_ambiguity_to_window_state(
         window_state,
@@ -3726,6 +3730,7 @@ def _clause_dependency_facts(
     grouped_order_state: ProjectRelationRowSchemaState | None = None,
     let_scope: ProjectRelationLetScopeFacts,
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
+    computed_group_keys: tuple[ProjectComputedGroupKeyFact, ...] = (),
 ) -> tuple[ProjectModuleClauseDependencyFact, ...]:
     facts: list[ProjectModuleClauseDependencyFact] = []
     schema = (
@@ -3784,11 +3789,15 @@ def _clause_dependency_facts(
                         non_direct_let = True
                 else:
                     unavailable_let_status = _candidate_status_from_let_scope(let_scope)
+        computed = tuple(key for key in computed_group_keys if key.item is item)
         group_status = group_input_status
         if group_input_status is not ProjectModuleCandidateBucketStatus.CONCRETE:
             pass
         elif unavailable_let_status is not None:
             group_status = unavailable_let_status
+        elif non_direct_let and len(computed) == 1:
+            input_field = computed[0].key_field
+            group_status = ProjectModuleCandidateBucketStatus.CONCRETE
         elif non_direct_let or not valid:
             group_status = ProjectModuleCandidateBucketStatus.UNKNOWN
         else:
@@ -3921,6 +3930,19 @@ def _clause_dependency_facts(
                 )
             )
     return tuple(facts)
+
+
+def _computed_group_keys(
+    readiness: ProjectAggregateGroupedClauseReadiness | None,
+) -> tuple[ProjectComputedGroupKeyFact, ...]:
+    """Return the finalized computed LET determinants, never a re-derivation."""
+
+    candidate = None if readiness is None else readiness.finalization.candidate
+    if type(candidate) is not ProjectGroupedSchemaFacts:
+        return ()
+    return tuple(
+        key for key in candidate.group_keys if type(key) is ProjectComputedGroupKeyFact
+    )
 
 
 def _group_key_let_expands_to_direct_name(

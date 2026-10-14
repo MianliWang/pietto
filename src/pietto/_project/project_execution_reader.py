@@ -157,6 +157,30 @@ def check_native_column(
             # below still apply. Source and unguarded ABI contracts stay exact.
             expected_code = 252
         if (
+            source_field is None
+            and type(meta) in (tuple, list)
+            and len(meta) == 9
+            and type(meta[1]) is int
+            and meta[1] == 3
+            and (
+                storage == "my_signed_bool"
+                or (
+                    storage == "my_signed_int"
+                    and real.domain.get("kind") == "int_range"
+                    and -(2**31)
+                    <= int(real.domain["min"])
+                    <= int(real.domain["max"])
+                    < 2**31
+                )
+            )
+        ):
+            # MySQL materializes a computed signed value below ten display
+            # characters as INT (LONG): a GROUP BY over a computed Bool key
+            # reports 3, not the expression's BIGINT. Its verified domain fits
+            # and every value is still checked against it; source storage
+            # contracts stay exact.
+            expected_code = 3
+        if (
             type(meta) not in (tuple, list)
             or len(meta) != 9
             or type(meta[0]) is not str

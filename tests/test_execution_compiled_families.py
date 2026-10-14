@@ -13,6 +13,7 @@ from pietto._project.project_compiled_loading import load_compiled
 from pietto._project.project_compiled_lowering import emit_compiled
 from pietto._project.project_execution_template import BindingError
 from pietto._project.project_result_output import prepare_output
+from pietto._project.project_sql_emission import serialize_project_sql_emission
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -62,7 +63,77 @@ def test_loaded_null_test_rehydrates_non_null_bool(tmp_path, target, operator):
     )
 
 
-def _compare(artifact):
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("variant", ("let_key", "bind"))
+def test_computed_let_determinant_replays_from_compiled_input(
+    tmp_path, target, variant
+):
+    """A CASE determinant and MAX over a CASE LET value replay their own ports."""
+    item = emission.fixture(target, "Y_aggregate_computed", variant)
+    checked, original = emission.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    assert len(original.artifact.parameter_uses) == (6 if variant == "bind" else 0)
+    # The R2 refinement page verifier does not read CASE yet (fails closed).
+    _compare(original.artifact, refinement=False)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("bound", (False, True))
+def test_computed_comparison_determinant_refines_from_compiled_input(
+    tmp_path, target, bound
+):
+    """A comparison determinant and MAX over a LET value also keep the compiled
+    refinement differential; the public R2 entry still refuses this shape."""
+    item = emission.fixture(
+        target, "Y_aggregate_satisfying", "bind" if bound else "retained"
+    )
+    source = emission.AGGREGATE_HEADER.format(target=target) + (
+        "query result:\n    from agg\n    let:\n        big = value > 5\n"
+        "        level = 3\n    group by:\n        big\n    select:\n        big\n"
+        "        total = count()\n        top = max(level)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    assert len(original.artifact.parameter_uses) == (2 if bound else 0)
+    _compare(original.artifact)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "value",
+    (
+        "1 if key > 1 else 0",
+        "key between 1 and 3",
+        "key in (1, 2)",
+        "cast(key as Float)",
+    ),
+)
+def test_row_let_operation_keeps_its_requirement_rules_on_replay(
+    tmp_path, target, value
+):
+    """The compiled input attributes each retained demand as the source did."""
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    source = emission.AGGREGATE_HEADER.format(target=target) + (
+        f"query result:\n    from agg\n    let:\n        w = {value}\n"
+        "    select:\n        w\n        rid\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    # The independent public consumer derives the source rules on its own.
+    emission.decode_public(serialize_project_sql_emission(original))
+    # The R2 refinement page verifier does not read these operations yet.
+    _compare(original.artifact, refinement=False)
+
+
+def _compare(artifact, *, refinement=True):
     assert artifact is not None
     reference = prepare_output(artifact)
     built = build_compiled(artifact)
@@ -153,7 +224,8 @@ def _compare(artifact):
     )
     _compare_requirements(artifact, candidate)
     _compare_aggregate_evidence(artifact.request.plan, candidate.request.plan)
-    _compare_refinement(artifact)
+    if refinement:
+        _compare_refinement(artifact)
     assert len(candidate.parameter_uses) == len(artifact.parameter_uses)
     assert all(
         new is not old

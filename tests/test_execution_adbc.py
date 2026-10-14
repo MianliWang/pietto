@@ -261,6 +261,55 @@ def test_mysql_unsigned_computed_domain_is_not_source_signedness(tmp_path):
         _value(-1, binding.fields[1])
 
 
+def test_mysql_materialized_computed_group_keys_report_int(tmp_path):
+    """MySQL materializes a computed key below ten display characters as INT
+    (LONG, 3): natively observed for a Bool key. Values stay checked; a source
+    Bool and a computed key wider than signed32 keep their exact carriers."""
+    import json
+
+    import _pietto_sql_emission as emission
+
+    item = emission.aggregate_fixture("mysql", "Y_aggregate_computed", "let_key")
+    contract = json.loads(item["contract"])
+    contract["sources"][0]["fields"][0]["representation"] = {
+        "storage": {"kind": "my_smallint"},
+        "nullable": True,
+        "domain": {"kind": "int_range", "min": "-5", "max": "5"},
+    }
+    _, outcome = emission.build_case(
+        tmp_path,
+        emission.AGGREGATE_HEADER.format(target="mysql")
+        + "query result:\n    from agg\n    let:\n        big = rid > 5\n"
+        "        small = key + key\n        wide = rid + 0\n    group by:\n"
+        "        big\n        small\n        flag\n        wide\n    select:\n"
+        "        b = big\n        s = small\n        f = flag\n        w = wide\n"
+        "        total = count()\n",
+        emission.encoded(contract).decode(),
+    )
+    output = prepare_output(outcome.artifact)
+    assert [c.realization.storage["kind"] for c in output.columns] == [
+        "my_signed_bool",
+        "my_signed_int",
+        "my_bool01",
+        "my_signed_int",
+        "my_bigint",
+    ]
+    codes = [3, 3, 1, 8, 8]
+    metadata = [
+        [c.label, code, None, None, None, None, 1, 0, 63]
+        for c, code in zip(output.columns, codes, strict=True)
+    ]
+    _, rows = decode_native_rows(output, "mysql_rows", metadata, [(1, -10, 0, 7, 2)])
+    assert rows == ((1, -10, 0, 7, 2),)
+    with pytest.raises(ResultError):
+        decode_native_rows(output, "mysql_rows", metadata, [(2, 0, 0, 7, 2)])
+    for ordinal in (2, 3):
+        forged = deepcopy(metadata)
+        forged[ordinal][1] = 3
+        with pytest.raises(ResultError, match="^EXECUTION_METADATA$"):
+            bind_native_output(output, "mysql_rows", forged)
+
+
 def test_metadata_primitives_and_foreign_runtime_prefix(tmp_path):
     from _pietto_execution_rows_probe import check_origins
     import sys
