@@ -13,7 +13,14 @@ from pietto._project import project_joined_aggregation as aggregation
 from pietto._project import project_joined_row_filter as row_filter
 from pietto._project import project_multifact as multifact
 from pietto._project import project_ir_relational_properties as relational
-from pietto._project.model import ProjectSemanticResult
+from pietto._project.check import check_project_parse_only
+from pietto._project.model import (
+    ProjectSemanticResult,
+    build_empty_project_semantic_result,
+)
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto.ast_nodes import DottedNameExpr, QueryDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
@@ -166,17 +173,133 @@ query ambiguous_group_key:
         id
     select:
         total = count()
-query computed_let_group_key:
+query computed_alias_group_key:
     from accounts
     inner join events as event:
         from accounts
         via account_events: account -> event
     let:
         computed = event.metric + 1
+        alias = computed
     group by:
-        computed
+        alias
     select:
         total = count()
+query computed_both_sides_key:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        band = accounts.metric > event.metric
+    group by:
+        band
+        accounts.id
+    select:
+        high = band
+        account_id = accounts.id
+        total = sum(event.metric)
+query computed_fanout_key:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        same_event = event.id + 0
+    group by:
+        same_event
+    select:
+        event_id = same_event
+        total = sum(accounts.metric)
+query computed_self_key:
+    from events
+    inner join events as parent:
+        from events
+        via event_parent: child -> parent
+    let:
+        older = events.id > parent.id
+    group by:
+        older
+    select:
+        older
+        total = count()
+query computed_duplicate_key:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        band = accounts.metric > event.metric
+    group by:
+        band
+        band
+    select:
+        total = count()
+query computed_extrema:
+    from events
+    inner join events as parent:
+        from events
+        via event_parent: child -> parent
+    let:
+        gap = parent.id + events.id * 0
+    group by:
+        events.id
+    select:
+        event_id = events.id
+        low = min(gap)
+        high = max(gap)
+query computed_extrema_blocked:
+    from events
+    inner join events as parent:
+        from events
+        via event_parent: child -> parent
+    let:
+        fixed = 3
+        tag = parent.label
+    group by:
+        events.id
+    select:
+        event_id = events.id
+        top = max(fixed)
+        name = min(tag)
+query extremum_fanout_let:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        same_event = event.id + 0
+        measured = accounts.metric + 0
+    group by:
+        same_event
+    select:
+        event_id = same_event
+        top = max(measured)
+query extremum_fanout_field:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        same_event = event.id + 0
+    group by:
+        same_event
+    select:
+        event_id = same_event
+        top = max(accounts.metric)
+query extremum_fanout_constant:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        same_event = event.id + 0
+        constant = 7
+    group by:
+        same_event
+    select:
+        event_id = same_event
+        top = max(constant)
 query pure_grouping:
     from accounts
     inner join events as event:
@@ -214,7 +337,7 @@ query aggregate_errors:
         wrong_arity = sum(event.metric, accounts.metric)
         sum(event.metric)
         unsupported = min(event.metric + accounts.metric)
-        unapproved_let = min(amount)
+        unapproved_let = min(amount + 1)
 query wrong_type_only:
     from accounts
     inner join events as event:
@@ -500,31 +623,30 @@ def test_group_keys_preserve_direct_let_duplicate_and_occurrence_identity(
     assert type(grouped_let) is aggregation.ProjectConcreteJoinedAggregation
     assert type(distinct) is aggregation.ProjectConcreteJoinedAggregation
     assert len(grouped.group_keys) == 1
-    assert type(grouped.group_keys[0].item.key) is DottedNameExpr
-    assert grouped.group_keys[0].item.key.parts == ("accounts", "id")
-    assert grouped.group_keys[0].value_type is (
-        grouped.group_keys[0].field_semantics.scalar_field.value_type
+    grouped_key = _field_key(grouped.group_keys[0])
+    assert type(grouped_key.item.key) is DottedNameExpr
+    assert grouped_key.item.key.parts == ("accounts", "id")
+    assert grouped_key.value_type is (
+        grouped_key.field_semantics.scalar_field.value_type
     )
 
-    let_key = grouped_let.group_keys[0]
+    let_key = _field_key(grouped_let.group_keys[0])
+    first, second = (_field_key(key) for key in distinct.group_keys)
     assert tuple(type(item) for item in let_key.resolutions) == (
         aggregation.ProjectJoinedLetReferenceResolution,
         aggregation.ProjectScalarReferenceResolution,
     )
     assert let_key.effective_expression is let_key.resolutions[-1].reference.expression
     assert let_key.field_semantics.joined_field.evidence.name == "id"
-    assert tuple(key.field_semantics for key in distinct.group_keys) == tuple(
-        output.group_key.field_semantics
+    assert (first.field_semantics, second.field_semantics) == tuple(
+        _field_key(output.group_key).field_semantics
         for output in distinct.stage_outputs
         if output.role is aggregation.ProjectJoinedStageOutputRole.GROUP_KEY
-        and output.group_key is not None
     )
-    assert distinct.group_keys[0].field_semantics is not (
-        distinct.group_keys[1].field_semantics
-    )
+    assert first.field_semantics is not second.field_semantics
     assert (
-        distinct.group_keys[0].field_semantics.joined_field.evidence.name
-        == distinct.group_keys[1].field_semantics.joined_field.evidence.name
+        first.field_semantics.joined_field.evidence.name
+        == second.field_semantics.joined_field.evidence.name
         == "id"
     )
 
@@ -558,7 +680,7 @@ def test_group_keys_preserve_direct_let_duplicate_and_occurrence_identity(
             aggregation.ProjectJoinedGroupKeyIssueKind.REFERENCE_NON_CONCRETE,
         ),
         (
-            "computed_let_group_key",
+            "computed_alias_group_key",
             aggregation.ProjectJoinedGroupKeyIssueKind.COMPUTED_LET_EXPRESSION,
         ),
     ),
@@ -578,6 +700,341 @@ def test_unknown_ambiguous_and_computed_group_keys_fail_closed(
     )
     assert issue.kind is kind
     assert _error_codes(result)[0] == "PIE-S2102"
+    if name == "computed_alias_group_key":
+        # S05j admits a key naming its computed LET; an alias of one stays refused.
+        assert [
+            (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+        ] == [("PIE-S2102", "Unknown field: alias")]
+
+
+def _field_key(key: object) -> aggregation.ProjectJoinedGroupKeyOccurrence:
+    assert type(key) is aggregation.ProjectJoinedGroupKeyOccurrence
+    return key
+
+
+def _protection_root(
+    protection: aggregation.ProjectJoinedGroupProtection,
+) -> tuple[object, object]:
+    return protection.input_properties, protection.introduction_use
+
+
+def test_computed_key_records_both_join_sides_and_seeds_no_protection(
+    built: _Built,
+) -> None:
+    result = _result(built, "computed_both_sides_key")
+    assert type(result) is aggregation.ProjectConcreteJoinedAggregation
+    band, account_id = result.group_keys
+    assert type(band) is aggregation.ProjectJoinedComputedGroupKeyOccurrence
+    assert type(account_id) is aggregation.ProjectJoinedGroupKeyOccurrence
+    assert band.let_value.occurrence.binding.name == "band"
+    assert band.value_type is band.let_value.value_type
+    # The exact JOIN-side occurrences the value reads, in source leaf order.
+    accounts_metric, event_metric = band.field_dependencies
+    assert accounts_metric.joined_field.evidence.name == "metric"
+    assert event_metric.joined_field.evidence.name == "metric"
+    assert accounts_metric.introduction_use is (
+        account_id.field_semantics.introduction_use
+    )
+    assert event_metric.introduction_use is not accounts_metric.introduction_use
+    # Protection: the accounts side is proven by its direct STRICT key only; the
+    # events side is recorded for the computed key and seeds no class at all.
+    accounts_side, events_side = result.group_protections
+    assert _protection_root(accounts_side) == (
+        accounts_metric.input_properties,
+        accounts_metric.introduction_use,
+    )
+    assert _protection_root(events_side) == (
+        event_metric.input_properties,
+        event_metric.introduction_use,
+    )
+    assert accounts_side.group_keys == (account_id,)
+    assert accounts_side.computed_keys == events_side.computed_keys == (band,)
+    assert events_side.group_keys == () and events_side.seed.classes == ()
+    assert accounts_side.protected_factors and not events_side.protected_factors
+    assert all(
+        determination.status is relational.ProjectIROutputDeterminationStatus.NOT_PROVEN
+        for determination in events_side.determinations
+    )
+    # Grain linkage records both computed sides; only proven factors are seeded.
+    (linkage,) = result.grain_linkages
+    assert set(linkage.computed_key_factors) == {
+        *multifact._localized_input_factors(
+            grain=accounts_metric.input_properties.grain,
+            introduction_use=accounts_metric.introduction_use,
+            final_grain=linkage.final_grain,
+        ),
+        *multifact._localized_input_factors(
+            grain=event_metric.input_properties.grain,
+            introduction_use=event_metric.introduction_use,
+            final_grain=linkage.final_grain,
+        ),
+    }
+    assert set(linkage.group_protection_factors) == set(accounts_side.protected_factors)
+    assert linkage.requirements == ()
+    (high, account_output, _) = result.stage_outputs
+    assert high.role is aggregation.ProjectJoinedStageOutputRole.GROUP_KEY
+    assert high.group_key is band and high.output_name == "high"
+    assert account_output.group_key is account_id
+
+
+def test_computed_key_never_protects_against_fanout(built: _Built) -> None:
+    """`event.id + 0` is not assumed injective, so the accounts sum fans out."""
+    absorbed = _result(built, "fanout_absorbed")
+    computed = _result(built, "computed_fanout_key")
+    assert type(absorbed) is aggregation.ProjectConcreteJoinedAggregation
+    assert type(computed) is aggregation.ProjectNonConcreteJoinedAggregation
+    assert computed.reason is (
+        aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
+    )
+    (key,) = (
+        item
+        for item in computed.group_key_results
+        if type(item) is aggregation.ProjectJoinedComputedGroupKeyOccurrence
+    )
+    (protection,) = computed.group_protections
+    assert protection.computed_keys == (key,) and protection.group_keys == ()
+    assert protection.protected_factors == ()
+    (linkage,) = computed.grain_linkages
+    (events_side,) = key.field_dependencies
+    assert set(linkage.computed_key_factors) == set(
+        multifact._localized_input_factors(
+            grain=events_side.input_properties.grain,
+            introduction_use=events_side.introduction_use,
+            final_grain=linkage.final_grain,
+        )
+    )
+    assert linkage.computed_key_factors
+    assert linkage.group_protection_factors == ()
+    assert not set(linkage.computed_key_factors) & set(linkage.combined_seed.factors)
+    assert linkage.requirements == (
+        multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,
+    )
+    assert absorbed.grain_linkages[0].requirements == ()
+    assert computed.diagnostics == ()
+
+
+def test_computed_key_keeps_self_join_occurrences_distinct(built: _Built) -> None:
+    result = _result(built, "computed_self_key")
+    assert type(result) is aggregation.ProjectConcreteJoinedAggregation
+    (key,) = result.group_keys
+    assert type(key) is aggregation.ProjectJoinedComputedGroupKeyOccurrence
+    child, parent = key.field_dependencies
+    assert child.joined_field.evidence.name == parent.joined_field.evidence.name
+    assert child is not parent
+    assert child.introduction_use is not parent.introduction_use
+    assert tuple(_protection_root(p) for p in result.group_protections) == (
+        (child.input_properties, child.introduction_use),
+        (parent.input_properties, parent.introduction_use),
+    )
+    assert all(
+        protection.computed_keys == (key,) and not protection.protected_factors
+        for protection in result.group_protections
+    )
+    (output, _) = result.stage_outputs
+    assert output.group_key is key and output.output_name == "older"
+
+
+def test_repeated_computed_key_is_one_duplicate_without_a_winner(
+    built: _Built,
+) -> None:
+    result = _result(built, "computed_duplicate_key")
+    assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
+    first, second = result.group_key_results
+    assert type(first) is aggregation.ProjectJoinedComputedGroupKeyOccurrence
+    assert type(second) is aggregation.ProjectJoinedGroupKeyIssue
+    assert second.kind is (
+        aggregation.ProjectJoinedGroupKeyIssueKind.DUPLICATE_EFFECTIVE_FIELD
+    )
+    assert second.duplicate_of is first
+    assert [(d.code, d.message) for d in result.diagnostics] == [
+        ("PIE-S2317", "Duplicate GROUP BY key: band")
+    ]
+
+
+def test_computed_key_evidence_rejects_forged_sides(built: _Built) -> None:
+    result = _result(built, "computed_both_sides_key")
+    assert type(result) is aggregation.ProjectConcreteJoinedAggregation
+    band = result.group_keys[0]
+    assert type(band) is aggregation.ProjectJoinedComputedGroupKeyOccurrence
+    with pytest.raises(ValueError, match="exact LET authority"):
+        replace(band, field_dependencies=band.field_dependencies[:1])
+    with pytest.raises(ValueError, match="complete exact key evidence"):
+        replace(result.group_protections[1], computed_keys=())
+    (linkage,) = result.grain_linkages
+    with pytest.raises(ValueError, match="exact source order"):
+        replace(result, grain_linkages=(replace(linkage, computed_key_factors=()),))
+    # The concrete stage re-derives every side's record from the keys: a
+    # dropped, reordered or re-membered record is refused, and so is a dropped
+    # proving record whose factors the linkage still seeds.
+    accounts_side, events_side = result.group_protections
+    for forged in (
+        (accounts_side,),
+        (events_side, accounts_side),
+        (replace(accounts_side, computed_keys=()), events_side),
+    ):
+        with pytest.raises(ValueError, match="cover every group key"):
+            replace(result, group_protections=forged)
+    with pytest.raises(ValueError, match="exact source order"):
+        replace(result, group_protections=(events_side,))
+
+
+def test_extrema_over_a_joined_let_value_read_its_exact_join_sides(
+    built: _Built,
+) -> None:
+    """A12: MIN/MAX accept one row LET name with JOIN inputs; the argument
+    reaches every field occurrence the value reads and the result admits NULL."""
+    result = _result(built, "computed_extrema")
+    assert type(result) is aggregation.ProjectConcreteJoinedAggregation
+    (key,) = result.group_keys
+    child_key = _field_key(key)
+    low, high = result.aggregates
+    assert (low.function_name, high.function_name) == ("min", "max")
+    for aggregate in (low, high):
+        assert aggregate.argument_analysis is not None
+        argument_type = aggregate.argument_analysis.value_type
+        assert aggregate.result_value_type.resolved_type == argument_type.resolved_type
+        assert aggregate.result_value_type.nullability is EffectiveNullability.NULLABLE
+        parent_id, child_id = aggregate.field_dependencies
+        path = tuple(value.occurrence.binding.name for value in parent_id.let_path)
+        assert path == ("gap",)
+        assert child_id.field_semantics.introduction_use is (
+            child_key.field_semantics.introduction_use
+        )
+        assert parent_id.field_semantics.introduction_use is not (
+            child_id.field_semantics.introduction_use
+        )
+        assert parent_id.field_semantics.joined_field.evidence.name == "id"
+    assert all(linkage.argument_factors for linkage in result.grain_linkages)
+
+
+def test_extrema_over_a_joined_let_value_keep_the_field_fanout_law(
+    built: _Built,
+) -> None:
+    """The LET argument links the sides it reads exactly like the field; a
+    field-free value links none, so the fan-out is not absorbed either."""
+    through_let = _result(built, "extremum_fanout_let")
+    direct = _result(built, "extremum_fanout_field")
+    constant = _result(built, "extremum_fanout_constant")
+    for result in (through_let, direct, constant):
+        assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
+        assert result.reason is (
+            aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
+        )
+        assert result.diagnostics == ()
+    (let_linkage,), (field_linkage,) = through_let.grain_linkages, direct.grain_linkages
+    assert let_linkage.requirements == field_linkage.requirements != ()
+    assert tuple(f.kind for f in let_linkage.argument_factors) == tuple(
+        f.kind for f in field_linkage.argument_factors
+    )
+    (constant_linkage,) = constant.grain_linkages
+    assert constant_linkage.argument_factors == ()
+    assert constant_linkage.requirements == field_linkage.requirements
+
+
+def _source_position(text: str) -> tuple[int, int]:
+    (line,) = (
+        number
+        for number, value in enumerate(PROJECT_SOURCE.splitlines(), start=1)
+        if text in value
+    )
+    return line, PROJECT_SOURCE.splitlines()[line - 1].index(text) + 1
+
+
+def test_extrema_over_a_field_free_joined_let_value_link_no_side(
+    built: _Built,
+) -> None:
+    """A12: `fixed = 3` reads no joined field, so MIN/MAX over it is admitted as
+    without JOIN and its argument links no JOIN side; only the Text value keeps
+    its type refusal."""
+    result = _result(built, "computed_extrema_blocked")
+    assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
+    assert result.reason is (
+        aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_NON_CONCRETE
+    )
+    top, name = result.aggregate_results
+    assert type(top) is aggregation.ProjectJoinedAggregateOccurrence
+    assert top.field_dependencies == ()
+    assert top.result_value_type.nullability is EffectiveNullability.NULLABLE
+    assert type(name) is aggregation.ProjectJoinedAggregateIssue
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2314",
+            "Aggregate function min expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Text",
+            *_source_position("min(tag)"),
+        ),
+    ]
+
+
+_JOINED_KEY_QUERY = """query computed_key_tail:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    let:
+        band = accounts.metric > event.metric
+    group by:
+        band
+    select:
+        high = band
+        total = count()
+"""
+
+
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    (
+        (
+            "        position = row_number() window:\n"
+            "            order by:\n                high\n",
+            [("PIE-S2102", "Unknown field: high", 15, 17)],
+        ),
+        (
+            "        position = row_number() window:\n"
+            "            partition by:\n                high\n",
+            [("PIE-S2102", "Unknown field: high", 15, 17)],
+        ),
+        (
+            "        position = row_number() window:\n"
+            "            order by:\n                total\n"
+            "    qualify:\n        high\n",
+            [("PIE-S2332", "Unknown QUALIFY reference: high", 17, 9)],
+        ),
+        (
+            "        position = row_number() window:\n"
+            "            order by:\n                total\n"
+            "    qualify:\n        row_number() window:\n"
+            "            order by:\n                high\n        <= 1\n",
+            [("PIE-S2102", "Unknown field: high", 19, 17)],
+        ),
+        ("    satisfying:\n        high\n    order by:\n        high desc\n", []),
+    ),
+    ids=("window_order", "window_partition", "qualify", "hidden_window", "ordered"),
+)
+def test_a_joined_computed_key_output_orders_but_stays_outside_windows(
+    tmp_path: Path, tail: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    """Grouped ORDER BY and satisfying name the selected key; windows and
+    QUALIFY keep their unknown-name refusals with every diagnostic."""
+    header = PROJECT_SOURCE.split("query absent_stage:")[0]
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        header + _JOINED_KEY_QUERY + tail, encoding="utf-8"
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    offset = header.count("\n")
+    assert completed.ok is not expected
+    assert [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ] == expected
 
 
 def test_pure_grouping_and_non_grouped_projection_keep_current_diagnostics(
@@ -683,7 +1140,7 @@ def test_approved_let_and_multi_field_aggregate_dependencies_are_complete(
     )
     assert dependency.field_semantics.joined_field.evidence.name == "metric"
     assert dependency.field_semantics.introduction_use is (
-        grouped_let.group_keys[0].field_semantics.introduction_use
+        _field_key(grouped_let.group_keys[0]).field_semantics.introduction_use
     )
 
     aggregate = multi.aggregates[0]
@@ -769,7 +1226,7 @@ def test_fanout_risk_and_group_key_protection_use_exact_phase62_proofs(
     assert len(absorbed.group_protections) == 1
     protection = absorbed.group_protections[0]
     assert protection.input_properties is (
-        absorbed.group_keys[0].field_semantics.input_properties
+        _field_key(absorbed.group_keys[0]).field_semantics.input_properties
     )
     assert protection.protected_factors
     assert all(

@@ -108,7 +108,8 @@ VARIANTS = {
     "Y_aggregate_constant": ("grouped", "empty"),
     # S05g: an explicit-module computed LET determinant and MAX over a LET value;
     # the bound variant carries every literal as one CTE-stage native parameter.
-    "Y_aggregate_computed": ("let_key", "bind"),
+    # S05j: a determinant computed from both sides of a fanning-out JOIN.
+    "Y_aggregate_computed": ("let_key", "bind", "join_key"),
     "Y_aggregate_satisfying": ("retained", "let_reference", "bind", "before_input"),
     "Y_aggregate_domains": ("bool_key", "text_key", "decimal_key"),
     "Z_aggregate_composition": (
@@ -1136,6 +1137,25 @@ AGGREGATE_COMPUTED = """query result:
         total = count()
         top = max(weight)
 """
+# S05j: the determinant reads both JOIN sides (and a literal); only the LET
+# column it establishes is grouped, and COUNT(*) counts joined occurrences.
+# MIN/MAX read the joined LET value `level`, which is the right side's rid.
+AGGREGATE_COMPUTED_JOIN = """query result:
+    from agg
+    inner join agg as r:
+        from agg
+        on agg.key == r.key
+    let:
+        later = agg.rid > r.rid or r.rid > 12
+        level = r.rid + agg.rid * 0
+    group by:
+        later
+    select:
+        b = later
+        total = count()
+        low = min(level)
+        top = max(level)
+"""
 GROUPED_HIDDEN = """query result:
     from agg
     group by:
@@ -1250,6 +1270,7 @@ query result:
 """,
     ("Y_aggregate_computed", "let_key"): AGGREGATE_COMPUTED,
     ("Y_aggregate_computed", "bind"): AGGREGATE_COMPUTED,
+    ("Y_aggregate_computed", "join_key"): AGGREGATE_COMPUTED_JOIN,
     ("Z_aggregate_composition", "let_where"): """query result:
     from agg
     let:
@@ -1395,6 +1416,7 @@ AGGREGATE_LABELS = {
     ("X_aggregate_grouped", "visible"): ("f", "renamed", "again", "total"),
     ("Y_aggregate_constant", None): ("c0", "total"),
     ("Y_aggregate_computed", None): ("b", "total", "top"),
+    ("Y_aggregate_computed", "join_key"): ("b", "total", "low", "top"),
     ("Y_aggregate_satisfying", "retained"): ("k", "total", "lo"),
     ("Y_aggregate_satisfying", "bind"): ("k", "total", "lo"),
     ("Y_aggregate_satisfying", "before_input"): ("k", "total", "lo"),
@@ -1422,6 +1444,7 @@ AGGREGATE_LOGICAL = {
     ("X_aggregate_grouped", "visible"): ("Bool", "Int", "Int", "Int"),
     ("Y_aggregate_constant", None): ("Int", "Int"),
     ("Y_aggregate_computed", None): ("Int", "Int", "Int"),
+    ("Y_aggregate_computed", "join_key"): ("Bool", "Int", "Int", "Int"),
     ("Y_aggregate_satisfying", "retained"): ("Int", "Int", "Int"),
     ("Y_aggregate_satisfying", "bind"): ("Int", "Int", "Int"),
     ("Y_aggregate_satisfying", "before_input"): ("Int", "Int", "Int"),
@@ -5911,6 +5934,8 @@ def _decode_fixed_public(document, limits):
                 "read": read,
                 "strict": read.get("strict", False)
                 or read["realization"]["nullable"] is not True,
+                "proof": read.get("proof", False)
+                or read["realization"]["nullable"] is False,
             }
         original = node["expression"]
         kind = "arithmetic" if node["kind"] == "sign" else node["kind"]
@@ -6629,12 +6654,35 @@ def _decode_fixed_public(document, limits):
             result_strict = any(item["nullable"] is False for item in operands)
         elif node["kind"] == "scalar_call" and node["name"] == "nullif":
             result_strict = False
+        # The semantic NON_NULL proof a carried computed value may claim mirrors
+        # the let value's own typing, not physical strictness: comparison,
+        # logical, arithmetic and BETWEEN results stay UNKNOWN there.
+        proofs = [item.get("proof", item["nullable"] is False) for item in operands]
+        if node["kind"] == "conditional":
+            result_proof = proofs[0] and proofs[2]
+        elif node["kind"] == "null_test" or (
+            node["kind"] == "membership" and not proofs
+        ):
+            result_proof = True
+        elif node["kind"] == "scalar_call" and node["name"] == "coalesce":
+            result_proof = any(proofs)
+        elif node["kind"] == "scalar_call" and node["name"] == "nullif":
+            result_proof = False
+        else:
+            result_proof = node["kind"] in {
+                "sign",
+                "not",
+                "cast",
+                "membership",
+                "scalar_call",
+            } and all(proofs)
         return {
             **result,
             "root": original,
             "operands": [item["root"] for item in operands],
             "kind": kind,
             "strict": result_strict,
+            "proof": result_proof,
         }
 
     row_counts = {
@@ -7999,7 +8047,7 @@ def _decode_fixed_public(document, limits):
                     # A carried computed value keeps its producer's own non-null
                     # proof; only a later NON_NULL claim may consume it.
                     "proof": (
-                        root.get("strict", False)
+                        root.get("proof", False)
                         if root is not None
                         else read is not None
                         and node["kind"] in CARRIED_KINDS

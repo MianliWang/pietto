@@ -465,6 +465,100 @@ query result:
 }
 
 
+# S05j: the JOIN image, then one LET stage that establishes the determinant from
+# both sides once, then GROUP BY that qualified LET column only.
+_PG_JOIN_LET = (
+    'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8",'
+    ' "c9", "c10", "c11", "c12", "c13") AS (SELECT "m0"."group key" AS'
+    ' "c0", "m0"."value é" AS "c1", "m0"."flag value" AS "c2", "m0"."text'
+    ' `""é" AS "c3", "m0"."amount value" AS "c4", "m0"."ratio value" AS'
+    ' "c5", "m0"."row id" AS "c6", "m1"."group key" AS "c7", "m1"."value'
+    ' é" AS "c8", "m1"."flag value" AS "c9", "m1"."text `""é" AS "c10",'
+    ' "m1"."amount value" AS "c11", "m1"."ratio value" AS "c12", "m1"."row'
+    ' id" AS "c13" FROM "public"."phase66 agg é" AS "m0" INNER JOIN'
+    ' "public"."phase66 agg é" AS "m1" ON ("m0"."group key" = "m1"."group'
+    ' key")), "p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8",'
+    ' "c9", "c10", "c11", "c12", "c13", "c14") AS (SELECT "t0"."c0" AS'
+    ' "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", "t0"."c3" AS "c3",'
+    ' "t0"."c4" AS "c4", "t0"."c5" AS "c5", "t0"."c6" AS "c6", "t0"."c7"'
+    ' AS "c7", "t0"."c8" AS "c8", "t0"."c9" AS "c9", "t0"."c10" AS "c10",'
+    ' "t0"."c11" AS "c11", "t0"."c12" AS "c12", "t0"."c13" AS "c13", '
+)
+_MY_JOIN_LET = (
+    "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`,"
+    " `c9`, `c10`, `c11`, `c12`, `c13`) AS (SELECT `m0`.`group key` AS"
+    " `c0`, `m0`.`value é` AS `c1`, `m0`.`flag value` AS `c2`, `m0`.`text"
+    ' ``"é` AS `c3`, `m0`.`amount value` AS `c4`, `m0`.`ratio value` AS'
+    " `c5`, `m0`.`row id` AS `c6`, `m1`.`group key` AS `c7`, `m1`.`value"
+    ' é` AS `c8`, `m1`.`flag value` AS `c9`, `m1`.`text ``"é` AS `c10`,'
+    " `m1`.`amount value` AS `c11`, `m1`.`ratio value` AS `c12`, `m1`.`row"
+    " id` AS `c13` FROM `phase66`.`phase66 agg é` AS `m0` INNER JOIN"
+    " `phase66`.`phase66 agg é` AS `m1` ON (`m0`.`group key` = `m1`.`group"
+    " key`)), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`,"
+    " `c9`, `c10`, `c11`, `c12`, `c13`, `c14`) AS (SELECT `t0`.`c0` AS"
+    " `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, `t0`.`c3` AS `c3`,"
+    " `t0`.`c4` AS `c4`, `t0`.`c5` AS `c5`, `t0`.`c6` AS `c6`, `t0`.`c7`"
+    " AS `c7`, `t0`.`c8` AS `c8`, `t0`.`c9` AS `c9`, `t0`.`c10` AS `c10`,"
+    " `t0`.`c11` AS `c11`, `t0`.`c12` AS `c12`, `t0`.`c13` AS `c13`, "
+)
+_PG_JOIN_MID = (
+    ' AS "c14" FROM "p0" AS "t0"), "p2" ("c0", "c1", "c2", "c3", "c4",'
+    ' "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14",'
+    ' "c15") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2"'
+    ' AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", "t1"."c5" AS "c5",'
+    ' "t1"."c6" AS "c6", "t1"."c7" AS "c7", "t1"."c8" AS "c8",'
+    ' "t1"."c9" AS "c9", "t1"."c10" AS "c10", "t1"."c11" AS "c11",'
+    ' "t1"."c12" AS "c12", "t1"."c13" AS "c13", "t1"."c14" AS "c14", '
+)
+_MY_JOIN_MID = (
+    " AS `c14` FROM `p0` AS `t0`), `p2` (`c0`, `c1`, `c2`, `c3`, `c4`,"
+    " `c5`, `c6`, `c7`, `c8`, `c9`, `c10`, `c11`, `c12`, `c13`, `c14`,"
+    " `c15`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2`"
+    " AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5`,"
+    " `t1`.`c6` AS `c6`, `t1`.`c7` AS `c7`, `t1`.`c8` AS `c8`,"
+    " `t1`.`c9` AS `c9`, `t1`.`c10` AS `c10`, `t1`.`c11` AS `c11`,"
+    " `t1`.`c12` AS `c12`, `t1`.`c13` AS `c13`, `t1`.`c14` AS `c14`, "
+)
+# MIN/MAX read the second LET stage's `level` column; GROUP BY reads `later`.
+_PG_JOIN_TAIL = (
+    ' AS "c15" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2", "c3") AS'
+    ' (SELECT "t2"."c14" AS "c0", COUNT(*) AS "c1", MIN("t2"."c15") AS'
+    ' "c2", MAX("t2"."c15") AS "c3" FROM "p2" AS "t2" GROUP BY'
+    ' "t2"."c14") SELECT "t3"."c0" AS "b", "t3"."c1" AS "total",'
+    ' "t3"."c2" AS "low", "t3"."c3" AS "top" FROM "p3" AS "t3"'
+)
+_MY_JOIN_TAIL = (
+    " AS `c15` FROM `p1` AS `t1`), `p3` (`c0`, `c1`, `c2`, `c3`) AS"
+    " (SELECT `t2`.`c14` AS `c0`, COUNT(*) AS `c1`, MIN(`t2`.`c15`) AS"
+    " `c2`, MAX(`t2`.`c15`) AS `c3` FROM `p2` AS `t2` GROUP BY"
+    " `t2`.`c14`) SELECT `t3`.`c0` AS `b`, `t3`.`c1` AS `total`,"
+    " `t3`.`c2` AS `low`, `t3`.`c3` AS `top` FROM `p3` AS `t3`"
+)
+JOIN_COMPUTED_SQL = {
+    ("postgres", "preserve_literals"): _PG_JOIN_LET
+    + '(("t0"."c6" > "t0"."c13") OR ("t0"."c13" > CAST(12 AS pg_catalog.int8)))'
+    + _PG_JOIN_MID
+    + '("t1"."c13" + ("t1"."c6" * CAST(0 AS pg_catalog.int8)))'
+    + _PG_JOIN_TAIL,
+    ("postgres", "bind_safe_literals"): _PG_JOIN_LET
+    + '(("t0"."c6" > "t0"."c13") OR ("t0"."c13" > CAST($1 AS pg_catalog.int8)))'
+    + _PG_JOIN_MID
+    + '("t1"."c13" + ("t1"."c6" * CAST($2 AS pg_catalog.int8)))'
+    + _PG_JOIN_TAIL,
+    ("mysql", "preserve_literals"): _MY_JOIN_LET
+    + "((`t0`.`c6` > `t0`.`c13`) OR (`t0`.`c13` > CAST(12 AS SIGNED)))"
+    + _MY_JOIN_MID
+    + "(`t1`.`c13` + (`t1`.`c6` * CAST(0 AS SIGNED)))"
+    + _MY_JOIN_TAIL,
+    ("mysql", "bind_safe_literals"): _MY_JOIN_LET
+    + "((`t0`.`c6` > `t0`.`c13`) OR (`t0`.`c13` > CAST(? AS SIGNED)))"
+    + _MY_JOIN_MID
+    + "(`t1`.`c13` + (`t1`.`c6` * CAST(? AS SIGNED)))"
+    + _MY_JOIN_TAIL,
+}
+INT64_RANGE = {"kind": "int_range", "min": "-9223372036854775808", "max": SIGNED64}
+
+
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("form", tuple(LET_FORMS))
 def test_a_computed_key_inside_or_over_a_relation_let_groups_like_a_module_query(
@@ -483,8 +577,10 @@ def test_a_computed_key_inside_or_over_a_relation_let_groups_like_a_module_query
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_joined_computed_key_inside_a_relation_let_stays_refused(tmp_path, target):
-    """A JOIN inside a let refuses a computed key exactly like a top-level JOIN."""
+def test_a_joined_computed_key_inside_a_relation_let_matches_top_level(
+    tmp_path, target
+):
+    """A JOIN inside a let treats a computed key exactly like a top-level JOIN."""
 
     def diagnostics(name, body):
         item = probe.join_witness(target, body)
@@ -494,8 +590,13 @@ def test_a_joined_computed_key_inside_a_relation_let_stays_refused(tmp_path, tar
         data = document(outcome)
         assert data["status"] == "BLOCKED"
         return [
-            (d["code"], d["location"]["line"], d["location"]["column"], d["message"])
-            for d in data["diagnostics"]
+            (
+                d["code"],
+                d["location"]["line"],
+                d["location"]["column"],
+                d.get("message", d.get("subject")),
+            )
+            for d in (*data["diagnostics"], *data["blockers"])
         ]
 
     top = diagnostics(
@@ -535,11 +636,180 @@ def test_a_joined_computed_key_inside_a_relation_let_stays_refused(tmp_path, tar
         n
 """,
     )
-    assert [item[0] for item in top] == ["PIE-S2102", "PIE-S2102"]
+    # The key is admitted; only the unproven `lhs.id + 1` representation blocks.
+    assert [item[0] for item in top] == ["PIE-B1002"]
     # The let body is one line lower and one indentation level deeper.
     assert nested == [
         (code, line + 1, column + 4, message) for code, line, column, message in top
     ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_joined_computed_determinant_groups_by_its_let_stage_column(
+    tmp_path, target, policy
+):
+    """Both JOIN sides feed the LET value once; GROUP BY never repeats it."""
+    outcome = (
+        emit(tmp_path, target, "Y_aggregate_computed", "join_key")
+        if policy == "preserve_literals"
+        else emit_source(tmp_path, target, probe.AGGREGATE_COMPUTED_JOIN, policy=policy)
+    )
+    data = document(outcome)
+    assert data["sql"] == JOIN_COMPUTED_SQL[target, policy]
+    assert data["sql"].count(" GROUP BY ") == 1
+    assert len(data["parameter_uses"]) == (2 if policy == "bind_safe_literals" else 0)
+    assert origin(data, "b")["role"] == "group_key"
+    # The joined LET value carries no stronger nullability claim than proven.
+    assert column(data, "b")["nullable"] == "unknown"
+    # MIN/MAX keep the LET site's proven range (here the whole Int carrier)
+    # and only gain the empty-group NULL.
+    for label, function in (("low", "min"), ("top", "max")):
+        assert origin(data, label)["function"] == function
+        assert column(data, label)["representation"]["domain"] == INT64_RANGE
+        assert column(data, label)["nullable"] is True
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_joined_extrema_keep_a_narrow_let_site_range(tmp_path, target):
+    """The result range is the LET value's own proof, not the field's."""
+    outcome = emit_source(
+        tmp_path,
+        target,
+        probe.AGGREGATE_COMPUTED_JOIN.replace(
+            "level = r.rid + agg.rid * 0", "level = r.rid * 0 + agg.rid * 0"
+        ),
+    )
+    data = document(outcome)
+    for label in ("low", "top"):
+        assert column(data, label)["representation"]["domain"] == {
+            "kind": "int_range",
+            "min": "0",
+            "max": "0",
+        }
+        assert column(data, label)["nullable"] is True
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "header, value, policy",
+    (
+        ("", "3", "preserve_literals"),
+        ("", "3 * 2 + 1", "bind_safe_literals"),
+        ("(p: Int nullable)", "p + 1", "bind_safe_literals"),
+    ),
+)
+def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
+    tmp_path, target, header, value, policy
+):
+    """A12: a LET value that reads no joined field (a constant or a parameter)
+    keeps the module form's MIN/MAX result; it links no JOIN side, so the group
+    keys must fix both sides, exactly as for a direct field argument."""
+    joined = (
+        f"query result{header}:\n    from agg\n    inner join agg as r:\n"
+        "        from agg\n        on agg.key == r.key\n"
+        f"    let:\n        level = {value}\n    group by:\n{{keys}}"
+        "    select:\n        a = agg.rid\n        low = min({arg})\n"
+        "        top = max({arg})\n"
+    )
+    module = (
+        f"query result{header}:\n    from agg\n    let:\n        level = {value}\n"
+        "    group by:\n        rid\n    select:\n        a = rid\n"
+        "        low = min(level)\n        top = max(level)\n"
+    )
+    both = "        agg.rid\n        r.rid\n"
+    outcome = emit_source(
+        tmp_path / "join",
+        target,
+        joined.format(keys=both, arg="level"),
+        policy=policy,
+    )
+    data, expected = (
+        document(outcome),
+        document(emit_source(tmp_path / "module", target, module, policy=policy)),
+    )
+    assert data["status"] == expected["status"] == "VERIFIED"
+    for label in ("low", "top"):
+        assert column(data, label)["nullable"] is True
+        assert (
+            column(data, label)["representation"]
+            == column(expected, label)["representation"]
+        )
+    public(outcome)
+    # With only the left key the right side fans out: the field-free value is
+    # refused exactly like MIN/MAX over the left side's own field.
+    left = "        agg.rid\n"
+    refused, direct = (
+        document(
+            emit_source(
+                tmp_path / name,
+                target,
+                joined.format(keys=left, arg=arg),
+                policy=policy,
+            )
+        )
+        for name, arg in (("free", "level"), ("field", "agg.value"))
+    )
+    assert refused["status"] == direct["status"] == "BLOCKED"
+    assert (
+        [(d["code"], d["message"]) for d in refused["diagnostics"]]
+        == [(d["code"], d["message"]) for d in direct["diagnostics"]]
+        == [
+            ("PIE-S2333", "Project relation semantic completion is unavailable: result")
+        ]
+    )
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_joined_computed_key_output_filters_and_orders_the_result(tmp_path, target):
+    """`satisfying` and grouped ORDER BY name the selected key's output."""
+    outcome = emit_source(
+        tmp_path,
+        target,
+        probe.AGGREGATE_COMPUTED_JOIN
+        + "    satisfying:\n        b\n    order by:\n        b desc\n",
+    )
+    data = document(outcome)
+    q = '"' if target == "postgres" else "`"
+    # The grouped key result c0 is filtered, carried as the ordering column c4
+    # and ordered; nothing re-evaluates the LET expression.
+    for fragment in (
+        f" FROM {q}p3{q} AS {q}t3{q} WHERE {q}t3{q}.{q}c0{q})",
+        f", {q}t4{q}.{q}c0{q} AS {q}c4{q} FROM {q}p4{q} AS {q}t4{q})",
+    ):
+        assert fragment in data["sql"]
+    assert data["sql"].endswith(
+        f" FROM {q}p5{q} AS {q}t0{q} ORDER BY {q}t0{q}.{q}c4{q} DESC"
+    )
+    public(outcome)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("other_join_column", "repeated_expression", "ordinal", "extremum_field"),
+)
+def test_public_joined_computed_determinant_corruptions_are_rejected(
+    tmp_path, mutation
+):
+    data = document(emit(tmp_path, "postgres", "Y_aggregate_computed", "join_key"))
+    sql = data["sql"]
+    original, replacement = {
+        "other_join_column": (' GROUP BY "t2"."c14"', ' GROUP BY "t2"."c13"'),
+        "repeated_expression": (
+            ' GROUP BY "t2"."c14"',
+            ' GROUP BY (("t2"."c6" > "t2"."c13") OR'
+            ' ("t2"."c13" > CAST(12 AS pg_catalog.int8)))',
+        ),
+        "ordinal": (' GROUP BY "t2"."c14"', " GROUP BY 1"),
+        # MAX over the right rid field instead of its established LET value.
+        "extremum_field": ('MAX("t2"."c15")', 'MAX("t2"."c13")'),
+    }[mutation]
+    data["sql"] = sql.replace(original, replacement, 1)
+    assert data["sql"] != sql
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(data))
 
 
 @pytest.mark.parametrize("target", TARGETS)

@@ -34,6 +34,7 @@ from pietto._project.project_joined_windows import (
     ProjectSelectedWindowResultBinding,
     analyze_hidden_project_window_computation,
     build_project_joined_window_stages,
+    window_reference_bucket,
 )
 from pietto.ast_nodes import (
     DottedNameExpr,
@@ -117,21 +118,9 @@ class ProjectQualifyReferenceResolution:
             raise TypeError("QUALIFY candidates must be an exact occurrence tuple.")
         if self.candidates != _reference_candidates(self.stage, self.expression):
             raise ValueError("QUALIFY candidates must be complete and ordered.")
-        status = (
-            ProjectModuleCandidateBucketStatus.ABSENT
-            if not self.candidates
-            else (
-                ProjectModuleCandidateBucketStatus.CONCRETE
-                if len(self.candidates) == 1
-                else ProjectModuleCandidateBucketStatus.AMBIGUOUS
-            )
-        )
+        status, target = window_reference_bucket(self.candidates)
         object.__setattr__(self, "status", status)
-        object.__setattr__(
-            self,
-            "target",
-            self.candidates[0] if len(self.candidates) == 1 else None,
-        )
+        object.__setattr__(self, "target", target)
 
 
 type _QualifyOperand = NameExpr | DottedNameExpr | WindowExpr
@@ -167,6 +156,7 @@ def _qualify_reference_diagnostic(
     if type(expression) not in {NameExpr, DottedNameExpr} or status not in {
         ProjectModuleCandidateBucketStatus.ABSENT,
         ProjectModuleCandidateBucketStatus.AMBIGUOUS,
+        ProjectModuleCandidateBucketStatus.BLOCKED,
     }:
         raise ValueError("QUALIFY diagnostics require one blocking reference.")
     if type(expression) is NameExpr:
@@ -174,10 +164,11 @@ def _qualify_reference_diagnostic(
     else:
         assert type(expression) is DottedNameExpr
         name = ".".join(expression.parts)
+    # A blocked computed determinant keeps its former unknown-name refusal.
     adjective = (
-        "Unknown"
-        if status is ProjectModuleCandidateBucketStatus.ABSENT
-        else "Ambiguous"
+        "Ambiguous"
+        if status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+        else "Unknown"
     )
     span = expression.span
     return Diagnostic(

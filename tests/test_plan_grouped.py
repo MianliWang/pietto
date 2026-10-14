@@ -687,6 +687,67 @@ def test_computed_determinant_never_supplies_the_reverse_grain_dependency(
     )
 
 
+def _joined_let(source: str, lets: str) -> str:
+    return source.replace("    group by:\n", f"    let:\n{lets}    group by:\n")
+
+
+def test_plan_joined_computed_determinant_reads_only_its_own_let_port(
+    tmp_path: Path,
+):
+    """S05j: a determinant computed from both JOIN sides reads its LET port."""
+    roots, plan, view = _plan_product(
+        tmp_path,
+        _joined_let(
+            _group_source(visible=(("b", "later"),), keys=("later",)),
+            "        later = lhs.id > r.key\n",
+        ),
+    )
+    (stage,) = view.aggregations
+    (key,) = view.group_keys
+    source = key.source
+    assert type(source) is aggregation.ProjectJoinedComputedGroupKeyOccurrence
+    assert stage.authority.keys == (source,)
+    assert len({id(read.introduction_use) for read in source.field_dependencies}) == 2
+    ports = {port.ref: port for port in plan.stage_ports}
+    assert ports[key.input].key is source.let_value.occurrence
+    assert ports[key.result].type_evidence is source.value_type
+    assert tuple(p.identity.name for p in view.exports) == ("b", "total")
+    foreign = next(
+        port
+        for port in plan.stage_ports
+        if port.block is ports[key.input].block
+        and port.kind is ProjectSQLStagePortKind.INPUT
+        and port.key is not source.let_value.occurrence
+    )
+    forged = _graft(key, input=foreign.ref)
+    assert not verify_project_sql_plan(
+        _graft(plan, group_keys=(forged,)), *roots
+    ).verified
+
+
+@pytest.mark.parametrize(("key", "reverse"), (("r.id", True), ("r_same", False)))
+def test_joined_computed_determinant_never_supplies_the_reverse_grain_dependency(
+    tmp_path: Path, key, reverse
+):
+    """Both unique joined fields fix each joined row; a LET image never does."""
+    source = _joined_let(
+        _group_source(keys=("lhs.id", key))
+        .replace(
+            "    key: Int nullable\n",
+            "    key: Int nullable\n    unique row_key on id\n",
+        )
+        .replace("left join", "inner join"),
+        "        r_same = r.id + 0\n",
+    )
+    _, _, view = _plan_product(tmp_path, source)
+    (stage,) = view.aggregations
+    grain = stage.authority.properties.grain
+    assert grain.state is ProjectGrainBasisState.FACTORIZED
+    assert any(edge.determinants == grain.active for edge in grain.dependencies) is (
+        reverse
+    )
+
+
 def test_joined_unique_aggregate_let_reference_reuses_result(tmp_path: Path):
     source = (
         _joined_aggregates()

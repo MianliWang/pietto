@@ -943,6 +943,16 @@ def aggregate_rows(target, case, variant):
                 (None, 3, 1),
             )
         ]
+    if (case, variant) == ("Y_aggregate_computed", "join_key"):
+        # key [1, 1, 2, NULL, 3] by rid 10..14 joins (10,10) (10,11) (11,10)
+        # (11,11) (12,12) (14,14); `agg.rid > r.rid or r.rid > 12` holds only for
+        # (11,10) and (14,14), and the NULL key matches nothing. MIN/MAX read the
+        # right rid: 10..12 for FALSE and 10..14 for TRUE (the left side's 11
+        # would show a wrong-side read).
+        return [
+            [_bool(target, flag), *(_integer(str(n)) for n in (total, low, top))]
+            for flag, total, low, top in ((False, 4, 10, 12), (True, 2, 10, 14))
+        ]
     if case == "Y_aggregate_domains":
         if variant == "bool_key":
             return [
@@ -975,7 +985,12 @@ def aggregate_rows(target, case, variant):
 def aggregate_types(target, case, variant):
     codes = AGGREGATE_TYPE_CODES[target]
     logical = emission.aggregate_labels(emission.AGGREGATE_LOGICAL, case, variant)
-    return [codes[tag] for tag in logical]
+    types = [codes[tag] for tag in logical]
+    if (target, case, variant) == ("mysql", "Y_aggregate_computed", "join_key"):
+        # The `later` key is a computed comparison, not a TINYINT Bool field;
+        # MySQL's GROUP BY materializes its display width 1 as INT (LONG).
+        types[0] = 3
+    return types
 
 
 def parameter_records(document, bindings=None):

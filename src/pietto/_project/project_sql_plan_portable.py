@@ -834,6 +834,7 @@ _ADAPTERS: Mapping[type, str] = {
     project_joined_aggregation.ProjectJoinedSatisfyingOutputReference: "project_joined_satisfying_output_reference",
     project_scalar_namespaces.ProjectJoinedLetOccurrence: "project_joined_let_occurrence",
     project_joined_aggregation.ProjectJoinedGroupKeyOccurrence: "project_joined_group_key_occurrence",
+    project_joined_aggregation.ProjectJoinedComputedGroupKeyOccurrence: "project_joined_computed_group_key_occurrence",
     project_joined_aggregation.ProjectJoinedAggregateOccurrence: "project_joined_aggregate_occurrence",
     project_joined_aggregation.ProjectJoinedStageOutputOccurrence: "project_joined_stage_output_occurrence",
     project_joined_aggregation.ProjectJoinedGroupProtection: "project_joined_group_protection",

@@ -130,6 +130,28 @@ def test_public_compile_and_bundle_accept_a_computed_order_key(tmp_path):
     assert facts(loaded) == facts(query)
 
 
+def test_public_compile_and_bundle_accept_a_joined_computed_key(tmp_path):
+    """A key computed from both JOIN sides, MIN/MAX over a joined LET value and
+    ordering by the key's output cross the public compile and bundle layer."""
+    project, _ = project_with(
+        tmp_path / "joined-computed-key",
+        "table active_items:\n    from items\n    inner join items as r:\n"
+        "        from items\n        on items.id == r.id\n    let:\n"
+        "        later = items.id > r.id or r.id > 12\n"
+        "        level = r.id + items.id * 0\n    group by:\n        later\n"
+        "    select:\n        later\n        total = count()\n"
+        "        low = min(level)\n        top = max(level)\n"
+        "    order by:\n        later\n",
+    )
+
+    query = compiled(project)
+    loaded = load(execution.export_bundle(query))
+
+    assert query.origin == "live" and loaded.origin == "bundle"
+    assert query.slots == ("Int", "Int")
+    assert facts(loaded) == facts(query)
+
+
 def literals(query, text):
     """The source text of each slot's literal, in slot order, found as the
     documentation says: slot i is fixed_values[i] of the bind-safe emission,

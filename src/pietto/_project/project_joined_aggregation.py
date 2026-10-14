@@ -77,7 +77,7 @@ from pietto.semantic.expressions import (
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
-from pietto.semantic.model import ValueType, ValueTypeKind
+from pietto.semantic.model import TypeKind, ValueType, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
 
@@ -213,6 +213,93 @@ class ProjectJoinedGroupKeyOccurrence:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectJoinedComputedGroupKeyOccurrence:
+    """One authored group key naming one computed row LET value over JOIN inputs.
+
+    The determinant compares that established LET value, never an input field,
+    so it is not assumed injective: it seeds no protection class and supplies no
+    grain. ``field_dependencies`` records every JOIN-side field occurrence the
+    value reads, in the existing occurrence-safe dependency order.
+    """
+
+    input_filter: ProjectConcreteJoinedRowFilter = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    source_ordinal: int
+    item: GroupByItem = field(repr=False, compare=False, hash=False)
+    resolutions: tuple[ProjectJoinedLetReferenceResolution] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    field_dependencies: tuple[ProjectJoinedRowFieldSemantics, ...] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    value_type: ValueType
+
+    def __post_init__(self) -> None:
+        definition = _definition(self.input_filter)
+        clause = definition.group_by_clause
+        if (
+            clause is None
+            or type(self.source_ordinal) is not int
+            or self.source_ordinal < 0
+            or self.source_ordinal >= len(clause.items)
+            or clause.items[self.source_ordinal] is not self.item
+            or type(self.item) is not GroupByItem
+            or type(self.resolutions) is not tuple
+            or len(self.resolutions) != 1
+            or type(self.resolutions[0]) is not ProjectJoinedLetReferenceResolution
+            or self.item.key is not self.resolutions[0].reference.expression
+            or type(self.let_value.occurrence.expression) in {NameExpr, DottedNameExpr}
+            or self.value_type is not self.let_value.value_type
+            or self.value_type.resolved_type.kind is not TypeKind.BUILTIN
+            or not _same_objects(
+                self.field_dependencies,
+                _let_field_dependencies(self.input_filter, self.let_value),
+            )
+        ):
+            raise ValueError("Computed group key must retain its exact LET authority.")
+
+    @property
+    def let_value(self) -> ProjectJoinedLetValue:
+        """The one admitted LET value this determinant compares."""
+
+        return self.resolutions[0].target
+
+
+ProjectJoinedAnyGroupKey = (
+    ProjectJoinedGroupKeyOccurrence | ProjectJoinedComputedGroupKeyOccurrence
+)
+
+
+def _same_objects(left: tuple[object, ...], right: tuple[object, ...]) -> bool:
+    return (
+        type(left) is tuple
+        and len(left) == len(right)
+        and all(a is b for a, b in zip(left, right, strict=True))
+    )
+
+
+def _let_field_dependencies(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    value: ProjectJoinedLetValue,
+) -> tuple[ProjectJoinedRowFieldSemantics, ...]:
+    return tuple(
+        field_semantics
+        for _, _, _, field_semantics in _resolved_field_dependencies(
+            input_filter=input_filter,
+            namespace=value.namespace,
+            expression=value.occurrence.expression,
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectJoinedGroupKeyIssue:
     """One authored group-key blocker retaining exact resolution evidence."""
 
@@ -230,7 +317,7 @@ class ProjectJoinedGroupKeyIssue:
         compare=False,
         hash=False,
     )
-    duplicate_of: ProjectJoinedGroupKeyOccurrence | None = field(
+    duplicate_of: ProjectJoinedAnyGroupKey | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -253,14 +340,19 @@ class ProjectJoinedGroupKeyIssue:
         ):
             raise ValueError("Group-key issue requires exact authored evidence.")
         if self.kind is ProjectJoinedGroupKeyIssueKind.DUPLICATE_EFFECTIVE_FIELD:
-            if type(self.duplicate_of) is not ProjectJoinedGroupKeyOccurrence:
+            if type(self.duplicate_of) not in {
+                ProjectJoinedGroupKeyOccurrence,
+                ProjectJoinedComputedGroupKeyOccurrence,
+            }:
                 raise ValueError("Duplicate group key requires its earlier occurrence.")
         elif self.duplicate_of is not None:
             raise ValueError("Non-duplicate group-key issue cannot retain a winner.")
 
 
 type ProjectJoinedGroupKeyResult = (
-    ProjectJoinedGroupKeyOccurrence | ProjectJoinedGroupKeyIssue
+    ProjectJoinedGroupKeyOccurrence
+    | ProjectJoinedComputedGroupKeyOccurrence
+    | ProjectJoinedGroupKeyIssue
 )
 
 
@@ -361,7 +453,14 @@ class ProjectJoinedAggregateOccurrence:
                 is not ProjectConcreteJoinedNamespaceExpression
                 or self.argument_analysis.expression is not self.call.arguments[0]
                 or self.argument_analysis.namespace is not self.input_filter.namespace
-                or not self.field_dependencies
+                or not (
+                    self.field_dependencies
+                    or _is_let_extremum(
+                        self.function_name,
+                        self.call.arguments[0],
+                        _let_expansions(self.input_filter),
+                    )
+                )
             ):
                 raise ValueError("Aggregate argument requires exact namespace typing.")
         elif self.argument_analysis is not None or self.field_dependencies:
@@ -435,13 +534,39 @@ def _build_group_keys(
     if clause is None:
         return ()
     built: list[ProjectJoinedGroupKeyResult] = []
-    retained_by_field: dict[int, ProjectJoinedGroupKeyOccurrence] = {}
+    retained_by_field: dict[int, ProjectJoinedAnyGroupKey] = {}
     for source_ordinal, item in enumerate(clause.items):
         resolutions, field_semantics, computed = _direct_field_resolution(
             input_filter,
             item.key,
             expand_let=True,
         )
+        computed_key = (
+            _computed_group_key(input_filter, source_ordinal, item, resolutions)
+            if computed
+            else None
+        )
+        if computed_key is not None:
+            # One LET value is one determinant identity, like one field occurrence.
+            duplicate = retained_by_field.get(id(computed_key.let_value))
+            if duplicate is not None:
+                built.append(
+                    ProjectJoinedGroupKeyIssue(
+                        input_filter=input_filter,
+                        source_ordinal=source_ordinal,
+                        item=item,
+                        kind=ProjectJoinedGroupKeyIssueKind.DUPLICATE_EFFECTIVE_FIELD,
+                        resolutions=resolutions,
+                        duplicate_of=duplicate,
+                        diagnostics=(
+                            semantic_group_by._duplicate_group_key_diagnostic(item.key),
+                        ),
+                    )
+                )
+                continue
+            retained_by_field[id(computed_key.let_value)] = computed_key
+            built.append(computed_key)
+            continue
         if field_semantics is None:
             built.append(
                 ProjectJoinedGroupKeyIssue(
@@ -488,6 +613,32 @@ def _build_group_keys(
         retained_by_field[id(field_semantics)] = occurrence
         built.append(occurrence)
     return tuple(built)
+
+
+def _computed_group_key(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    source_ordinal: int,
+    item: GroupByItem,
+    resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...],
+) -> ProjectJoinedComputedGroupKeyOccurrence | None:
+    """Admit a key naming one computed LET value directly; an alias stays refused."""
+
+    if len(resolutions) != 1:
+        return None
+    resolution = resolutions[0]
+    if type(resolution) is not ProjectJoinedLetReferenceResolution:
+        return None
+    value = resolution.target
+    if value.value_type.resolved_type.kind is not TypeKind.BUILTIN:
+        return None
+    return ProjectJoinedComputedGroupKeyOccurrence(
+        input_filter=input_filter,
+        source_ordinal=source_ordinal,
+        item=item,
+        resolutions=(resolution,),
+        field_dependencies=_let_field_dependencies(input_filter, value),
+        value_type=value.value_type,
+    )
 
 
 def _let_expansions(
@@ -689,6 +840,7 @@ def _aggregate_attempt(
                 argument,
                 let_expansions,
             )
+            and not _is_let_extremum(function_name, argument, let_expansions)
         ):
             return ProjectJoinedAggregateIssue(
                 input_filter=input_filter,
@@ -762,6 +914,24 @@ def _aggregate_attempt(
     )
 
 
+def _is_let_extremum(
+    function_name: str,
+    argument: Expression,
+    let_expansions: Mapping[str, Expression],
+) -> bool:
+    """MIN/MAX over one row LET name, as in explicit modules without JOIN."""
+
+    return (
+        function_name
+        in {
+            semantic_aggregates.MIN_AGGREGATE_NAME,
+            semantic_aggregates.MAX_AGGREGATE_NAME,
+        }
+        and type(argument) is NameExpr
+        and argument.name in let_expansions
+    )
+
+
 def _build_aggregate_results(
     input_filter: ProjectConcreteJoinedRowFilter,
 ) -> tuple[ProjectJoinedAggregateResult, ...]:
@@ -799,7 +969,7 @@ class ProjectJoinedStageOutputOccurrence:
     output_name: str
     role: ProjectJoinedStageOutputRole
     value_type: ValueType
-    group_key: ProjectJoinedGroupKeyOccurrence | None = field(
+    group_key: ProjectJoinedAnyGroupKey | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -829,7 +999,7 @@ class ProjectJoinedStageOutputOccurrence:
             )
         if self.role is ProjectJoinedStageOutputRole.GROUP_KEY:
             if (
-                type(self.group_key) is not ProjectJoinedGroupKeyOccurrence
+                not isinstance(self.group_key, ProjectJoinedAnyGroupKey)
                 or self.aggregate is not None
                 or self.value_type is not self.group_key.value_type
             ):
@@ -897,18 +1067,31 @@ def _projection_output_name(item: SelectItem) -> str | None:
 def _group_key_projection(
     input_filter: ProjectConcreteJoinedRowFilter,
     item: SelectItem,
-    group_keys: tuple[ProjectJoinedGroupKeyOccurrence, ...],
-) -> ProjectJoinedGroupKeyOccurrence | None:
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
+) -> ProjectJoinedAnyGroupKey | None:
     if type(item.expression) not in {NameExpr, DottedNameExpr}:
         return None
-    _, field_semantics, _ = _direct_field_resolution(
+    resolutions, field_semantics, _ = _direct_field_resolution(
         input_filter,
         cast(NameExpr | DottedNameExpr, item.expression),
         expand_let=False,
     )
     if field_semantics is None:
-        return None
-    matches = tuple(key for key in group_keys if key.field_semantics is field_semantics)
+        # Only the exact LET value of a computed determinant selects that key.
+        target = resolutions[0].target
+        computed = tuple(
+            key
+            for key in group_keys
+            if type(key) is ProjectJoinedComputedGroupKeyOccurrence
+            and key.let_value is target
+        )
+        return computed[0] if len(computed) == 1 else None
+    matches = tuple(
+        key
+        for key in group_keys
+        if type(key) is ProjectJoinedGroupKeyOccurrence
+        and key.field_semantics is field_semantics
+    )
     if len(matches) > 1:
         raise ValueError("Concrete group keys cannot repeat one field occurrence.")
     return None if not matches else matches[0]
@@ -918,7 +1101,7 @@ def _build_stage_outputs(
     *,
     input_filter: ProjectConcreteJoinedRowFilter,
     mode: ProjectJoinedAggregationMode,
-    group_keys: tuple[ProjectJoinedGroupKeyOccurrence, ...],
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
     aggregate_results: tuple[ProjectJoinedAggregateResult, ...],
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
 ) -> tuple[
@@ -1108,6 +1291,7 @@ class ProjectJoinedGroupProtection:
     )
     introduction_use: ProjectIRJoinInputUseOccurrence
     group_keys: tuple[ProjectJoinedGroupKeyOccurrence, ...]
+    computed_keys: tuple[ProjectJoinedComputedGroupKeyOccurrence, ...]
     seed: ProjectIROutputValueClassSet
     strict_keys: tuple[ProjectIROutputCandidateKey, ...]
     determinations: tuple[ProjectIROutputDeterminationResult, ...]
@@ -1117,13 +1301,25 @@ class ProjectJoinedGroupProtection:
         if (
             type(self.input_properties) is not ProjectIROutputRelationalProperties
             or type(self.introduction_use) is not ProjectIRJoinInputUseOccurrence
-            or not self.group_keys
+            or not (self.group_keys or self.computed_keys)
             or any(
                 type(key) is not ProjectJoinedGroupKeyOccurrence
                 or key.input_filter is not self.input_filter
                 or key.field_semantics.input_properties is not self.input_properties
                 or key.field_semantics.introduction_use is not self.introduction_use
                 for key in self.group_keys
+            )
+            # A computed key is recorded on every JOIN side it reads; it never
+            # contributes a seed class, so it can never prove a STRICT key.
+            or any(
+                type(key) is not ProjectJoinedComputedGroupKeyOccurrence
+                or key.input_filter is not self.input_filter
+                or not any(
+                    dependency.input_properties is self.input_properties
+                    and dependency.introduction_use is self.introduction_use
+                    for dependency in key.field_dependencies
+                )
+                for key in self.computed_keys
             )
             or self.seed.index is not self.input_properties.fd_index
             or self.strict_keys
@@ -1169,32 +1365,69 @@ class ProjectJoinedGroupProtection:
             raise ValueError("Protected factors require a proven STRICT key.")
 
 
-def _build_group_protections(
-    input_filter: ProjectConcreteJoinedRowFilter,
-    group_keys: tuple[ProjectJoinedGroupKeyOccurrence, ...],
-) -> tuple[ProjectJoinedGroupProtection, ...]:
-    region = input_filter.joined_semantics.multifact_region
-    final_grain = region.final_properties.relational.grain
+def _protection_members(
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
+) -> tuple[
+    tuple[
+        ProjectIROutputRelationalProperties,
+        ProjectIRJoinInputUseOccurrence,
+        tuple[ProjectJoinedGroupKeyOccurrence, ...],
+        tuple[ProjectJoinedComputedGroupKeyOccurrence, ...],
+    ],
+    ...,
+]:
+    """Every JOIN-side root the keys read, in key/dependency order, with the
+    direct keys of that root and the computed keys reading it."""
+
     roots: list[
         tuple[ProjectIROutputRelationalProperties, ProjectIRJoinInputUseOccurrence]
     ] = []
     for key in group_keys:
-        root = (
-            key.field_semantics.input_properties,
-            key.field_semantics.introduction_use,
-        )
-        if not any(
-            retained[0] is root[0] and retained[1] is root[1] for retained in roots
+        for read in (
+            (key.field_semantics,)
+            if type(key) is ProjectJoinedGroupKeyOccurrence
+            else cast(ProjectJoinedComputedGroupKeyOccurrence, key).field_dependencies
         ):
-            roots.append(root)
-    protections: list[ProjectJoinedGroupProtection] = []
-    for properties, introduction_use in roots:
-        local_keys = tuple(
-            key
-            for key in group_keys
-            if key.field_semantics.input_properties is properties
-            and key.field_semantics.introduction_use is introduction_use
+            root = (read.input_properties, read.introduction_use)
+            if not any(
+                retained[0] is root[0] and retained[1] is root[1] for retained in roots
+            ):
+                roots.append(root)
+    return tuple(
+        (
+            properties,
+            introduction_use,
+            tuple(
+                key
+                for key in group_keys
+                if type(key) is ProjectJoinedGroupKeyOccurrence
+                and key.field_semantics.input_properties is properties
+                and key.field_semantics.introduction_use is introduction_use
+            ),
+            tuple(
+                key
+                for key in group_keys
+                if type(key) is ProjectJoinedComputedGroupKeyOccurrence
+                and any(
+                    read.input_properties is properties
+                    and read.introduction_use is introduction_use
+                    for read in key.field_dependencies
+                )
+            ),
         )
+        for properties, introduction_use in roots
+    )
+
+
+def _build_group_protections(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
+) -> tuple[ProjectJoinedGroupProtection, ...]:
+    region = input_filter.joined_semantics.multifact_region
+    final_grain = region.final_properties.relational.grain
+    protections: list[ProjectJoinedGroupProtection] = []
+    members = _protection_members(group_keys)
+    for properties, introduction_use, local_keys, computed_keys in members:
         classes = tuple(
             _value_class_for_input_field(properties, key.field_semantics)
             for key in local_keys
@@ -1208,6 +1441,7 @@ def _build_group_protections(
                 input_properties=properties,
                 introduction_use=introduction_use,
                 group_keys=local_keys,
+                computed_keys=computed_keys,
                 seed=seed,
                 strict_keys=strict_keys,
                 determinations=determinations,
@@ -1342,6 +1576,8 @@ class ProjectJoinedAggregateGrainLinkage:
     )
     argument_factors: tuple[ProjectGrainFactorIdentity, ...]
     group_protection_factors: tuple[ProjectGrainFactorIdentity, ...]
+    # The JOIN-side factors computed determinants read; recorded, never seeded.
+    computed_key_factors: tuple[ProjectGrainFactorIdentity, ...]
     combined_seed: ProjectGrainFactorSet
     closure: ProjectGrainFactorSet
     contextual_grain: multifact.ProjectFactContextualGrain
@@ -1392,6 +1628,8 @@ class ProjectJoinedAggregateGrainLinkage:
             or self.final_comparison.left is not self.contextual_grain
             or self.final_comparison.right.authority is not self.final_grain
             or self.argument_factors != expected_argument
+            or self.computed_key_factors
+            != _ordered_factors(self.final_grain.active, self.computed_key_factors)
             or self.combined_seed.factors != expected_combined
             or self.closure.factors != expected_closure.factors
         ):
@@ -1431,9 +1669,44 @@ class ProjectJoinedAggregateGrainLinkage:
             raise ValueError("Aggregate risk must derive from exact finer grain.")
 
 
+def _computed_key_factors(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
+) -> tuple[ProjectGrainFactorIdentity, ...]:
+    """The localized factors of every JOIN side a computed determinant reads."""
+
+    final_grain = (
+        input_filter.joined_semantics.multifact_region.final_properties.relational.grain
+    )
+    return computed_key_factors(
+        final_grain,
+        tuple(
+            (read.input_properties.grain, read.introduction_use)
+            for key in group_keys
+            if type(key) is ProjectJoinedComputedGroupKeyOccurrence
+            for read in key.field_dependencies
+        ),
+    )
+
+
+def computed_key_factors(final_grain, reads):
+    """Original side law shared with compiled replay; it never feeds a seed."""
+    return _ordered_factors(
+        final_grain.active,
+        tuple(
+            factor
+            for grain, introduction in reads
+            for factor in multifact._localized_input_factors(
+                grain=grain, introduction_use=introduction, final_grain=final_grain
+            )
+        ),
+    )
+
+
 def _build_grain_linkages(
     *,
     input_filter: ProjectConcreteJoinedRowFilter,
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
     protections: tuple[ProjectJoinedGroupProtection, ...],
 ) -> tuple[ProjectJoinedAggregateGrainLinkage, ...]:
@@ -1450,6 +1723,7 @@ def _build_grain_linkages(
             for factor in protection.protected_factors
         ),
     )
+    computed_factors = _computed_key_factors(input_filter, group_keys)
     full = multifact.ProjectFactContextualGrain(
         authority=final_grain,
         state=final_grain.state,
@@ -1486,6 +1760,7 @@ def _build_grain_linkages(
                 multifact_region=region,
                 argument_factors=argument_factors,
                 group_protection_factors=protection_factors,
+                computed_key_factors=computed_factors,
                 combined_seed=seed,
                 closure=closure,
                 contextual_grain=contextual,
@@ -2189,7 +2464,7 @@ def _require_stage_evidence(
     *,
     input_filter: ProjectConcreteJoinedRowFilter,
     mode: ProjectJoinedAggregationMode,
-    group_keys: tuple[ProjectJoinedGroupKeyOccurrence, ...],
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
     stage_outputs: tuple[ProjectJoinedStageOutputOccurrence, ...],
     group_protections: tuple[ProjectJoinedGroupProtection, ...],
@@ -2203,9 +2478,16 @@ def _require_stage_evidence(
         if type(item.expression) is not WindowExpr
         and semantic_aggregates.contains_semantic_aggregate(item.expression)
     )
+    final_grain = (
+        input_filter.joined_semantics.multifact_region.final_properties.relational.grain
+    )
     if (
         any(
-            type(key) is not ProjectJoinedGroupKeyOccurrence
+            type(key)
+            not in {
+                ProjectJoinedGroupKeyOccurrence,
+                ProjectJoinedComputedGroupKeyOccurrence,
+            }
             or key.input_filter is not input_filter
             for key in group_keys
         )
@@ -2238,6 +2520,17 @@ def _require_stage_evidence(
         or len(grain_linkages) != len(aggregates)
         or any(
             linkage.aggregate is not aggregate
+            or linkage.computed_key_factors
+            != _computed_key_factors(input_filter, group_keys)
+            or linkage.group_protection_factors
+            != _ordered_factors(
+                final_grain.active,
+                tuple(
+                    factor
+                    for protection in group_protections
+                    for factor in protection.protected_factors
+                ),
+            )
             for linkage, aggregate in zip(grain_linkages, aggregates, strict=True)
         )
     ):
@@ -2254,12 +2547,24 @@ def _require_stage_evidence(
         raise ValueError("Aggregate pairs must retain deterministic i < j order.")
     if mode is ProjectJoinedAggregationMode.GROUPED:
         clause = definition.group_by_clause
+        members = _protection_members(group_keys)
         if (
             clause is None
             or len(group_keys) != len(clause.items)
             or any(
                 key.item is not item
                 for key, item in zip(group_keys, clause.items, strict=True)
+            )
+            # Every JOIN side a key reads keeps exactly its own protection record.
+            or len(group_protections) != len(members)
+            or any(
+                protection.input_properties is not properties
+                or protection.introduction_use is not introduction_use
+                or not _same_objects(protection.group_keys, direct)
+                or not _same_objects(protection.computed_keys, computed)
+                for protection, (properties, introduction_use, direct, computed) in zip(
+                    group_protections, members, strict=True
+                )
             )
         ):
             raise ValueError("Concrete grouped evidence must cover every group key.")
@@ -2324,7 +2629,7 @@ class ProjectConcreteJoinedAggregation:
         hash=False,
     )
     mode: ProjectJoinedAggregationMode
-    group_keys: tuple[ProjectJoinedGroupKeyOccurrence, ...]
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...]
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...]
     stage_outputs: tuple[ProjectJoinedStageOutputOccurrence, ...]
     group_protections: tuple[ProjectJoinedGroupProtection, ...]
@@ -2623,9 +2928,7 @@ def build_project_joined_aggregation(
     mode = _mode(definition)
     group_key_results = _build_group_keys(input_filter)
     group_keys = tuple(
-        item
-        for item in group_key_results
-        if type(item) is ProjectJoinedGroupKeyOccurrence
+        item for item in group_key_results if isinstance(item, ProjectJoinedAnyGroupKey)
     )
     aggregate_results = _build_aggregate_results(input_filter)
     aggregates = tuple(
@@ -2677,6 +2980,7 @@ def build_project_joined_aggregation(
             )
     grain_linkages = _build_grain_linkages(
         input_filter=input_filter,
+        group_keys=group_keys,
         aggregates=aggregates,
         protections=group_protections,
     )
@@ -2867,6 +3171,7 @@ class CompiledGroupProtection:
     input_properties: ProjectIROutputRelationalProperties
     introduction_use: multifact.CompiledGrainUse
     group_keys: tuple
+    computed_keys: tuple
     seed: Any
     strict_keys: tuple
     determinations: tuple
@@ -2879,6 +3184,7 @@ class CompiledAggregateGrainLinkage:
     multifact_region: multifact.CompiledMultiFactRegion
     argument_factors: tuple
     group_protection_factors: tuple
+    computed_key_factors: tuple
     combined_seed: Any
     closure: Any
     contextual_grain: multifact.ProjectFactContextualGrain
@@ -2960,27 +3266,47 @@ def compiled_field_dependencies(ir, region, arguments):
 
 
 def _compiled_protection_inputs(ir, stage, region):
-    groups = []
-    for key in stage.record.get("keys"):
-        dependencies = compiled_field_dependencies(ir, region, (key,))
-        if len(dependencies) != 1:
-            raise ValueError("COMPILED_GROUP_KEY_DEPENDENCY")
-        _expression, _path, properties, use, field = dependencies[0]
-        matches = tuple(
-            c for c in properties.value_classes if any(f is field for f in c.members)
-        )
-        if len(matches) != 1:
-            raise ValueError("COMPILED_GROUP_KEY_CLASS")
+    """Per JOIN-side root: direct keys with their classes, then computed keys.
+
+    A determinant is direct iff it reaches exactly one field without any
+    operation; any other determinant is a computed LET value, recorded on every
+    side it reads and never seeding a class. Also returns those computed reads.
+    """
+    groups, computed_reads = [], []
+
+    def root(properties, use):
         existing = next((g for g in groups if g[0] is properties and g[1] is use), None)
         if existing is None:
-            existing = (properties, use, [], [])
+            existing = (properties, use, [], [], [])
             groups.append(existing)
-        existing[2].append(ir.references[key])
-        existing[3].append(matches[0])
+        return existing
+
+    for key in stage.record.get("keys"):
+        dependencies = compiled_field_dependencies(ir, region, (key,))
+        if len(dependencies) == 1 and not any(
+            step.kind == "operation" for step in dependencies[0][1]
+        ):
+            _expression, _path, properties, use, field = dependencies[0]
+            matches = tuple(
+                c
+                for c in properties.value_classes
+                if any(f is field for f in c.members)
+            )
+            if len(matches) != 1:
+                raise ValueError("COMPILED_GROUP_KEY_CLASS")
+            existing = root(properties, use)
+            existing[2].append(ir.references[key])
+            existing[3].append(matches[0])
+            continue
+        for _expression, _path, properties, use, _field in dependencies:
+            existing = root(properties, use)
+            if not any(k is ir.references[key] for k in existing[4]):
+                existing[4].append(ir.references[key])
+            computed_reads.append((properties.grain, use))
     return tuple(
-        (properties, use, tuple(keys), tuple(classes))
-        for properties, use, keys, classes in groups
-    )
+        (properties, use, tuple(keys), tuple(classes), tuple(computed))
+        for properties, use, keys, classes, computed in groups
+    ), tuple(computed_reads)
 
 
 def _compiled_pair_values(left, right):
@@ -3033,9 +3359,9 @@ def build_compiled_aggregate_evidence(ir):
         region = multifact.build_compiled_region(ir, stage)
         grain, index = region.final_properties.grain, region.grain_index
         protections = []
-        for properties, use, keys, classes in _compiled_protection_inputs(
-            ir, stage, region
-        ):
+        groups, computed_reads = _compiled_protection_inputs(ir, stage, region)
+        computed_factors = computed_key_factors(grain, computed_reads)
+        for properties, use, keys, classes, computed in groups:
             seed, strict_keys, determinations, factors = resolved_group_protection(
                 properties, use, grain, classes
             )
@@ -3045,6 +3371,7 @@ def build_compiled_aggregate_evidence(ir):
                     properties,
                     use,
                     keys,
+                    computed,
                     seed,
                     strict_keys,
                     determinations,
@@ -3122,6 +3449,7 @@ def build_compiled_aggregate_evidence(ir):
                     region,
                     argument_factors,
                     protected,
+                    computed_factors,
                     seed,
                     closure,
                     contextual,
@@ -3187,13 +3515,14 @@ def verify_compiled_aggregate_evidence(
         region = evidence.region
         multifact.verify_compiled_region(region, ir, stage)
         grain, index = region.final_properties.grain, region.grain_index
-        groups = _compiled_protection_inputs(ir, stage, region)
+        groups, computed_reads = _compiled_protection_inputs(ir, stage, region)
+        computed_factors = computed_key_factors(grain, computed_reads)
         need(
             type(evidence.group_protections) is tuple
             and len(evidence.group_protections) == len(groups),
             "GROUP_PROTECTION_INVENTORY",
         )
-        for protection, (properties, use, keys, classes) in zip(
+        for protection, (properties, use, keys, classes, computed) in zip(
             evidence.group_protections, groups, strict=True
         ):
             need(
@@ -3202,6 +3531,7 @@ def verify_compiled_aggregate_evidence(
                 and protection.input_properties is properties
                 and protection.introduction_use is use
                 and same(protection.group_keys, keys)
+                and same(protection.computed_keys, computed)
                 and protection.seed.index is properties.fd_index
                 and same(
                     protection.seed.classes,
@@ -3299,6 +3629,7 @@ def verify_compiled_aggregate_evidence(
                 and linkage.multifact_region is region
                 and same(linkage.argument_factors, argument_factors)
                 and same(linkage.group_protection_factors, protected)
+                and same(linkage.computed_key_factors, computed_factors)
                 and linkage.combined_seed.universe is index.universe
                 and same(linkage.combined_seed.factors, combined)
                 and linkage.final_grain is grain,

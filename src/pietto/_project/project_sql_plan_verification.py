@@ -1398,8 +1398,15 @@ def _aggregate_structure(plan):
                     original.source, aggregation.ProjectConcreteJoinedAggregation
                 )
                 or source.input_filter is not original.source.input_filter
-                or not isinstance(refs[-1], ProjectScalarReferenceResolution)
-                or refs[-1].target is not source.field_semantics.scalar_field
+                or (
+                    # The determinant reads exactly its own established LET port.
+                    len(refs) != 1 or refs[0] is not source.resolutions[0]
+                    if isinstance(
+                        source, aggregation.ProjectJoinedComputedGroupKeyOccurrence
+                    )
+                    else not isinstance(refs[-1], ProjectScalarReferenceResolution)
+                    or refs[-1].target is not source.field_semantics.scalar_field
+                )
             ):
                 return False
             target = row.reference_key(reference)

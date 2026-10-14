@@ -295,6 +295,16 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
             "    let:\n        big = id > 5\n        other = id + 0\n" + computed,
             True,
         ),
+        # S05j: the JOIN key's own LET unit comes before the one for `level`.
+        (
+            "joined",
+            "    inner join items as r:\n        from items\n"
+            "        on items.id == r.id\n    let:\n"
+            "        later = items.id > r.id or r.id > 12\n"
+            "        level = r.id + items.id * 0\n    group by:\n        later\n"
+            "    select:\n        b = later\n        top = max(level)\n",
+            True,
+        ),
         (
             "field",
             "    group by:\n        label\n    select:\n        label\n",

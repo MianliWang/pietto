@@ -76,17 +76,27 @@ def test_all_window_policy_variants_are_finite_typed_evidence(tmp_path, index):
     )
 
 
-def test_computed_let_determinant_is_finite_typed_portable_evidence(tmp_path):
-    from _pietto_plan_aggregate import _ordinary
+@pytest.mark.parametrize("joined", (False, True))
+def test_computed_let_determinant_is_finite_typed_portable_evidence(tmp_path, joined):
+    from _pietto_plan_aggregate import _group_source, _ordinary
     from _pietto_plan_reports import _reported, _roots, P
 
-    roots = _roots(
-        tmp_path,
-        _ordinary(
+    source = (
+        _group_source(visible=(("b", "computed"),), keys=("computed",)).replace(
+            "    group by:\n",
+            "    let:\n        computed = lhs.id > r.key\n    group by:\n",
+        )
+        if joined
+        else _ordinary(
             "    let:\n        computed = id + 1\n    group by:\n        computed\n"
             "    select:\n        computed\n        total = count()\n"
-        ),
-        None,
+        )
+    )
+    roots = _roots(tmp_path, source, None)
+    kind = (
+        "project_joined_computed_group_key_occurrence"
+        if joined
+        else "project_computed_group_key_fact"
     )
     for policy in P:
         _, plan, verified, _, report, _ = _reported(roots, policy)
@@ -95,7 +105,7 @@ def test_computed_let_determinant_is_finite_typed_portable_evidence(tmp_path):
         view = pure.Inspection(
             pure.parse_project_sql_plan_document(product.canonical_bytes)
         )
-        assert len(view.for_kind("project_computed_group_key_fact")) == 1
+        assert len(view.for_kind(kind)) == 1
         assert len(view.for_kind("project_sql_group_key")) == len(plan.group_keys)
 
 

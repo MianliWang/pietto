@@ -151,6 +151,7 @@ from pietto._project.project_relationship_uses import ProjectJoinUseState
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
     ProjectJoinedAggregationMode,
+    ProjectJoinedComputedGroupKeyOccurrence,
     ProjectJoinedGroupKeyOccurrence,
     ProjectJoinedStageOutputOccurrence,
     ProjectJoinedStageOutputRole,
@@ -403,7 +404,9 @@ type ProjectPreservedRowDomainAuthority = (
     ProjectIRProvidedIntrinsicGrain | ProjectCompletedRowDomain
 )
 type ProjectGroupedRowDomainBasis = (
-    ProjectJoinedGroupKeyOccurrence | ProjectRelationClauseDependencyFact
+    ProjectJoinedGroupKeyOccurrence
+    | ProjectJoinedComputedGroupKeyOccurrence
+    | ProjectRelationClauseDependencyFact
 )
 
 
@@ -434,6 +437,7 @@ class ProjectCompletedRowDomain:
             type(item)
             not in {
                 ProjectJoinedGroupKeyOccurrence,
+                ProjectJoinedComputedGroupKeyOccurrence,
                 ProjectRelationClauseDependencyFact,
             }
             for item in self.grouped_basis

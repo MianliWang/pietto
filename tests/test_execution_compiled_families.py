@@ -133,6 +133,120 @@ def test_row_let_operation_keeps_its_requirement_rules_on_replay(
     _compare(original.artifact, refinement=False)
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("bound", (False, True))
+@pytest.mark.parametrize(
+    "tail", ("", "    satisfying:\n        b\n    order by:\n        b desc\n")
+)
+def test_joined_computed_determinant_replays_from_compiled_input(
+    tmp_path, target, bound, tail
+):
+    """S05j: compiled replay re-derives the two-sided determinant's risk law,
+    MIN/MAX over the joined LET value and filtering/ordering by its output."""
+    item = emission.fixture(
+        target, "Y_aggregate_satisfying", "bind" if bound else "retained"
+    )
+    source = (
+        emission.AGGREGATE_HEADER.format(target=target)
+        + emission.AGGREGATE_COMPUTED_JOIN
+        + tail
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    assert len(original.artifact.parameter_uses) == (2 if bound else 0)
+    _compare(original.artifact)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("bound", (False, True))
+def test_joined_field_free_let_extrema_replay_from_compiled_input(
+    tmp_path, target, bound
+):
+    """A12: MIN/MAX over a joined LET value that reads no field replay with no
+    field dependency and the source's own linkage."""
+    item = emission.fixture(
+        target, "Y_aggregate_satisfying", "bind" if bound else "retained"
+    )
+    source = emission.AGGREGATE_HEADER.format(target=target) + (
+        "query result:\n    from agg\n    inner join agg as r:\n        from agg\n"
+        "        on agg.key == r.key\n    let:\n        level = 3 * 2\n"
+        "    group by:\n        agg.rid\n        r.rid\n    select:\n"
+        "        rid = agg.rid\n        low = min(level)\n        top = max(level)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    assert len(original.artifact.parameter_uses) == (2 if bound else 0)
+    _compare(original.artifact)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_joined_single_read_computed_key_replays_as_computed(tmp_path, target):
+    """`r.rid + 0` reads one field through an operation: replay keeps it a
+    computed key recorded on the right side, never a direct key seeding that
+    side's class, and forged records are refused."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_joined_aggregation import (
+        verify_compiled_aggregate_evidence,
+    )
+
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    source = emission.AGGREGATE_HEADER.format(target=target) + (
+        "query result:\n    from agg\n    inner join agg as r:\n        from agg\n"
+        "        on agg.key == r.key\n    let:\n        k = r.rid + 0\n"
+        "    group by:\n        k\n        agg.rid\n    select:\n        k\n"
+        "        rid = agg.rid\n        total = count()\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    _compare(original.artifact)
+    plan = emit_compiled(
+        build_compiled(original.artifact).root,
+        tuple(v.value for v in original.artifact.fixed_values),
+    ).request.plan
+    (evidence,) = plan.aggregate_evidence
+    right, left = evidence.group_protections
+    assert right.group_keys == () and len(right.computed_keys) == 1
+    assert len(left.group_keys) == 1 and left.computed_keys == ()
+    assert not right.protected_factors and left.protected_factors
+    for forged in (
+        (replace(right, group_keys=right.computed_keys, computed_keys=()), left),
+        (
+            replace(right, computed_keys=()),
+            replace(left, computed_keys=right.computed_keys),
+        ),
+    ):
+        with pytest.raises(CompiledError, match="^COMPILED_GROUP_PROTECTION_ROOT$"):
+            verify_compiled_aggregate_evidence(
+                plan.ir, (replace(evidence, group_protections=forged),)
+            )
+    (linkage,) = evidence.grain_linkages
+    assert linkage.computed_key_factors
+    assert linkage.computed_key_factors != linkage.group_protection_factors
+    for factors in ((), linkage.group_protection_factors):
+        with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_LINKAGE_ROOT$"):
+            verify_compiled_aggregate_evidence(
+                plan.ir,
+                (
+                    replace(
+                        evidence,
+                        grain_linkages=(
+                            replace(linkage, computed_key_factors=factors),
+                        ),
+                    ),
+                ),
+            )
+
+
 def _compare(artifact, *, refinement=True):
     assert artifact is not None
     reference = prepare_output(artifact)
@@ -476,10 +590,16 @@ def _compare_aggregate_evidence(source, candidate):
         def classes(values):
             return tuple(tuple(f.field_position for f in c.members) for c in values)
 
-        def protection(value, factors, uses):
+        new_keys = {
+            candidate.references[a]: i
+            for i, a in enumerate(observed.stage.record.get("keys"))
+        }
+
+        def protection(value, factors, uses, ordinal):
             return (
                 uses[value.introduction_use.ref],
                 len(value.group_keys),
+                tuple(ordinal(k) for k in value.computed_keys),
                 classes(value.seed.classes),
                 tuple(
                     (classes(k.determinants), k.strength.value, len(k.supports))
@@ -499,9 +619,11 @@ def _compare_aggregate_evidence(source, candidate):
             )
 
         assert tuple(
-            protection(p, new_factors, new_uses) for p in observed.group_protections
+            protection(p, new_factors, new_uses, new_keys.__getitem__)
+            for p in observed.group_protections
         ) == tuple(
-            protection(p, old_factors, old_uses) for p in expected.group_protections
+            protection(p, old_factors, old_uses, lambda k: k.source_ordinal)
+            for p in expected.group_protections
         )
 
         def direction(value, factors):
@@ -523,6 +645,7 @@ def _compare_aggregate_evidence(source, candidate):
             return (
                 tuple(factors[f] for f in value.argument_factors),
                 tuple(factors[f] for f in value.group_protection_factors),
+                tuple(factors[f] for f in value.computed_key_factors),
                 tuple(factors[f] for f in value.combined_seed.factors),
                 tuple(factors[f] for f in value.closure.factors),
                 value.contextual_grain.state.value,

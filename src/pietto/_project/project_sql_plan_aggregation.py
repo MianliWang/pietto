@@ -43,6 +43,7 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
     ProjectJoinedAggregationMode,
+    ProjectJoinedComputedGroupKeyOccurrence,
     ProjectJoinedGroupKeyOccurrence,
     ProjectJoinedAggregateOccurrence,
     ProjectJoinedStageOutputOccurrence,
@@ -85,7 +86,10 @@ if TYPE_CHECKING:
 __all__: tuple[str, ...] = ()
 
 type GroupKey = (
-    ProjectGroupKeyFact | ProjectComputedGroupKeyFact | ProjectJoinedGroupKeyOccurrence
+    ProjectGroupKeyFact
+    | ProjectComputedGroupKeyFact
+    | ProjectJoinedGroupKeyOccurrence
+    | ProjectJoinedComputedGroupKeyOccurrence
 )
 type Aggregate = ProjectAggregateExpressionAnalysis | ProjectJoinedAggregateOccurrence
 type Output = (
@@ -561,8 +565,13 @@ def retained_members_valid(
             or key.source_ordinal != i
             or not isinstance(value.source, ProjectConcreteJoinedAggregation)
             or key.input_filter is not value.source.input_filter
-            or not isinstance(references[-1], ProjectScalarReferenceResolution)
-            or references[-1].target is not key.field_semantics.scalar_field
+            or (
+                # The computed determinant reads exactly its own LET reference.
+                len(references) != 1 or references[0] is not key.resolutions[0]
+                if isinstance(key, ProjectJoinedComputedGroupKeyOccurrence)
+                else not isinstance(references[-1], ProjectScalarReferenceResolution)
+                or references[-1].target is not key.field_semantics.scalar_field
+            )
         ):
             return False
     for reference in value.satisfying_references:

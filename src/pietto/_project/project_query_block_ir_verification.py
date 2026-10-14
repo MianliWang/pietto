@@ -108,6 +108,8 @@ from pietto._project.project_ir_verification import (
 from pietto._project.project_joined_aggregation import (
     ProjectJoinedAggregationMode,
     ProjectConcreteJoinedAggregation,
+    ProjectJoinedComputedGroupKeyOccurrence,
+    ProjectJoinedGroupKeyOccurrence,
     ProjectJoinedStageOutputOccurrence,
     ProjectJoinedStageOutputRole,
 )
@@ -1890,9 +1892,13 @@ def _group_key_positions(
             type(key.source_ordinal) is not int
             or key.source_ordinal != i
             or key.input_filter is not basis.input_filter
-            or not any(
-                key.field_semantics is row_field
-                for row_field in basis.input_filter.fields
+            or not (
+                type(key) is ProjectJoinedComputedGroupKeyOccurrence
+                or type(key) is ProjectJoinedGroupKeyOccurrence
+                and any(
+                    key.field_semantics is row_field
+                    for row_field in basis.input_filter.fields
+                )
             )
             for i, key in enumerate(keys)
         ):
@@ -2026,6 +2032,9 @@ def _group_input_has_key(context, incoming, root) -> bool | None:
             return None
         prefix = entries[0].join_prefix
         for key in basis.group_keys:
+            if type(key) is not ProjectJoinedGroupKeyOccurrence:
+                # Independently: a computed determinant is never an input key.
+                continue
             if isinstance(incoming.output, ProjectIRQueryBlockRowOutput):
                 matches = [
                     i

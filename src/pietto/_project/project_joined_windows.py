@@ -16,6 +16,7 @@ from pietto._project.project_joined_aggregation import (
     ProjectJoinedAggregationMode,
     ProjectJoinedAggregationResult,
     ProjectJoinedAggregationSet,
+    ProjectJoinedGroupKeyOccurrence,
     ProjectJoinedStageOutputOccurrence,
     ProjectJoinedStageOutputRole,
     ProjectNonConcreteJoinedAggregation,
@@ -200,7 +201,7 @@ class ProjectJoinedWindowInputBinding:
                 and type(self.let_value) is ProjectJoinedLetValue
                 and type(self.stage_output) is ProjectJoinedStageOutputOccurrence
                 and self.stage_output.role is ProjectJoinedStageOutputRole.GROUP_KEY
-                and self.stage_output.group_key is not None
+                and type(self.stage_output.group_key) is ProjectJoinedGroupKeyOccurrence
                 and self.stage_output.group_key.field_semantics is self.joined_field
                 and self.qualifier is None
                 and self.name == self.let_value.occurrence.binding.name
@@ -307,21 +308,35 @@ class ProjectJoinedWindowInputResolution:
             raise TypeError("Window input resolution requires exact lookup evidence.")
         if self.candidates != self.namespace.candidates(self.expression):
             raise ValueError("Window input candidates must be complete and ordered.")
-        status = (
-            ProjectModuleCandidateBucketStatus.ABSENT
-            if not self.candidates
-            else (
-                ProjectModuleCandidateBucketStatus.CONCRETE
-                if len(self.candidates) == 1
-                else ProjectModuleCandidateBucketStatus.AMBIGUOUS
-            )
-        )
+        status, target = window_reference_bucket(self.candidates)
         object.__setattr__(self, "status", status)
-        object.__setattr__(
-            self,
-            "target",
-            self.candidates[0] if len(self.candidates) == 1 else None,
-        )
+        object.__setattr__(self, "target", target)
+
+
+def window_reference_bucket[T](
+    candidates: tuple[T, ...],
+) -> tuple[ProjectModuleCandidateBucketStatus, T | None]:
+    """The 0/1/N status and sole target of a window or QUALIFY reference.
+
+    A computed LET determinant's output orders the grouped result but stays
+    outside window and QUALIFY expressions: its sole bucket is BLOCKED.
+    """
+
+    if len(candidates) != 1:
+        return (
+            ProjectModuleCandidateBucketStatus.AMBIGUOUS
+            if candidates
+            else ProjectModuleCandidateBucketStatus.ABSENT
+        ), None
+    (target,) = candidates
+    if (
+        type(target) is ProjectJoinedWindowInputBinding
+        and target.stage_output is not None
+        and target.stage_output.group_key is not None
+        and type(target.stage_output.group_key) is not ProjectJoinedGroupKeyOccurrence
+    ):
+        return ProjectModuleCandidateBucketStatus.BLOCKED, None
+    return ProjectModuleCandidateBucketStatus.CONCRETE, target
 
 
 def _visible_field_qualifier(
@@ -391,6 +406,8 @@ def _window_input_bindings(
                 )
     else:
         for output in result.stage_outputs:
+            # A computed determinant's output is bound here for grouped ORDER
+            # BY; window and QUALIFY lookups block it (window_reference_bucket).
             bindings.append(
                 ProjectJoinedWindowInputBinding(
                     aggregation=result,
@@ -415,7 +432,7 @@ def _window_input_bindings(
             matches = tuple(
                 output
                 for output in group_outputs
-                if output.group_key is not None
+                if type(output.group_key) is ProjectJoinedGroupKeyOccurrence
                 and output.group_key.field_semantics is field_semantics
             )
             if len(matches) == 1:

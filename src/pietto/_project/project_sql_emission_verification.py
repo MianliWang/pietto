@@ -12,6 +12,9 @@ from typing import Any
 
 from pietto._project import project_sql_plan as plans
 from pietto._project.aggregate_grouped_schema import ProjectComputedGroupKeyFact
+from pietto._project.project_joined_aggregation import (
+    ProjectJoinedComputedGroupKeyOccurrence,
+)
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
@@ -1860,9 +1863,16 @@ def _verify_aggregate_body(
         retained = grouping.key_logical(key.source)
         label = f"c{index}"
         incoming = ports.get(key.input)
-        if type(key.source) is ProjectComputedGroupKeyFact and (
+        own = (
+            key.source.binding
+            if type(key.source) is ProjectComputedGroupKeyFact
+            else key.source.let_value.occurrence
+            if type(key.source) is ProjectJoinedComputedGroupKeyOccurrence
+            else None
+        )
+        if own is not None and (
             incoming is None
-            or incoming.key is not key.source.binding
+            or incoming.key is not own
             or read is None
             or read.field is not None
         ):

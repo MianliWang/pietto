@@ -183,6 +183,7 @@ from pietto._project.project_ir_relational_properties import (
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
     ProjectJoinedAggregationMode,
+    ProjectJoinedGroupKeyOccurrence,
     ProjectJoinedSatisfyingAnalysis,
     ProjectJoinedStageOutputOccurrence,
     ProjectJoinedStageOutputRole,
@@ -2299,10 +2300,12 @@ def _group_query_fields(
     values: list[ProjectIRQueryBlockRowField] = []
     for position, source in enumerate(sources):
         completed = _completed_field_for_source(entry, source)
-        if type(source) is ProjectJoinedStageOutputOccurrence and (
-            source.role is ProjectJoinedStageOutputRole.GROUP_KEY
+        if (
+            type(source) is ProjectJoinedStageOutputOccurrence
+            and source.role is ProjectJoinedStageOutputRole.GROUP_KEY
+            # A computed LET determinant is no single input field occurrence.
+            and type(source.group_key) is ProjectJoinedGroupKeyOccurrence
         ):
-            assert source.group_key is not None
             field_semantics = source.group_key.field_semantics
             introduction = field_semantics.introduction_use
             nulling = field_semantics.nulling_joins
@@ -3300,6 +3303,10 @@ def _group_input_classes(
     positions: list[int] = []
     if type(basis) is ProjectConcreteJoinedAggregation:
         for key in basis.group_keys:
+            if type(key) is not ProjectJoinedGroupKeyOccurrence:
+                # A computed LET determinant names no input class: it asserts no
+                # injectivity, so it never supports the reverse grain dependency.
+                continue
             if type(incoming.output) is ProjectIRQueryBlockRowOutput:
                 matches = tuple(
                     field.field_position

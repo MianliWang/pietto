@@ -710,6 +710,8 @@ def stage_key_label(key):
         return key.field_identity
     if isinstance(key, aggregation.ProjectJoinedGroupKeyOccurrence):
         return key.field_semantics.scalar_field.evidence.name
+    if isinstance(key, aggregation.ProjectJoinedComputedGroupKeyOccurrence):
+        return key.let_value.occurrence.binding.name
     if isinstance(key, ProjectScalarEnvironmentField):
         return key.evidence.name
     if isinstance(key, ProjectJoinedLetOccurrence):

@@ -448,6 +448,7 @@ ANCHOR = Shape(
         "project_joined_satisfying_output_reference",
         "project_joined_let_occurrence",
         "project_joined_group_key_occurrence",
+        "project_joined_computed_group_key_occurrence",
         "project_joined_aggregate_occurrence",
         "project_joined_stage_output_occurrence",
         "project_joined_group_protection",
@@ -1030,6 +1031,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_group_key_fact"),
                             ref("project_computed_group_key_fact"),
                             ref("project_joined_group_key_occurrence"),
+                            ref("project_joined_computed_group_key_occurrence"),
                         ),
                         union(
                             ref("project_aggregate_selected_result"),
@@ -1726,6 +1728,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                                 ref("project_group_key_fact"),
                                 ref("project_computed_group_key_fact"),
                                 ref("project_joined_group_key_occurrence"),
+                                ref("project_joined_computed_group_key_occurrence"),
                             ),
                             ref("select_item"),
                         ),
@@ -2506,6 +2509,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_group_key_fact"),
                             ref("project_computed_group_key_fact"),
                             ref("project_joined_group_key_occurrence"),
+                            ref("project_joined_computed_group_key_occurrence"),
                         )
                     ),
                 ),
@@ -2560,6 +2564,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                                 ref("project_group_key_fact"),
                                 ref("project_computed_group_key_fact"),
                                 ref("project_joined_group_key_occurrence"),
+                                ref("project_joined_computed_group_key_occurrence"),
                             ),
                             ref("select_item"),
                         )
@@ -2637,6 +2642,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         ref("project_group_key_fact"),
                         ref("project_computed_group_key_fact"),
                         ref("project_joined_group_key_occurrence"),
+                        ref("project_joined_computed_group_key_occurrence"),
                     ),
                 ),
                 FieldRule(
@@ -4430,6 +4436,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     seq(
                         union(
                             ref("project_joined_group_key_occurrence"),
+                            ref("project_joined_computed_group_key_occurrence"),
                             ref("project_relation_clause_dependency_fact"),
                         )
                     ),
@@ -7171,6 +7178,22 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("value_type", ref("value_type")),
             ),
         ),
+        "project_joined_computed_group_key_occurrence": RecordRule(
+            "project_joined_computed_group_key_occurrence",
+            (
+                FieldRule("input_filter", ref("project_concrete_joined_row_filter")),
+                FieldRule("source_ordinal", INTEGER),
+                FieldRule("item", ref("group_by_item")),
+                FieldRule(
+                    "resolutions", seq(ref("project_joined_let_reference_resolution"))
+                ),
+                FieldRule(
+                    "field_dependencies",
+                    seq(ref("project_joined_row_field_semantics")),
+                ),
+                FieldRule("value_type", ref("value_type")),
+            ),
+        ),
         "project_joined_aggregate_occurrence": RecordRule(
             "project_joined_aggregate_occurrence",
             (
@@ -7203,7 +7226,11 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("value_type", ref("value_type")),
                 FieldRule(
                     "group_key",
-                    union(ref("project_joined_group_key_occurrence"), optional),
+                    union(
+                        ref("project_joined_group_key_occurrence"),
+                        ref("project_joined_computed_group_key_occurrence"),
+                        optional,
+                    ),
                 ),
                 FieldRule(
                     "aggregate",
@@ -7223,6 +7250,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule(
                     "group_keys", seq(ref("project_joined_group_key_occurrence"))
+                ),
+                FieldRule(
+                    "computed_keys",
+                    seq(ref("project_joined_computed_group_key_occurrence")),
                 ),
                 FieldRule("seed", ref("project_ir_output_value_class_set")),
                 FieldRule("strict_keys", seq(ref("project_ir_output_candidate_key"))),
@@ -7265,6 +7296,18 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule(
                     "group_protection_factors",
+                    seq(
+                        union(
+                            ref("project_source_grain_factor_identity"),
+                            ref("project_grouped_grain_factor_identity"),
+                            ref("project_distinct_grain_factor_identity"),
+                            ref("project_set_grain_factor_identity"),
+                            ref("project_join_grain_factor_identity"),
+                        )
+                    ),
+                ),
+                FieldRule(
+                    "computed_key_factors",
                     seq(
                         union(
                             ref("project_source_grain_factor_identity"),
@@ -7327,7 +7370,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("input_filter", ref("project_concrete_joined_row_filter")),
                 FieldRule("mode", enum("absent", "grouped", "global")),
                 FieldRule(
-                    "group_keys", seq(ref("project_joined_group_key_occurrence"))
+                    "group_keys",
+                    seq(
+                        union(
+                            ref("project_joined_group_key_occurrence"),
+                            ref("project_joined_computed_group_key_occurrence"),
+                        )
+                    ),
                 ),
                 FieldRule(
                     "aggregates", seq(ref("project_joined_aggregate_occurrence"))
