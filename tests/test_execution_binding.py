@@ -446,3 +446,119 @@ def test_unselected_retained_request_is_not_dropped(tmp_path):
         "unused",
     )
     checking.verify_binding(accepted)
+
+
+def _parameterized(directory, target, variant):
+    """The compiled template of the published v2 conformance query."""
+    import _pietto_sql_emission as probe
+
+    item = probe.fixture(target, "Q_query_parameters", variant)
+    _, outcome = probe.build_case(
+        directory, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    return binding.prepare_live_template(outcome.artifact)
+
+
+def _named(t, *values):
+    return tuple(zip(t.parameters, values, strict=True))
+
+
+def _literals(t):
+    return tuple((s, s.original.site.position.literal.value) for s in t.slots)
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+@pytest.mark.parametrize("variant", ["preserve", "bind"])
+def test_a_parameter_binding_rederives_the_template_statement(
+    tmp_path, target, variant
+):
+    t = _parameterized(tmp_path, target, variant)
+    assert [(p.name, p.tag, p.nullable) for p in t.parameters] == [
+        ("low", "Int", False),
+        ("label", "Text", True),
+    ]
+    a = binding.bind_values(t, _literals(t), _named(t, 10, "x"))
+    b = binding.bind_values(t, _literals(t), _named(t, -5, None))
+    for item in (a, b, a):
+        checking.verify_binding(item)
+        # Every binding re-derives its facts; the statement bytes never change.
+        assert item.artifact is not t.artifact
+        assert item.artifact.rendered.sql == t.artifact.rendered.sql
+    header = a.artifact.request.plan.parameters
+    low = [u for u in a.artifact.parameter_uses if u.parameter is header[0]]
+    if target == "postgres":
+        # One `$n` per owner: every read of `low` reuses its first index.
+        assert {u.server_index for u in low} == {1}
+        assert len(a.arguments) == len(t.slots) + 2
+    else:
+        assert len(a.arguments) == len(a.artifact.parameter_uses) > len(t.slots) + 2
+    assert a.arguments.count(10) == (len(low) if target == "mysql" else 1)
+    assert None in b.arguments and "x" in a.arguments
+    assert a.parameters == (10, "x") and b.parameters == (-5, None)
+
+
+@pytest.mark.parametrize(
+    ("values", "detail"),
+    [
+        ((True, "x"), "BINDING_PARAMETER:0:Int"),
+        ((None, "x"), "BINDING_PARAMETER:0:Int"),
+        ((2**63, "x"), "BINDING_PARAMETER:0:Int"),
+        ((1, 1), "BINDING_PARAMETER:1:Text"),
+        ((1, "\0"), "BINDING_PARAMETER:1:Text"),
+        # `above = low + 1` defers its range check to every binding.
+        ((2**63 - 1, "x"), "BINDING_INVALID"),
+    ],
+)
+def test_a_parameter_value_is_checked_by_its_binding(tmp_path, values, detail):
+    t = _parameterized(tmp_path, "postgres", "preserve")
+    with pytest.raises(binding.BindingError, match="^%s$" % detail):
+        binding.bind_values(t, (), _named(t, *values))
+
+
+def test_the_header_is_bound_completely_by_its_own_parameters(tmp_path):
+    t = _parameterized(tmp_path, "postgres", "preserve")
+    other = _parameterized(tmp_path / "other", "postgres", "preserve")
+    low, label = t.parameters
+    for named in (
+        None,
+        (),
+        ((low, 1),),
+        ((label, "x"), (low, 1)),
+        ((low, 1), (label, "x"), (label, "x")),
+        ((other.parameters[0], 1), (label, "x")),
+        ((replace(low), 1), (label, "x")),
+        {low: 1, label: "x"},
+    ):
+        with pytest.raises(binding.BindingError, match="^BINDING_PARAMETERS$"):
+            binding.bind_values(t, (), named)
+
+
+def test_an_unregistered_binding_obligation_kind_never_binds(tmp_path, monkeypatch):
+    t = _parameterized(tmp_path, "postgres", "preserve")
+    accepted = binding.bind_values(t, (), _named(t, 1, "x"))
+    monkeypatch.setattr(checking, "BINDING_CHECKS", {})
+    # The binder reports any refusal of its own result as an invalid binding.
+    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+        binding.bind_values(t, (), _named(t, 1, "x"))
+    with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATION_KIND$"):
+        checking.verify_binding(accepted)
+
+
+def test_a_forged_parameter_binding_is_refused(tmp_path):
+    t = _parameterized(tmp_path, "postgres", "preserve")
+    accepted = binding.bind_values(t, (), _named(t, 1, "x"))
+    other = binding.bind_values(t, (), _named(t, 2, "x"))
+    for forged in (
+        replace(accepted, parameters=(2, "x")),
+        replace(accepted, arguments=other.arguments),
+        replace(accepted, artifact=other.artifact),
+        replace(accepted, artifact=t.artifact),
+    ):
+        with pytest.raises(binding.BindingError):
+            checking.verify_binding(forged)
+    # A verified statement of another template never stands in for this one.
+    bound = _parameterized(tmp_path / "bound", "postgres", "bind")
+    foreign = binding.bind_values(bound, _literals(bound), _named(bound, 1, "x"))
+    with pytest.raises(binding.BindingError, match="^BINDING_TEMPLATE_BYTES$"):
+        checking.verify_binding(replace(accepted, artifact=foreign.artifact))

@@ -55,6 +55,9 @@ VARIANTS = {
         "empty_preserve",
         "empty_bind",
     ),
+    # Phase70 S04: one v2 template per literal policy; PARAMETER_BINDINGS gives
+    # each variant's caller values.
+    "Q_query_parameters": ("preserve", "bind"),
     "R_fixed_direct": (
         "table_preserve",
         "table_bind",
@@ -425,6 +428,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return corrective_fixture(target, case, variant)
     if case == "P_native_identifiers":
         return native_fixture(target, variant)
+    if case == "Q_query_parameters":
+        return parameter_fixture(target, variant)
     if case == "M_metamorphic_composition":
         return metamorphic_fixture(target, variant)
     if case in {"R_fixed_direct", "S_fixed_named"}:
@@ -688,6 +693,46 @@ query result:
         "policy": "bind_safe_literals"
         if variant.endswith("bind")
         else "preserve_literals",
+    }
+
+
+PARAMETER_BODY = """query result(low: Int not null, label: Text nullable):
+    from rows
+    where id > low and plain != 3
+    select:
+        id
+        echo = label
+        above = low + 1
+"""
+# The caller values of each Q_query_parameters variant, by parameter name.
+PARAMETER_BINDINGS = {
+    ("Q_query_parameters", "preserve"): {"low": 10, "label": "雪?%s $1"},
+    ("Q_query_parameters", "bind"): {"low": -5, "label": None},
+}
+
+
+def bindings(case, variant):
+    """The caller's header values for one emission variant (None: no header)."""
+    return PARAMETER_BINDINGS.get((case, variant))
+
+
+def parameter_fixture(target, variant):
+    """A v2 template over the native rows: two header parameters, read in WHERE
+    and SELECT, and a deferred Int range check (`low + 1`)."""
+    base = native_fixture(target, variant)
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended" if target == "postgres" else "mysql_prepared",
+        }
+    )
+    header = base["source"].split("query result:", 1)[0]
+    return {
+        "source": header + PARAMETER_BODY,
+        "contract": encoded(contract).decode(),
+        "policy": base["policy"],
     }
 
 
@@ -4238,30 +4283,75 @@ def _fixed_physical(family, tag):
     }[family][tag]
 
 
-def decoded_arguments(document):
-    """Ordered native values only from the independently decoded public map."""
-    result, assigned, slot_indices = [], {}, {}
+def _binding_value(family, tag, value):
+    """One caller binding of a v2 header parameter, exactly as the driver sends it."""
+    if tag == "Bool":
+        return type(value) is bool
+    if tag == "Int":
+        return type(value) is int and -(1 << 63) <= value < 1 << 63
+    if tag == "Float":
+        return type(value) is float and math.isfinite(value)
+    if tag != "Text" or type(value) is not str:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        return False
+    # PostgreSQL text cannot hold NUL; MySQL text can.
+    return family == "mysql" or "\0" not in value
+
+
+def decoded_arguments(document, bindings=None):
+    """Ordered native values only from the independently decoded public map.
+
+    A v2 template names its header parameters but carries no value for them;
+    ``bindings`` gives one by parameter name, exactly the caller's values."""
+    result, assigned, owner_indices = [], {}, {}
     family = document["target"]["family"]
+    header = document.get("parameters", [])
+    _need(
+        (bindings is None) == (not header)
+        and (bindings is None or set(bindings) == {p["name"] for p in header})
+    )
+    # Every declared parameter is bound, whether or not the statement reads it.
+    for parameter in header:
+        assert bindings is not None
+        value = bindings[parameter["name"]]
+        _need(
+            parameter["nullable"]
+            if value is None
+            else _binding_value(family, parameter["tag"], value),
+            "binding outside its parameter",
+        )
     for use in document["parameter_uses"]:
-        value = document["fixed_values"][use["slot"]]
-        decoded = _fixed_payload(value["tag"], value["value"])
-        if family == "mysql" and value["tag"] == "Bool":
+        owner = use.get("owner", {"kind": "slot", "slot": use.get("slot")})
+        if owner["kind"] == "slot":
+            key = ("slot", owner["slot"])
+            value = document["fixed_values"][owner["slot"]]
+            tag = value["tag"]
+            decoded = _fixed_payload(tag, value["value"])
+        else:
+            _need(owner["kind"] == "parameter" and bindings is not None)
+            assert bindings is not None
+            key = ("parameter", owner["parameter"])
+            parameter = header[owner["parameter"]]
+            tag, decoded = parameter["tag"], bindings[parameter["name"]]
+        if family == "mysql" and tag == "Bool" and decoded is not None:
             _need(type(decoded) is bool, "MySQL Bool fixed payload")
             assert type(decoded) is bool
             decoded = int(decoded)
         index = use["server_index"]
-        if family == "postgres" and use["slot"] in slot_indices:
-            _need(index == slot_indices[use["slot"]])
+        if family == "postgres" and key in owner_indices:
+            _need(index == owner_indices[key])
         if index in assigned:
             _need(
-                family == "postgres"
-                and assigned[index] == (use["slot"], use["physical_type"])
+                family == "postgres" and assigned[index] == (key, use["physical_type"])
             )
         else:
             _need(type(index) is int and index == len(result) + 1)
-            assigned[index] = use["slot"], use["physical_type"]
+            assigned[index] = key, use["physical_type"]
             result.append(decoded)
-            slot_indices[use["slot"]] = index
+            owner_indices[key] = index
     return tuple(result)
 
 
@@ -9476,6 +9566,170 @@ def _decode_fixed_public(document, limits):
     )
 
 
+PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
+BINDING_OBLIGATION_KINDS = frozenset({"int_range_representable", "text_result_width"})
+
+
+def _decode_parameterized_public(document, limits):
+    """The v2 template as data: its header, owner-named native occurrences and
+    deferred binding checks. Every placeholder is one lexical ``parameter``
+    interval; a read keeps its typed anchor and one R04 requirement."""
+    family = document["target"]["family"]
+    sql = document["sql"].encode("utf-8")
+    premises = _public_premises(document["request"]["contract"])
+    statements = _statement_premises(premises, family)
+    if _records(document["parameter_uses"]):
+        # Only a rendered placeholder needs the protocol; an all-unread header
+        # renders none (as v1 needs it only for a fixed value).
+        protocols = [
+            premises[i]["value"]
+            for i in statements
+            if premises[i]["key"] == "parameter_protocol"
+        ]
+        _need(
+            bool(protocols)
+            and all(
+                v == ("postgres_extended" if family == "postgres" else "mysql_prepared")
+                for v in protocols
+            )
+        )
+    lexical, anchors, offset = [], {}, 0
+    for interval in _records(document["ranges"]):
+        _keys(interval, ("start", "end", "kind", "role", "subject", "origins"))
+        _reference(interval["subject"])
+        _need(type(interval["start"]) is int and type(interval["end"]) is int)
+        _need(0 <= interval["start"] < interval["end"] <= len(sql))
+        if interval["kind"] == "expression_range":
+            if interval["role"] == "anchor":
+                key = (interval["subject"]["kind"], interval["subject"]["position"])
+                anchors[key] = (interval["start"], interval["end"])
+            continue
+        _need(interval["kind"] in {"identifier", "syntax", "literal", "parameter"})
+        _need(interval["start"] == offset)
+        offset = interval["end"]
+        lexical.append(interval)
+    _need(offset == len(sql))
+    fixed = document["fixed_values"]
+    for i, value in enumerate(_records(fixed)):
+        _keys(value, ("slot", "reference", "site", "tag", "value"))
+        _need(type(value["slot"]) is int and value["slot"] == i)
+        _reference(value["reference"])
+        _reference(value["site"])
+        _need(
+            value["reference"] == {"kind": "literal_slot", "position": i}
+            and value["site"]["kind"] == "literal_site"
+        )
+        _fixed_payload(value["tag"], value["value"])
+    _need(not fixed or document["request"]["literal_policy"] == "bind_safe_literals")
+    header = _records(document["parameters"])
+    _need(bool(header))
+    names, reads = set(), {}
+    for j, parameter in enumerate(header):
+        _keys(parameter, ("parameter", "name", "tag", "nullable", "reads"))
+        _need(
+            parameter["parameter"] == j
+            and type(parameter["name"]) is str
+            and bool(parameter["name"])
+            and parameter["name"] not in names
+            and parameter["tag"] in {"Bool", "Int", "Float", "Text"}
+            and type(parameter["nullable"]) is bool
+        )
+        names.add(parameter["name"])
+        # A declared parameter may be unread; its `reads` list is then empty.
+        for read in _records(parameter["reads"]):
+            _reference(read)
+            key = (read["kind"], read["position"])
+            _need(read["kind"] == "expression" and key not in reads)
+            reads[key] = j
+    placeholders = [i for i in lexical if i["kind"] == "parameter"]
+    uses = _records(document["parameter_uses"])
+    _need(len(uses) == len(placeholders) and len(uses) <= limits["parameters"])
+    first, seen_reads = {}, set()
+    for i, (use, interval) in enumerate(zip(uses, placeholders, strict=True)):
+        _keys(use, ("use", "owner", "server_index", "physical_type", "range"))
+        _keys(use["range"], ("start", "end"))
+        _need(
+            use["use"] == i
+            and use["range"] == {"start": interval["start"], "end": interval["end"]}
+        )
+        owner, subject = use["owner"], interval["subject"]
+        if owner.get("kind") == "slot":
+            _keys(owner, ("kind", "slot"))
+            _need(_ordinal(owner["slot"]) and owner["slot"] < len(fixed))
+            key, tag = ("slot", owner["slot"]), fixed[owner["slot"]]["tag"]
+            _need(subject == fixed[owner["slot"]]["site"])
+        else:
+            _keys(owner, ("kind", "parameter"))
+            _need(owner["kind"] == "parameter" and _ordinal(owner["parameter"]))
+            _need(owner["parameter"] < len(header))
+            key, tag = (
+                ("parameter", owner["parameter"]),
+                header[owner["parameter"]]["tag"],
+            )
+            read = (subject["kind"], subject["position"])
+            _need(reads.get(read) == owner["parameter"] and read not in seen_reads)
+            seen_reads.add(read)
+            # The placeholder sits inside the read's own typed anchor.
+            _need(read in anchors)
+            start, end = anchors[read]
+            _need(start < interval["start"] and interval["end"] < end)
+        _need(
+            interval["role"] == tag
+            and use["physical_type"] == _fixed_physical(family, tag)
+        )
+        index = first.setdefault(key, len(first) + 1) if family == "postgres" else i + 1
+        _need(use["server_index"] == index)
+        token = sql[interval["start"] : interval["end"]].decode()
+        _need(token == ("$" + str(index) if family == "postgres" else "?"))
+    _need(seen_reads == set(reads))
+    described = {}
+    for requirement in _records(document["requirements"]):
+        if requirement.get("kind") != "query_parameter":
+            continue
+        _need(
+            requirement["denominator"] == "generated"
+            and requirement["rule"] == "R04"
+            and requirement["disposition"] == "checked_rule"
+        )
+        subject = requirement["subject"]
+        _reference(subject)
+        key = (subject["kind"], subject["position"])
+        _need(key in reads and key not in described)
+        _need(requirement["evidence"] == [{"parameter": reads[key]}])
+        described[key] = True
+    _need(set(described) == set(reads))
+    for k, obligation in enumerate(_records(document["binding_obligations"])):
+        _keys(obligation, ("obligation", "kind", "subject", "parameters"))
+        _reference(obligation["subject"])
+        _need(type(obligation["parameters"]) is list)
+        depends = cast(list[int], obligation["parameters"])
+        _need(
+            obligation["obligation"] == k
+            and obligation["kind"] in BINDING_OBLIGATION_KINDS
+            and obligation["subject"]["kind"] == "expression"
+            and bool(depends)
+            and all(_ordinal(j) and j < len(header) for j in depends)
+            and depends == sorted(set(depends))
+        )
+    for ordinal, column in enumerate(_records(document["columns"])):
+        _keys(
+            column,
+            (
+                "ordinal",
+                "label",
+                "logical_type",
+                "nullable",
+                "representation",
+                "correspondence",
+            ),
+        )
+        _need(
+            column["ordinal"] == ordinal
+            and type(column["label"]) is str
+            and bool(column["label"])
+        )
+
+
 def decode_public(data: bytes) -> dict[str, Any]:
     """Validate data only. A decoded document grants no compiler authority."""
     _need(type(data) is bytes and len(data) <= 16 * 1024 * 1024)
@@ -9487,10 +9741,14 @@ def decode_public(data: bytes) -> dict[str, Any]:
         )
         _need(
             type(document) is dict
-            and document.get("format") == "pietto.sql-emission.v1"
+            and document.get("format")
+            in {"pietto.sql-emission.v1", PARAMETERIZED_FORMAT}
         )
         status = document.get("status")
         _need(status in {"VERIFIED", "INPUT_REJECTED", "BLOCKED"})
+        # Only a VERIFIED query with a parameter header is v2 (D70.02).
+        parameterized = document["format"] == PARAMETERIZED_FORMAT
+        _need(not parameterized or status == "VERIFIED")
         _need(type(document.get("diagnostics")) is list)
         for diagnostic in document["diagnostics"]:
             _keys(diagnostic, ("code", "severity", "message", "location", "suggestion"))
@@ -9564,6 +9822,7 @@ def decode_public(data: bytes) -> dict[str, Any]:
                 "ranges",
                 "requirements",
                 "diagnostics",
+                *(("parameters", "binding_obligations") if parameterized else ()),
             ),
         )
         _need(
@@ -9636,6 +9895,9 @@ def decode_public(data: bytes) -> dict[str, Any]:
         )
         sources = _records(contract["sources"])
         _need(bool(sources))
+        if parameterized:
+            _decode_parameterized_public(document, limits)
+            return document
         if any(
             interval.get("kind") in {"literal", "parameter", "expression_range"}
             for interval in _records(document["ranges"])

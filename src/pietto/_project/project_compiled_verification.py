@@ -29,6 +29,7 @@ MEMBER_KINDS = {
     - {
         "slot",
         "native_use",
+        "parameter",
         "target",
         "premise",
         "policy",
@@ -39,7 +40,7 @@ MEMBER_KINDS = {
         "requirement_link",
         "output",
     },
-    "parameters": frozenset({"slot", "native_use"}),
+    "parameters": frozenset({"slot", "native_use", "parameter"}),
     "targets": frozenset({"target", "premise"}),
     "obligations": frozenset(
         {
@@ -60,6 +61,7 @@ VALUES = frozenset(
     {
         "literal",
         "null_literal",
+        "parameter_read",
         "read",
         "operation",
         "aggregate_value",
@@ -233,7 +235,7 @@ def verify_description(value: Description) -> None:
         "REQUEST_INVENTORY",
     )
     execution = selected_relations(records, entry)
-    slot_literals, slot_sites = set(), set()
+    slot_literals, slot_sites, parameter_labels = set(), set(), set()
     for record in records.values():
         kind, get = record.address.kind, record.get
         if kind in RELATIONS:
@@ -452,6 +454,27 @@ def verify_description(value: Description) -> None:
         elif kind == "null_literal":
             site = ref(get("site"), {"site"})
             need(site.get("disposition") == "preserved_with_reason", "STATIC_NULL")
+        elif kind == "parameter":
+            from pietto._project.query_parameters import MAX_QUERY_PARAMETERS
+
+            # Only the entry query declares parameters, in header order, each
+            # under its own source name: a binding by name never picks a winner.
+            label = get("label")
+            need(
+                get("declaration") == entry.get("declaration")
+                and type(get("ordinal")) is int
+                and get("ordinal") == record.address.position < MAX_QUERY_PARAMETERS
+                and type(label) is str
+                and label.isascii()
+                and label.isidentifier()
+                and label not in parameter_labels
+                and get("tag") in ("Bool", "Int", "Float", "Text")
+                and type(get("nullable")) is bool,
+                "PARAMETER",
+            )
+            parameter_labels.add(label)
+        elif kind == "parameter_read":
+            ref(get("parameter"), {"parameter"})
         elif kind == "read":
             port = ref(get("port"), {"port"})
             use = ref(get("use"), {"use"})
@@ -506,7 +529,8 @@ def verify_description(value: Description) -> None:
             producer = ref(get("input"), RELATIONS)
             use = ref(get("use"), {"use"})
             values = refs(
-                get("values"), {"literal", "null_literal", "read", "operation"}
+                get("values"),
+                {"literal", "null_literal", "parameter_read", "read", "operation"},
             )
             outputs = refs(get("outputs"), {"port"})
             need(
@@ -518,7 +542,10 @@ def verify_description(value: Description) -> None:
                 "ROW_SHAPE",
             )
             if get("predicate") is not None:
-                ref(get("predicate"), {"literal", "null_literal", "read", "operation"})
+                ref(
+                    get("predicate"),
+                    {"literal", "null_literal", "parameter_read", "read", "operation"},
+                )
             need(
                 (get("predicate") is not None)
                 is (get("stage") in ("where", "satisfying", "qualify")),
@@ -674,7 +701,10 @@ def verify_description(value: Description) -> None:
                 )
             predicate = get("predicate")
             if predicate is not None:
-                ref(predicate, {"read", "operation", "literal", "null_literal"})
+                ref(
+                    predicate,
+                    {"read", "operation", "literal", "null_literal", "parameter_read"},
+                )
             need(
                 (get("kind") == "cross") is (not equalities and predicate is None),
                 "JOIN_CONDITION",
@@ -828,7 +858,7 @@ def verify_description(value: Description) -> None:
                 "WINDOW_DEFINITION",
             )
         elif kind == "native_use":
-            ref(get("slot"), {"slot"})
+            ref(get("slot"), {"slot", "parameter_read"})
             need(
                 type(get("ordinal")) is int
                 and get("ordinal") == record.address.position
@@ -1028,7 +1058,10 @@ def verify_description(value: Description) -> None:
                 and (role != "scalar_call" or len(operands) >= 1),
                 "OPERATOR_ARITY",
             )
-            refs(operands, {"literal", "null_literal", "read", "operation"})
+            refs(
+                operands,
+                {"literal", "null_literal", "parameter_read", "read", "operation"},
+            )
     bound_literals = {
         r.get("literal"): records[r.get("site")]
         for r in records.values()
@@ -1080,7 +1113,13 @@ def verify_description(value: Description) -> None:
     # dialect trees; a compact DAG cannot allocate an exponential tree.
     costs, depths, active_values = {}, {}, set()
     for address in records:
-        if address.kind not in ("literal", "null_literal", "read", "operation"):
+        if address.kind not in (
+            "literal",
+            "null_literal",
+            "parameter_read",
+            "read",
+            "operation",
+        ):
             continue
         stack = [(address, False)]
         while stack:
@@ -1097,7 +1136,9 @@ def verify_description(value: Description) -> None:
                 continue
             active_values.remove(current)
             costs[current] = (
-                2 if current.kind in ("literal", "null_literal") else 1
+                2
+                if current.kind in ("literal", "null_literal", "parameter_read")
+                else 1
             ) + sum(costs[c] for c in children)
             depths[current] = 1 + max((depths[c] for c in children), default=0)
             need(
@@ -1727,8 +1768,39 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             ),
             "EXPORT_LITERAL",
         )
+    declared = original.plan.parameters
+    need(len(grouped["parameter"]) == len(declared), "EXPORT_PARAMETERS")
+    for record, parameter in zip(grouped["parameter"], declared, strict=True):
+        check_declaration(record.get("declaration"), parameter.owner)
+        need(
+            record.values[1:]
+            == (
+                parameter.ordinal,
+                parameter.declaration.name,
+                parameter.tag,
+                parameter.value_type.nullability.value == "nullable",
+            ),
+            "EXPORT_PARAMETER",
+        )
     need(len(grouped["native_use"]) == len(artifact.parameter_uses), "EXPORT_USES")
+    reads = iter(grouped["parameter_read"])
     for record, use in zip(grouped["native_use"], artifact.parameter_uses, strict=True):
+        if use.parameter is not None:
+            # Each read occurrence owns its record, in native occurrence order.
+            read = next(reads, None)
+            need(
+                read is not None
+                and read.get("parameter") == Address("parameter", use.parameter.ordinal)
+                and record.values
+                == (
+                    read.address,
+                    use.ordinal,
+                    use.server_index,
+                    use.physical_type,
+                ),
+                "EXPORT_USE",
+            )
+            continue
         slots = tuple(
             i for i, slot in enumerate(original.plan.literal_slots) if slot is use.slot
         )
@@ -1743,6 +1815,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             ),
             "EXPORT_USE",
         )
+    need(next(reads, None) is None, "EXPORT_PARAMETER_READS")
     ast = artifact.ast
     units: tuple[Any, ...]
     if type(ast) is sql.SQLSelect:
@@ -1819,6 +1892,21 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             check_read(address, actual.column, producer, use)
         elif type(actual) is parameters.SQLAnchor:
             check_scalar(address, actual.operand, producer, use, join_contexts)
+        elif type(actual) is rows.SQLParameterRead:
+            need(
+                record.address.kind == "parameter_read"
+                and record.get("parameter")
+                == Address("parameter", actual.original.parameter.ordinal)
+                and any(
+                    u is actual.use and records[native].get("slot") == address
+                    for u, native in zip(
+                        artifact.parameter_uses,
+                        (r.address for r in grouped["native_use"]),
+                        strict=True,
+                    )
+                ),
+                "EXPORT_PARAMETER_READ",
+            )
         elif type(actual) in (parameters.SQLLiteral, parameters.SQLParameter):
             need(record.address.kind == "literal", "EXPORT_LITERAL")
             value = (
@@ -2828,6 +2916,23 @@ def _verify_compiled_emission(artifact, request):
                     and parameters.same_value(leaf.value, facts[address].value),
                     "EMISSION_LITERAL_VALUE",
                 )
+        elif address.kind == "parameter_read":
+            parameter = expected_original.parameter
+            need(
+                type(actual) is rows.SQLParameterRead
+                and actual.original is expected_original
+                and any(actual.use is u for u in plan.parameter_uses)
+                and actual.use.original is expected_original
+                and actual.use.slot is None
+                and actual.use.parameter is parameter
+                and any(parameter is p for p in plan.parameters)
+                and actual.physical_type
+                == actual.use.physical_type
+                == parameters.PHYSICAL[request.family][parameter.tag]
+                and actual.realization is facts[address].realization,
+                "EMISSION_PARAMETER_READ",
+            )
+            used_parameters.append(actual.use)
         elif address.kind == "null_literal":
             matches = tuple(
                 site
@@ -3901,7 +4006,8 @@ def verify_requirement_export(records, artifact, check_declaration):
             scalar_anchors = tuple(
                 records[a]
                 for a in described.get("anchors")
-                if a.kind in ("literal", "null_literal", "read", "operation")
+                if a.kind
+                in ("literal", "null_literal", "parameter_read", "read", "operation")
             )
             if not scalar_anchors:
                 need(
@@ -3915,6 +4021,12 @@ def verify_requirement_export(records, artifact, check_declaration):
                     continue
                 elif anchor.address.kind == "read":
                     expected = records[anchor.get("port")].get("logical")
+                elif anchor.address.kind == "parameter_read":
+                    declared = records[anchor.get("parameter")]
+                    expected = (
+                        declared.get("tag"),
+                        "nullable" if declared.get("nullable") else "non_null",
+                    )
                 else:
                     expected = anchor.get("logical")
                 need(expected == logical, "EXPORT_REQUIREMENT_EXPRESSION_TYPE")

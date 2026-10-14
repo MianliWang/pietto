@@ -343,7 +343,9 @@ def test_a_loaded_bundle_is_the_live_query_template(live, bundle, unconnected):
         ("Int",),
     )
     assert facts(loaded) == facts(live) == expected
-    assert composition.query_facts(live._template) == expected
+    # The private facts end with the query's (empty) parameter header.
+    assert composition.query_facts(live._template) == (*expected, ())
+    assert loaded.parameters == live.parameters == ()
     assert loaded.emission is None
     assert json.loads(live.emission or b"")["status"] == "VERIFIED"
     assert repr(loaded) == repr(live).replace("origin='live'", "origin='bundle'")

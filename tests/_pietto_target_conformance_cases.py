@@ -978,13 +978,27 @@ def aggregate_types(target, case, variant):
     return [codes[tag] for tag in logical]
 
 
-def parameter_records(document):
+def parameter_records(document, bindings=None):
+    """The submitted native values as receipt records; a v2 header parameter
+    takes the caller's binding by name (None is a typed NULL)."""
     records = []
+    header = document.get("parameters", [])
     for use in document["parameter_uses"]:
         if use["server_index"] <= len(records):
             continue
-        value = document["fixed_values"][use["slot"]]
-        tag, payload = value["tag"], value["value"]
+        owner = use.get("owner", {"kind": "slot", "slot": use.get("slot")})
+        if owner["kind"] == "parameter":
+            assert bindings is not None
+            parameter = header[owner["parameter"]]
+            tag, payload = parameter["tag"], bindings[parameter["name"]]
+            if payload is None:
+                records.append({"kind": "null"})
+                continue
+            if tag in {"Int", "Float"}:
+                payload = str(payload) if tag == "Int" else payload.hex()
+        else:
+            value = document["fixed_values"][owner["slot"]]
+            tag, payload = value["tag"], value["value"]
         if tag == "Bool" and document["target"]["family"] == "mysql":
             record = {"kind": "int", "value": "1" if payload else "0"}
         else:
@@ -999,6 +1013,26 @@ def parameter_records(document):
             }
         records.append(record)
     return records
+
+
+def parameter_expectation(target, variant):
+    """(rows, labels, physical types) of one Q_query_parameters binding.
+
+    The native relation holds (id 11, plain 7) twice; `where id > low and
+    plain != 3` keeps both for low 10 and -5, `echo` is the bound label (a typed
+    NULL when unbound to a value) and `above` is low + 1. Stated by hand from
+    the bindings, never read back from SQL."""
+    values = emission.bindings("Q_query_parameters", variant)
+    assert values is not None
+    label = values["label"]
+    row = [
+        _integer("11"),
+        {"kind": "null"} if label is None else _text(label),
+        _integer(str(values["low"] + 1)),
+    ]
+    bigint = 20 if target == "postgres" else 8
+    text = 25 if target == "postgres" else 253
+    return [row, row], ("id", "echo", "above"), [bigint, text, bigint]
 
 
 def fixed_metadata(target, *, named):
@@ -1378,7 +1412,8 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
     if (
         observation is None
         or observation["sql"].encode() != document["sql"].encode()
-        or observation["parameters"] != parameter_records(document)
+        or observation["parameters"]
+        != parameter_records(document, emission.bindings(case_id, variant_name))
     ):
         raise ValueError("emitted artifact/submission mismatch")
     check_complete(observation)
@@ -1407,6 +1442,15 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             if tag == "Text"
         ):
             raise ValueError("fixed text result encoding metadata")
+        return
+    if case_id == "Q_query_parameters":
+        expected_rows, labels, types = parameter_expectation(target, variant_name)
+        if _bag(observation["rows"]) != _bag(expected_rows):
+            raise ValueError("query parameter typed BAG mismatch")
+        if [m[:2] for m in observation["metadata"]] != [
+            [label, kind] for label, kind in zip(labels, types, strict=True)
+        ] or [c["label"] for c in document["columns"]] != list(labels):
+            raise ValueError("query parameter positional metadata mismatch")
         return
     if case_id == "P_native_identifiers":
         number = "7" if variant_name.startswith("plain") else "11"

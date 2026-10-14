@@ -509,9 +509,11 @@ and fresh trust, source, value and deployment inputs.
   `PIE-R1005`).
 - A `CompiledQuery` exposes `origin` (`"live"` from `compile_query`, `"bundle"`
   from `load_bundle`), `module`, `kind`, `name`, `dialect`, `release`,
-  `literal_policy`, `slots` (the tag of each value slot, see [Values](#values))
-  and `emission`, the same `pietto.sql-emission.v1` artifact the command prints
-  (`None` for a loaded bundle). Only `compile_query` and `load_bundle` create
+  `literal_policy`, `slots` (the tag of each value slot, see [Values](#values)),
+  `parameters` (each declared query parameter as `(name, tag, nullable)`, see
+  [Parameters](#parameters)) and `emission`, the same `pietto.sql-emission.v1`
+  artifact the command prints, or `pietto.sql-emission.v2` for a query that
+  declares parameters (`None` for a loaded bundle). Only `compile_query` and `load_bundle` create
   one, and it cannot be pickled or copied. It is a snapshot of what was
   compiled; see [Repeated calls and
   invalidation](#repeated-calls-and-invalidation).
@@ -519,7 +521,8 @@ and fresh trust, source, value and deployment inputs.
   `payload`, and three records that name them, `pin`, `producer` and
   `compatibility`. `load_bundle(payload, *, expected_pin, accepted_producer,
   accepted_compatibility) -> CompiledQuery` loads exactly the bytes your
-  records name. See [Query bundles](#query-bundles).
+  records name. See [Query bundles](#query-bundles). A query that declares
+  parameters has no bundle yet.
 - `PostgresAccess(host, port, database, user, password, sslmode="require")` is
   the explicit connection input; `repr()` and `str()` show `password=<redacted>`,
   and it cannot be pickled or copied.
@@ -544,7 +547,8 @@ and fresh trust, source, value and deployment inputs.
   reads, and each statement runs with a server-side timeout of at most 10
   seconds that Pietto sets itself.
 - `execute(query, *, route, access, premise, limits=ExecutionLimits(),
-  isolation="stable", values=None) -> ResultHandle` checks the request before
+  isolation="stable", values=None, parameters=None) -> ResultHandle` checks the
+  request before
   any connection and returns an unopened handle; the driver and the environment
   are checked when the attempt opens, except MySQL's refused OpenSSL names,
   which are checked while its bridge is prepared before the private native
@@ -552,7 +556,9 @@ and fresh trust, source, value and deployment inputs.
   default. There is no parameter that takes SQL text. Each call binds afresh and
   is a new attempt with its own `attempt` identifier. `isolation` is `stable`
   (REPEATABLE READ READ ONLY) or `serializable` (SERIALIZABLE READ ONLY).
-  `values` gives one value per slot of the query (see [Values](#values)).
+  `values` gives one value per slot of the query (see [Values](#values)) and
+  `parameters` one value per declared parameter, by name (see
+  [Parameters](#parameters)).
 - `ResultHandle` runs that one attempt. Use it in a `with` block or iterate it:
   entering, or the first `next()`, connects; each `next()` returns a
   `ResultBatch`; the end of the result commits and closes it; `close()` before
@@ -653,9 +659,11 @@ carries its `outcome`; `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 this order; right after the route's type it checks that the route is
 the selected route and the query was compiled for its selected dialect
 (`postgres_rows` or `postgres_adbc`/`postgres`, or `mysql_rows`/`mysql`,
-`PIE-R1003`). It
-then checks that `values` is `None` or a tuple (`PIE-R1002`), binds the query
-to the values (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
+`PIE-R1003`) and that a query that declares parameters, or a `parameters`
+argument, goes to `postgres_rows` (`PIE-R1003`). It
+then checks that `values` is `None` or a tuple and `parameters` is `None` or a
+dict with string keys (`PIE-R1002`), binds the query to the values and
+parameters (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
 again (`PIE-R1005`) and checks the values of `premise`, `access`, `isolation`
 (its type included) and `limits`, in this order, and raises the first refusal.
 When an attempt opens, refused environment variables run first; then the
@@ -674,7 +682,9 @@ the accepted producer and compatibility (`PIE-R1008`); that the query is one
 template (`PIE-R1004`, or `PIE-R1005` when the code changed in between). Bytes
 whose bracket nesting the bounded reader refuses before it hashes them are
 malformed (`PIE-R1008`), whatever the pin. `export_bundle()` checks that
-`query` is given (`PIE-R1001`) and is a `CompiledQuery` (`PIE-R1002`).
+`query` is given (`PIE-R1001`) and is a `CompiledQuery` (`PIE-R1002`), and
+refuses a query that declares parameters (`PIE-R1004`, `detail`
+`PUBLIC_BUNDLE_UNSUPPORTED`).
 
 Error text never contains a password, driver message, SQL text, value or bundle
 content, and a public error is not chained to the private or driver exception
@@ -735,6 +745,51 @@ The values:
   stays representable for every value that the contract's domains allow, so
   `-2**63` under that minus is refused. That is `PIE-R1004` with `detail`
   `BINDING_INVALID`, which does not name the slot.
+
+## Parameters
+
+A query can declare named parameters in its header, for example
+`query since(low: Int not null, note: Text nullable):`, and read them in `let`,
+`where`, JOIN `on` and the items of an ungrouped `select` (see
+[Language](language.md)). Pietto sends each parameter to the server as a
+parameter of the prepared statement, under either literal policy, so the SQL
+text is the same for every binding: PostgreSQL reuses one `$n` per parameter,
+MySQL sends one `?` per read. `compile_query` gives the `pietto.sql-emission.v2`
+artifact of the unbound statement as `emission`, and `query.parameters` names
+each parameter as `(name, tag, nullable)` in declaration order, for example
+`(('low', 'Int', False), ('note', 'Text', True))`. A query without a header has
+`parameters == ()`.
+
+`execute(query, ..., parameters={"low": 5, "note": None})` binds them:
+
+- `parameters` is a dict with exactly one entry per declared parameter, keyed
+  by its name. `None`, the default, is an empty dict. Anything but a dict, or a
+  key that is not a `str`, is refused with `PIE-R1002` (`PUBLIC_PARAMETERS_TYPE`).
+  A missing or extra name is refused with `PIE-R1006` and `detail`
+  `BINDING_PARAMETERS`.
+- Each value has its parameter's exact type, as for slots (see
+  [Values](#values)); nothing is converted. `None` is accepted only for a
+  `nullable` parameter and sends a typed NULL. Any other value is refused with
+  `PIE-R1006` and `detail` `BINDING_PARAMETER:<ordinal>:<tag>`, where
+  `<ordinal>` is the 0-based declaration position; neither shows the value.
+- A value-dependent check that the template could not decide, listed as the
+  artifact's `binding_obligations` (an `Int` result range or a `Text` result
+  width), is checked for each binding. A value it does not accept, such as
+  `low = 2**63 - 1` under `low + 1`, is `PIE-R1004` with `detail`
+  `BINDING_INVALID`. Every binding derives the query again and checks that its
+  SQL text is the template's.
+- `values` and `parameters` are independent: a `bind-safe` query takes both.
+- Only `postgres_rows` runs a query that declares parameters, and only it
+  accepts a `parameters` argument; `postgres_adbc` and `mysql_rows` refuse
+  them with `PIE-R1003` (`PUBLIC_PARAMETERS_ROUTE`). `save`,
+  `save_recoverable`, `recover` and `relay_live` refuse such a query the same
+  way before they open the workspace, since a saved job records no parameter
+  values. `export_bundle` refuses it with `PIE-R1004`
+  (`PUBLIC_BUNDLE_UNSUPPORTED`): the bundle format of a parameterized query
+  (`pietto.compiled-execution.v2`) is not published yet, and the loader
+  refuses it.
+
+All of these checks run in `execute()`, before any connection.
 
 ## Query bundles
 
@@ -1227,7 +1282,9 @@ still running. Interpreter exit waits for the deadline timer, up to
   when compiled (`PIE-B1006`), as with `pietto emit-sql --project`.
 - Only the literals of a `bind-safe` query can take other values (see
   [Values](#values)); a `preserve` query always runs with the literal values of
-  its source.
+  its source. Declared parameters (see [Parameters](#parameters)) run only on
+  `postgres_rows`, and a query that declares them cannot be saved, relayed or
+  exported as a bundle yet.
 - A compiled query is a snapshot of the project files `compile_query` read;
   edits take effect with the next `compile_query`, and a bundle keeps the query
   it was exported from.

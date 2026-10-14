@@ -18,6 +18,12 @@ from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_joins import JoinBody
 from pietto._project.project_sql_emission_results import RowResultBody
 from pietto._project.project_sql_emission_parameters import same_value
+from pietto._project.project_execution_binding_verification import (
+    artifact_arguments,
+    occurrence_value,
+    use_owner,
+    use_tag,
+)
 from pietto._project.project_refinement_verification import _Bytes
 from pietto._project.project_verification_scope import entry
 
@@ -455,10 +461,14 @@ class _Read(_Bytes):
                     added = True
                 if event.kind == "parameter":
                     use = by_event[event]
-                    value = use.slot.site.position.literal.value
-                    if self.family == "mysql" and use.slot.tag.value == "Bool":
+                    value = occurrence_value(self.artifact, use)
+                    if (
+                        self.family == "mysql"
+                        and use_tag(use) == "Bool"
+                        and value is not None
+                    ):
                         value = int(value)
-                    self.parameter("original", use.slot, 0, value, use)
+                    self.parameter("original", use_owner(use), 0, value, use)
                 elif event.subject in source_names and event.role in (
                     "namespace",
                     "join_namespace",
@@ -636,28 +646,18 @@ def verify_native_guard(native):
         "RESOURCE_LIMIT",
     )
     if native.statement.kind == "data" and not native.statement.subjects:
-        from pietto._project.project_execution_binding_verification import (
-            native_arguments,
-        )
-
         artifact = native.statement.program.preparation.artifact
         need(
             native.sql == artifact.rendered.sql
             and len(native.uses) == len(artifact.parameter_uses),
             "ORIGINAL_DATA_CORRESPONDENCE",
         )
-        expected = native_arguments(
-            artifact,
-            tuple(
-                s.site.position.literal.value
-                for s in artifact.request.plan.literal_slots
-            ),
-        )
+        expected = artifact_arguments(artifact)
         for actual, original in zip(native.uses, artifact.parameter_uses, strict=True):
             need(
                 type(actual) is GuardParameterUse
                 and actual.domain == "original"
-                and actual.owner is original.slot
+                and actual.owner is use_owner(original)
                 and actual.original is original
                 and type(actual.index) is int
                 and actual.index == original.server_index

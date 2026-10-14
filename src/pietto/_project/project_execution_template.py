@@ -44,11 +44,23 @@ class ExecutionSlot:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class ExecutionParameter:
+    """One header parameter of a template; a binding gives every one a value."""
+
+    ordinal: int
+    name: str
+    tag: str
+    nullable: bool
+    original: Any = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class ExecutionTemplate:
     artifact: EmissionArtifact | CompiledEmissionArtifact = field(repr=False)
     slots: tuple[ExecutionSlot, ...]
     _state: tuple = field(repr=False)
     guarded: Any = field(default=None, repr=False)
+    parameters: tuple[ExecutionParameter, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -62,6 +74,21 @@ class ExecutionBinding:
     instance_reference: str = field(
         default_factory=lambda: "pietto-binding-v1:" + uuid4().hex, repr=False
     )
+    # Header parameter values in header order (empty without a header).
+    parameters: tuple = field(default=(), repr=False)
+
+
+def template_parameters(artifact) -> tuple[ExecutionParameter, ...]:
+    """The header of a live or compiled plan, in header order."""
+    result = []
+    for i, parameter in enumerate(artifact.request.plan.parameters):
+        if hasattr(parameter, "declaration"):
+            name = parameter.declaration.name
+            nullable = parameter.value_type.nullability.value == "nullable"
+        else:
+            name, nullable = parameter.label, parameter.nullable
+        result.append(ExecutionParameter(i, name, parameter.tag, nullable, parameter))
+    return tuple(result)
 
 
 def prepare_template(artifact):
@@ -72,7 +99,13 @@ def prepare_template(artifact):
         ExecutionSlot(i, slot.tag.value, slot)
         for i, slot in enumerate(artifact.request.plan.literal_slots)
     )
-    result = ExecutionTemplate(artifact, slots, check.template_state(artifact, slots))
+    header = template_parameters(artifact)
+    result = ExecutionTemplate(
+        artifact,
+        slots,
+        check.template_state(artifact, slots, parameters=header),
+        parameters=header,
+    )
     check.verify_template(result)
     return result
 
@@ -241,9 +274,36 @@ def _specialize(template, values):
     return outcome.artifact
 
 
+def parameter_values(template, named):
+    """Check a complete ordered sequence of (exact parameter, value) pairs."""
+    family = template.artifact.request.family
+    if named is None:
+        named = ()
+    if type(named) not in (tuple, list) or len(named) != len(template.parameters):
+        raise BindingError("BINDING_PARAMETERS")
+    values = []
+    for parameter, pair in zip(template.parameters, named, strict=True):
+        if (
+            type(pair) not in (tuple, list)
+            or len(pair) != 2
+            or pair[0] is not parameter
+        ):
+            raise BindingError("BINDING_PARAMETERS")
+        value = pair[1]
+        if not (
+            parameter.nullable
+            if value is None
+            else value_valid(parameter.tag, value, family)
+        ):
+            raise BindingError(f"BINDING_PARAMETER:{parameter.ordinal}:{parameter.tag}")
+        values.append(value)
+    return tuple(values)
+
+
 @entry
-def bind_values(template, supplied):
-    """Capture a complete ordered sequence of (exact slot, exact builtin value)."""
+def bind_values(template, supplied, named=None):
+    """Capture a complete ordered sequence of (exact slot, exact builtin value)
+    and, for a template with a header, of (exact parameter, value or None)."""
     from pietto._project import project_execution_binding_verification as check
 
     check.verify_template(template)
@@ -257,16 +317,21 @@ def bind_values(template, supplied):
             raise BindingError(f"BINDING_VALUE:{slot.ordinal}:{slot.tag}")
         values.append(pair[1])
     captured = tuple(values)
-    try:
-        from pietto._project.project_sql_emission_contract import (
-            CompiledPreparedEmission,
-        )
+    bound = parameter_values(template, named)
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
 
-        if captured and type(template.artifact.request) is CompiledPreparedEmission:
+    compiled = type(template.artifact.request) is CompiledPreparedEmission
+    if template.parameters and not compiled:
+        # Only a compiled template re-derives its facts per binding.
+        raise BindingError("BINDING_PARAMETERS")
+    try:
+        if (captured or template.parameters) and compiled:
             from pietto._project.project_compiled_lowering import emit_compiled
 
             specialized = emit_compiled(
-                template.artifact.request.verification.completed.root, captured
+                template.artifact.request.verification.completed.root,
+                captured,
+                bound if template.parameters else None,
             )
             if template.guarded is not None:
                 from pietto._project.project_guard_preparation import (
@@ -276,8 +341,9 @@ def bind_values(template, supplied):
                 specialized = prepare_compiled_guarded(specialized)
         else:
             specialized = _specialize(template, captured) if captured else None
+        rederived = bool(captured or template.parameters)
         guarded = (
-            (specialized if captured else template.guarded)
+            (specialized if rederived else template.guarded)
             if template.guarded is not None
             else None
         )
@@ -288,13 +354,15 @@ def bind_values(template, supplied):
                 raise BindingError("BINDING_INVALID")
             artifact = guarded.artifact
         else:
-            artifact = specialized if captured else template.artifact
+            artifact = specialized if rederived else template.artifact
             if type(artifact) not in (EmissionArtifact, CompiledEmissionArtifact):
                 raise BindingError("BINDING_INVALID")
         if not isinstance(artifact, (EmissionArtifact, CompiledEmissionArtifact)):
             raise BindingError("BINDING_INVALID")
-        arguments = check.native_arguments(artifact, captured)
-        result = ExecutionBinding(template, captured, artifact, arguments, (), guarded)
+        arguments = check.native_arguments(artifact, captured, bound)
+        result = ExecutionBinding(
+            template, captured, artifact, arguments, (), guarded, parameters=bound
+        )
         result = replace(result, _state=check.binding_state(result))
         check.verify_binding(result)
         return result

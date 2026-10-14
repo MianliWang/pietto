@@ -317,6 +317,7 @@ def prepare_guarded_template(preparation):
     from pietto._project.project_execution_template import (
         ExecutionTemplate,
         ExecutionSlot,
+        template_parameters,
     )
     from pietto._project import project_execution_binding_verification as check
 
@@ -326,8 +327,13 @@ def prepare_guarded_template(preparation):
         ExecutionSlot(i, s.tag.value, s)
         for i, s in enumerate(artifact.request.plan.literal_slots)
     )
+    header = template_parameters(artifact)
     template = ExecutionTemplate(
-        artifact, slots, check.template_state(artifact, slots, preparation), preparation
+        artifact,
+        slots,
+        check.template_state(artifact, slots, preparation, parameters=header),
+        preparation,
+        parameters=header,
     )
     check.verify_template(template)
     return template

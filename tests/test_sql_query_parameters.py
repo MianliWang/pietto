@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+import _pietto_sql_emission as probe
 from _pietto_sql_query_parameters import parameterized_case as _case
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_cli import _render_verified
@@ -299,18 +300,21 @@ def test_the_protocol_is_needed_exactly_when_a_placeholder_renders(
     declared = _document(_case(tmp_path / "declared", target, body, policy)[1])
     assert declared["status"] == "VERIFIED"
     assert bool(declared["parameter_uses"]) is placeholders
-    document = _document(_case(tmp_path, target, body, policy, protocol=False)[1])
+    outcome = _case(tmp_path, target, body, policy, protocol=False)[1]
+    document = _document(outcome)
     if placeholders:
         assert document["status"] == "BLOCKED"
         assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
             ("PIE-B1004", "parameter_protocol_declaration_missing")
         ]
     else:
-        assert (document["format"], document["status"]) == (
+        # The independent consumer accepts the protocol-less template too.
+        decoded = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert (decoded["format"], decoded["status"]) == (
             "pietto.sql-emission.v2",
             "VERIFIED",
         )
-        assert document["sql"] == declared["sql"]
+        assert decoded["sql"] == declared["sql"]
 
 
 def test_verifiers_reject_a_forged_parameter_image(tmp_path: Path) -> None:
@@ -332,3 +336,89 @@ def test_verifiers_reject_a_forged_parameter_image(tmp_path: Path) -> None:
         literal_policy=checked.literal_policy,
     )
     assert again.issues == (ProjectSQLPlanVerificationIssue.QUERY_PARAMETERS,)
+
+
+def _mutated(document: dict[str, Any], change) -> bytes:
+    copy = json.loads(json.dumps(document))
+    change(copy)
+    return probe.encoded(copy)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_the_public_decoder_reads_a_v2_template_as_data(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.fixture(target, "Q_query_parameters", "bind")
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    data = serialize_project_sql_emission(outcome)
+    document = probe.decode_public(data)
+    assert document["format"] == probe.PARAMETERIZED_FORMAT
+    values = probe.bindings("Q_query_parameters", "bind")
+    assert values is not None
+    arguments = probe.decoded_arguments(document, values)
+    assert values["low"] in arguments and None in arguments
+    with pytest.raises(ValueError):
+        probe.decoded_arguments(document)  # a template has no values of its own
+    with pytest.raises(ValueError):
+        probe.decoded_arguments(document, {**values, "low": True})
+
+    def owner(d):
+        d["parameter_uses"][0]["owner"] = {"kind": "parameter", "parameter": 1}
+
+    def index(d):
+        d["parameter_uses"][-1]["server_index"] += 1
+
+    def unread(d):
+        d["parameters"][0]["reads"].pop()
+
+    def obligation(d):
+        d["binding_obligations"][0]["kind"] = "unregistered_check"
+
+    def requirement(d):
+        d["requirements"] = [
+            r for r in d["requirements"] if r["kind"] != "query_parameter"
+        ]
+
+    def blocked(d):
+        d["status"] = "BLOCKED"
+
+    def version(d):
+        d["format"] = "pietto.sql-emission.v1"
+
+    for change in (owner, index, unread, obligation, requirement, blocked, version):
+        with pytest.raises(ValueError):
+            probe.decode_public(_mutated(document, change))
+
+
+UNREAD = """query result(low: Int not null, note: Text nullable):
+    from rows
+    where id > low
+    select:
+        display_text = text
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_the_public_decoder_binds_an_unread_parameter_by_its_family_domain(
+    tmp_path: Path, target: str
+) -> None:
+    checked, outcome = _case(tmp_path, target, UNREAD, "preserve_literals")
+    assert checked.verified and outcome.status == "VERIFIED"
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [(p["name"], len(p["reads"])) for p in document["parameters"]] == [
+        ("low", 1),
+        ("note", 0),
+    ]
+    assert probe.decoded_arguments(document, {"low": 1, "note": None}) == (1,)
+    # An unread parameter is still bound by its declared type.
+    with pytest.raises(ValueError):
+        probe.decoded_arguments(document, {"low": 1, "note": 5})
+    # PostgreSQL text cannot hold NUL; MySQL text can.
+    nul = {"low": 1, "note": "a\0b"}
+    if target == "mysql":
+        assert probe.decoded_arguments(document, nul) == (1,)
+    else:
+        with pytest.raises(ValueError):
+            probe.decoded_arguments(document, nul)

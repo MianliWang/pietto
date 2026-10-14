@@ -780,3 +780,18 @@ class CompiledLiteral(CompiledPlanValue):
 @dataclass(frozen=True, slots=True, eq=False)
 class CompiledBoundLiteral(CompiledPlanValue):
     use: object = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledQueryParameter:
+    """One header parameter of an accepted compiled root, in header order."""
+
+    ordinal: int
+    label: str
+    tag: str
+    nullable: bool
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledParameterRead(CompiledPlanValue):
+    parameter: object = field(default=None, repr=False)

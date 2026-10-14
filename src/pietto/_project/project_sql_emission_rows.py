@@ -88,9 +88,38 @@ class SQLParameterRead:
     realization: Realization
 
 
-def parameter_realization(family: str, tag: str, nullable: bool) -> Realization:
-    """The unbound template image of one read: its declared carrier only."""
+def parameter_realization(
+    family: str, tag: str, nullable: bool, *, bound: bool = False, value=None
+) -> Realization:
+    """One read's image: the declared carrier for the unbound template, or the
+    exact domain of a bound value. NULL has no value, so any domain holds; the
+    narrowest one (Int 0..0, Text width 0) keeps every downstream law exact."""
     storage = {"kind": parameters.PHYSICAL[family][tag]}
+    if bound and tag in ("Int", "Text"):
+        if value is not None and not parameters.value_valid(tag, value, family):
+            raise ValueError("query parameter value")
+        if tag == "Int":
+            exact = 0 if value is None else value
+            return Realization(
+                tag,
+                storage,
+                nullable,
+                {"kind": "int_range", "min": str(exact), "max": str(exact)},
+                (exact, exact),
+            )
+        encoding, collation, padding = TEXT_PROFILE[family]
+        return Realization(
+            tag,
+            storage,
+            nullable,
+            {
+                "kind": "text",
+                "max_characters": 0 if value is None else len(value),
+                "encoding": encoding,
+                "collation": collation,
+                "padding": padding,
+            },
+        )
     if tag == "Bool":
         return Realization(tag, storage, nullable, {"kind": "bool01"})
     if tag == "Float":

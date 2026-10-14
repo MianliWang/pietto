@@ -193,7 +193,7 @@ def test_compiled_literal_ancestry_retains_new_expression_parent_kinds():
     )
     exporter = object.__new__(_Export)
     exporter.request = SimpleNamespace(
-        plan=SimpleNamespace(literal_sites=sites, literal_slots=())
+        plan=SimpleNamespace(literal_sites=sites, literal_slots=(), parameters=())
     )
     exporter.artifact = SimpleNamespace(parameter_uses=())
     exporter.sites = {}
@@ -234,3 +234,119 @@ def test_compiled_literal_ancestry_retains_new_expression_parent_kinds():
 )
 def test_static_limit_rule_does_not_coerce(value, expected):
     assert valid_resolved_limit(value) is expected
+
+
+def _header(record, field, value):
+    values = list(record.values)
+    values[wire.FIELDS["parameter"].index(field)] = value
+    return type(record)(record.address, tuple(values))
+
+
+def _parameterized(directory, target, variant):
+    """The compiled root of the published v2 conformance query."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+
+    item = probe.fixture(target, "Q_query_parameters", variant)
+    _, outcome = probe.build_case(
+        directory, item["source"], item["contract"], item["policy"]
+    )
+    return build_compiled(outcome.artifact)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_parameterized_root_is_a_v2_payload_no_loader_accepts_yet(tmp_path, target):
+    from pietto._project.model import CompiledProjectInput
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    built = _parameterized(tmp_path, target, "bind")
+    assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
+    assert built.compatibility[: len(wire.VERSIONS)] == wire.VERSIONS
+    # Transport of v2 roots is not published: the v1 decoder refuses the tag.
+    with pytest.raises(wire.CompiledError, match="^COMPILED_FORMAT$"):
+        wire.decode(built.payload)
+    description = built.root.description
+    header = [r for r in description.records if r.address.kind == "parameter"]
+    assert [(r.get("label"), r.get("tag")) for r in header] == [
+        ("low", "Int"),
+        ("label", "Text"),
+    ]
+
+    def forged(change):
+        return type(description)(
+            description.compatibility,
+            description.producer,
+            description.query,
+            tuple(
+                (name, tuple(change(r) for r in records))
+                for name, records in description.members
+            ),
+        )
+
+    reordered = forged(lambda r: _header(r, "ordinal", 0) if r is header[1] else r)
+    # One caller entry must never bind two parameters.
+    renamed = forged(lambda r: _header(r, "label", "low") if r is header[1] else r)
+    unnamed = forged(lambda r: _header(r, "label", "a b;--") if r is header[1] else r)
+    for damaged in (reordered, renamed, unnamed):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
+            verify_description(damaged)
+
+    def declared(count):
+        # Well-formed header records after the two the query declares.
+        extra = tuple(
+            type(header[0])(
+                wire.Address("parameter", i),
+                _header(_header(header[0], "ordinal", i), "label", "p%d" % i).values,
+            )
+            for i in range(len(header), count)
+        )
+        return type(description)(
+            description.compatibility,
+            description.producer,
+            description.query,
+            tuple(
+                (name, records + extra if name == "parameters" else records)
+                for name, records in description.members
+            ),
+        )
+
+    verify_description(declared(64))
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
+        verify_description(declared(65))
+    retyped = forged(lambda r: _header(r, "tag", "Text") if r is header[0] else r)
+    root = CompiledProjectInput(
+        retyped,
+        wire.content_pin(wire.encode(retyped)),
+        retyped.producer,
+        retyped.compatibility,
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_OPERATOR_TYPE$"):
+        prepare_compiled_template(root)
+
+
+def test_a_parameter_read_fact_keeps_its_proven_int_range(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_completed_semantics import (
+        derive_compiled_semantics,
+        verify_compiled_semantics,
+    )
+
+    root = _parameterized(tmp_path, "postgres", "preserve").root
+    verify_compiled_semantics(derive_compiled_semantics(root, (), (1, "x")))
+    # `above = low + 1` leaves the Int carrier for the largest value.
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        derive_compiled_semantics(root, (), (2**63 - 1, "x"))
+    exact = physical.parameter_realization
+
+    def narrowed(*arguments, **keywords):
+        found = exact(*arguments, **keywords)
+        return replace(found, proven_int_range=(0, 0)) if found.tag == "Int" else found
+
+    # A derivation whose Int read claims a narrower proof than its value
+    # passes its own arithmetic check, so only the verifier can refuse it.
+    with monkeypatch.context() as patch:
+        patch.setattr(physical, "parameter_realization", narrowed)
+        forged = derive_compiled_semantics(root, (), (2**63 - 1, "x"))
+    with pytest.raises(wire.CompiledError, match="^COMPILED_SEMANTIC_REALIZATION$"):
+        verify_compiled_semantics(forged)

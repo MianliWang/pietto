@@ -50,6 +50,80 @@ def test_save_refuses_wrong_values_before_any_workspace_control_write(
     assert (refused.value.code, refused.value.detail) == ("PIE-R1006", "BINDING_SLOTS")
 
 
+@pytest.mark.parametrize(
+    "operation", ("save", "save_recoverable", "recover", "relay_live")
+)
+def test_saved_operations_refuse_a_parameterized_query_before_the_workspace(
+    tmp_path, monkeypatch, operation
+):
+    """A saved job records no parameter values, so a query that declares
+    parameters runs only through execute()."""
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "\nquery since(low: Int not null):\n    from items\n"
+        "    where id > low\n    select:\n        id\n",
+        encoding="utf-8",
+    )
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="since",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "3" * 32)
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request opened the workspace")
+
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    arguments: dict = dict(
+        operation=execution.new_operation(),
+        route="postgres_rows",
+        access=execution.PostgresAccess("127.0.0.1", 5432, "db", "u", "pw"),
+        premise=execution.PostgresDeploymentPremise(("fixture", "pg_catalog")),
+    )
+    if operation == "save_recoverable":
+        arguments.update(source_requirements=(), limits=execution.ExecutionLimits())
+    if operation == "recover":
+        arguments.update(
+            job="job-" + "0" * 32,
+            generation="gen-" + "0" * 32,
+            checkpoint=None,
+            query=query,
+            source_requirements=(),
+            limits=execution.ExecutionLimits(),
+            expected_pin="0" * 64,
+            accepted_producer="0" * 64,
+            accepted_compatibility="0" * 64,
+            purpose="parameters",
+            seconds=1,
+        )
+    if operation == "relay_live":
+        arguments.update(
+            sink_root="/not-opened",
+            expected_sink_identity="sink-" + "0" * 32,
+            sink_namespace="n",
+            sink_epoch=1,
+            sink_retention="r",
+            sink_budget_bytes=1,
+        )
+    with pytest.raises(execution.RequestRejected) as refused:
+        if operation == "recover":
+            execution.recover(workspace, **arguments)
+        else:
+            getattr(execution, operation)(workspace, query, **arguments)
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1003",
+        "PUBLIC_PARAMETERS_ROUTE",
+    )
+
+
 def test_save_checks_isolation_before_opening_workspace(query, monkeypatch):
     workspace = object.__new__(execution.WorkspaceRef)
     object.__setattr__(workspace, "root", "/not-opened")

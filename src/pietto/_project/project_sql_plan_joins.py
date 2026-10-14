@@ -415,7 +415,7 @@ def compiled_join_rejections(records, join):
             role, token = record.get("operator")
             kind = "logical" if role == "binary" and token in ("and", "or") else role
             nodes[address] = (kind, token, record.get("operands"), None)
-        elif address.kind == "literal":
+        elif address.kind in ("literal", "parameter_read"):
             nodes[address] = ("opaque", None, (), None)
     equalities = tuple(
         (nodes[records[a].get("left")][3], nodes[records[a].get("right")][3])

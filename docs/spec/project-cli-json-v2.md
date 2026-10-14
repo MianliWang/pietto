@@ -299,6 +299,12 @@ v2 document prints its tag in the banner and adds a `parameters (N):` block
 before `parameter_uses (N):` and a `binding_obligations (N):` block after it,
 one canonical JSON line per record.
 
+A v2 document is a template; it carries no parameter value. A binding (the
+execution API's `parameters`, see [Execution](../execution.md#parameters))
+gives every parameter one value, derives the query again and keeps the SQL
+text byte for byte. It checks each `binding_obligations` entry by its `kind`;
+a consumer refuses a `kind` it does not know instead of skipping it.
+
 ## Input File Object
 
 Every selected project source has:

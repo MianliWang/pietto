@@ -5720,6 +5720,8 @@ def _verify_compiled_sql_plan(plan):
         CompiledLiteral,
         CompiledBoundLiteral,
         CompiledExpressionPrimitive,
+        CompiledParameterRead,
+        CompiledQueryParameter,
     )
     from pietto._project.project_query_block_ir_verification import (
         verify_compiled_query_block_ir,
@@ -5804,9 +5806,27 @@ def _verify_compiled_sql_plan(plan):
     )
     facts = {f.address: f for f in ir.completed.facts}
     expected_expressions = {
-        a for a in facts if a.kind in ("literal", "null_literal", "read", "operation")
+        a
+        for a in facts
+        if a.kind in ("literal", "null_literal", "parameter_read", "read", "operation")
     }
     need(set(plan.expressions) == expected_expressions, "PLAN_EXPRESSION_INVENTORY")
+    declared = tuple(r for r in records.values() if r.address.kind == "parameter")
+    need(
+        type(plan.parameters) is tuple
+        and len(plan.parameters) == len(declared)
+        and all(
+            type(parameter) is CompiledQueryParameter
+            and (parameter.ordinal, parameter.label, parameter.tag, parameter.nullable)
+            == tuple(record.values[1:])
+            for parameter, record in zip(plan.parameters, declared, strict=True)
+        ),
+        "PLAN_PARAMETERS",
+    )
+    parameter_of = {
+        record.address: parameter
+        for parameter, record in zip(plan.parameters, declared, strict=True)
+    }
     expected_identities = {
         address
         for address, fact in facts.items()
@@ -5854,12 +5874,20 @@ def _verify_compiled_sql_plan(plan):
             if address in bound
             else CompiledLiteral
             if address.kind in ("literal", "null_literal")
+            else CompiledParameterRead
+            if address.kind == "parameter_read"
             else CompiledPlanValue
         )
         need(
             type(expression) is expected_type
             and expression.ref is plan.references[address]
-            and expression.value_type is fact.value_type,
+            and expression.value_type is fact.value_type
+            and (
+                address.kind != "parameter_read"
+                or type(expression) is CompiledParameterRead
+                and expression.parameter
+                is parameter_of[records[address].get("parameter")]
+            ),
             "PLAN_EXPRESSION",
         )
         primitive = expression.expression
@@ -5952,26 +5980,42 @@ def _verify_compiled_sql_plan(plan):
         "PLAN_PARAMETER_INVENTORY",
     )
     allocated = []
+    owned = set()
     for use, record in zip(plan.parameter_uses, uses, strict=True):
-        slot = plan.literal_slots[record.get("slot").position]
-        original = plan.expressions[records[record.get("slot")].get("literal")]
-        if not any(s is slot for s in allocated):
-            allocated.append(slot)
+        owner = record.get("slot")
+        if owner.kind == "parameter_read":
+            # One native occurrence per read; reads of one parameter share $n.
+            need(owner not in owned, "PLAN_PARAMETER_READ_USE")
+            owned.add(owner)
+            original = plan.expressions[owner]
+            slot, parameter = None, original.parameter
+            key, tag = parameter, parameter.tag
+        else:
+            slot = plan.literal_slots[owner.position]
+            original = plan.expressions[records[owner].get("literal")]
+            parameter, key, tag = None, slot, slot.tag.value
+        if not any(s is key for s in allocated):
+            allocated.append(key)
         expected_index = (
             use.ordinal + 1
             if family == "mysql"
-            else next(i + 1 for i, s in enumerate(allocated) if s is slot)
+            else next(i + 1 for i, s in enumerate(allocated) if s is key)
         )
         need(
             type(use) is NativeUse
             and use.original is original
             and use.slot is slot
+            and use.parameter is parameter
             and use.ordinal == record.address.position
             and use.server_index == expected_index == record.get("index")
-            and use.physical_type == PHYSICAL[family][slot.tag.value],
+            and use.physical_type == PHYSICAL[family][tag],
             "PLAN_PARAMETER_USE",
         )
-    need(len(allocated) == len(slots), "PLAN_SLOT_USE_CLOSURE")
+    need(
+        all(any(s is slot for s in allocated) for slot in plan.literal_slots)
+        and owned == {a for a in plan.expressions if a.kind == "parameter_read"},
+        "PLAN_SLOT_USE_CLOSURE",
+    )
     need(
         plan.literal_policy.value
         == records[Address("policy", 0)].get("literal_policy"),

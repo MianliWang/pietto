@@ -72,8 +72,9 @@ def bundle_template(root):
 
 
 def query_facts(template):
-    """Module, kind, name, family, release, literal policy and slot tags of a
-    compiled template, read from its root's own records."""
+    """Module, kind, name, family, release, literal policy, slot tags and
+    header parameters of a compiled template, read from its root's own
+    records."""
     from pietto._project.project_compiled_schema import Address
     from pietto._project.project_sql_emission_cli import POLICIES
 
@@ -89,14 +90,18 @@ def query_facts(template):
         request.release,
         {value: name for name, value in POLICIES.items()}[policy],
         tuple(slot.tag for slot in template.slots),
+        tuple((p.name, p.tag, p.nullable) for p in template.parameters),
     )
 
 
 def export_facts(template):
     """The verified compiled root's exact bytes and its own pin, producer and
     code identity; no I/O."""
-    from pietto._project.project_compiled_schema import encode
+    from pietto._project.project_compiled_schema import CompiledError, encode
 
+    if template.parameters:
+        # The v2 bundle transport is not published yet (Phase70 S11).
+        raise CompiledError("PUBLIC_BUNDLE_UNSUPPORTED")
     root = template.artifact.request.verification.completed.root
     root.verify()
     return (
@@ -107,14 +112,33 @@ def export_facts(template):
     )
 
 
+def _named(template, parameters):
+    """The header's (parameter, value) pairs from the caller's exact names."""
+    from pietto._project.project_execution_template import BindingError
+
+    supplied = {} if parameters is None else parameters
+    if set(supplied) != {p.name for p in template.parameters}:
+        raise BindingError("BINDING_PARAMETERS")
+    return tuple((p, supplied[p.name]) for p in template.parameters)
+
+
 @entry
 def prepare_attempt(
-    template, access, *, route, schemas, limits, isolation, values=None
+    template,
+    access,
+    *,
+    route,
+    schemas,
+    limits,
+    isolation,
+    values=None,
+    parameters=None,
 ):
     """One fresh, unopened PostgreSQL rows owner; no I/O. One scope verifies
     the template's compiled root once for the binding and the request.
     `values` None binds the template's own literals; a tuple of another
-    length is handed to the binder whole, which refuses it."""
+    length is handed to the binder whole, which refuses it. `parameters`
+    names a value for every header parameter (None: no header)."""
     from pietto._project.project_execution_postgres import PostgresExecution
     from pietto._project.project_execution_template import bind_values
 
@@ -127,6 +151,7 @@ def prepare_attempt(
         tuple(zip(template.slots, values))
         if len(values) == len(template.slots)
         else values,
+        _named(template, parameters),
     )
     premise = ex.PostgresDeploymentPremise(
         access, binding.artifact.request.sources, schemas, route

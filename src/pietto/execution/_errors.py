@@ -223,6 +223,7 @@ _REQUEST = {
     "COMPILED_COMPATIBILITY": "PIE-R1005",
     "COMPILED_CODE_ORIGIN": "PIE-R1005",
     "BINDING_SLOTS": "PIE-R1006",
+    "BINDING_PARAMETERS": "PIE-R1006",
 }
 # load_bundle's acceptance stage: the caller's records and the bundle bytes.
 _BUNDLE = {
@@ -385,7 +386,7 @@ def request_failure(error):
     word = category_word(error)
     if word in _REQUEST:
         code = _REQUEST[word]
-    elif word is not None and word.startswith("BINDING_VALUE:"):
+    elif word is not None and word.startswith(("BINDING_VALUE:", "BINDING_PARAMETER:")):
         code = "PIE-R1006"
     elif word is not None and type(error) in _QUERY_ERRORS:
         code = "PIE-R1004"

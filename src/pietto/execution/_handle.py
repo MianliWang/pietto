@@ -401,6 +401,7 @@ def execute(
     limits: ExecutionLimits = ExecutionLimits(),
     isolation: str = "stable",
     values: tuple | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> ResultHandle:
     """Prepare one attempt of ``query`` and return its unopened ResultHandle.
 
@@ -409,17 +410,23 @@ def execute(
     is ``stable`` (REPEATABLE READ READ ONLY)
     or ``serializable``. ``values`` is None, which binds the values the query
     was compiled with, or a tuple with exactly one value of its slot's exact
-    type for each of ``query.slots``; nothing is converted. Every request
+    type for each of ``query.slots``; nothing is converted. ``parameters``
+    gives the query's declared parameters (``query.parameters``) by name: a
+    dict with exactly one entry for each, whose value has the parameter's
+    exact type, or is None for a nullable parameter; nothing is converted.
+    Only ``postgres_rows`` accepts it, and a query that declares parameters
+    runs only there; None is an empty dict. Every request
     check runs here, before any connection: first query, route, access,
     premise and limits are given and of the right type and isolation is
     given, in that order, with the route's availability for the query
     checked right after its type (PIE-R1003); then ``values`` is None or a
-    tuple (PIE-R1002); then the query is bound afresh to the values
-    (PIE-R1006, PIE-R1004) and the installed code identity is read again
-    (PIE-R1005); then the values of premise, access, isolation (its type
-    included) and limits, in that order. The first failure is raised as
-    RequestRejected. The driver and environment are checked when the attempt
-    opens. Each call is a new attempt.
+    tuple and ``parameters`` is None or a dict with string keys
+    (PIE-R1002); then the query is bound afresh to the values and
+    parameters (PIE-R1006, PIE-R1004) and the installed code identity is
+    read again (PIE-R1005); then the values of premise, access, isolation
+    (its type included) and limits, in that order. The first failure is
+    raised as RequestRejected. The driver and environment are checked when
+    the attempt opens. Each call is a new attempt.
     """
     if query is None:
         raise _refuse("PIE-R1001", "PUBLIC_QUERY_REQUIRED")
@@ -436,6 +443,8 @@ def execute(
     }.get(route)
     if dialect is None or query.dialect != dialect:
         raise _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
+    if route != "postgres_rows" and (query.parameters or parameters is not None):
+        raise _refuse("PIE-R1003", "PUBLIC_PARAMETERS_ROUTE")
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
     access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess
@@ -460,6 +469,10 @@ def execute(
     premise = cast(Any, premise)
     if values is not None and type(values) is not tuple:
         raise _refuse("PIE-R1002", "PUBLIC_VALUES_TYPE")
+    if parameters is not None and (
+        type(parameters) is not dict or any(type(k) is not str for k in parameters)
+    ):
+        raise _refuse("PIE-R1002", "PUBLIC_PARAMETERS_TYPE")
     if (
         route == "mysql_rows"
         and type(access.host) is str
@@ -491,6 +504,7 @@ def execute(
                 limits=private_limits,
                 isolation=isolation,
                 values=values,
+                parameters=parameters,
             )
         elif route == "postgres_adbc":
             postgres_access = cast(PostgresAccess, access)

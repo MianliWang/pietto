@@ -1156,13 +1156,20 @@ def valid_receipts(
                             target, case_id, record["variant"]
                         )
                         names = [str(label) for label in labels]
+                    if case_id == "Q_query_parameters":
+                        rows, labels, types = cases.parameter_expectation(
+                            target, record["variant"]
+                        )
+                        names = list(labels)
                     observation = _observation(
                         target,
                         document["sql"],
                         rows,
                         names,
                         types,
-                        cases.parameter_records(document),
+                        cases.parameter_records(
+                            document, probe.bindings(case_id, record["variant"])
+                        ),
                     )
                     observation["prepared"] = True
                     observation["cursor_type"] = (
@@ -1677,6 +1684,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "O_result_window",
         "P_native_identifiers",
         "Q_native_lifecycle",
+        "Q_query_parameters",
         "R_fixed_direct",
         "S_fixed_named",
         "S_set_boundaries",

@@ -168,3 +168,52 @@ def test_mysql_ambient_refusal_uses_the_existing_public_code(query, monkeypatch)
         "PIE-R2003",
         "EXECUTION_AMBIENT_CONNECTION_PROFILE",
     )
+
+
+@pytest.fixture(scope="module")
+def parameterized(tmp_path_factory):
+    """A MySQL query that declares parameters, compiled from its own contract."""
+    import _pietto_sql_emission as probe
+
+    item = probe.fixture("mysql", "Q_query_parameters", "preserve")
+    project = tmp_path_factory.mktemp("execution-mysql-parameters")
+    (project / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (project / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (project / "contract.json").write_text(item["contract"], encoding="utf-8")
+    return execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+
+
+def test_mysql_route_refuses_parameters_before_the_bridge(
+    query, parameterized, monkeypatch
+):
+    monkeypatch.setattr(
+        composition,
+        "prepare_mysql_attempt",
+        lambda *args, **kwargs: pytest.fail("refused parameters reached MySQL bridge"),
+    )
+    assert parameterized.dialect == "mysql"
+    assert parameterized.parameters == (("low", "Int", False), ("label", "Text", True))
+    for target, parameters in (
+        (parameterized, {"low": 1, "label": None}),
+        (parameterized, None),
+        (query, {}),
+    ):
+        with pytest.raises(execution.RequestRejected) as refused:
+            execution.execute(
+                target,
+                route="mysql_rows",
+                access=ACCESS,
+                premise=PREMISE,
+                parameters=parameters,
+            )
+        assert (refused.value.code, refused.value.detail) == (
+            "PIE-R1003",
+            "PUBLIC_PARAMETERS_ROUTE",
+        )

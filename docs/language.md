@@ -483,9 +483,10 @@ such as the range of `cutoff + 1` or of a later `next_day + 1`, is listed as a
 binding obligation naming every parameter it depends on and runs at every
 binding. A query whose parameters are all unread still emits this template;
 like any statement that renders no placeholder, it needs no `parameter_protocol`
-premise.
-Compiling a parameterized query for execution is refused with PIE-R1004 until
-compiled records carry parameter reads.
+premise. `compile_query` keeps the unbound template, and
+`execute(..., parameters=...)` binds it on the `postgres_rows` route only; the
+other routes, saving, relaying, recovery and bundle export refuse such a query
+(see [Parameters](execution.md#parameters)).
 
 ## Expressions
 

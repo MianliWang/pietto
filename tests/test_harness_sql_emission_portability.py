@@ -306,6 +306,11 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
             )
             continue
         observed = portable.export_emission_observation(artifact, artifact.request)
+        if artifact.request.plan.parameters:
+            # The closed observation schema has no query parameter; a v2
+            # template stays outside it rather than being approximated.
+            assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+            continue
         if observed.status is not portable.ObservationStatus.OK:
             failures.append((case, variant, "export", observed.status))
             continue

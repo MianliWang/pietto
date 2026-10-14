@@ -17,7 +17,7 @@ from pietto._project.query_parameters import query_parameter_semantic_diagnostic
 from pietto._project.project_set_operations import ProjectSetFailure
 from pietto._project.module_relation_resolution import ProjectResolvedSetOperand
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from pietto._project import (
@@ -915,10 +915,35 @@ class CompiledCompletedSemanticResult:
     facts: tuple[CompiledScalarFact, ...] = field(repr=False)
     retention: tuple = field(repr=False)
     single_match_requests: tuple = field(default=(), repr=False)
+    # Header parameter values in header order; None is the unbound template.
+    parameters: tuple | None = field(default=None, repr=False)
 
 
-def derive_compiled_semantics(root, values):
-    """Derive resolved scalar inputs without calling any source elaborator."""
+def _compiled_parameter_values(records, parameters, family):
+    """Header records in order; a binding gives every one a valid value."""
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_sql_emission_parameters import value_valid
+
+    declared = tuple(r for r in records.values() if r.address.kind == "parameter")
+    if parameters is None:
+        return declared, None
+    if type(parameters) is not tuple or len(parameters) != len(declared):
+        raise CompiledError("COMPILED_BINDING_PARAMETERS")
+    for record, value in zip(declared, parameters, strict=True):
+        if not (
+            record.get("nullable")
+            if value is None
+            else value_valid(record.get("tag"), value, family)
+        ):
+            raise CompiledError("COMPILED_BINDING_PARAMETERS")
+    return declared, {r.address: v for r, v in zip(declared, parameters, strict=True)}
+
+
+def derive_compiled_semantics(root, values, parameters=None):
+    """Derive resolved scalar inputs without calling any source elaborator.
+
+    ``parameters`` is None for the unbound template; a binding re-derives every
+    fact from its exact values."""
     import json
     from pietto._project.model import CompiledProjectInput
     from pietto._project import project_sql_emission_rows as physical
@@ -957,6 +982,7 @@ def derive_compiled_semantics(root, values):
         if not value_valid(slot.get("tag"), value, family):
             raise CompiledError("COMPILED_BINDING_VALUE")
         replacements[slot.get("literal")] = value
+    _declared, bound = _compiled_parameter_values(records, parameters, family)
     facts, active = {}, set()
     null_parents = {}
     for record in records.values():
@@ -1032,6 +1058,7 @@ def derive_compiled_semantics(root, values):
         "read",
         "literal",
         "null_literal",
+        "parameter_read",
         "operation",
         "aggregate_value",
         "window_value",
@@ -1123,6 +1150,27 @@ def derive_compiled_semantics(root, values):
                     )
                 else:
                     realized = None
+            elif kind == "parameter_read":
+                origin = "parameter"
+                declaration = records[get("parameter")]
+                nullable = declaration.get("nullable")
+                typed = ValueType(
+                    ResolvedType(declaration.get("tag"), TypeKind.BUILTIN),
+                    EffectiveNullability.NULLABLE
+                    if nullable
+                    else EffectiveNullability.NON_NULL,
+                )
+                realized = (
+                    physical.parameter_realization(
+                        family,
+                        declaration.get("tag"),
+                        nullable,
+                        bound=bound is not None,
+                        value=None if bound is None else bound[declaration.address],
+                    )
+                    if physical_required
+                    else None
+                )
             elif kind == "null_literal":
                 site = records[get("site")]
                 if site.get("reason") != "contextual_typed_null":
@@ -1668,12 +1716,12 @@ def derive_compiled_semantics(root, values):
                         low, high = (
                             (-interval[1], -interval[0]) if token == "-" else interval
                         )
-                        realized = physical._checked_int(
-                            physical._arithmetic_storage(family, inner, inner),
-                            low,
-                            high,
-                            nullable,
-                        )
+                        storage = physical._arithmetic_storage(family, inner, inner)
+                        realized = physical._checked_int(storage, low, high, nullable)
+                        if realized is None and inner.binding:
+                            realized = physical.deferred_int(storage, nullable)
+                        elif realized is not None:
+                            realized = replace(realized, binding=inner.binding)
                     if realized is None or problem is not None:
                         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
                 else:
@@ -1712,6 +1760,7 @@ def derive_compiled_semantics(root, values):
         tuple(facts[address] for address in records if address in facts),
         retention,
         compiled_requests(root, declarations),
+        parameters,
     )
 
 
@@ -1823,6 +1872,32 @@ def verify_compiled_semantics(value):
     for slot, scalar in zip(slots, value.values, strict=True):
         need(value_valid(slot.get("tag"), scalar, family), "SEMANTIC_BINDING")
         replacements[slot.get("literal")] = scalar
+    declared_parameters = tuple(
+        r for r in records.values() if r.address.kind == "parameter"
+    )
+    need(
+        value.parameters is None
+        or (
+            type(value.parameters) is tuple
+            and len(value.parameters) == len(declared_parameters)
+            and all(
+                r.get("nullable") if v is None else value_valid(r.get("tag"), v, family)
+                for r, v in zip(declared_parameters, value.parameters, strict=True)
+            )
+        ),
+        "SEMANTIC_BINDING",
+    )
+    bound_parameters = (
+        None
+        if value.parameters is None
+        else dict(
+            zip(
+                (r.address for r in declared_parameters),
+                value.parameters,
+                strict=True,
+            )
+        )
+    )
     null_parents = {}
     for record in records.values():
         if record.address.kind != "operation":
@@ -1840,6 +1915,7 @@ def verify_compiled_semantics(value):
             "read",
             "literal",
             "null_literal",
+            "parameter_read",
             "operation",
             "aggregate_value",
             "window_value",
@@ -1984,6 +2060,29 @@ def verify_compiled_semantics(value):
                     )
                 else:
                     realization = None
+            elif kind == "parameter_read":
+                origin = "parameter"
+                declaration = records[get("parameter")]
+                need(declaration.address.kind == "parameter", "SEMANTIC_PARAMETER")
+                typed = ValueType(
+                    ResolvedType(declaration.get("tag"), TypeKind.BUILTIN),
+                    EffectiveNullability.NULLABLE
+                    if declaration.get("nullable")
+                    else EffectiveNullability.NON_NULL,
+                )
+                realization = (
+                    physical.parameter_realization(
+                        family,
+                        declaration.get("tag"),
+                        declaration.get("nullable"),
+                        bound=bound_parameters is not None,
+                        value=None
+                        if bound_parameters is None
+                        else bound_parameters[declaration.address],
+                    )
+                    if physical_required
+                    else None
+                )
             elif kind == "null_literal":
                 site = records[get("site")]
                 need(site.get("reason") == "contextual_typed_null", "SEMANTIC_NULL")
@@ -2584,11 +2683,18 @@ def verify_compiled_semantics(value):
                 need(
                     type(observed.storage) is dict
                     and type(observed.domain) is dict
-                    and type(observed.nullable) is type(realization.nullable),
+                    and type(observed.nullable) is type(realization.nullable)
+                    and type(observed.proven_int_range)
+                    is type(realization.proven_int_range),
                     "SEMANTIC_REALIZATION",
                 )
+                # The proven Int range feeds every later arithmetic proof.
                 need(
                     observed.tag == realization.tag
+                    and observed.binding is realization.binding
+                    and observed.obligation == realization.obligation
+                    and observed.proven_int_range == realization.proven_int_range
+                    and all(type(v) is int for v in observed.proven_int_range or ())
                     and json.dumps(
                         (observed.storage, observed.nullable, observed.domain),
                         sort_keys=True,

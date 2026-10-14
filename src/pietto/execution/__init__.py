@@ -9,8 +9,9 @@ PostgreSQL 18.6 through the PostgreSQL rows route and read typed Arrow batches.
             ...
 
 export_bundle() turns a compiled query into bytes and three trust records;
-load_bundle() loads such bytes only under the records you pass, and
-execute(..., values=...) binds explicit values to a bind-safe query's slots.
+load_bundle() loads such bytes only under the records you pass,
+execute(..., values=...) binds explicit values to a bind-safe query's slots,
+and execute(..., parameters=...) binds a query's declared parameters by name.
 
 This is an alpha interface: names, fields and PIE-R codes may change with
 documented notes. Importing it loads no database driver and no PyArrow;

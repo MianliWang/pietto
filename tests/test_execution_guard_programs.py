@@ -238,3 +238,69 @@ def test_multi_hop_checker_rejects_complete_coordinated_grafts_without_builder(
     )
     with pytest.raises(ValueError, match="^GUARD_SELECTED_SUBJECT_COVERAGE$"):
         render_guard(statement_for(a, "data"))
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_guarded_query_parameters_keep_one_native_owner_each(tmp_path, target):
+    """Each header parameter is its own original owner in data, guard and
+    refined guard statements: PostgreSQL reuses one `$n` per parameter."""
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+    from pietto._project.project_guard_preparation import prepare_guarded_output
+    from pietto._project.project_refinement import (
+        TieRefinement,
+        prepare_compiled_refinement,
+        prepare_refinement,
+    )
+    from _pietto_execution_refinement import capabilities
+
+    body = DIRECT.replace(
+        "query result:", "query result(low: Int not null, high: Int not null):"
+    ).replace(
+        "on lhs.id == r.id",
+        "on lhs.id == r.id and lhs.id > low and r.key > high and lhs.id < high",
+    )
+    prepared = prepare_guarded(
+        *planned(tmp_path, target, body, policy="bind_safe_literals")
+    )
+    refined = prepare_refinement(
+        prepared.artifact,
+        capabilities(prepared.artifact),
+        policy=TieRefinement(),
+        output=prepare_guarded_output(prepared),
+    )
+    template = prepare_compiled_template(
+        build_compiled(prepared.artifact, guarded=prepared, refinement=refined).root
+    )
+    bound = bind_values(template, (), tuple(zip(template.parameters, (3, 4))))
+    low, high = bound.artifact.request.plan.parameters
+    plain = prepare_program(bound.guarded, binding=bound)
+    refinement = prepare_compiled_refinement(
+        bound.artifact, binding=bound, guarded=bound.guarded
+    )
+    programs = (
+        (plain, ("guard", "combined", "data")),
+        (
+            prepare_program(bound.guarded, binding=bound, refinement=refinement),
+            ("guard",),
+        ),
+    )
+    for program, kinds in programs:
+        for kind in kinds:
+            native = render_guard(statement_for(program, kind))
+            verify_native_guard(native)
+            original = [u for u in native.uses if u.domain == "original"]
+            assert [u.owner for u in original] == [low, high, high] * (
+                len(original) // 3
+            )
+            assert [u.value for u in original] == [3, 4, 4] * (len(original) // 3)
+            if target == "postgres":
+                assert {u.owner: u.index for u in original} == {low: 1, high: 2}
+                assert native.arguments[:2] == (3, 4)
+            else:
+                assert [u.index for u in native.uses] == list(
+                    range(1, len(native.uses) + 1)
+                )

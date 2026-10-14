@@ -47,8 +47,9 @@ class CompiledSubject:
 
 
 @entry
-def emit_compiled(root, values):
-    completed = derive_compiled_semantics(root, values)
+def emit_compiled(root, values, named=None):
+    """``named`` (header values) None emits the unbound template."""
+    completed = derive_compiled_semantics(root, values, named)
     ir = build_compiled_query_block_ir(completed)
     plan = build_compiled_sql_plan(ir)
     verification = verify_compiled_sql_plan(plan)
@@ -236,6 +237,14 @@ def emit_compiled(root, values):
             binding = use_bindings[use].bindings[port.get("ordinal")]
             return rows.SQLStageReference(
                 original, binding.input_port.ref, column, fact.realization, scope=symbol
+            )
+        if address.kind == "parameter_read":
+            uses = native_by_literal.get(address, ())
+            if len(uses) != 1 or seen_uses.get(address):
+                raise CompiledError("COMPILED_PARAMETER_EXPANSION")
+            seen_uses[address] = 1
+            return rows.SQLParameterRead(
+                original, uses[0], uses[0].physical_type, fact.realization
             )
         if address.kind in ("literal", "null_literal"):
             site = next(

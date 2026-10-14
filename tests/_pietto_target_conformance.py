@@ -969,7 +969,9 @@ def execute_case(
                 result["observations"].append(
                     query.capture(
                         document["sql"],
-                        emission.decoded_arguments(document),
+                        emission.decoded_arguments(
+                            document, emission.bindings(case_id, record["variant"])
+                        ),
                         prepared=True,
                     )
                 )
@@ -995,7 +997,9 @@ def execute_case(
                 result["observations"].append(
                     query.capture(
                         document["sql"],
-                        emission.decoded_arguments(document),
+                        emission.decoded_arguments(
+                            document, emission.bindings(record["id"], record["variant"])
+                        ),
                         prepared=True,
                     )
                 )

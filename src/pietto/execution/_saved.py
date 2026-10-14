@@ -124,6 +124,9 @@ def _checked_request(
     }.get(route)
     if dialect is None or query.dialect != dialect:
         _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
+    if query.parameters:
+        # A saved job records no parameter values; execute() runs these.
+        _refuse("PIE-R1003", "PUBLIC_PARAMETERS_ROUTE")
     if access is None:
         _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
     access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess

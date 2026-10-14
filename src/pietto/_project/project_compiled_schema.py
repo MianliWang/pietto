@@ -12,6 +12,9 @@ from typing import Any
 __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.compiled-execution.v1"
+# A root with header parameters (an unbound template) is tagged v2; S11 owns
+# its transport, so decode refuses the tag until then.
+PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``.
 VERSIONS = (2, 1, 2, 1)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
@@ -80,7 +83,10 @@ FIELDS = {
     "operation": ("operator", "operands", "logical", "site"),
     "site": ("owner", "role", "ordinal", "ancestry", "disposition", "reason"),
     "slot": ("site", "literal", "tag"),
+    # `slot` names the occurrence owner: a bind-safe slot or a parameter read.
     "native_use": ("slot", "ordinal", "index", "physical"),
+    "parameter": ("declaration", "ordinal", "label", "tag", "nullable"),
+    "parameter_read": ("parameter",),
     "scan": ("owner", "use", "source", "outputs"),
     "row": (
         "owner",
@@ -306,8 +312,11 @@ def _read(value):
 def encode(description: Description) -> bytes:
     if type(description) is not Description:
         raise CompiledError("COMPILED_DESCRIPTION")
+    parameterized = any(
+        record.address.kind == "parameter" for record in description.records
+    )
     document = {
-        "format": FORMAT,
+        "format": PARAMETERIZED_FORMAT if parameterized else FORMAT,
         "compatibility": _wire(description.compatibility),
         "producer": description.producer,
         "query": [description.query.kind, description.query.position],

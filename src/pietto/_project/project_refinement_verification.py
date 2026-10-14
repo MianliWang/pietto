@@ -1148,6 +1148,7 @@ class _Bytes:
         from pietto._project.project_sql_emission_rows import (
             SQLStageReference,
             SQLOperation,
+            SQLParameterRead,
         )
 
         if type(value) is SQLStageReference:
@@ -1184,6 +1185,27 @@ class _Bytes:
         elif type(value) is p.SQLAnchor:
             self.take("CAST(")
             self.scalar(value.operand, alias)
+            self.take(p.anchor_suffix(value.physical_type))
+        elif type(value) is SQLParameterRead:
+            from pietto._project.project_execution_binding_verification import (
+                occurrence_value,
+            )
+
+            native_value = occurrence_value(self.artifact, value.use)
+            if (
+                self.family == "mysql"
+                and value.use.parameter.tag == "Bool"
+                and native_value is not None
+            ):
+                native_value = int(native_value)
+            self.take("CAST(")
+            self.parameter(
+                "original",
+                value.use.parameter,
+                value.use.server_index,
+                native_value,
+                value.use,
+            )
             self.take(p.anchor_suffix(value.physical_type))
         elif type(value) is p.SQLParameter:
             slot = value.use.slot

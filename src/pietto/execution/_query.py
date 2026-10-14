@@ -47,9 +47,12 @@ class CompiledQuery:
     tag of each value slot, in the order execute(values=...) takes them; slot
     i is ``fixed_values[i]`` of the bind-safe ``emission``, which is the
     ``pietto.sql-emission.v1`` artifact, byte for byte what ``pietto emit-sql
-    --project ... --format json`` prints for the same arguments. ``emission``
-    is None for a loaded bundle, which keeps the slot order it was exported
-    with.
+    --project ... --format json`` prints for the same arguments (the
+    ``pietto.sql-emission.v2`` artifact for a query that declares
+    parameters). ``parameters`` names each declared query parameter as
+    ``(name, tag, nullable)``, in declaration order; execute(parameters=...)
+    takes their values by name. ``emission`` is None for a loaded bundle,
+    which keeps the slot order it was exported with.
     """
 
     __slots__ = (
@@ -63,6 +66,7 @@ class CompiledQuery:
         "_release",
         "_literal_policy",
         "_slots",
+        "_parameters",
     )
 
     def __init__(self, *arguments, **keywords):
@@ -113,6 +117,10 @@ class CompiledQuery:
     @property
     def slots(self) -> tuple[str, ...]:
         return self._slots
+
+    @property
+    def parameters(self) -> tuple[tuple[str, str, bool], ...]:
+        return self._parameters
 
     @property
     def emission(self) -> bytes | None:
@@ -238,7 +246,9 @@ def export_bundle(query: CompiledQuery) -> QueryBundle:
     no connection. The same query of the same project files, contract and
     literal policy, compiled by the same installed code, gives the same
     bundle wherever the project directory is. Raises RequestRejected for a
-    query that is None (PIE-R1001) or not a CompiledQuery (PIE-R1002).
+    query that is None (PIE-R1001) or not a CompiledQuery (PIE-R1002), and
+    for a query that declares parameters (PIE-R1004), whose bundle format is
+    not published yet.
     """
     if query is None:
         raise RequestRejected(failure("PIE-R1001", "PUBLIC_QUERY_REQUIRED"))

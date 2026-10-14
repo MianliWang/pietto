@@ -139,6 +139,8 @@ def null_equal(left, right):
 
 
 def _parameters(value):
+    if type(value) is rows.SQLParameterRead:
+        return (value,)
     if type(value) is rows.SQLOperation:
         return tuple(p for child in value.operands for p in _parameters(child))
     if type(value) is rows.SQLStageReference:
@@ -157,12 +159,12 @@ def render(statement, artifact, page_values=(), *, _guards=None):
     w = _Writer(request)
     subject = request.plan.scope
     uses = []
-    from pietto._project.project_execution_binding_verification import native_arguments
-
-    original_arguments = native_arguments(
-        artifact,
-        tuple(s.site.position.literal.value for s in request.plan.literal_slots),
+    from pietto._project.project_execution_binding_verification import (
+        artifact_arguments,
+        use_owner,
     )
+
+    original_arguments = artifact_arguments(artifact)
     original_indices = tuple(u.server_index for u in artifact.parameter_uses)
     page_base = max(original_indices, default=0)
 
@@ -243,7 +245,7 @@ def render(statement, artifact, page_values=(), *, _guards=None):
                 uses.append(
                     ParameterUse(
                         "original",
-                        use.slot,
+                        use_owner(use),
                         use.server_index if family == "postgres" else len(uses) + 1,
                         original_arguments[use.server_index - 1],
                         use,
@@ -258,7 +260,7 @@ def render(statement, artifact, page_values=(), *, _guards=None):
                     uses.append(
                         ParameterUse(
                             "original",
-                            p.use.slot,
+                            use_owner(p.use),
                             p.use.server_index
                             if family == "postgres"
                             else len(uses) + 1,

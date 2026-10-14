@@ -585,16 +585,10 @@ def execution_arguments(request):
         return request.binding.arguments
     if request.output is not None:
         from pietto._project.project_execution_binding_verification import (
-            native_arguments,
+            artifact_arguments,
         )
 
-        return native_arguments(
-            request.artifact,
-            tuple(
-                s.site.position.literal.value
-                for s in request.artifact.request.plan.literal_slots
-            ),
-        )
+        return artifact_arguments(request.artifact)
     return ()
 
 

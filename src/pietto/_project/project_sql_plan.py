@@ -4314,8 +4314,15 @@ def build_compiled_sql_plan(ir):
                 fact.operator == ("null_test", "is_not_null"),
             )
     for address in records:
-        if address.kind == "null_literal":
+        if address.kind in ("null_literal", "parameter_read"):
             primitives[address] = row.CompiledExpressionPrimitive(None, None, False)
+    query_parameters = {
+        r.address: row.CompiledQueryParameter(
+            r.get("ordinal"), r.get("label"), r.get("tag"), r.get("nullable")
+        )
+        for r in records.values()
+        if r.address.kind == "parameter"
+    }
     identities = {}
     for address, fact in facts.items():
         if address.kind != "operation" or fact.operator is None:
@@ -4387,6 +4394,10 @@ def build_compiled_sql_plan(ir):
             expressions[address] = row.CompiledBoundLiteral(
                 *arguments, CompiledBindUse(literal_slots[address], refs[address])
             )
+        elif address.kind == "parameter_read":
+            expressions[address] = row.CompiledParameterRead(
+                *arguments, query_parameters[records[address].get("parameter")]
+            )
         elif address.kind in ("literal", "null_literal"):
             expressions[address] = row.CompiledLiteral(*arguments)
         else:
@@ -4397,9 +4408,13 @@ def build_compiled_sql_plan(ir):
         r for r in records.values() if r.address.kind == "native_use"
     )
     for record in native_records:
-        slot_record = records[record.get("slot")]
-        expression = expressions[slot_record.get("literal")]
-        occurrences.append((expression, PHYSICAL[family][slot_record.get("tag")]))
+        owner = records[record.get("slot")]
+        if owner.address.kind == "parameter_read":
+            read = expressions[owner.address]
+            occurrences.append((read, PHYSICAL[family][read.parameter.tag]))
+            continue
+        expression = expressions[owner.get("literal")]
+        occurrences.append((expression, PHYSICAL[family][owner.get("tag")]))
     native = allocate_uses(family, tuple(occurrences), len(occurrences))
     for actual, described in zip(native, native_records, strict=True):
         if (actual.ordinal, actual.server_index, actual.physical_type) != (
@@ -4517,4 +4532,5 @@ def build_compiled_sql_plan(ir):
         aggregate_risks=tuple(aggregate_risks),
         window_policies=windows.compiled_window_policies(ir, primitives),
         semantic_references=compiled_semantic_references(ir.scope, records),
+        parameters=tuple(query_parameters.values()),
     )

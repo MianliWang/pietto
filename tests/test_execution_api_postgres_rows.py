@@ -370,34 +370,156 @@ def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
     assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2347"]
 
 
-@pytest.mark.parametrize(
-    "clauses",
-    (
-        "    where id > low\n    select:\n        id\n",
-        # Unread parameters still make a parameterized template.
-        "    select:\n        id\n",
-    ),
-    ids=("read", "unread"),
-)
-def test_compile_of_a_parameterized_query_stops_at_the_compiled_boundary(
-    tmp_path, clauses
-):
-    """The command emits the unbound template; until compiled records carry a
-    parameter read, compiling it refuses deterministically before any binding."""
-    project = api.write_example(tmp_path)
+SINCE = """
+query since(low: Int not null, note: Text nullable):
+    from items
+    where id > low and (note is null or label != note)
+    select:
+        id
+        tag = note
+        next = low + 1
+"""
+
+
+@pytest.fixture(scope="module")
+def since(tmp_path_factory):
+    project = api.write_example(tmp_path_factory.mktemp("execution-parameters"))
     main = project / "main.pietto"
-    main.write_text(
-        main.read_text(encoding="utf-8")
-        + "\nquery since(low: Int not null):\n    from items\n"
-        + clauses
-    )
+    main.write_text(main.read_text(encoding="utf-8") + SINCE, encoding="utf-8")
+    return project
+
+
+def test_a_parameterized_query_compiles_and_names_its_parameters(since):
+    """The command emits the unbound v2 template; compiling it keeps the same
+    bytes and names each declared parameter, which no bundle carries yet."""
+    query = compiled(since, kind="query", name="since", literal_policy="bind-safe")
+    assert query.parameters == (("low", "Int", False), ("note", "Text", True))
+    assert query.slots == ("Int",)
+    assert query.emission is not None
+    document = json.loads(query.emission)
+    assert document["format"] == "pietto.sql-emission.v2"
+    assert [p["name"] for p in document["parameters"]] == ["low", "note"]
+    assert compiled(since).parameters == ()
     with pytest.raises(execution.RequestRejected) as refused:
-        compiled(project, kind="query", name="since")
+        execution.export_bundle(query)
     assert (refused.value.code, refused.value.detail) == (
         "PIE-R1004",
-        "COMPILED_EXPORT_SCALAR",
+        "PUBLIC_BUNDLE_UNSUPPORTED",
     )
-    assert compiled(project).literal_policy == "preserve"
+
+
+def test_execute_binds_parameters_by_name_without_any_io(since, monkeypatch):
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("an unopened attempt reached the driver")
+
+    monkeypatch.setattr(pg, "_connect", forbidden)
+    monkeypatch.setattr(pg, "drivers", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    query = compiled(since, kind="query", name="since", literal_policy="bind-safe")
+    template = json.loads(cast(bytes, query.emission))["sql"].encode()
+    for parameters, arguments in (
+        ({"note": "x", "low": 5}, (5, "x", 1)),
+        ({"low": -5, "note": None}, (-5, None, 1)),
+    ):
+        handle = execution.execute(
+            query,
+            route="postgres_rows",
+            access=access(),
+            premise=PREMISE,
+            parameters=parameters,
+        )
+        request = cast(Any, handle)._owner.request
+        # One `$n` per parameter and slot; the statement is the template's.
+        assert request.binding.arguments == arguments
+        assert request.artifact.rendered.sql == template
+        handle.close()
+
+
+PARAMETER_CASES = {
+    "missing": (None, "PIE-R1006", "BINDING_PARAMETERS"),
+    "absent_name": ({"low": 5}, "PIE-R1006", "BINDING_PARAMETERS"),
+    "extra_name": (
+        {"low": 5, "note": "x", "high": 1},
+        "PIE-R1006",
+        "BINDING_PARAMETERS",
+    ),
+    "bool_for_int": (
+        {"low": True, "note": "x"},
+        "PIE-R1006",
+        "BINDING_PARAMETER:0:Int",
+    ),
+    "null_for_not_null": (
+        {"low": None, "note": "x"},
+        "PIE-R1006",
+        "BINDING_PARAMETER:0:Int",
+    ),
+    "int_for_text": ({"low": 5, "note": 5}, "PIE-R1006", "BINDING_PARAMETER:1:Text"),
+    "pairs": ((("low", 5), ("note", "x")), "PIE-R1002", "PUBLIC_PARAMETERS_TYPE"),
+    "key_type": ({0: 5, "note": "x"}, "PIE-R1002", "PUBLIC_PARAMETERS_TYPE"),
+    # `next = low + 1` is checked for every binding, not for the template.
+    "overflow": ({"low": 2**63 - 1, "note": None}, "PIE-R1004", "BINDING_INVALID"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(PARAMETER_CASES))
+def test_execute_refuses_each_parameter_input_before_any_io(since, monkeypatch, case):
+    parameters, code, detail = PARAMETER_CASES[case]
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the driver")
+
+    monkeypatch.setattr(pg, "_connect", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    query = compiled(since, kind="query", name="since")
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            query,
+            route="postgres_rows",
+            access=access(),
+            premise=PREMISE,
+            parameters=cast(Any, parameters),
+        )
+    assert (refused.value.code, refused.value.detail) == (code, detail)
+    assert refused.value.__cause__ is None and refused.value.__context__ is None
+
+
+def test_parameters_run_only_on_the_postgres_rows_route(since, query):
+    parameterized = compiled(since, kind="query", name="since")
+    for target, parameters, code, detail in (
+        (
+            parameterized,
+            {"low": 5, "note": None},
+            "PIE-R1003",
+            "PUBLIC_PARAMETERS_ROUTE",
+        ),
+        (parameterized, None, "PIE-R1003", "PUBLIC_PARAMETERS_ROUTE"),
+        (query, {}, "PIE-R1003", "PUBLIC_PARAMETERS_ROUTE"),
+    ):
+        with pytest.raises(execution.RequestRejected) as refused:
+            execution.execute(
+                target,
+                route="postgres_adbc",
+                access=access(),
+                premise=PREMISE,
+                parameters=parameters,
+            )
+        assert (refused.value.code, refused.value.detail) == (code, detail)
+    # A query without a header binds an empty mapping and refuses any name.
+    execution.execute(
+        query, route="postgres_rows", access=access(), premise=PREMISE, parameters={}
+    ).close()
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            query,
+            route="postgres_rows",
+            access=access(),
+            premise=PREMISE,
+            parameters={"low": 5},
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1006",
+        "BINDING_PARAMETERS",
+    )
 
 
 @pytest.mark.parametrize(

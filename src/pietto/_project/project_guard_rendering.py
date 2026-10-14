@@ -8,7 +8,11 @@ from pietto._project.project_guard_lowering import original_fragments, terminal_
 from pietto._project.project_sql_emission_ast import SQLSelect, resource_limits
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_rendering import _Writer, _join_condition
-from pietto._project.project_execution_binding_verification import native_arguments
+from pietto._project.project_execution_binding_verification import (
+    artifact_arguments,
+    use_owner,
+)
+from pietto._project.project_sql_emission_rows import SQLParameterRead
 from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
@@ -25,16 +29,14 @@ def render_guard(statement):
     p = statement.program
     if statement.kind == "data" and not statement.subjects:
         artifact = p.preparation.artifact
-        arguments = native_arguments(
-            artifact,
-            tuple(
-                s.site.position.literal.value
-                for s in artifact.request.plan.literal_slots
-            ),
-        )
+        arguments = artifact_arguments(artifact)
         uses = tuple(
             GuardParameterUse(
-                "original", u.slot, u.server_index, arguments[u.server_index - 1], u
+                "original",
+                use_owner(u),
+                u.server_index,
+                arguments[u.server_index - 1],
+                u,
             )
             for u in artifact.parameter_uses
         )
@@ -64,10 +66,7 @@ def render_guard(statement):
     family, prefix = request.family, p.prefix
     quote = '"' if family == "postgres" else "`"
     chunks, uses, assigned = [], [], []
-    original_values = native_arguments(
-        artifact,
-        tuple(s.site.position.literal.value for s in request.plan.literal_slots),
-    )
+    original_values = artifact_arguments(artifact)
     events = artifact.rendered.events
     parameter_events = tuple(e for e in events if e.kind == "parameter")
     original_uses = dict(zip(parameter_events, artifact.parameter_uses, strict=True))
@@ -164,11 +163,18 @@ def render_guard(statement):
         for event in writer.events:
             if event.kind == "parameter":
                 leaf = next(pending)
-                if event.subject is not leaf.site.ref:
+                if event.subject is not (
+                    leaf.original.ref
+                    if isinstance(leaf, SQLParameterRead)
+                    else leaf.site.ref
+                ):
                     raise ValueError("GUARD_PARAMETER_SOURCE")
                 use = leaf.use
                 parameter(
-                    "original", use.slot, original_values[use.server_index - 1], use
+                    "original",
+                    use_owner(use),
+                    original_values[use.server_index - 1],
+                    use,
                 )
             else:
                 emit(data[event.start : event.end])
@@ -259,7 +265,10 @@ def render_guard(statement):
             if event.kind == "parameter":
                 use = original_uses[event]
                 parameter(
-                    "original", use.slot, original_values[use.server_index - 1], use
+                    "original",
+                    use_owner(use),
+                    original_values[use.server_index - 1],
+                    use,
                 )
             elif event.subject in references and event.role in (
                 "namespace",

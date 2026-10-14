@@ -75,7 +75,7 @@ class _Export:
                 or refinement.output.guarded is not guarded
             ):
                 raise CompiledError("COMPILED_EXPORT_REFINEMENT_ROOT")
-        self.sites, self.literals, self.slots = {}, {}, {}
+        self.sites, self.literals, self.slots, self.reads = {}, {}, {}, {}
         self.contexts, self.field_refs = {}, {}
         self.values = {}
         self.requirement_anchors = {}
@@ -296,10 +296,27 @@ class _Export:
                 self.literals[id(slot.site.position.literal)],
                 slot.tag.value,
             )
+        parameters = {}
+        for parameter in plan.parameters if plan is self.request.plan else ():
+            parameters[parameter.ordinal] = self.add(
+                "parameter",
+                self.declaration(parameter.owner),
+                parameter.ordinal,
+                parameter.declaration.name,
+                parameter.tag,
+                parameter.value_type.nullability.value == "nullable",
+            )
         for use in self.artifact.parameter_uses if plan is self.request.plan else ():
+            if use.parameter is not None:
+                # One read record per placeholder occurrence, in native order.
+                owner = self.reads[id(use.original)] = self.add(
+                    "parameter_read", parameters[use.parameter.ordinal]
+                )
+            else:
+                owner = self.slots[id(use.slot)]
             self.add(
                 "native_use",
-                self.slots[id(use.slot)],
+                owner,
                 use.ordinal,
                 use.server_index,
                 use.physical_type,
@@ -370,6 +387,8 @@ class _Export:
             return self.read(value.column, producer, use)
         if type(value) is parameters.SQLAnchor:
             return self.scalar(value.operand, producer, use, join_inputs)
+        if type(value) is rows.SQLParameterRead:
+            return self.reads[id(value.original)]
         if type(value) in (
             parameters.SQLLiteral,
             parameters.SQLNull,
@@ -2145,9 +2164,6 @@ def build_compiled(artifact, *, guarded=None, refinement=None) -> CompiledBuild:
 
     if type(artifact) not in (EmissionArtifact, GuardedArtifact):
         raise BindingError("BINDING_ARTIFACT")
-    if artifact.request.plan.parameters:
-        # A header-parameter read has no compiled record kind yet.
-        raise CompiledError("COMPILED_EXPORT_SCALAR")
     primary = _Export(artifact, guarded, refinement)
     description = primary.run()
     verify_export(description, artifact, guarded=guarded, refinement=refinement)

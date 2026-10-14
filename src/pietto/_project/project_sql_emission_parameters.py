@@ -205,7 +205,7 @@ def allocate_uses(family, occurrences, limit):
     result = []
     for ordinal, (item, physical) in enumerate(occurrences):
         kind = type(item)
-        named = kind is row.ProjectSQLParameterRead
+        named = kind in (row.ProjectSQLParameterRead, row.CompiledParameterRead)
         if not named and kind not in (
             row.ProjectSQLBoundLiteral,
             row.CompiledBoundLiteral,
