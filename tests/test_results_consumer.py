@@ -303,6 +303,23 @@ def test_required_sidecar_is_bounded_and_native_pair_is_separate(tmp_path: Path)
         probe.receipt_files(tmp_path, dict(run_id="x", run_attempt=1))
 
 
+def test_receipt_reader_uses_the_target_receipt_byte_limit(tmp_path, monkeypatch):
+    raw = b'{"value":1}\n'
+    for target in ("postgres", "mysql"):
+        (tmp_path / f"phase66-{target}-x-1.json").write_bytes(raw)
+    context = dict(checkout="a" * 40, run_id="x", run_attempt=1)
+    probe.helpers()
+    import _pietto_target_conformance as target_reader
+
+    monkeypatch.setattr(target_reader, "MAX_RECEIPT", len(raw))
+    receipts, references = probe.receipt_files(tmp_path, context)
+    assert receipts == {target: {"value": 1} for target in ("postgres", "mysql")}
+    assert all(reference["bytes"] == len(raw) for reference in references.values())
+    monkeypatch.setattr(target_reader, "MAX_RECEIPT", len(raw) - 1)
+    with pytest.raises(ValueError, match="invalid data file"):
+        probe.receipt_files(tmp_path, context)
+
+
 def test_original_value_oracle_does_not_reuse_the_input_decoder(monkeypatch):
     def changed(_):
         return [["lost", 0, True, Decimal("0.00"), 0.0]]

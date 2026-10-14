@@ -3956,6 +3956,8 @@ def run_temporal_cases(root):
         )
         arrow = temporal_arrow(producer)
         absent = emit_project_sql(checked, temporal_input(target))
+        assert absent.status == "VERIFIED" and absent.artifact is not None
+        assert absent.artifact.request.scalar_meaning is not None
         other_checked, other_bundle, _, _, other = temporal_fixture(
             root / f"temporal-foreign-{target}", target
         )
@@ -4060,11 +4062,22 @@ def run_temporal_cases(root):
         filtered = build_neutral(
             root / f"meaning-filter-{target}", {"main.pietto": filtered_source}
         )
+        filtered_input = json.loads(temporal_input(target, mixed=True))
+        filtered_input["environment"].append(
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
+            }
+        )
         outside = emit_project_sql(
             filtered,
-            temporal_input(target, mixed=True),
+            json.dumps(filtered_input).encode(),
             scalar_meaning=m.acquire_scalar_meaning(filtered),
         )
+        assert outside.status == "VERIFIED" and outside.artifact is not None
         observations = temporal_observations(target)
         producer_negatives = {}
         for name, position, changes in (
@@ -4135,7 +4148,10 @@ def run_temporal_cases(root):
                 [(b.code, b.detail) for b in outside.blockers],
             ],
             entries=meaning_snapshot(bundle),
-            default=[(b.code, b.detail) for b in absent.blockers],
+            default=dict(
+                status=absent.status,
+                entries=meaning_snapshot(absent.artifact.request.scalar_meaning),
+            ),
             refusals=negatives,
             preparations=preparations,
             invalidated=invalidated,
@@ -4710,11 +4726,11 @@ def verify_temporal_report(cases):
                 ]
                 * 2,
                 outside_projection=[
-                    "BLOCKED",
-                    [["PIE-B1003", "scalar_meaning_requires_field_projection"]],
+                    "VERIFIED",
+                    [],
                 ],
                 entries=entries,
-                default=[["PIE-B1004", "logical_temporal_or_uuid_meaning_missing"]] * 4,
+                default=dict(status="VERIFIED", entries=entries),
                 refusals={
                     "foreign_root": "MEANING_ROOT",
                     **dict.fromkeys(
@@ -5311,6 +5327,10 @@ def run_finite_cases(root):
         foreign_meaning = emit_project_sql(
             checked, encoded, scalar_meaning=nneutral.scalar_meaning
         )
+        assert no_meaning.status == "VERIFIED" and no_meaning.artifact is not None
+        assert no_meaning.artifact.request.scalar_meaning is not None
+        assert foreign_meaning.status == "INPUT_REJECTED"
+        assert foreign_meaning.artifact is None
         wrong_policy = finite_policy(producer)
         wrong_policy["integer_widths"] = (
             None,
@@ -5365,7 +5385,19 @@ def run_finite_cases(root):
                 lambda: a.verify_batch(missing_decimal, selected, producer)
             ),
             request=refused(lambda: a.bind_arrow(producer, **wrong_policy)),
-            meaning=[no_meaning.status, foreign_meaning.status],
+            meaning=dict(
+                default=dict(
+                    status=no_meaning.status,
+                    entries=[
+                        entry.canonical.name
+                        for entry in no_meaning.artifact.request.scalar_meaning.entries
+                    ],
+                ),
+                foreign=dict(
+                    status=foreign_meaning.status,
+                    artifact=foreign_meaning.artifact is not None,
+                ),
+            ),
         )
         nulls = a.build_owned_batch(nullable, finite_rows(target, state="null"))
         invalid_null = pa.RecordBatch.from_arrays(nulls.columns, schema=selected.schema)
@@ -5746,7 +5778,13 @@ def verify_finite_report(cases):
                     wrong_unit="ARROW_SCHEMA",
                     precision="ARROW_SCHEMA",
                     request="ARROW_ADAPTATION",
-                    meaning=["BLOCKED", "INPUT_REJECTED"],
+                    meaning=dict(
+                        default=dict(
+                            status="VERIFIED",
+                            entries=["Timestamp", "UUID", "UUID"],
+                        ),
+                        foreign=dict(status="INPUT_REJECTED", artifact=False),
+                    ),
                 ),
             )
             require(

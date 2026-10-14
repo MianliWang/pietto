@@ -266,6 +266,16 @@ def test_ci_does_not_rewrite_repository_outputs() -> None:
         assert forbidden not in workflow
 
 
+def test_ci_python_entrypoints_are_current_files() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    entrypoints = {
+        Path(path)
+        for path in re.findall(r"(?:scripts|tests)/[A-Za-z0-9_./-]+\.py", workflow)
+    }
+    assert entrypoints
+    assert all((REPO_ROOT / entrypoint).is_file() for entrypoint in entrypoints)
+
+
 def test_existing_release_readiness_scripts_remain_independent() -> None:
     scripts = {
         name: (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")

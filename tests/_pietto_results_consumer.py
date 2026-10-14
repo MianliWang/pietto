@@ -44,14 +44,18 @@ HELPERS = (
     "_pietto_results_product",
     "_pietto_results_conformance",
 )
+RECEIPT_HELPERS = (
+    "_pietto_target_conformance_observation",
+    "_pietto_target_conformance",
+)
 LABELS = ("display_text", "record_id", "active", "amount", "ratio")
 TYPES = ("string", "int64", "bool", "decimal128(9, 2)", "double")
 NULLABLE = (False, False, True, False, False)
 
 
-def helpers() -> tuple[Any, Any, Any]:
+def _load_helpers(names: tuple[str, ...]) -> None:
     """Load only these exact test helpers; never put the checkout on sys.path."""
-    for name in HELPERS:
+    for name in names:
         path = Path(__file__).with_name(name + ".py").resolve()
         if name in sys.modules:
             filename = sys.modules[name].__file__
@@ -63,6 +67,10 @@ def helpers() -> tuple[Any, Any, Any]:
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
+
+
+def helpers() -> tuple[Any, Any, Any]:
+    _load_helpers(HELPERS)
     return (sys.modules[HELPERS[2]], sys.modules[HELPERS[3]], sys.modules[HELPERS[4]])
 
 
@@ -684,7 +692,7 @@ def input_closure(repository):
     paths = list((repository / "src/pietto").rglob("*.py"))
     paths += [
         repository / "tests" / (name + ".py")
-        for name in (*HELPERS, "_pietto_results_consumer")
+        for name in (*HELPERS, *RECEIPT_HELPERS, "_pietto_results_consumer")
     ]
     paths += [
         repository / name
@@ -1020,20 +1028,50 @@ def authority_controls(root, built):
     result["mysql_bool"] = product.refused(lambda: ingress.ingest_rows(mysql[4], rows))
     emission = helpers()[0]
     result["upstream"] = {}
-    for variant in ("decimal_mismatch", "timestamp_meaning", "uuid_meaning"):
+    for variant in (
+        "decimal_mismatch",
+        "missing_source",
+        "timestamp_meaning",
+        "uuid_meaning",
+    ):
         case = "L_emission_blocked"
         recipe = emission.fixture("postgres", case, variant)
         _, outcome = emission.build_case(root / variant, **recipe)
         from pietto._project.project_sql_emission import serialize_project_sql_emission
 
         doc = emission.decode_public(serialize_project_sql_emission(outcome))
+        if outcome.status == "VERIFIED":
+            if (
+                outcome.artifact is None
+                or doc["status"] != "VERIFIED"
+                or "artifact" in doc
+                or "blockers" in doc
+                or "cli_errors" in doc
+            ):
+                raise ValueError("intrinsic temporal authority")
+            diagnostics = []
+            meanings = [
+                entry.canonical.name
+                for entry in outcome.artifact.request.scalar_meaning.entries
+            ]
+        else:
+            if (
+                outcome.artifact is not None
+                or doc["status"] != "BLOCKED"
+                or doc["artifact"] is not None
+                or doc["cli_errors"] != []
+            ):
+                raise ValueError("upstream refusal artifact")
+            diagnostics = [
+                [v["code"], v["reason"], v["subject"]["detail"]]
+                for v in doc["blockers"]
+            ]
+            meanings = []
         result["upstream"][variant] = dict(
             status=outcome.status,
             artifact=outcome.artifact is not None,
-            diagnostics=[
-                [v["code"], v["reason"], v["subject"]["detail"]]
-                for v in doc["blockers"]
-            ],
+            diagnostics=diagnostics,
+            meanings=meanings,
         )
     return result
 
@@ -1263,6 +1301,8 @@ def selected_observations(receipts, context):
 
 
 def receipt_files(directory, context):
+    _load_helpers((*HELPERS, *RECEIPT_HELPERS))
+    reader = sys.modules["_pietto_target_conformance"]
     wanted = {
         f"phase66-{target}-{context['run_id']}-{context['run_attempt']}.json": target
         for target in ("postgres", "mysql")
@@ -1272,15 +1312,9 @@ def receipt_files(directory, context):
         raise ValueError("receipt pair-only file denominator")
     receipts, references = {}, {}
     for path in found:
-        if (
-            path.is_symlink()
-            or not path.is_file()
-            or not 0 < path.stat().st_size <= 33 * 1024 * 1024
-        ):
-            raise ValueError("receipt regular bytes/limit")
-        data = path.read_bytes()
+        receipt, data = reader.read_json(path)
         target = wanted[path.name]
-        receipts[target] = json.loads(data, object_pairs_hook=helpers()[0]._pairs)
+        receipts[target] = receipt
         references[target] = dict(
             name=path.name,
             bytes=len(data),
@@ -1509,8 +1543,8 @@ def verify_fixture_groups(cases, inputs):
             foreign_root="ROOT", logical_null="NULL", mysql_bool="VALUE_DOMAIN"
         )
         upstream = {}
-        for variant in ("decimal_mismatch", "timestamp_meaning", "uuid_meaning"):
-            upstream[variant] = dict(
+        upstream = {
+            "decimal_mismatch": dict(
                 status="BLOCKED",
                 artifact=False,
                 diagnostics=[
@@ -1519,14 +1553,30 @@ def verify_fixture_groups(cases, inputs):
                         "REPRESENTATION",
                         "physical_storage_or_domain_mismatch",
                     ]
-                    if variant == "decimal_mismatch"
-                    else [
-                        "PIE-B1004",
-                        "MISSING_EVIDENCE",
-                        "logical_temporal_or_uuid_meaning_missing",
-                    ]
                 ],
-            )
+                meanings=[],
+            ),
+            "missing_source": dict(
+                status="BLOCKED",
+                artifact=False,
+                diagnostics=[
+                    ["PIE-B1001", "SOURCE_REALIZATION", "source_mapping_missing"]
+                ],
+                meanings=[],
+            ),
+            "timestamp_meaning": dict(
+                status="VERIFIED",
+                artifact=True,
+                diagnostics=[],
+                meanings=["Timestamp"],
+            ),
+            "uuid_meaning": dict(
+                status="VERIFIED",
+                artifact=True,
+                diagnostics=[],
+                meanings=["UUID"],
+            ),
+        }
         expected_refusals: dict[str, Any] = {**refusals, "upstream": upstream}
         if canonical(groups[GROUPS[6]]) != canonical(expected_refusals):
             raise ValueError("integration authority refusal witness")

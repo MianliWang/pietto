@@ -695,7 +695,7 @@ def truth_rows(target):
 def row_result_metadata(target):
     """Physical result metadata observed from the fixed targets, not desired tags."""
     return (
-        [20, 20, 20, 16, 16, 16, 16] if target == "postgres" else [8, 8, 8, 8, 8, 8, 8]
+        [23, 20, 20, 16, 16, 16, 16] if target == "postgres" else [3, 8, 8, 8, 8, 8, 8]
     )
 
 
