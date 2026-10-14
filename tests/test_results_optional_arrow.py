@@ -105,7 +105,7 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
     project = document["project"]
     assert project["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     # The Arrow extra is unchanged; Phase68 S18 pins its route extras exactly.
-    assert project["optional-dependencies"]["arrow"] == ["pyarrow==25.0.1"]
+    assert project["optional-dependencies"]["arrow"] == ["pyarrow==26.0.0"]
     assert project["scripts"] == {"pietto": "pietto.cli:main"}
     assert "pyarrow" not in json.dumps(document["dependency-groups"]).lower()
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text())
@@ -118,14 +118,14 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
         {"name": "antlr4-python3-runtime", "specifier": "==4.13.2"}
     ]
     assert [r for r in requires if r.get("marker") == "extra == 'arrow'"] == [
-        {"name": "pyarrow", "marker": "extra == 'arrow'", "specifier": "==25.0.1"},
+        {"name": "pyarrow", "marker": "extra == 'arrow'", "specifier": "==26.0.0"},
     ]
     (arrow,) = [p for p in lock["package"] if p["name"] == "pyarrow"]
-    assert arrow["version"] == "25.0.1"
+    assert arrow["version"] == "26.0.0"
     verified = (
         REPO_ROOT / "ci/phase67-arrow-compatibility-requirements.txt"
     ).read_text()
-    assert "pyarrow==25.0.1" in verified
+    assert "pyarrow==26.0.0" in verified
     for tag in ("cp312-cp312", "cp313-cp313"):
         (tested,) = [
             w for w in arrow["wheels"] if tag + "-manylinux_2_28_x86_64.whl" in w["url"]
@@ -165,23 +165,23 @@ def test_locked_export_preserves_default_core_and_rejects_unknown_extra(
     else:
         assert result.returncode == 0, result.stderr
         assert "antlr4-python3-runtime==4.13.2" in result.stdout
-        assert ("pyarrow==25.0.1" in result.stdout) is (extra == "arrow")
+        assert ("pyarrow==26.0.0" in result.stdout) is (extra == "arrow")
 
 
 @pytest.mark.parametrize("kind", ("wheel", "sdist"))
 @pytest.mark.parametrize(
     "requirement",
     (
-        b"pyarrow==25.0.1; extra == 'arrow'",
-        b'PyArrow ( == 25.0.1 ) ; extra=="arrow"',
-        b'pyarrow == 25.0.1 ; (extra == "arrow")',
+        b"pyarrow==26.0.0; extra == 'arrow'",
+        b'PyArrow ( == 26.0.0 ) ; extra=="arrow"',
+        b'pyarrow == 26.0.0 ; (extra == "arrow")',
     ),
 )
 def test_artifact_metadata_accepts_equivalent_serialization(
     tmp_path: Path, kind: str, requirement: bytes
 ):
     metadata = metadata_bytes().replace(
-        b"pyarrow==25.0.1; extra == 'arrow'", requirement
+        b"pyarrow==26.0.0; extra == 'arrow'", requirement
     )
     _inspect(_artifact(tmp_path, kind, metadata), kind)
 
@@ -202,18 +202,18 @@ METADATA_DAMAGE = {
         b"Provides-Extra: arrow\n",
         b"Provides-Extra: arrow\nProvides-Extra: arrow\n",
     ): EXTRAS_DIFFER,
-    (b"pyarrow==25.0.1", b"pyarrow==25.0.0"): REQUIREMENTS_DIFFER,
-    (b"pyarrow==25.0.1", b"pyarrow>=25.0.1"): REQUIREMENTS_DIFFER,
+    (b"pyarrow==26.0.0", b"pyarrow==25.0.1"): REQUIREMENTS_DIFFER,
+    (b"pyarrow==26.0.0", b"pyarrow>=26.0.0"): REQUIREMENTS_DIFFER,
     (b"; extra == 'arrow'", b""): REQUIREMENTS_DIFFER,
     (b"; extra == 'arrow'", b"; extra == 'unknown'"): REQUIREMENTS_DIFFER,
     (
         b"; extra == 'arrow'",
         b"; extra == 'ar row'",
     ): "unsupported artifact extra condition",
-    (b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n", b""): REQUIREMENTS_DIFFER,
+    (b"Requires-Dist: pyarrow==26.0.0; extra == 'arrow'\n", b""): REQUIREMENTS_DIFFER,
     (
-        b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n",
-        b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\nRequires-Dist: pyarrow==26.0.0; extra == 'arrow'\n",
+        b"Requires-Dist: pyarrow==26.0.0; extra == 'arrow'\n",
+        b"Requires-Dist: pyarrow==26.0.0; extra == 'arrow'\nRequires-Dist: pyarrow==26.0.0; extra == 'arrow'\n",
     ): REQUIREMENTS_DIFFER,
     (b"Requires-Dist: antlr4-python3-runtime==4.13.2\n", b""): REQUIREMENTS_DIFFER,
     (b"Metadata-Version: 2.4", b"Metadata-Version: 2.3"): LICENSE_DIFFERS,
@@ -323,7 +323,7 @@ def test_fake_correct_version_and_cross_cell_paths_are_rejected(
     ]
     for path in paths:
         path.parent.mkdir(parents=True)
-        path.write_text('__version__ = "25.0.1"\n')
+        path.write_text('__version__ = "26.0.0"\n')
         with pytest.raises(smoke.SmokeFailure, match="foreign installed origin"):
             smoke._installed_path(path)
     link = extra / "lib/python3.13/site-packages/pyarrow"

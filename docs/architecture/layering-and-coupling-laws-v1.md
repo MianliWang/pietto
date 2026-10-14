@@ -199,7 +199,7 @@ store and retention and are never collected by the workspace.
 Phase68 [S18](../phases/phase-68/slice-18.md) keeps optional imports lazy: the
 compiler, CLI, workspace metadata and saved replay, publication and collection
 never import a source driver, and only the Arrow owner imports PyArrow. A public
-Arrow use goes through that owner's pinned loader (`pyarrow` 25.0.1 by version
+Arrow use goes through that owner's pinned loader (`pyarrow` 26.0.0 by version
 and recorded file origin) before its first I/O; internal Arrow calls stay lazy.
 Each native route module owns its pinned driver closure (`DRIVERS`, `drivers()`);
 `project_execution.pinned_modules` is the single generic bridge and names no

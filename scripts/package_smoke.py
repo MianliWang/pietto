@@ -1307,8 +1307,8 @@ def _installed_check(wheel: Path, extra: str) -> None:
     else:
         pa = loader()
         if (
-            pa.__version__ != "25.0.1"
-            or importlib.metadata.version("pyarrow") != "25.0.1"
+            pa.__version__ != "26.0.0"
+            or importlib.metadata.version("pyarrow") != "26.0.0"
         ):
             raise SmokeFailure("installed PyArrow pin differs")
         dependencies["pyarrow"] = {

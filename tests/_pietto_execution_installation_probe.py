@@ -53,7 +53,7 @@ ROUTE_RECIPE = {
 # The exact CPython 3.13 Linux x86-64 artifact of each selected distribution.
 WHEELHOUSE = {
     "antlr4-python3-runtime": "antlr4_python3_runtime-4.13.2-py3-none-any.whl",
-    "pyarrow": "pyarrow-25.0.1-cp313-cp313-manylinux_2_28_x86_64.whl",
+    "pyarrow": "pyarrow-26.0.0-cp313-cp313-manylinux_2_28_x86_64.whl",
     "psycopg": "psycopg-3.3.5-py3-none-any.whl",
     "psycopg-binary": "psycopg_binary-3.3.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
     "mysql-connector-python": "mysql_connector_python-26.7.0-cp313-cp313-manylinux_2_28_x86_64.whl",
@@ -486,7 +486,7 @@ def install(directory, ledger, *, dist, interpreter, cache, house_root=None):
     negatives = []
     conflicting = directory / (PREFIX + "constraints-conflicting.txt")
     conflicting.write_text(
-        constraints.read_text().replace("pyarrow==25.0.1", "pyarrow==25.0.0")
+        constraints.read_text().replace("pyarrow==26.0.0", "pyarrow==25.0.0")
     )
     partial = directory / (PREFIX + "wheelhouse-without-mysql")
     partial.mkdir(mode=0o700)

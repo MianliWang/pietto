@@ -281,7 +281,7 @@ def test_data_only_report_rejects_flags_truncation_missing_origins_and_reference
             dict(
                 prefix="/tmp/extra",
                 wheel=dict(path="/tmp/candidate.whl", sha256="a" * 64),
-                pyarrow=dict(version="25.0.1", path="/checkout/pyarrow/__init__.py"),
+                pyarrow=dict(version="26.0.0", path="/checkout/pyarrow/__init__.py"),
                 origins={},
             ),
             {},

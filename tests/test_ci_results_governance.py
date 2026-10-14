@@ -473,7 +473,7 @@ def test_readiness_does_not_accept_exit_zero_without_every_real_witness():
     value = {
         "format": w.READINESS_FORMAT,
         "context": context,
-        "pyarrow": "25.0.1",
+        "pyarrow": "26.0.0",
         "platform": {"system": "Linux", "machine": "x86_64"},
         "script_sha256": "a" * 64,
         "requirements_sha256": "b" * 64,
@@ -639,7 +639,7 @@ def readiness_fixture(context):
     return {
         "format": w.READINESS_FORMAT,
         "context": context,
-        "pyarrow": "25.0.1",
+        "pyarrow": "26.0.0",
         "platform": {"system": "Linux", "machine": "x86_64"},
         "script_sha256": "a" * 64,
         "requirements_sha256": "b" * 64,
