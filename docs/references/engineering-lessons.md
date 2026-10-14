@@ -318,3 +318,22 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   native matrix parts completed about 11% more cells in the same time than six,
   but each statement took longer, and the product's fixed 10 s cap turned that
   latency into a failure.
+
+
+## Phase69 与 Post-Phase69 插入期的耐久教训
+
+Phase70 开局按下列条目调整（见 [Phase70 brief](../phases/phase-70/brief.md)）；Phase69 [完成审计](../phases/phase-69/completion-audit.md)与 Post-Phase69 插入期（下称插入期）保留的失败头不重写。
+
+1. 只在 CI、hosted runner 或目标数据库上运行的消费者仍是失败头的主要来源：Phase69 的失败已发布头 `bf252faf` 与 `8d7877d8` 都只在 hosted 消费者上失败，由 `bf8c1344` 修复；
+   插入期首个发布头 `8dcc610c` 一是 `.github/workflows/ci.yml` 中改名 helper 的字面入口未更新（重组的读者清单漏掉了 `.github/**`），二是目标 oracle 未随已批准的 INT fixture 更新，由子提交 `de887b62` 修复。
+   改动共享模块的工作包列出它的直接语义消费者；新增或改名的入口在同一提交更新 `.github/workflows/ci.yml`；新增 SQL 发射变体的片在 Gate 2 封存前对候选树本机跑完整 PostgreSQL/MySQL 目标清单。
+   这扩展 Phase68 完成审计教训的第 1 条，不取代它。
+2. 字面 pin 读者再次漏同步（Phase68 完成审计教训第 4 条复发）：Dependabot #84/#85/#87 的 PR CI 因未同步的字面读者失败（安装选择测试中的 Ruff pin、Arrow 身份读者、两处 Action SHA 的 workflow 读者），
+   同步后合批合入。合入依赖更新前搜索全部字面 pin 读者，把同一 pin 的全部读者放进同一提交，并在封存前跑与 CI 同形的本地消费者入口。
+3. 全部通过不等于全部收集：插入期的一次权威验证中，`tests/test_ci_results_governance.py` 导入 `scripts` 时依赖当前工作目录，46 个节点因此静默缺席，由独立收集计数发现；
+   `pytest.ini` 随后设置 `pythonpath = .`，并经所有者批准重跑。每个 Gate 2 记录带独立收集计数与预期节点增量，二者不符即停。
+4. 聚焦集合必须包含被改共享 owner 的直接消费者：Phase69 S02 候选的聚焦检查漏掉了既有执行 owner，非权威全量预检发现 9 个回归；插入期用了 5 次非权威全量预检才收敛。
+   多 worker 合入的批次在权威运行前先做一次非权威全量预检；新增节点种类时，先让按类分派的遍历器对未知节点失败关闭，再让新节点越过准入，见 [Phase70 路线](../phases/phase-70/slices.md)的 S01 与 S02。
+5. 版本字样不是构建身份，文档也会滞后：`8cc6d5cb` 的包版本仍是 `0.1.2`，但 extras 已选 `pyarrow==26.0.0`，与已发行 `0.1.2` 的依赖闭包不同；原生或安装证据绑定实际构建输入，
+   不因版本字样相同而混用发行字节或旧驱动证据。提交时写下的 pending 或 candidate 措辞在 CI 之后没有专门提交更新，由下一个生命周期提交同步；删除或改名测试、升级 pin 时，
+   同时搜索文档中的旧路径与旧版本（Phase70 路线发布更正了 `docs/execution.md`、`docs/project-package.md` 与 `docs/development.md` 中这样的滞后文字）。

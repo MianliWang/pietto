@@ -274,9 +274,10 @@ target Float carrier. `sum(Int)`, Decimal `sum`/`avg`, and Float `sum`/`avg`
 remain fail-closed without their aggregate-range, exact-division, or finite
 result proof; caller JSON cannot supply that proof.
 
-Version `0.1.2` is an unpublished candidate in this worktree. This document
-describes the candidate contract; Git publication and natural exact-head CI
-remain the lifecycle authority.
+The rules in the previous paragraph postdate the published `0.1.2` (GitHub
+pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
+distributions, although this source tree still declares version `0.1.2`. Git
+publication and natural exact-head CI remain the lifecycle authority.
 
 ## Optional Arrow dependency
 

@@ -1038,10 +1038,12 @@ witnesses would use the final code.
 dependency, native-campaign, database-lifecycle or performance work. The
 [completion audit](phases/phase-68/completion-audit.md) consumes S19 campaign04 and check02 under their original
 producing and checking identities. Its data-only recounts read JSON reports and raw files only (never a SQLite store,
-WAL or backup) and re-verify the digests those reports already recorded. `tests/test_phase68_slice20_completion_audit.py`
-is an offline drift principal: owner modules and named callables resolve, the audit's matrix accounting follows the S19
-checker's independent `required()` derivation, every brief requirement has one disposition, the closure rule is singular,
-product code imports neither changed transitive dependency, and lesson links resolve; it proves no historical execution.
+WAL or backup) and re-verify the digests those reports already recorded. Its offline drift principal,
+`tests/test_phase68_slice20_completion_audit.py`, was removed by the post-Phase69 functional test reorganization
+(`8dcc610c`). It had checked that owner modules and named callables resolve, the audit's matrix accounting follows the
+S19 checker's independent `required()` derivation, every brief requirement has one disposition, the closure rule is
+singular, product code imports neither changed transitive dependency, and lesson links resolve; it proved no historical
+execution, and no current test repeats that drift check.
 Package, generated and golden auxiliaries are not required locally while the sdist/wheel inputs (`pyproject.toml` and
 everything it packages: `README.md`, its `license-files`, `src/**`) and generator inputs are unchanged; natural CI still runs every hosted consumer on the exact
 publication. The S19 native-qualified profile (importlib-resources 6.5.2, typing-extensions 4.15.0) and the current

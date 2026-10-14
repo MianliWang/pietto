@@ -1,8 +1,12 @@
 # Execution (public alpha)
 
-**Version:** This document describes the Phase69 `0.1.2` public alpha API.
-The versioned GitHub pre-release and PyPI listing determine release
-availability. The historical `0.1.1` wheel does not provide this alpha surface.
+**Version:** This document describes the public alpha API of this source
+tree. The tree still declares version `0.1.2`, but it is not the published
+`0.1.2`: it contains later unreleased changes; for example, its extras select
+`pyarrow==26.0.0` where the published `0.1.2` distributions select
+`pyarrow==25.0.1`. The published GitHub pre-release and PyPI `0.1.2` are
+described by this document at tag `v0.1.2`. The historical `0.1.1` wheel does
+not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
@@ -1206,10 +1210,16 @@ still running. Interpreter exit waits for the deadline timer, up to
   libpq (running `ldconfig`, then compiler and linker tools found on `PATH`) and
   loads it before Pietto refuses that implementation with `PIE-R2002`;
   `PSYCOPG_IMPL=binary` prevents the fallback.
-- Sources with `Timestamp` or `UUID` fields are refused exactly at compilation
-  (`PIE-B1004`), even if the query does not select those fields. This alpha has
-  no string, integer, binary, timezone, precision or implicit UUID fallback;
-  public Timestamp and UUID results are not part of it.
+- `Timestamp` and `UUID` source fields carry meaning only under the qualified
+  physical mapping in [Language](language.md#timestamp-and-uuid-source-meaning):
+  PostgreSQL `timestamp without time zone(6)` and `uuid`, MySQL `DATETIME(6)`
+  and `BINARY(16)`. `compile_query` still refuses a field whose meaning it
+  cannot derive, for example one declared through an alias of `Timestamp`
+  (`CompileRejected` with status `BLOCKED` and `PIE-B1004`), and a contract
+  that declares other storage for it (status `INPUT_REJECTED`); each attempt
+  checks the actual catalog types of these columns before the query runs
+  (`PIE-R2007`). There is no string, integer, binary, timezone, precision or
+  implicit UUID fallback.
 - A query whose single-match requirements need runtime enforcement is blocked
   when compiled (`PIE-B1006`), as with `pietto emit-sql --project`.
 - Only the literals of a `bind-safe` query can take other values (see
