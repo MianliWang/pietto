@@ -9,20 +9,28 @@ import pietto.sql.expressions as expression_module
 from pietto.ir.model import (
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     ExpressionIR,
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     NullabilityIR,
     SourceSpan,
     StaticValue,
+    SymbolId,
+    SymbolNamespace,
     TypeKindIR,
     TypeRefIR,
     UnaryIR,
 )
-from pietto.sql.expressions import render_expression_sql
+from pietto.sql.expressions import (
+    expression_uses_qualified_field,
+    render_expression_sql,
+)
 
 SPAN = SourceSpan(
     path="expressions.pietto",
@@ -39,6 +47,24 @@ UNKNOWN_TYPE = TypeRefIR(
     kind=TypeKindIR.UNKNOWN,
     canonical_kind=TypeKindIR.UNKNOWN,
     nullability=NullabilityIR.UNKNOWN,
+)
+FLOAT_TYPE = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Float",
+    canonical_name="Float",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NON_NULL,
+)
+INT_TYPE = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Int",
+    canonical_name="Int",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NON_NULL,
 )
 
 
@@ -65,7 +91,7 @@ def _call(callee: str, *arguments: ExpressionIR) -> CallIR:
         span=SPAN,
         value_type=UNKNOWN_TYPE,
         callee=callee,
-        callee_symbol=None,
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, callee),
         arguments=arguments,
     )
 
@@ -108,10 +134,177 @@ def test_len_call_uses_postgres_length() -> None:
     assert render_expression_sql(_call("len", _field("email"))) == 'length("email")'
 
 
+@pytest.mark.parametrize("position", (1, 2))
+def test_substr_refuses_static_indexes_outside_postgres_int32(position: int) -> None:
+    arguments: list[ExpressionIR] = [_field("name"), _literal(1), _literal(1)]
+    arguments[position] = _literal(1 << 31)
+
+    with pytest.raises(ValueError, match="substring index"):
+        render_expression_sql(_call("substr", *arguments))
+
+
 def test_matches_call_uses_postgres_regex_operator() -> None:
     expression = _call("matches", _field("email"), _literal(".+@.+"))
 
     assert render_expression_sql(expression) == "\"email\" ~ '.+@.+'"
+
+
+@pytest.mark.parametrize(
+    "callee_symbol",
+    [None, SymbolId(SymbolNamespace.CALLABLE, "upper")],
+)
+def test_postgres_call_requires_exact_callable_identity(
+    callee_symbol: SymbolId | None,
+) -> None:
+    expression = CallIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        callee="lower",
+        callee_symbol=callee_symbol,
+        arguments=(_literal("x"),),
+    )
+
+    with pytest.raises(ValueError, match="function identity"):
+        render_expression_sql(expression)
+
+
+def test_q1_control_expressions_and_fixed_like_escape_render() -> None:
+    condition = ComparisonIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        left=_field("age"),
+        operator=">=",
+        right=_literal(18),
+    )
+    conditional = ConditionalIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        when_true=_literal("adult"),
+        condition=condition,
+        when_false=_literal("minor"),
+    )
+    membership = MembershipIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        value=_field("id"),
+        options=(_literal(1), _literal(2)),
+        negated=True,
+    )
+    like = ComparisonIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        left=_field("label"),
+        operator="not like",
+        right=_literal("100!%%"),
+    )
+
+    assert render_expression_sql(conditional) == (
+        "CASE WHEN (\"age\" >= 18) THEN 'adult' ELSE 'minor' END"
+    )
+    assert render_expression_sql(membership) == '"id" NOT IN (1, 2)'
+    assert render_expression_sql(like) == "\"label\" NOT LIKE '100!%%' ESCAPE '!'"
+    assert (
+        render_expression_sql(
+            UnaryIR(
+                span=SPAN,
+                value_type=UNKNOWN_TYPE,
+                operator="not",
+                operand=membership,
+            )
+        )
+        == 'NOT ("id" NOT IN (1, 2))'
+    )
+
+
+@pytest.mark.parametrize(
+    ("negated", "expected"),
+    [(False, "FALSE"), (True, "TRUE")],
+)
+def test_q1_empty_membership_is_a_checked_boolean_constant(
+    negated: bool,
+    expected: str,
+) -> None:
+    expression = MembershipIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        value=_field("id"),
+        options=(),
+        negated=negated,
+    )
+
+    assert render_expression_sql(expression) == expected
+    with pytest.raises(ValueError):
+        render_expression_sql(
+            MembershipIR(
+                span=SPAN,
+                value_type=UNKNOWN_TYPE,
+                value=_call("unknown", _literal(1)),
+                options=(),
+                negated=negated,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        (
+            _call(
+                "coalesce", _field("nickname"), _field("name"), _literal("anonymous")
+            ),
+            'COALESCE("nickname", "name", \'anonymous\')',
+        ),
+        (_call("nullif", _field("name"), _literal("")), "NULLIF(\"name\", '')"),
+        (_call("upper", _field("name")), 'upper("name")'),
+        (
+            _call("substr", _field("name"), _literal(2), _literal(3)),
+            'substring("name" FROM 2 FOR 3)',
+        ),
+        (
+            _call("replace", _field("name"), _literal("a"), _literal("b")),
+            "replace(\"name\", 'a', 'b')",
+        ),
+        (
+            _call("contains", _field("name"), _literal("et")),
+            "position('et' IN \"name\") > 0",
+        ),
+        (
+            _call("starts_with", _field("name"), _literal("pi")),
+            "left(\"name\", length('pi')) = 'pi'",
+        ),
+        (
+            _call("ends_with", _field("name"), _literal("to")),
+            "right(\"name\", length('to')) = 'to'",
+        ),
+        (_call("abs", _field("amount")), 'abs("amount")'),
+        (_call("sign", _field("amount")), 'sign("amount")'),
+        (_call("date_of", _field("happened_at")), 'CAST("happened_at" AS date)'),
+        (
+            _call("year", _field("happened_at")),
+            'CAST(EXTRACT(YEAR FROM "happened_at") AS bigint)',
+        ),
+    ],
+)
+def test_q1_closed_function_rendering(expression: ExpressionIR, expected: str) -> None:
+    assert render_expression_sql(expression) == expected
+
+
+def test_q1_cast_and_qualified_field_traversal_render() -> None:
+    cast = CastIR(
+        span=SPAN,
+        value_type=FLOAT_TYPE,
+        value=FieldRefIR(
+            span=SPAN,
+            value_type=INT_TYPE,
+            name="id",
+            qualifier=("app", "users"),
+            field=None,
+        ),
+        target=FLOAT_TYPE,
+    )
+
+    assert render_expression_sql(cast) == 'CAST("app"."users"."id" AS double precision)'
+    assert expression_uses_qualified_field(cast)
 
 
 @pytest.mark.parametrize(
@@ -247,19 +440,6 @@ def test_nested_compound_expressions_are_parenthesized() -> None:
     [
         _call("unknown", _literal(1)),
         _call("lower", _literal("a"), _literal("b")),
-        ComparisonIR(
-            span=SPAN,
-            value_type=UNKNOWN_TYPE,
-            left=_literal(1),
-            operator="like",
-            right=_literal("1"),
-        ),
-        UnaryIR(
-            span=SPAN,
-            value_type=UNKNOWN_TYPE,
-            operator="not",
-            operand=_literal(True),
-        ),
         BinaryIR(
             span=SPAN,
             value_type=UNKNOWN_TYPE,

@@ -8,7 +8,7 @@ if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "tests"))
     spec = importlib.util.spec_from_file_location(
-        "p68_s05", root / "tests/_pietto_phase68_slice5_probe.py"
+        "p68_s05", root / "tests/_pietto_execution_rows_probe.py"
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

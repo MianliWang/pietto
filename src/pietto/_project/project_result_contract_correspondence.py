@@ -97,6 +97,21 @@ class _Correspondence:
         elif type(value) is ast.UnaryExpr:
             same((doc["tag"], doc["operator"]), ("unary", value.operator))
             self.expression(doc["operand"], value.operand)
+        elif type(value) is ast.ConditionalExpr:
+            same(doc["tag"], "conditional")
+            self.expression(doc["when_true"], value.when_true)
+            self.expression(doc["condition"], value.condition)
+            self.expression(doc["when_false"], value.when_false)
+        elif type(value) is ast.MembershipExpr:
+            same((doc["tag"], doc["negated"]), ("membership", value.negated))
+            self.expression(doc["value"], value.value)
+            same(len(doc["options"]), len(value.options))
+            for observed, retained in zip(doc["options"], value.options, strict=True):
+                self.expression(observed, retained)
+        elif type(value) is ast.CastExpr:
+            same(doc["tag"], "cast")
+            self.expression(doc["value"], value.value)
+            self.declared(doc["target"], value.target)
         elif type(value) in (ast.BinaryExpr, ast.ComparisonExpr):
             same(
                 (doc["tag"], doc["operator"]),

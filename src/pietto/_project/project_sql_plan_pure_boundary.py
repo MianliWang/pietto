@@ -648,6 +648,8 @@ def _relationships(document, declared):
         "project_sql_comparison": ("left", "right"),
         "project_sql_is_null": ("value",),
         "project_sql_between": ("value", "lower", "upper"),
+        "project_sql_conditional": ("when_true", "condition", "when_false"),
+        "project_sql_cast": ("value",),
     }
     expression_edges = {}
     for ref in p["expressions"]:
@@ -655,15 +657,28 @@ def _relationships(document, declared):
         children = tuple(
             expression[name] for name in expression_roles.get(declared[ref].kind, ())
         )
-        if declared[ref].kind == "project_sql_aggregate_argument_call":
+        if declared[ref].kind in {
+            "project_sql_aggregate_argument_call",
+            "project_sql_scalar_call",
+        }:
             children = expression["arguments"]
+        elif declared[ref].kind == "project_sql_membership":
+            children = (expression["value"], *expression["options"])
         expression_edges[expression["ref"]] = children
-        for name, child in zip(expression_roles.get(declared[ref].kind, ()), children):
+        source = fields[expression["expression"]]
+        source_children = tuple(
+            source[name] for name in expression_roles.get(declared[ref].kind, ())
+        )
+        if declared[ref].kind in {
+            "project_sql_aggregate_argument_call",
+            "project_sql_scalar_call",
+        }:
+            source_children = source["arguments"]
+        elif declared[ref].kind == "project_sql_membership":
+            source_children = (source["value"], *source["options"])
+        for child, source_child in zip(children, source_children, strict=True):
             require(fields[child]["kind"] == "expression")
-            require(
-                fields[primary[child]]["expression"]
-                == fields[expression["expression"]][name]
-            )
+            require(fields[primary[child]]["expression"] == source_child)
         operands = tuple(fields[r] for r in operand_groups.get(expression["ref"], ()))
         require(tuple(item["child"] for item in operands) == children)
         require(

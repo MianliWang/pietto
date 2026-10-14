@@ -24,7 +24,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "src"))
     sys.path.insert(0, str(root / "tests"))
-    from _pietto_phase68_slice11_probe import bridge
+    from _pietto_execution_jobs_probe import bridge
 
     report = bridge(
         args.directory,

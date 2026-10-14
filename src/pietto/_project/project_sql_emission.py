@@ -793,6 +793,8 @@ def _document(outcome, artifact, request, columns, source_map, slots):
             "reference",
             "arithmetic",
             "comparison",
+            "between",
+            "scalar_call",
             "logical",
             "null_test",
         }:
@@ -820,6 +822,15 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                         "operator": "is not null"
                         if expression.expression.negated
                         else "is null"
+                    }
+                ]
+            elif item.kind == "between":
+                evidence = [{"operator": "between"}]
+            elif item.kind == "scalar_call":
+                evidence = [
+                    {
+                        "callable": expression.callee_symbol.name,
+                        "namespace": expression.callee_symbol.namespace.value,
                     }
                 ]
             else:

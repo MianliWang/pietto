@@ -45,7 +45,7 @@ def setup_target(resource) -> tuple[dict[str, Any], ...]:
     target = getattr(resource, "target", None)
     if target not in ("postgres", "mysql"):
         raise ValueError("R2_TARGET_RESOURCE")
-    from _pietto_phase68_slice6_probe import manager, setup
+    from _pietto_execution_source_assurance_probe import manager, setup
 
     providers = tuple(setup(resource))
     if target == "mysql":
@@ -79,8 +79,8 @@ def live_r2(directory, providers, *, target: str = "postgres") -> R2Fixture:
     ``providers`` comes from :func:`setup_target`; names are matched only
     against this query's own sources, in its immutable compiled order.
     """
-    from _pietto_phase66_sql_emission_probe import CONFIG, source_files
-    from _pietto_phase68_slice6_cases import fixture
+    from _pietto_sql_emission import CONFIG, source_files
+    from _pietto_execution_source_assurance_cases import fixture
     from pietto.execution import R2SourceInput, compile_query
 
     project = Path(directory) / "public-r2"

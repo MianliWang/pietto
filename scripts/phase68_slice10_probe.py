@@ -31,10 +31,10 @@ def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "src"))
     sys.path.insert(0, str(root / "tests"))
-    from _pietto_phase68_slice10_probe import pilot
+    from _pietto_execution_compiled_probe import pilot
 
     if args.mode == "campaign":
-        from _pietto_phase68_slice10_probe import complete_campaign
+        from _pietto_execution_compiled_probe import complete_campaign
 
         if args.wheel is None or args.readiness is None:
             parser.error("campaign requires explicit --wheel and --readiness")
@@ -42,7 +42,7 @@ def main():
             args.directory, args.ledger, args.interpreter, args.wheel, args.readiness
         )
     elif args.mode == "representative":
-        from _pietto_phase68_slice10_probe import representative_pilot
+        from _pietto_execution_compiled_probe import representative_pilot
 
         report = representative_pilot(
             args.directory,
@@ -53,7 +53,7 @@ def main():
             else tuple(tuple(c.split(":")) for c in args.representative_cells),
         )
     elif args.mode == "source-profile":
-        from _pietto_phase68_slice10_probe import source_profile_pilot
+        from _pietto_execution_compiled_probe import source_profile_pilot
 
         report = source_profile_pilot(args.directory, args.ledger)
     else:

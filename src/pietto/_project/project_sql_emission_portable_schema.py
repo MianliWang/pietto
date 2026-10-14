@@ -103,7 +103,7 @@ PLAN_KINDS = frozenset(
     }
 )
 
-_VALUE = "@sql_anchor|sql_unary|sql_operation|sql_stage_reference"
+_VALUE = "@sql_anchor|sql_unary|sql_null|sql_operation|sql_stage_reference"
 _UNIT = "row_body|row_result_body|join_body|set_body"
 _PRODUCER = "@bound_source|row_body|row_result_body|set_body|join_body"
 _ROW_COLUMN = (
@@ -223,11 +223,11 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("symbol", "@sql_symbol"),
         ("label", "text"),
         ("origin", "@literal_origin"),
-        ("value", "?@sql_anchor|sql_unary"),
+        ("value", "?@sql_anchor|sql_unary|sql_null"),
         ("producer", "?@terminal_binding"),
     ),
     "literal_origin": (
-        ("value", "@sql_anchor|sql_unary"),
+        ("value", "@sql_anchor|sql_unary|sql_null"),
         ("export", "plan"),
         ("terminal", "plan"),
     ),
@@ -236,6 +236,7 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("operator", "text"),
         ("operand", "@sql_anchor|sql_unary"),
     ),
+    "sql_null": (("original", "plan"), ("site", "plan"), ("tag", "text")),
     "sql_anchor": (
         ("original", "plan"),
         ("tag", "text"),
@@ -436,6 +437,7 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("function", "text"),
         ("spelling", "text"),
         ("distinct", "bool"),
+        ("argument_cast", "?text"),
         ("argument", "?" + _VALUE),
         ("symbol", "@sql_symbol"),
         ("label", "text"),
@@ -700,6 +702,7 @@ DERIVED: dict[str, frozenset[str]] = {
     "bound_field": frozenset({"logical", "nullability", "decimal"}),
     "sql_unary": frozenset({"operator"}),
     "sql_anchor": frozenset({"tag"}),
+    "sql_null": frozenset({"tag"}),
     "sql_literal": frozenset({"value"}),
     "fixed_value": frozenset({"site", "value"}),
     "row_body": frozenset({"block_kind"}),
@@ -718,6 +721,7 @@ DERIVED: dict[str, frozenset[str]] = {
 # transported: verification invocation roots, private caches and upstream
 # semantic evidence whose consumed facts are carried by derived fields.
 CUTOFF: dict[str, frozenset[str]] = {
+    "realization": frozenset({"proven_int_range"}),
     "request": frozenset(
         {
             "verification",
@@ -735,7 +739,7 @@ CUTOFF: dict[str, frozenset[str]] = {
 }
 
 RULES = frozenset(f"R{number:02d}" for number in range(1, 27))
-TAGS = ("Bool", "Int", "Float", "Text")
+TAGS = ("Bool", "Int", "Float", "Text", "Decimal", "Date", "Timestamp", "UUID")
 FAMILIES = {"postgres": "18.6", "mysql": "8.4.12"}
 QUOTES = {"postgres": '"', "mysql": "`"}
 PHYSICAL = {
@@ -766,8 +770,34 @@ OPERATORS = {
     "sign": ("+", "-"),
     "arithmetic": ("+", "-", "*"),
     "logical": ("and", "or"),
-    "comparison": ("==", "!=", "<", "<=", ">", ">="),
+    "comparison": ("==", "!=", "<", "<=", ">", ">=", "like", "not like"),
     "null_test": ("is null", "is not null"),
+    "between": ("between",),
+    "not": ("not",),
+    "conditional": ("if_else",),
+    "membership": ("in", "not_in"),
+    "cast": ("int_to_float",),
+    "scalar_call": (
+        "lower",
+        "upper",
+        "trim",
+        "len",
+        "substr",
+        "replace",
+        "contains",
+        "starts_with",
+        "ends_with",
+        "coalesce",
+        "nullif",
+        "abs",
+        "sign",
+        "date_of",
+        "year",
+        "month",
+        "day",
+        "hour",
+        "minute",
+    ),
 }
 COMPARISON_SPELLING = {
     "==": " = ",
@@ -776,6 +806,8 @@ COMPARISON_SPELLING = {
     "<=": " <= ",
     ">": " > ",
     ">=": " >= ",
+    "like": " LIKE ",
+    "not like": " NOT LIKE ",
 }
 SET_KINDS = {"union": "UNION", "intersect": "INTERSECT", "except": "EXCEPT"}
 SET_QUANTIFIERS = {"all": "ALL", "distinct": "DISTINCT"}
@@ -789,7 +821,7 @@ JOIN_SPELLING = {
 MEMBERSHIP_SPELLING = {"exists": " WHERE EXISTS (", "not_exists": " WHERE NOT EXISTS ("}
 DIRECTIONS = {"asc": " ASC", "desc": " DESC"}
 CARRIERS = frozenset({"ordinary", "rebound", "completed"})
-AGGREGATE_SPELLING = {"COUNT", "MIN", "MAX"}
+AGGREGATE_SPELLING = {"COUNT", "MIN", "MAX", "AVG"}
 WINDOW_SPELLING = {
     "row_number": "ROW_NUMBER",
     "rank": "RANK",
@@ -839,8 +871,13 @@ SYNTAX = {
     "binary_close": ")",
     "comparison_open": "(",
     "comparison_close": ")",
+    "between_open": "(",
+    "between_operator": " BETWEEN ",
+    "between_separator": " AND ",
+    "between_close": ")",
     "aggregate_row_count": "*",
     "aggregate_distinct": "DISTINCT ",
+    "aggregate_argument_cast_open": "CAST(",
     "aggregate_close": ")",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",
@@ -904,6 +941,15 @@ OVERLAYS = {
     "reference": (("value_scope",), ("value_column",)),
     "binary": (("binary_open",), ("binary_close",)),
     "comparison": (("comparison_open",), ("comparison_close",)),
+    "between": (("between_open",), ("between_close",)),
+    "not": (("not_open",), ("not_close",)),
+    "scalar_call": (("scalar_call_open",), ("scalar_call_close",)),
+    "conditional": (("conditional_open",), ("conditional_close",)),
+    "membership": (
+        ("membership_open", "membership_constant"),
+        ("membership_close", "membership_constant"),
+    ),
+    "cast": (("cast_open",), ("cast_close",)),
     "is_null": (("is_null_open",), ("is_null_close",)),
     "aggregate": (("aggregate_open",), ("aggregate_close",)),
     "window": (("window_open",), ("window_spec_close", "window_reference")),

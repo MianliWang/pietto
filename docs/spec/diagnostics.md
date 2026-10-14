@@ -179,6 +179,6 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R4001` | HANDLE_REUSED: a result handle was opened again; it runs one attempt once |
 | `PIE-R4002` | BATCH_CLOSED: a closed result batch was exported |
 | `PIE-R4003` | BATCH_TRANSFER: a result batch cannot be exported as requested |
-| `PIE-R4004` | SCHEMA_EXPORT: `pa.schema(result)` cannot export the result schema because PyArrow is absent, is not the pinned `pyarrow` 25.0.1 distribution or cannot be loaded, or the schema cannot be built; the attempt is unchanged |
+| `PIE-R4004` | SCHEMA_EXPORT: `pa.schema(result)` cannot export the result schema because PyArrow is absent, is not the pinned `pyarrow` 26.0.0 distribution or cannot be loaded, or the schema cannot be built; the attempt is unchanged |
 | `PIE-R5001` | CLEANUP_FAILED: a cleanup step failed (outcome only) |
 | `PIE-R5002` | DROPPED_UNCLOSED: an open result handle was garbage-collected, or was still open at interpreter exit (a `ResourceWarning`, hidden by default) |

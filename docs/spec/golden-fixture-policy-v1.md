@@ -54,11 +54,11 @@ least one Pietto input and referenced by an owning test:
 | `check_sources_users_warning.json` | `examples/sources/users.pietto` | `tests/test_cli_golden_outputs.py` |
 | `emit_sql_active_users.sql` and `.json` | `examples/tables/active_users.pietto` | `tests/test_cli_golden_outputs.py` |
 | `emit_sql_active_user_emails.sql` | `examples/queries/active_user_emails.pietto` | `tests/test_cli_golden_outputs.py` |
-| PostgreSQL compatibility SQL | matching `tests/fixtures/postgres/*.pietto` | `tests/test_cli_golden_outputs.py` and `tests/test_phase10_mysql_golden_corpus.py` |
-| MySQL compatibility SQL | matching `tests/fixtures/mysql/*.pietto` | `tests/test_phase10_mysql_golden_corpus.py` |
-| MySQL ordering metadata JSON | `tests/fixtures/mysql/compatibility_ordering_metadata.pietto` | `tests/test_phase10_mysql_cli_enablement.py` |
-| Phase 12 PostgreSQL composition SQL | `tests/fixtures/phase12/postgres_order_limit_composition.pietto` | `tests/test_phase12_composition_cli_json_goldens.py` |
-| Phase 12 MySQL composition SQL and JSON v1 | `tests/fixtures/phase12/mysql_order_limit_composition.pietto` | `tests/test_phase12_composition_cli_json_goldens.py` |
+| PostgreSQL compatibility SQL | matching `tests/fixtures/postgres/*.pietto` | `tests/test_cli_golden_outputs.py` and `tests/test_sql_mysql_golden_corpus.py` |
+| MySQL compatibility SQL | matching `tests/fixtures/mysql/*.pietto` | `tests/test_sql_mysql_golden_corpus.py` |
+| MySQL ordering metadata JSON | `tests/fixtures/mysql/compatibility_ordering_metadata.pietto` | `tests/test_cli_mysql_cli_enablement.py` |
+| Phase 12 PostgreSQL composition SQL | `tests/fixtures/phase12/postgres_order_limit_composition.pietto` | `tests/test_cli_composition_cli_json_goldens.py` |
+| Phase 12 MySQL composition SQL and JSON v1 | `tests/fixtures/phase12/mysql_order_limit_composition.pietto` | `tests/test_cli_composition_cli_json_goldens.py` |
 
 The audit reports:
 

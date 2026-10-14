@@ -28,13 +28,17 @@ from pietto.ast_nodes import (
     BinaryExpr,
     ComparisonExpr,
     BetweenExpr,
+    CastExpr,
+    ConditionalExpr,
     IsNullExpr,
     CallExpr,
     NameExpr,
     DottedNameExpr,
+    MembershipExpr,
 )
 from pietto.semantic.model import ValueType, TypeKind, ValueTypeKind, ResolvedType
 from pietto.semantic.capability_facts import CapabilityDomain as D, CapabilityKey
+from pietto.ir.model import SymbolNamespace
 
 __all__: tuple[str, ...] = ()
 
@@ -279,7 +283,9 @@ def _literal_key(value: ValueType) -> CapabilityKey | None:
     )
 
 
-def _scalar_key(demand: row.ProjectSQLExpressionDemand) -> CapabilityKey | None:
+def _scalar_key(
+    demand: row.ProjectSQLExpressionDemand, expressions
+) -> CapabilityKey | None:
     expr = demand.expression
     result = _builtin(demand.value_type)
     operands = tuple(_builtin(value) for value in demand.operand_types)
@@ -313,6 +319,30 @@ def _scalar_key(demand: row.ProjectSQLExpressionDemand) -> CapabilityKey | None:
             ("ValueTypeKind.KNOWN", "ValueTypeKind.KNOWN", result, "unknown"),
             "expression",
         )
+    if type(expr) is ConditionalExpr:
+        return CapabilityKey(
+            D.SCALAR_FUNCTION,
+            "ValueTypeKind.KNOWN",
+            "conditional",
+            ("Bool", "ValueTypeKind.KNOWN", "unknown"),
+            "expression",
+        )
+    if type(expr) is MembershipExpr:
+        return CapabilityKey(
+            D.SCALAR_FUNCTION,
+            "ValueTypeKind.KNOWN",
+            "not in" if expr.negated else "in",
+            ("Bool", "unknown"),
+            "expression",
+        )
+    if type(expr) is CastExpr:
+        return CapabilityKey(
+            D.CONVERSION,
+            "Int",
+            "cast",
+            ("Float", "unknown"),
+            "expression",
+        )
     if not operands or any(v is None for v in operands):
         return None
     operands = cast(tuple[str, ...], operands)
@@ -332,23 +362,30 @@ def _scalar_key(demand: row.ProjectSQLExpressionDemand) -> CapabilityKey | None:
             (operands[1], result, "unknown"),
             "expression",
         )
-    if (
-        type(expr) is CallExpr
-        and demand.site.role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
-    ):
-        if type(expr.callee) is NameExpr and expr.callee.name in {
-            "lower",
-            "trim",
-            "len",
-            "matches",
-        }:
+    value = expressions.get(demand.subject)
+    if type(value) is row.ProjectSQLScalarCall:
+        symbol = value.callee_symbol
+        if symbol.namespace is SymbolNamespace.CALLABLE:
             return CapabilityKey(
                 D.SCALAR_FUNCTION,
                 operands[0],
-                expr.callee.name,
+                symbol.name,
                 (*operands[1:], result, "unknown"),
                 "expression",
             )
+    if (
+        type(expr) is CallExpr
+        and demand.site.role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
+        and type(expr.callee) is NameExpr
+        and expr.callee.name in {"lower", "trim", "len", "matches"}
+    ):
+        return CapabilityKey(
+            D.SCALAR_FUNCTION,
+            operands[0],
+            expr.callee.name,
+            (*operands[1:], result, "unknown"),
+            "expression",
+        )
     return None
 
 
@@ -482,7 +519,7 @@ def build_propositions(
         key = _type_key(type_evidence(demand))
         add(K.TYPE, key, MappingGap.TYPE_UNMODELED if key is None else None)
     if type(demand) is row.ProjectSQLExpressionDemand:
-        key = _scalar_key(demand)
+        key = _scalar_key(demand, expressions)
         add(K.SCALAR, key, MappingGap.SCALAR_UNMODELED if key is None else None)
     if (
         family is F.AGGREGATE
@@ -554,7 +591,7 @@ def _valid_literal_key(key, value):
     )
 
 
-def _valid_scalar_key(key, demand):
+def _valid_scalar_key(key, demand, expressions):
     expression, result = demand.expression, _builtin(demand.value_type)
     values = tuple(_builtin(value) for value in demand.operand_types)
     if type(expression) is LiteralExpr:
@@ -591,6 +628,33 @@ def _valid_scalar_key(key, demand):
             == ("ValueTypeKind.KNOWN", "ValueTypeKind.KNOWN", result, "unknown")
             and key.context == "expression"
         )
+    if type(expression) is ConditionalExpr:
+        return (
+            key is not None
+            and key.domain is D.SCALAR_FUNCTION
+            and key.subject == "ValueTypeKind.KNOWN"
+            and key.operation == "conditional"
+            and key.operands == ("Bool", "ValueTypeKind.KNOWN", "unknown")
+            and key.context == "expression"
+        )
+    if type(expression) is MembershipExpr:
+        return (
+            key is not None
+            and key.domain is D.SCALAR_FUNCTION
+            and key.subject == "ValueTypeKind.KNOWN"
+            and key.operation == ("not in" if expression.negated else "in")
+            and key.operands == ("Bool", "unknown")
+            and key.context == "expression"
+        )
+    if type(expression) is CastExpr:
+        return (
+            key is not None
+            and key.domain is D.CONVERSION
+            and key.subject == "Int"
+            and key.operation == "cast"
+            and key.operands == ("Float", "unknown")
+            and key.context == "expression"
+        )
     if not values or None in values:
         return key is None
     if type(expression) is UnaryExpr and len(values) == 1:
@@ -609,6 +673,18 @@ def _valid_scalar_key(key, demand):
             and key.subject == values[0]
             and key.operation == expression.operator
             and key.operands == (values[1], result, "unknown")
+            and key.context == "expression"
+        )
+    value = expressions.get(demand.subject)
+    if type(value) is row.ProjectSQLScalarCall:
+        symbol = value.callee_symbol
+        return (
+            key is not None
+            and symbol.namespace is SymbolNamespace.CALLABLE
+            and key.domain is D.SCALAR_FUNCTION
+            and key.subject == values[0]
+            and key.operation == symbol.name
+            and key.operands == (*values[1:], result, "unknown")
             and key.context == "expression"
         )
     if (
@@ -826,7 +902,7 @@ def check_propositions(entry, propositions, expressions) -> bool:
             return False
         if kind is K.TYPE and not _valid_type_key(key, type_evidence(demand)):
             return False
-        if kind is K.SCALAR and not _valid_scalar_key(key, demand):
+        if kind is K.SCALAR and not _valid_scalar_key(key, demand, expressions):
             return False
         if kind is K.LITERAL and (
             not isinstance(demand, lit.ProjectSQLLiteralDemand)

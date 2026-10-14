@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     sys.path.insert(0, str(ROOT / "tests"))
-    from _pietto_phase68_slice6_probe import main as probe_main
+    from _pietto_execution_source_assurance_probe import main as probe_main
 
     return probe_main()
 

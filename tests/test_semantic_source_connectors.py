@@ -44,7 +44,7 @@ SHAPE = "shape UserRow:\n    id: UUID not null\n    email: Text not null\n"
 def test_completed_source_rules_preserve_single_file_diagnostics(
     tmp_path: Path, connector: str, codes: tuple[str, ...]
 ) -> None:
-    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+    from _pietto_project_join import (
         _completed,
     )
 
@@ -62,11 +62,11 @@ def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from pietto._project import project_completed_semantics as boundary
-    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+    from _pietto_project_join import (
         _completed,
         _source as joined_source,
     )
-    from test_phase64_slice7_single_match_direction_unit_scoped_proof_obligation_warning_diagnostics import (
+    from _pietto_project_single_match import (
         _request,
     )
 
@@ -139,7 +139,7 @@ def test_completed_preserves_prior_diagnostics_and_cli_semantic_caller(
     tmp_path: Path,
 ) -> None:
     from pietto import cli
-    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+    from _pietto_project_join import (
         _completed,
     )
 
@@ -166,7 +166,7 @@ def test_completed_source_scan_rejects_missing_module_script(tmp_path: Path) -> 
     from pietto._project.project_completed_semantics import (
         build_project_completed_semantic_result,
     )
-    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+    from _pietto_project_join import (
         _completed,
     )
 
@@ -260,7 +260,7 @@ def test_malformed_dotted_table_name_reports_pie_s2306_at_argument(
 def test_project_mode_does_not_apply_the_single_file_table_name_rule(
     tmp_path: Path,
 ) -> None:
-    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+    from _pietto_project_join import (
         _completed,
     )
 

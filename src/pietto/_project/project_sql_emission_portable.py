@@ -82,6 +82,7 @@ KINDS: dict[type, str] = {
     sql_ast.SQLLiteralColumn: "sql_literal_column",
     parameters.LiteralOrigin: "literal_origin",
     parameters.SQLUnary: "sql_unary",
+    parameters.SQLNull: "sql_null",
     parameters.SQLAnchor: "sql_anchor",
     parameters.SQLLiteral: "sql_literal",
     parameters.SQLParameter: "sql_parameter",
@@ -366,6 +367,16 @@ def _location(location):
 def _operator(original, kind):
     if kind == "null_test":
         return "is not null" if original.expression.negated else "is null"
+    if kind == "between":
+        return "between"
+    if kind == "scalar_call":
+        return original.callee_symbol.name
+    if kind == "conditional":
+        return "if_else"
+    if kind == "membership":
+        return "not_in" if original.expression.negated else "in"
+    if kind == "cast":
+        return "int_to_float"
     return original.expression.operator
 
 
@@ -446,6 +457,8 @@ class _Export:
             return _decimal(obj.decimal)
         if kind in ("sql_unary", "sql_operation"):
             return _operator(obj.original, getattr(obj, "kind", "sign"))
+        if kind == "sql_null":
+            return _tag(obj.original)
         if kind == "sql_anchor":
             return _tag(obj.original)
         if kind == "sql_literal":
@@ -713,10 +726,9 @@ class _Binder:
             return _decimal(obj.decimal)
         if kind in ("sql_unary", "sql_operation"):
             expression = self.expression(obj.original)
-            if getattr(obj, "kind", None) == "null_test":
-                negated = expression.expression.negated
-                return "is not null" if negated else "is null"
-            return expression.expression.operator
+            return _operator(expression, getattr(obj, "kind", "sign"))
+        if kind == "sql_null":
+            return _tag(self.expression(obj.original))
         if kind == "sql_anchor":
             return _tag(self.expression(obj.original))
         if kind == "sql_literal":

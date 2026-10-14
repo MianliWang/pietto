@@ -21,6 +21,9 @@ from pietto.ast_nodes import (
     IsNullExpr,
     BetweenExpr,
     CallExpr,
+    CastExpr,
+    ConditionalExpr,
+    MembershipExpr,
     LetBinding,
     SelectItem,
     WhereClause,
@@ -66,6 +69,7 @@ from pietto._project.project_query_block_ir import (
 )
 from pietto._project.project_joined_row_filter import ProjectJoinedRowRetentionEffect
 from pietto.semantic.model import ValueType
+from pietto.ir.model import SymbolId
 
 if TYPE_CHECKING:
     from pietto._project.project_sql_plan_literals import ProjectSQLBindUse
@@ -243,6 +247,34 @@ class ProjectSQLBetween(ProjectSQLExpressionBase):
     upper: ProjectSQLPlanRef
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLConditional(ProjectSQLExpressionBase):
+    expression: ConditionalExpr
+    when_true: ProjectSQLPlanRef
+    condition: ProjectSQLPlanRef
+    when_false: ProjectSQLPlanRef
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLMembership(ProjectSQLExpressionBase):
+    expression: MembershipExpr
+    value: ProjectSQLPlanRef
+    options: tuple[ProjectSQLPlanRef, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLCast(ProjectSQLExpressionBase):
+    expression: CastExpr
+    value: ProjectSQLPlanRef
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLScalarCall(ProjectSQLExpressionBase):
+    expression: CallExpr
+    callee_symbol: SymbolId
+    arguments: tuple[ProjectSQLPlanRef, ...]
+
+
 type ProjectSQLExpression = (
     ProjectSQLLiteral
     | ProjectSQLBoundLiteral
@@ -254,6 +286,10 @@ type ProjectSQLExpression = (
     | ProjectSQLComparison
     | ProjectSQLIsNull
     | ProjectSQLBetween
+    | ProjectSQLConditional
+    | ProjectSQLMembership
+    | ProjectSQLCast
+    | ProjectSQLScalarCall
     | aggregation.ProjectSQLResultReference
     | windows.ProjectSQLWindowReference
     | aggregation.ProjectSQLAggregateArgumentCall
@@ -646,6 +682,12 @@ def scalar_children(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value,)
     if isinstance(expression, BetweenExpr):
         return expression.value, expression.lower, expression.upper
+    if isinstance(expression, ConditionalExpr):
+        return expression.when_true, expression.condition, expression.when_false
+    if isinstance(expression, MembershipExpr):
+        return expression.value, *expression.options
+    if isinstance(expression, CastExpr):
+        return (expression.value,)
     if isinstance(expression, CallExpr):
         return expression.arguments
     return ()

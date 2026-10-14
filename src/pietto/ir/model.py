@@ -144,6 +144,32 @@ class UnaryIR(ExpressionIR):
 
 
 @dataclass(frozen=True, slots=True)
+class ConditionalIR(ExpressionIR):
+    """A lowered conditional retaining its authored operand order."""
+
+    when_true: ExpressionIR
+    condition: ExpressionIR
+    when_false: ExpressionIR
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipIR(ExpressionIR):
+    """A lowered fixed scalar membership predicate."""
+
+    value: ExpressionIR
+    options: tuple[ExpressionIR, ...]
+    negated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CastIR(ExpressionIR):
+    """A lowered explicit scalar conversion."""
+
+    value: ExpressionIR
+    target: TypeRefIR
+
+
+@dataclass(frozen=True, slots=True)
 class BinaryIR(ExpressionIR):
     """A lowered binary arithmetic or Boolean expression."""
 

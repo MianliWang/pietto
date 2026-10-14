@@ -54,6 +54,14 @@ class SQLLiteral:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class SQLNull:
+    """One contextual typed NULL that never becomes a bound native value."""
+
+    original: Any
+    site: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class SQLParameter:
     original: Any
     site: Any
@@ -76,7 +84,7 @@ class SQLUnary:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class LiteralOrigin:
-    value: SQLAnchor | SQLUnary
+    value: SQLNull | SQLAnchor | SQLUnary
     export: Any
     terminal: Any
 
@@ -106,6 +114,14 @@ def original_chain(plan, reference):
 
 def tag_of(original):
     value_type = original.value_type
+    if (
+        type(original) is row.ProjectSQLLiteral
+        and original.expression.value is None
+        and value_type.kind is ValueTypeKind.KNOWN
+        and value_type.resolved_type.kind is TypeKind.BUILTIN
+        and value_type.nullability is EffectiveNullability.NULLABLE
+    ):
+        return value_type.resolved_type.name
     if (
         value_type.kind is not ValueTypeKind.KNOWN
         or value_type.resolved_type.kind is not TypeKind.BUILTIN
@@ -148,6 +164,10 @@ def chain_problem(plan, reference, family):
     tag = tag_of(leaf)
     if tag is None or (signs and tag not in {"Int", "Float"}):
         return "PIE-B1003", "literal_type_or_sign_context_not_supported"
+    if typed_null(leaf):
+        if signs:
+            return "PIE-B1003", "typed_null_sign_not_admitted"
+        return None
     value = leaf.expression.value
     if not value_valid(tag, value, family):
         return "PIE-B1002", "literal_leaf_representation"
@@ -158,6 +178,15 @@ def chain_problem(plan, reference, family):
         if not value_valid(tag, value, family):
             return "PIE-B1002", "unary_result_representation"
     return None
+
+
+def typed_null(original):
+    """Recognize only the plan-retained contextual NULL image."""
+    return (
+        type(original) is row.ProjectSQLLiteral
+        and original.expression.value is None
+        and tag_of(original) is not None
+    )
 
 
 def allocate_uses(family, occurrences, limit):
@@ -205,6 +234,9 @@ def build_value(plan, reference, family, uses):
     (site,) = tuple(
         s for s in plan.literal_sites if s.position.expression is original.ref
     )
+    if typed_null(original):
+        assert not signs
+        return SQLNull(original, site)
     if type(original) is row.ProjectSQLBoundLiteral:
         (fixed,) = tuple(
             value
@@ -223,6 +255,8 @@ def build_value(plan, reference, family, uses):
 
 
 def value_nodes(value):
+    if type(value) is SQLNull:
+        return (value,)
     result = []
     seen = set()
     while type(value) is SQLUnary:
@@ -255,6 +289,8 @@ def result_value(value):
 
 
 def literal_token(leaf, family):
+    if type(leaf) is SQLNull:
+        return "NULL"
     value = leaf.value
     tag = tag_of(leaf.original)
     if tag == "Bool":
@@ -283,6 +319,12 @@ def anchor_suffix(physical):
 
 
 def representation(value, family):
+    if type(value) is SQLNull:
+        return {
+            "storage": {"kind": "typed_null"},
+            "nullable": True,
+            "domain": {"kind": "typed_null"},
+        }
     tag = tag_of(value.original)
     assert tag is not None
     return literal_representation(tag, result_value(value), family)
@@ -312,6 +354,8 @@ def literal_representation(tag, result, family):
 
 
 def wire_value(tag, value):
+    if value is None:
+        return None
     if tag == "Int":
         return str(value)
     if tag == "Float":

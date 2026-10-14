@@ -569,10 +569,12 @@ class PostgresExecution:
             if self.request.route == "postgres_rows":
                 from pietto._project.project_postgres_source_assurance import (
                     qualify_sources,
+                    verify_temporal_uuid_catalog,
                 )
 
                 self._refresh_profile()
-                qualify_sources(self)
+                qualification = qualify_sources(self)
+                verify_temporal_uuid_catalog(qualification)
                 self._refresh_profile()
             if self.request.source_requirement is not None:
                 self.source_admission = admit_postgres_source(

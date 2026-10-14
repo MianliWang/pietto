@@ -900,8 +900,71 @@ class _Check:
             _require(
                 op["operator"] in schema.OPERATORS[op["kind"]], "operation operator"
             )
-            arity = 1 if op["kind"] in ("sign", "null_test") else 2
-            _require(len(op["operands"]) == arity, "operation arity")
+            arity = {
+                "sign": 1,
+                "null_test": 1,
+                "not": 1,
+                "cast": 1,
+                "between": 3,
+                "conditional": 3,
+            }.get(op["kind"])
+            if arity is not None:
+                _require(len(op["operands"]) == arity, "operation arity")
+            elif op["kind"] == "membership":
+                _require(len(op["operands"]) >= 1, "operation arity")
+            elif op["kind"] == "scalar_call":
+                arities = {
+                    "lower": {1},
+                    "upper": {1},
+                    "trim": {1},
+                    "len": {1},
+                    "abs": {1},
+                    "sign": {1},
+                    "date_of": {1},
+                    "year": {1},
+                    "month": {1},
+                    "day": {1},
+                    "hour": {1},
+                    "minute": {1},
+                    "substr": {3},
+                    "replace": {3},
+                    "contains": {2},
+                    "starts_with": {2},
+                    "ends_with": {2},
+                    "nullif": {2},
+                }
+                count = len(op["operands"])
+                _require(
+                    count >= 2
+                    if op["operator"] == "coalesce"
+                    else count in arities.get(op["operator"], set()),
+                    "operation arity",
+                )
+            else:
+                _require(len(op["operands"]) == 2, "operation arity")
+        for ref in doc.all("aggregate_value_column"):
+            column = doc[ref]
+            expected = {
+                "count": "COUNT",
+                "count_distinct": "COUNT",
+                "min": "MIN",
+                "max": "MAX",
+                "avg": "AVG",
+            }.get(column["function"])
+            _require(
+                expected is not None and column["spelling"] == expected,
+                "aggregate spelling",
+            )
+            if column["function"] == "avg":
+                _require(
+                    column["argument"] is not None
+                    and not column["distinct"]
+                    and column["argument_cast"]
+                    == ("pg_catalog.float8" if family == "postgres" else "DOUBLE"),
+                    "aggregate argument cast",
+                )
+            else:
+                _require(column["argument_cast"] is None, "aggregate argument cast")
         for ref in doc.all("sql_unary"):
             _require(doc[ref]["operator"] in ("+", "-"), "unary operator")
         for ref in doc.all("sql_anchor"):
@@ -1394,6 +1457,7 @@ class _Tokens:
         unaries = self.index("sql_unary", "original")
         anchors = self.index("sql_anchor", "original")
         literals = self.index("sql_literal", "site")
+        nulls = self.index("sql_null", "site")
         parameters = self.index("sql_parameter", "site")
         aggregates = self.index("aggregate_value_column", "aggregate")
         windows = self.index("window_column", "window")
@@ -1461,14 +1525,20 @@ class _Tokens:
                     _require(role == tag and text == expected, "parameter token")
                 elif kind == "literal":
                     if role in schema.TAGS:
-                        leaf = self.one(literals, subject, "literal site")
-                        value = leaf["value"]
-                        _require(
-                            role == value.tag
-                            and text
-                            == schema.literal_token(value.tag, value.value, family),
-                            "literal token",
-                        )
+                        if subject in nulls:
+                            leaf = self.one(nulls, subject, "null literal site")
+                            _require(
+                                role == leaf["tag"] and text == "NULL", "literal token"
+                            )
+                        else:
+                            leaf = self.one(literals, subject, "literal site")
+                            value = leaf["value"]
+                            _require(
+                                role == value.tag
+                                and text
+                                == schema.literal_token(value.tag, value.value, family),
+                                "literal token",
+                            )
                     elif role == "limit_value":
                         limit = self.one(limits, subject, "limit value")
                         _require(text == str(limit["value"]), "limit value")
@@ -1542,7 +1612,196 @@ class _Tokens:
         specifications,
     ) -> None:
         doc = self.doc
-        if role in schema.SYNTAX:
+        node = operations.get(subject, [None])[0]
+        if role in {"not_open", "not_close"}:
+            _require(node is not None and node["kind"] == "not", "not subject")
+            _require(
+                text == {"not_open": "(NOT ", "not_close": ")"}[role], "not spelling"
+            )
+            return
+        if role.startswith("conditional_"):
+            _require(
+                node is not None and node["kind"] == "conditional",
+                "conditional subject",
+            )
+            _require(
+                text
+                == {
+                    "conditional_open": "(CASE WHEN ",
+                    "conditional_then": " THEN ",
+                    "conditional_else": " ELSE ",
+                    "conditional_close": " END)",
+                }[role],
+                "conditional spelling",
+            )
+            return
+        if role.startswith("membership_") and node is not None:
+            _require(node["kind"] == "membership", "membership subject")
+            expected = {
+                "membership_constant": "TRUE"
+                if node["operator"] == "not_in"
+                else "FALSE",
+                "membership_open": "(",
+                "membership_operator": " NOT IN ("
+                if node["operator"] == "not_in"
+                else " IN (",
+                "membership_separator": ", ",
+                "membership_close": "))",
+            }[role]
+            _require(text == expected, "membership spelling")
+            return
+        if role in {"cast_open", "cast_close"}:
+            _require(node is not None and node["kind"] == "cast", "cast subject")
+            _require(
+                text
+                == (
+                    "CAST("
+                    if role == "cast_open"
+                    else " AS pg_catalog.float8)"
+                    if self.family == "postgres"
+                    else " AS DOUBLE)"
+                ),
+                "cast spelling",
+            )
+            return
+        if role == "comparison_escape":
+            _require(
+                node is not None
+                and node["kind"] == "comparison"
+                and node["operator"] in {"like", "not like"}
+                and text == " ESCAPE '!'",
+                "comparison escape",
+            )
+            return
+        if role.startswith("scalar_call_"):
+            _require(
+                node is not None and node["kind"] == "scalar_call",
+                "scalar call subject",
+            )
+            assert node is not None
+            name = node["operator"]
+            simple = {
+                "postgres": {
+                    "lower": "lower",
+                    "upper": "upper",
+                    "trim": "trim",
+                    "replace": "replace",
+                    "abs": "abs",
+                    "nullif": "NULLIF",
+                    "coalesce": "COALESCE",
+                },
+                "mysql": {
+                    "lower": "LOWER",
+                    "upper": "UPPER",
+                    "trim": "TRIM",
+                    "replace": "REPLACE",
+                    "abs": "ABS",
+                    "nullif": "NULLIF",
+                    "coalesce": "COALESCE",
+                },
+            }[self.family]
+            if role == "scalar_call_open":
+                if name == "substr":
+                    expected = (
+                        "substring(" if self.family == "postgres" else "SUBSTRING("
+                    )
+                elif name == "len":
+                    expected = (
+                        "CAST(length("
+                        if self.family == "postgres"
+                        else "CAST(CHAR_LENGTH("
+                    )
+                elif name == "date_of":
+                    expected = "CAST(" if self.family == "postgres" else "DATE("
+                elif name == "contains":
+                    expected = "(strpos(" if self.family == "postgres" else "(INSTR("
+                elif name in {"starts_with", "ends_with"}:
+                    function = "left" if name == "starts_with" else "right"
+                    expected = (
+                        "("
+                        + (function if self.family == "postgres" else function.upper())
+                        + "("
+                    )
+                elif name in {"year", "month", "day", "hour", "minute"}:
+                    expected = (
+                        "CAST(EXTRACT(" + name.upper() + " FROM "
+                        if self.family == "postgres"
+                        else "CAST(" + name.upper() + "("
+                    )
+                elif name == "sign":
+                    expected = (
+                        "CAST("
+                        + ("sign" if self.family == "postgres" else "SIGN")
+                        + "("
+                    )
+                else:
+                    expected = simple.get(name, "") + "("
+                _require(bool(expected) and text == expected, "scalar call spelling")
+            elif role == "scalar_call_close":
+                if name in {"substr", "starts_with", "ends_with"} or name in simple:
+                    expected = ")"
+                elif name == "date_of":
+                    expected = " AS date)" if self.family == "postgres" else ")"
+                elif name == "contains":
+                    expected = ") > 0)"
+                else:
+                    expected = (
+                        ") AS pg_catalog.int8)"
+                        if self.family == "postgres"
+                        else ") AS SIGNED)"
+                    )
+                _require(text == expected, "scalar call spelling")
+            elif role == "scalar_call_separator":
+                _require(
+                    text
+                    in (
+                        {" FROM ", " FOR "}
+                        if self.family == "postgres" and name == "substr"
+                        else {", "}
+                    ),
+                    "scalar call separator",
+                )
+            elif role == "scalar_call_index_cast_open":
+                _require(
+                    name == "substr" and self.family == "postgres" and text == "CAST(",
+                    "scalar index cast",
+                )
+            elif role == "scalar_call_index_cast_close":
+                _require(
+                    name == "substr"
+                    and self.family == "postgres"
+                    and text == " AS pg_catalog.int4)",
+                    "scalar index cast",
+                )
+            elif role == "scalar_call_nested_open":
+                _require(
+                    name in {"starts_with", "ends_with"}
+                    and text
+                    == ("length(" if self.family == "postgres" else "CHAR_LENGTH("),
+                    "scalar nested spelling",
+                )
+            elif role == "scalar_call_nested_close":
+                _require(
+                    name in {"starts_with", "ends_with"} and text == ")",
+                    "scalar nested spelling",
+                )
+            else:
+                _require(
+                    name in {"starts_with", "ends_with"} and text == " ) = ",
+                    "scalar call operator",
+                )
+            return
+        if role == "aggregate_argument_cast_open":
+            column = self.one(aggregates, subject, "aggregate subject")
+            _require(
+                column["function"] == "avg"
+                and column["argument_cast"]
+                == ("pg_catalog.float8" if self.family == "postgres" else "DOUBLE")
+                and text == schema.SYNTAX[role],
+                "aggregate argument cast",
+            )
+            return
+        elif role in schema.SYNTAX:
             _require(text == schema.SYNTAX[role], "syntax spelling")
             return
         if role in (
@@ -1572,6 +1831,15 @@ class _Tokens:
         elif role == "aggregate_open":
             column = self.one(aggregates, subject, "aggregate subject")
             _require(text == column["spelling"] + "(", "aggregate spelling")
+        elif role == "aggregate_argument_cast_close":
+            column = self.one(aggregates, subject, "aggregate subject")
+            _require(
+                column["function"] == "avg"
+                and column["argument_cast"]
+                == ("pg_catalog.float8" if self.family == "postgres" else "DOUBLE")
+                and text == " AS " + column["argument_cast"] + ")",
+                "aggregate argument cast",
+            )
         elif role == "window_open":
             column = self.one(windows, subject, "window subject")
             _require(
@@ -1749,6 +2017,8 @@ class _Requirements:
         doc = self.doc
         if value.kind in ("sql_stage_reference", "sql_operation"):
             return doc[doc[value]["realization"]]["tag"]
+        if value.kind == "sql_null":
+            return doc[value]["tag"]
         while value.kind == "sql_unary":
             value = doc[value]["operand"]
         return doc[value]["tag"]
@@ -1775,6 +2045,14 @@ class _Requirements:
     def constant(self, value: Ref) -> None:
         doc = self.doc
         tag = self.tag(value)
+        if value.kind == "sql_null":
+            self.add(
+                "literal",
+                doc[value]["original"],
+                "R04",
+                self.node_premises(tag, (), "literal"),
+            )
+            return
         chain = []
         while value.kind == "sql_unary":
             chain.append(value)
@@ -1812,10 +2090,13 @@ class _Requirements:
         self.add(
             kind,
             fields["original"],
-            "R06" if kind == "logical" else "R05",
+            "R06" if kind in {"logical", "not"} else "R05",
             self.node_premises(self.tag(value), operands, kind),
         )
-        for operand in fields["operands"]:
+        operands = fields["operands"]
+        if fields["kind"] == "conditional":
+            operands = (operands[1], operands[0], operands[2])
+        for operand in operands:
             self.value(operand)
 
     def run(self) -> None:

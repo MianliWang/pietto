@@ -44,7 +44,7 @@ def test_text_transform_function_returns_text(function_name: str) -> None:
     assert value_type.kind is ValueTypeKind.KNOWN
     assert value_type.resolved_type.kind is TypeKind.BUILTIN
     assert value_type.resolved_type.name == "Text"
-    assert value_type.nullability is EffectiveNullability.UNKNOWN
+    assert value_type.nullability is EffectiveNullability.NULLABLE
 
 
 def test_nested_lower_trim_returns_text_and_records_inner_call() -> None:
@@ -214,6 +214,48 @@ def test_function_typing_does_not_mutate_input_ast() -> None:
     analyze(script)
 
     assert script == original
+
+
+def test_q1_closed_builtin_catalog_has_typed_nullable_results() -> None:
+    result = analyze(
+        _parse(
+            "shape User:\n"
+            "    name: Text nullable\n"
+            "    amount: Decimal nullable\n"
+            "    count: Int nullable\n"
+            "    happened_at: Timestamp nullable\n"
+            'source users: User is postgres.table("users")\n'
+            "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            '        normalized = replace(upper(name), "A", "a")\n'
+            "        fragment = substr(name, 1, 2)\n"
+            '        present = contains(name, "a")\n'
+            "        magnitude = abs(amount)\n"
+            "        direction = sign(count)\n"
+            "        day_number = day(happened_at)\n"
+            "        civil_date = date_of(happened_at)\n"
+        )
+    )
+    table = _table(result)
+    types = tuple(
+        result.model.expression_value_types[item.expression]
+        for item in table.select_items
+    )
+
+    assert result.diagnostics == ()
+    assert tuple(value_type.resolved_type.name for value_type in types) == (
+        "Text",
+        "Text",
+        "Bool",
+        "Decimal",
+        "Int",
+        "Int",
+        "Date",
+    )
+    assert all(
+        value_type.nullability is EffectiveNullability.NULLABLE for value_type in types
+    )
 
 
 def test_function_semantic_results_do_not_expose_antlr_nodes() -> None:

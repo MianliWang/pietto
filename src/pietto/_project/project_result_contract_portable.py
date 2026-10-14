@@ -122,6 +122,32 @@ class _Projection:
                 operand=self.expression(value.operand, depth + 1),
                 location=span,
             )
+        if type(value) is ast.ConditionalExpr:
+            return self.obj(
+                tag="conditional",
+                when_true=self.expression(value.when_true, depth + 1),
+                condition=self.expression(value.condition, depth + 1),
+                when_false=self.expression(value.when_false, depth + 1),
+                location=span,
+            )
+        if type(value) is ast.MembershipExpr:
+            return self.obj(
+                tag="membership",
+                value=self.expression(value.value, depth + 1),
+                options=[
+                    self.expression(option, depth + 1)
+                    for option in self.sequence(value.options)
+                ],
+                negated=value.negated,
+                location=span,
+            )
+        if type(value) is ast.CastExpr:
+            return self.obj(
+                tag="cast",
+                value=self.expression(value.value, depth + 1),
+                target=self.declared(value.target),
+                location=span,
+            )
         if type(value) in (ast.BinaryExpr, ast.ComparisonExpr):
             return self.obj(
                 tag="binary" if type(value) is ast.BinaryExpr else "comparison",

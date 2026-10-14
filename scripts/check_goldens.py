@@ -171,17 +171,17 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
 
 REFERENCE_TESTS = (
     Path("tests/test_cli_golden_outputs.py"),
-    Path("tests/test_phase10_mysql_cli_enablement.py"),
-    Path("tests/test_phase10_mysql_golden_corpus.py"),
-    Path("tests/test_phase12_composition_cli_json_goldens.py"),
-    Path("tests/test_phase19_count_sql.py"),
-    Path("tests/test_phase20_sum_avg_sql.py"),
-    Path("tests/test_phase21_group_by_sql_lowering.py"),
-    Path("tests/test_phase22_min_max_sql.py"),
-    Path("tests/test_phase23_count_field_sql.py"),
-    Path("tests/test_phase24_count_distinct_sql.py"),
-    Path("tests/test_phase24_decimal_aggregate_sql.py"),
-    Path("tests/test_phase58_slice8_project_explain_json_v1.py"),
+    Path("tests/test_cli_mysql_cli_enablement.py"),
+    Path("tests/test_sql_mysql_golden_corpus.py"),
+    Path("tests/test_cli_composition_cli_json_goldens.py"),
+    Path("tests/test_sql_count_sql.py"),
+    Path("tests/test_sql_sum_avg_sql.py"),
+    Path("tests/test_sql_group_by_sql_lowering.py"),
+    Path("tests/test_sql_min_max_sql.py"),
+    Path("tests/test_sql_count_field_sql.py"),
+    Path("tests/test_sql_count_distinct_sql.py"),
+    Path("tests/test_sql_decimal_aggregate_sql.py"),
+    Path("tests/test_project_explain_json.py"),
 )
 
 

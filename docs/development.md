@@ -117,7 +117,7 @@ Verification budget: within one top-level call each memoized structural
 verifier runs at most once for the same exact arguments, and every new call
 verifies again (call-scoped verification, see the
 [interlude record](spec/post-phase68-performance-interlude-v1.md)). The
-principal `tests/test_post_phase68_performance_verification_scope.py` counts
+principal `tests/test_project_verification_scope.py` counts
 complete runs with `sys.monitoring` and prints up to three call paths for each
 over-budget object. Every scope entry must run inside one of its routes (an entry
 only an execution owner's attempt reaches is listed with that reason), so a new
@@ -143,6 +143,13 @@ it. Under these premises hosted CI currently runs no part of a Gate 2
 validation and keeps its Gate 3 role as natural exact-head CI. Where this
 document calls validation work or its reports local, it means the integration
 host.
+
+VR1 preparation may export a dirty candidate tree from an exact temporary
+index, reconstruct it independently over a baseline checkout, bind static
+gate and coverage evidence to both identities, and evaluate an environment
+assertion. Its terminals remain explicitly non-qualified. The bounded
+comparison run is development evidence only; E* qualification and the first
+authoritative split remain separate decisions.
 
 ## Phase-end acquisition consolidation
 
@@ -344,6 +351,12 @@ denominator is 63 cases and 195 public documents per target (189 API-generated a
 console documents). Its partitioned-root witness also executes a wide `lag` default, so each
 target's own window value width is checked by the full manifest.
 
+The current post-Phase69 receipt reader reserves 34 MiB (35,651,584 bytes).
+The expanded successful scalar/temporal corpus measured 34,646,977 bytes for
+PostgreSQL and 34,659,873 bytes for MySQL; the bounded reserve covers those
+complete receipts. The historical Slice15/Slice16 sizes above remain their
+original measurements.
+
 
 The post-publication residual supplement keeps that denominator and receipt format. Its
 `A_window_frame/range` witness retains both original outputs and adds one literal-carrier
@@ -460,7 +473,7 @@ path 与 summed runner time，不从一次 hosted run 推出版本因果或稳�
 CI 的 setup-python 对每个逻辑 family 使用确切 patch（3.12.14 / 3.13.15），因为 coverage/report
 上下文按完整 `python_version` 严格相等核对：PR #81 的 3.12 collection 记录 3.12.14，而同 family
 的聚合消费者被浮动 `"3.12"` 解析为 3.12.15，因此被拒绝。升级 patch 时同一 family 的全部
-producer/consumer/target 站点一起改（`tests/test_phase11_ci_workflow.py` 守护）；不放宽相等性，
+producer/consumer/target 站点一起改（`tests/test_ci_workflow.py` 守护）；不放宽相等性，
 不回到 minor 浮动选择；`--python` 逻辑标签与 artifact 名称不变。
 
 CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest reports 输出有界的慢节点、
@@ -484,7 +497,7 @@ health通过required报告与GitHub Job Summary进入正常CI；最终aggregate�
 和bounded main history，artifact字节按ID/size/digest/context验证。只有此job有actions:read，无写权限。
 health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不自动调参、改配置、retry或省略测试。
 
-两compiler/package jobs各在独立环境跑真实PyArrow25.0.1 probe，completion要求完整readiness；core安装与CLI
+两compiler/package jobs各在独立环境跑真实PyArrow26.0.0 probe，completion要求完整readiness；core安装与CLI
 仍无Arrow。开发机统一外部launcher固定既有project解释器，隔离实验明确指定现有解释器，禁止环境重建。
 本次Gate2仅一次3.13完整equivalent：static、独立U、四分区串行、全部对账/health、auxiliary和精确输入匹配的
 两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](phases/phase-67/brief.md)、
@@ -516,7 +529,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 
 ## Slice05 Text result检查
 
-[Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
+[Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证（已封存的Slice05测量）；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
 
 ## Slice06 Decimal result checks
 
@@ -549,14 +562,14 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice13 optional Arrow extra 与安装隔离
 
 [Slice13](phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
-`pyarrow==25.0.1`，默认 locked setup 与既有core `.venv` 保持Arrow-free。
+`pyarrow==26.0.0`，默认 locked setup 与既有core `.venv` 保持Arrow-free。
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建或消费同一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
 拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow]` 安装。hash-pinned
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
 绕过selector。独立SDK9、product102/100及原22份neutral全文仍走既有required reports。
 
-实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow25.0.1；不是环境marker或其他平台
+当前实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow26.0.0；不是环境marker或其他平台
 支持承诺。安装日志记录exact wheel SHA、distribution metadata与resolved site-packages
 origins；raw/native闭合分别证明CI产物与既有native设施，不宣称数据库执行安装测试。
 

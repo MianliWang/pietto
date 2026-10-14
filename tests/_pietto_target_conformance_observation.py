@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
 import json
 import math
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from _pietto_target_conformance_resources import (
     QUERY_SECONDS,
@@ -36,6 +38,10 @@ def scalar(value: object) -> dict[str, Any]:
         return {"kind": "text", "value": value}
     if type(value) is bytes:
         return {"kind": "bytes", "value": value.hex()}
+    if type(value) is datetime:
+        return {"kind": "datetime", "value": value.isoformat()}
+    if type(value) is UUID:
+        return {"kind": "uuid", "value": value.hex}
     if type(value) is float and math.isfinite(value):
         return {"kind": "float", "value": value.hex()}
     if type(value) is Decimal and value.is_finite():

@@ -41,9 +41,7 @@ from pietto._project.project_query_block_ir_inspection import (
 from pietto._project.project_query_block_ir_pure_boundary import (
     evaluate_project_query_block_ir_document,
 )
-from test_phase63_slice13_completed_project_semantic_result_public_check_boundaries import (
-    POSITIVE_SOURCE,
-)
+from _pietto_project_completion import POSITIVE_SOURCE
 
 
 BASE = """shape Row:

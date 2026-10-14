@@ -8,7 +8,7 @@ import pytest
 
 import _pietto_execution_api as api
 import _pietto_jobs_public_cases as public_cases
-import _pietto_phase68_slice11_probe as workspace_probe
+import _pietto_execution_jobs_probe as workspace_probe
 import pietto.execution as execution
 from pietto._project import project_job_store as store
 from pietto._project import project_job_workspace as private_workspace

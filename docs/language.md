@@ -119,11 +119,9 @@ table active_users:
 ```
 
 Single-file checks require a selected `let` binding to take a new output name,
-as `normalized_email = normalized` does. Single-file `emit-sql` produces SQL
-for this table. Project SQL emission does not admit builtin calls such as
-`lower` and `trim` yet, so in an explicit-module project the table checks but
-`emit-sql --project` reports
-`PIE-B1003 UNSUPPORTED_RULE: call_authority_unavailable`.
+as `normalized_email = normalized` does. Selected project SQL admits the
+documented project scalar subset when its physical carrier requirements are
+established.
 
 `from` names the base relation. Authored relationship traversal may then add
 `inner join` or `left join` clauses with mandatory target bindings:
@@ -320,17 +318,64 @@ operands such as fields, calls and `let` values are not yet checked against
 those types either. Operands typed `Any`, `Bytes`, `Json`, an enum, or a shape
 are not checked.
 
-Current scalar builtins have one explicit signature each:
+The closed scalar surface has explicit signatures; it has no overload search:
 
 ```text
 lower(Text) -> Text
+upper(Text) -> Text
 trim(Text) -> Text
 len(Text) -> Int
 matches(Text, Text) -> Bool
+substr(Text, Int, Int) -> Text
+replace(Text, Text, Text) -> Text
+contains(Text, Text) -> Bool
+starts_with(Text, Text) -> Bool
+ends_with(Text, Text) -> Bool
+coalesce(T, T, ...) -> T
+nullif(T, T) -> T
+abs(Decimal) -> Decimal
+sign(Int | Decimal) -> Int
+year(Date | Timestamp) -> Int
+month(Date | Timestamp) -> Int
+day(Date | Timestamp) -> Int
+hour(Timestamp) -> Int
+minute(Timestamp) -> Int
+date_of(Timestamp) -> Date
 ```
 
-There is no arbitrary Python evaluation, implicit overload search, user code
-execution, or general cast language.
+`coalesce` requires at least two same-canonical-type arguments. `nullif`
+requires exactly two. `substr` is one-based and requires a statically admitted
+positive start and nonnegative count. PostgreSQL additionally requires each
+static `substr` index to fit its signed `int32` argument range. `cast(value as
+Float)` is the only scalar cast: it accepts `Int` and may lose binary64
+precision. `in`/`not in`, `not`,
+conditional expressions, `like`/`not like` with `ESCAPE '!'`, and `between`
+retain their ordinary SQL NULL behavior. `matches` remains outside the selected
+project SQL scalar subset.
+
+Selected project SQL admits this closed Q1 surface only when every operand has
+an established carrier. A conditional emits `CASE WHEN condition THEN
+when_true ELSE when_false END`: NULL conditions take the else branch, and the
+two value branches require the same canonical type and physical realization.
+For `--literal-policy bind-safe`, its parameter uses follow that rendered order
+(condition, true branch, false branch), not source-tree operand storage order;
+the SQL bytes must be consumed with the artifact's `fixed_values` and
+`parameter_uses`. A computed relation `order by` uses an established selected
+expression from the current result scope, retains its authored direction and
+the target's NULL/collation behavior, and rejects hidden-input reuse or an
+arbitrary alias fallback.
+
+Selected project SQL carries `year`, `month`, `day`, `hour`, and `minute` from
+an exactly qualified `Timestamp` source: timezone-free proleptic Gregorian
+microseconds over the stated civil interval and PostgreSQL
+`timestamp without time zone(6)` or MySQL `DATETIME(6)`. Their results are
+physical signed integers with ranges `1000..9999`, `1..12`, `1..31`, `0..23`,
+and `0..59`, respectively. `date_of` admits that exact Timestamp carrier and
+preserves NULL as a derived Gregorian Date in `1000-01-01..9999-12-31`, emitted
+as PostgreSQL `DATE` or MySQL `DATE`; `year`, `month`, and `day` also accept
+that derived Date. Date has no independent selected-project source, literal,
+parsing, arithmetic, or timezone surface. There is no arbitrary Python
+evaluation, user code execution, or general cast language.
 
 ## Aggregates and grouping
 
@@ -341,8 +386,16 @@ count count_distinct sum avg min max
 ```
 
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
-field values. `sum` and `avg` accept their bounded numeric field/expression
-subset. `min` and `max` retain their bounded direct-field surface.
+field values. The selected project numeric boundary admits Int unary `+`/`-`
+and binary `+`, `-`, `*` only when the compiler can propagate a signed range
+that fits the selected physical carrier. It also admits `avg(Int)` for a direct
+Int input with `int_range` evidence, casting that input to the target Float
+carrier before aggregation. Empty and all-NULL inputs remain NULL. `sum(Int)`
+is rejected until an aggregate-range proof exists; Decimal `sum`/`avg` require
+an exact aggregate range/scale and division proof, and Float `sum`/`avg`
+require a finite-result proof. A source range, free JSON declaration, renderer
+spelling, or database default rounding rule is not such proof. `min` and `max`
+retain their bounded direct-field surface.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
@@ -533,8 +586,21 @@ The shared type-argument rule accepts `Decimal(p, s)` with integer literals `1 <
 
 Current PostgreSQL/MySQL producer admission additionally requires matching retained/storage/domain parameters and `s <= min(p, 30)`. Language acceptance alone is not producer success. The private result adapter uses Decimal128 for p<=38 and Decimal256 for p=39..65; it does not infer parameters or widen the language domain from Arrow capacity.
 
-## Private finite Timestamp and UUID meaning (Phase67 Slice07)
+## Timestamp and UUID source meaning
 
-Builtin names alone still do not supply temporal/UUID meaning to public emission. An explicitly selected private path binds the approved closed meaning to exact verified source/type occurrences and retains it in the result contract. It supports field-only scan/projection; this is not new language syntax, a public CLI flag, arithmetic policy or database execution.
+Builtin names alone do not supply temporal/UUID meaning to project SQL. The
+compiler derives the approved closed meaning only for exact verified
+source/type occurrences and retains it through the result contract; source
+declarations and Arrow metadata cannot manufacture the upstream evidence.
 
-Civil Timestamp values are timezone-free proleptic Gregorian microseconds in the inclusive interval `1000-01-01 00:00:00.000000` through `9999-12-31 23:59:59.499999`; the last fractional bound applies only at that final endpoint. UUID values preserve all 128 bits in standard big-endian order, with no version restriction. The private owned batch maps these to timestamp(us), canonical Arrow UUID or explicitly selected binary16. Source declarations/Arrow metadata cannot manufacture the upstream evidence.
+Civil Timestamp values are timezone-free proleptic Gregorian microseconds in
+the inclusive interval `1000-01-01 00:00:00.000000` through
+`9999-12-31 23:59:59.499999`; the last fractional bound applies only at that
+final endpoint. UUID values preserve all 128 bits in standard big-endian order,
+with no version restriction. The selected source mapping is PostgreSQL
+`timestamp without time zone(6)`/`uuid` and MySQL `DATETIME(6)`/`BINARY(16)`.
+Qualified project SQL admits carrying and projecting these values, `==`/`!=`,
+`count`, `count_distinct`, `DISTINCT`, `GROUP BY`, and direct inner/left/right
+equality joins. Ordering and inequality comparison, `min`/`max`, full joins,
+windows, range/as-of behavior, timezone conversion, parsing, and other casts
+remain unavailable.

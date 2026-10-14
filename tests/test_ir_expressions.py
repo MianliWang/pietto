@@ -20,7 +20,9 @@ from pietto.errors import Severity
 from pietto.ir import (
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     ExpressionIR,
     ExpressionLoweringResult,
@@ -28,6 +30,7 @@ from pietto.ir import (
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     NullabilityIR,
     SymbolId,
     SymbolNamespace,
@@ -249,6 +252,91 @@ def test_scalar_expression_forms_lower_with_semantic_types() -> None:
     assert lowered[1].value_type.canonical_name == "Int"
     assert lowered[2] is not None
     assert lowered[2].value_type.canonical_name == "Bool"
+
+
+def test_q1_expression_nodes_lower_with_ordered_operands_and_type_refs() -> None:
+    script, model = _analyzed(
+        "shape User:\n"
+        "    count: Int not null\n"
+        "    name: Text nullable\n"
+        'source users: User is postgres.table("public.users")\n'
+        "table projected:\n"
+        "    from users\n"
+        "    where count not in (1, 2)\n"
+        "    select:\n"
+        '        label = "yes" if name is not null else "no"\n'
+        "        converted = cast(count as Float)\n"
+    )
+    table = _table(script)
+    fields, owner = _input_fields(model, table)
+    assert table.where_clause is not None
+    membership = lower_expr(
+        table.where_clause.expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+    ).expression
+    conditional = lower_expr(
+        table.select_items[0].expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+    ).expression
+    cast = lower_expr(
+        table.select_items[1].expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+    ).expression
+
+    assert isinstance(membership, MembershipIR)
+    assert membership.negated is True
+    assert len(membership.options) == 2
+    assert isinstance(conditional, ConditionalIR)
+    assert isinstance(conditional.when_true, LiteralIR)
+    assert isinstance(conditional.condition, IsNullIR)
+    assert isinstance(conditional.when_false, LiteralIR)
+    assert isinstance(cast, CastIR)
+    assert cast.value_type.canonical_name == "Float"
+    assert cast.target.canonical_name == "Float"
+
+
+def test_q1_contextual_null_literals_lower_with_their_local_type_facts() -> None:
+    script, model = _analyzed(
+        "shape User:\n"
+        "    count: Int not null\n"
+        'source users: User is postgres.table("public.users")\n'
+        "table projected:\n"
+        "    from users\n"
+        "    where count not in (1, null)\n"
+        "    select:\n"
+        "        filled = coalesce(null, count)\n"
+    )
+    table = _table(script)
+    fields, owner = _input_fields(model, table)
+    assert table.where_clause is not None
+    membership = lower_expr(
+        table.where_clause.expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+    ).expression
+    filled = lower_expr(
+        table.select_items[0].expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+    ).expression
+
+    assert isinstance(membership, MembershipIR)
+    assert isinstance(membership.options[1], LiteralIR)
+    assert membership.options[1].value is None
+    assert membership.options[1].value_type.canonical_name == "Int"
+    assert membership.options[1].value_type.nullability is NullabilityIR.NULLABLE
+    assert isinstance(filled, CallIR)
+    assert isinstance(filled.arguments[0], LiteralIR)
+    assert filled.arguments[0].value is None
+    assert filled.arguments[0].value_type.canonical_name == "Int"
 
 
 def test_unknown_expression_value_type_lowers_without_crashing() -> None:

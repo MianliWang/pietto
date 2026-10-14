@@ -26,7 +26,7 @@ def load(name, path):
 
 
 s01 = load("p68_s01", ROOT / "scripts/phase68_executor_premise.py")
-store = load("p68_store", ROOT / "tests/_pietto_phase68_recovery_store.py")
+store = load("p68_store", ROOT / "tests/_pietto_execution_recovery_store.py")
 
 
 def binding(job="lab", token="local"):
@@ -712,7 +712,7 @@ def main():
         report["metadata"] = metadata(args.directory / "metadata")
         if (
             report["metadata"]["runtime"]["versions"]
-            != s01.helper("_pietto_phase68_executor_cases").PINS
+            != s01.helper("_pietto_execution_cases").PINS
         ):
             raise ValueError("experiment dependency identity mismatch")
         if args.action == "run":

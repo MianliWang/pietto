@@ -237,10 +237,14 @@ def emit_compiled(root, values):
             return rows.SQLStageReference(
                 original, binding.input_port.ref, column, fact.realization, scope=symbol
             )
-        if address.kind == "literal":
+        if address.kind in ("literal", "null_literal"):
             site = next(
                 s for s in plan.literal_sites if s.position.expression is original.ref
             )
+            if address.kind == "null_literal":
+                if address in native_by_literal:
+                    raise CompiledError("COMPILED_NULL_NATIVE_USE")
+                return parameters.SQLNull(original, site)
             if address in native_by_literal:
                 position = seen_uses.get(address, 0)
                 uses = native_by_literal[address]
@@ -271,10 +275,19 @@ def emit_compiled(root, values):
             return parameters.SQLUnary(original, operands[0])
         kind = {
             "unary": "sign",
+            "not": "not",
             "comparison": "comparison",
             "null_test": "null_test",
+            "between": "between",
+            "scalar_call": "scalar_call",
+            "conditional": "conditional",
+            "membership": "membership",
+            "cast": "cast",
         }.get(role, "logical" if token in ("and", "or") else "arithmetic")
-        return rows.SQLOperation(original, kind, operands, fact.realization)
+        identity = plan.expression_identities.get(address)
+        if identity is None:
+            raise CompiledError("COMPILED_EXPRESSION_IDENTITY")
+        return rows.SQLOperation(identity, kind, operands, fact.realization)
 
     def read_column(address, use, producer, alias):
         value = scalar(address, use, producer, alias)

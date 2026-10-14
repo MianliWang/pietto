@@ -449,6 +449,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#qualifyConditionalExpression.
+    def visitQualifyConditionalExpression(self, ctx:PiettoParser.QualifyConditionalExpressionContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#qualifyOrExpression.
     def visitQualifyOrExpression(self, ctx:PiettoParser.QualifyOrExpressionContext):
         return self.visitChildren(ctx)
@@ -456,6 +461,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#qualifyAndExpression.
     def visitQualifyAndExpression(self, ctx:PiettoParser.QualifyAndExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyNotExpression.
+    def visitQualifyNotExpression(self, ctx:PiettoParser.QualifyNotExpressionContext):
         return self.visitChildren(ctx)
 
 
@@ -519,6 +529,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#conditionalExpression.
+    def visitConditionalExpression(self, ctx:PiettoParser.ConditionalExpressionContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#orExpression.
     def visitOrExpression(self, ctx:PiettoParser.OrExpressionContext):
         return self.visitChildren(ctx)
@@ -526,6 +541,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#andExpression.
     def visitAndExpression(self, ctx:PiettoParser.AndExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#notExpression.
+    def visitNotExpression(self, ctx:PiettoParser.NotExpressionContext):
         return self.visitChildren(ctx)
 
 
