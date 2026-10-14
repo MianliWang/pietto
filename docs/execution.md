@@ -751,8 +751,11 @@ The values:
 A query can declare named parameters in its header, for example
 `query since(low: Int not null, note: Text nullable):`, and read them in `let`,
 `where`, JOIN `on`, the items of an ungrouped `select`, `satisfying`, `qualify`
-and ORDER BY keys, and in a grouped query through a computed `let` group key or
-a `count`, `avg`, `min` or `max` of one `let` (see [Language](language.md)). Pietto sends each parameter to the server as a
+and ORDER BY keys, in a grouped query through a computed `let` group key or a
+`count`, `avg`, `min` or `max` of one `let`, and as a window argument: an
+`Int` or `Float` value, an `Int` `lag`/`lead` default, offset, `ntile` bucket
+count or `nth_value` position (see [Language](language.md); a `Text` or `Bool`
+window value or another default is blocked with `PIE-B1003`). Pietto sends each parameter to the server as a
 parameter of the prepared statement, under either literal policy, so the SQL
 text is the same for every binding: PostgreSQL reuses one `$n` per parameter,
 MySQL sends one `?` per read. `compile_query` gives the `pietto.sql-emission.v2`
@@ -774,11 +777,12 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   `PIE-R1006` and `detail` `BINDING_PARAMETER:<ordinal>:<tag>`, where
   `<ordinal>` is the 0-based declaration position; neither shows the value.
 - A value-dependent check that the template could not decide, listed as the
-  artifact's `binding_obligations` (an `Int` result range or a `Text` result
-  width), is checked for each binding. A value it does not accept, such as
-  `low = 2**63 - 1` under `low + 1`, is `PIE-R1004` with `detail`
-  `BINDING_INVALID`. Every binding derives the query again and checks that its
-  SQL text is the template's.
+  artifact's `binding_obligations` (an `Int` result range, a `Text` result
+  width or a window count interval), is checked for each binding. A value it
+  does not accept, such as `low = 2**63 - 1` under `low + 1`, or a window
+  offset outside 0 to 2147483647 or a bucket count or position outside 1 to
+  2147483647, is `PIE-R1004` with `detail` `BINDING_INVALID`. Every binding
+  derives the query again and checks that its SQL text is the template's.
 - `values` and `parameters` are independent: a `bind-safe` query takes both.
 - Only `postgres_rows` runs a query that declares parameters, and only it
   accepts a `parameters` argument; `postgres_adbc` and `mysql_rows` refuse

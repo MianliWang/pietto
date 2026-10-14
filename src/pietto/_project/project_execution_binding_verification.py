@@ -586,10 +586,44 @@ def _text_width_discharged(image, family, named):
     )
 
 
+def _count_interval_discharged(image, family, named):
+    """A bound window count is one exact value inside its target interval.
+
+    ``image`` is the re-derived window argument: its role and target select
+    the interval, and the caller's value must be the leaf's exact domain."""
+    from pietto._project import project_sql_emission_windows as windowing
+
+    if type(image) is not windowing.WindowArgument or image.parameter is None:
+        return False
+    leaf = image.parameter
+    interval = windowing.STRUCTURAL_COUNT_INTERVAL.get((family, image.role))
+    parameter = getattr(leaf.use, "parameter", None)
+    ordinal = getattr(parameter, "ordinal", None)
+    if (
+        interval is None
+        or type(ordinal) is not int
+        or type(named) is not tuple
+        or not 0 <= ordinal < len(named)
+    ):
+        return False
+    value, realization = named[ordinal], leaf.realization
+    return (
+        type(value) is int
+        and interval[0] <= value <= interval[1]
+        and realization.tag == "Int"
+        and not realization.binding
+        and realization.nullable is False
+        and realization.storage == {"kind": windowing.STRUCTURAL_COUNT_STORAGE[family]}
+        and rows.int_bounds(realization) == (value, value)
+        and realization.proven_int_range == (value, value)
+    )
+
+
 # Closed: a template obligation whose kind has no check here never binds.
 BINDING_CHECKS = {
     rows.INT_RANGE_OBLIGATION: _int_range_discharged,
     rows.TEXT_WIDTH_OBLIGATION: _text_width_discharged,
+    "structural_count_interval": _count_interval_discharged,
 }
 
 
@@ -600,19 +634,37 @@ def _discharged(template, artifact, named):
         row_value_roots,
     )
 
+    from pietto._project.project_sql_emission_windows import WindowArgument
+
     def nodes(source):
+        # A window argument stands for its own placeholder leaf: the count
+        # check needs its role, so a count obligation images the argument.
         return tuple(
             node
             for value in row_value_roots(source.ast)
-            for node in rows.rendered_value_nodes(value)
+            for node in (
+                (value,)
+                if type(value) is WindowArgument
+                else rows.rendered_value_nodes(value)
+            )
         )
 
     before, after = nodes(template.artifact), nodes(artifact)
     if len(before) != len(after) or any(
-        type(a) is not type(b) for a, b in zip(before, after, strict=True)
+        type(a) is not type(b)
+        or (
+            type(a) is WindowArgument
+            and (a.role != b.role or (a.parameter is None) != (b.parameter is None))
+        )
+        for a, b in zip(before, after, strict=True)
     ):
         raise BindingError("BINDING_OBLIGATIONS")
     images = {id(a): b for a, b in zip(before, after, strict=True)}
+    images.update(
+        (id(a.parameter), b)
+        for a, b in zip(before, after, strict=True)
+        if type(a) is WindowArgument and a.parameter is not None
+    )
     family = artifact.request.family
     for node in row_binding_obligations(template.artifact.ast):
         kind = node.realization.obligation

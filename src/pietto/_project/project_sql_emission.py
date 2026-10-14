@@ -842,8 +842,12 @@ def _document(outcome, artifact, request, columns, source_map, slots):
             else:
                 evidence = [{"operator": expression.expression.operator}]
         elif item.kind == "query_parameter":
-            expression = request.plan.expressions[item.subject.position]
-            evidence = [{"parameter": expression.parameter.ordinal}]
+            owners = (
+                request.plan.window_arguments
+                if item.subject.kind.value == "window_argument"
+                else request.plan.expressions
+            )
+            evidence = [{"parameter": owners[item.subject.position].parameter.ordinal}]
         elif item.kind in {
             "distinct_quotient",
             "relation_ordering",
@@ -980,6 +984,9 @@ def _document(outcome, artifact, request, columns, source_map, slots):
     for expression in request.plan.expressions:
         if type(expression) is row.ProjectSQLParameterRead:
             reads.setdefault(expression.parameter.ordinal, []).append(expression)
+    for argument in request.plan.window_arguments:
+        if argument.parameter is not None:
+            reads.setdefault(argument.parameter.ordinal, []).append(argument)
     document["parameters"] = [
         {
             "parameter": parameter.ordinal,

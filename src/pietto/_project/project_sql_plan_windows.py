@@ -793,6 +793,8 @@ class ProjectSQLWindowArgument:
     expression: Expression
     value_type: ValueType | None
     use: ProjectSQLPlanRef | None
+    # The selected query's header parameter a bare read argument names.
+    parameter: Any = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -950,7 +952,13 @@ def resolved_result_type(function, value_type, arguments):
                 if default is None
                 else LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN),
             )
-            nulls += (EffectiveNullability.NULLABLE if default is None else non_null,)
+            from pietto._project.project_sql_emission_windows import ParameterStatic
+
+            # A header-parameter default keeps its declared nullability.
+            nullable = default is None or (
+                type(default) is ParameterStatic and default.nullable
+            )
+            nulls += (EffectiveNullability.NULLABLE if nullable else non_null,)
     elif function in ("first_value", "last_value", "nth_value"):
         if value_type is None:
             raise CompiledError("COMPILED_WINDOW_VALUE_TYPE")

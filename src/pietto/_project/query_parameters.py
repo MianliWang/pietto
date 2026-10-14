@@ -7,8 +7,12 @@ and the value arguments of a closed set of scalar builtins in the row roles
 roles (SATISFYING, QUALIFY and ORDER BY keys). A grouped SELECT list admits a
 dependent value only as a computed LET group key or as the one LET argument of
 count, avg, min or max; a GROUP BY key only as a computed LET binding without
-JOIN. Every other position (LIMIT, windows and their frames, structural call
-arguments) is refused here before semantic analysis.
+JOIN. Inside a window call of an ungrouped SELECT list a bare read is also
+admitted as a value argument, a lag/lead default, or a structural count
+(lag/lead offset, ntile bucket count, nth_value position); a count must be
+declared ``Int not null``. Every other position (LIMIT, other window positions
+and frames, structural call arguments) is refused here before semantic
+analysis.
 """
 
 from __future__ import annotations
@@ -62,6 +66,8 @@ DECLARATION_CODE = "PIE-S2353"
 COLLISION_CODE = "PIE-S2354"
 POSITION_CODE = "PIE-S2355"
 INPUT_CODE = "PIE-S2356"
+COUNT_CODE = "PIE-S2358"
+COUNT_MESSAGE = "A window count parameter must be declared Int not null."
 COLLISION_MESSAGE = (
     "Query parameter name is also a field, let, relation, output or window name."
 )
@@ -95,6 +101,39 @@ _SCALAR_OPERATORS = (
     MembershipExpr,
     CastExpr,
 )
+# Window call argument positions a bare read may fill, by function identity:
+# value arguments and lag/lead defaults, then the structural counts.
+_WINDOW_VALUE_POSITIONS = {
+    "lag": (0, 2),
+    "lead": (0, 2),
+    "first_value": (0,),
+    "last_value": (0,),
+    "nth_value": (0,),
+}
+_WINDOW_COUNT_POSITIONS = {"lag": 1, "lead": 1, "ntile": 0, "nth_value": 1}
+
+
+def _window_parameter_arguments(
+    window: WindowExpr,
+) -> tuple[tuple[ParameterRefExpr, ...], tuple[ParameterRefExpr, ...]]:
+    """The admitted bare reads of one window call: (value or default, counts)."""
+
+    name = window.identity.name
+    arguments = window.call.arguments
+
+    def reads(positions: tuple[int, ...]) -> tuple[ParameterRefExpr, ...]:
+        return tuple(
+            cast(ParameterRefExpr, arguments[position])
+            for position in positions
+            if position < len(arguments)
+            and type(arguments[position]) is ParameterRefExpr
+        )
+
+    count = _WINDOW_COUNT_POSITIONS.get(name)
+    return (
+        reads(_WINDOW_VALUE_POSITIONS.get(name, ())),
+        reads(() if count is None else (count,)),
+    )
 
 
 def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
@@ -276,8 +315,19 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
         for clause in definition.join_clauses
         if clause.on_clause is not None
     )
+    found: list[Diagnostic] = []
+    windowed: set[int] = set()
     for item in definition.select_items:
         expression = item.expression
+        if type(expression) is WindowExpr and not grouped:
+            values, counts = _window_parameter_arguments(cast(WindowExpr, expression))
+            windowed.update(id(read) for read in (*values, *counts))
+            found.extend(
+                _diagnostic(COUNT_CODE, COUNT_MESSAGE, read.span)
+                for read in counts
+                if read.type_name != "Int"
+                or read.nullability is not Nullability.NOT_NULL
+            )
         if type(expression) is WindowExpr:
             refused.append(expression)
         elif not grouped:
@@ -341,12 +391,12 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
                     out.extend(_children(node))
     # A GROUP BY key is a bare name, never rewritten to a read.
     names = lets | {parameter.name for parameter in definition.parameters}
-    return [
+    return found + [
         _diagnostic(POSITION_CODE, _POSITION_MESSAGE, node.span)
         for roots, visible in ((refused, names), (late, names | outputs))
         for root in roots
         for node in _value_nodes(root)
-        if type(node) is ParameterRefExpr
+        if (type(node) is ParameterRefExpr and id(node) not in windowed)
         or (type(node) is NameExpr and cast(NameExpr, node).name in visible)
     ]
 

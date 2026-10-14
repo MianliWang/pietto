@@ -554,8 +554,10 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                 assert chain is not None
                 scalar_nodes += 3 + len(chain[0])  # origin, anchor, leaf, every sign
     # The parameter protocol is needed exactly when a placeholder is rendered:
-    # a bind-safe literal slot or a header-parameter read, never an unread header.
+    # a bind-safe literal slot or a header-parameter read (a window argument
+    # included), never an unread header.
     reads = sum(type(e) is row.ProjectSQLParameterRead for e in plan.expressions)
+    reads += sum(a.parameter is not None for a in plan.window_arguments)
     if scalar_nodes or realization is not None:
         for problem in operator_premise_problems(
             request.premises, request.family, bool(plan.literal_slots) or reads > 0
@@ -1631,11 +1633,22 @@ def realize_rows(request, *, _guarded=None):
                 assert stage is not None
                 for value in aggregate_values.get(stage.ref, ()):
                     ordered.extend(value.arguments)
-
+            elif kind == "window":
+                # Header-parameter window arguments, in column and call order.
+                ordered.extend(
+                    argument
+                    for window in window_blocks.get(block.ref, ())
+                    for argument in window_argument.get(window.ref, ())
+                    if argument.parameter is not None
+                )
             else:
                 ordered.extend(p.expression for p in projections.get(block.ref, ()))
     occurrences = []
     for reference in ordered:
+        if type(reference) is windowing.plan_argument_type():
+            physical = parameters.PHYSICAL[family][reference.parameter.tag]
+            occurrences.append((reference, physical))
+            continue
         try:
             chains = rows.rendered_constant_chains(plan, reference)
             rendered = rows.rendered_tree_nodes(plan, reference)
@@ -1882,6 +1895,7 @@ def realize_rows(request, *, _guarded=None):
                         window_use,
                         position_base=len(columns),
                         symbol=SQLSymbol,
+                        native=uses,
                     )
                     if built is None:
                         assert problem is not None
@@ -2491,6 +2505,18 @@ def row_generated_requirements(request, query):
                         "window_specification", column.window.policy, "R15", ()
                     )
                 )
+                generated.extend(
+                    GeneratedRequirement(
+                        "query_parameter",
+                        argument.parameter.original.ref,
+                        rows.REQUIREMENT_RULES["query_parameter"],
+                        node_premises(
+                            request, argument.parameter.realization, (), "parameter"
+                        ),
+                    )
+                    for argument in column.arguments
+                    if argument.parameter is not None
+                )
                 # R15-INT-OFFSET-V1: a finite offset keeps its signed64 domain
                 # obligation, and a RANGE offset its threshold arithmetic, per use.
                 frame = column.specification.frame
@@ -2578,9 +2604,15 @@ def row_parameter_leaves(query):
                     and column.argument is not None
                 ):
                     values.append(column.argument)
+                elif type(column) is windowing.WindowColumn:
+                    values.extend(column.arguments)
             if body.predicate is not None:
                 values.append(body.predicate.value)
         for value in values:
+            if type(value) is windowing.WindowArgument:
+                if value.parameter is not None:
+                    result.append(value.parameter)
+                continue
             for node in rows.rendered_value_nodes(value):
                 if type(node) is rows.SQLParameterRead:
                     result.append(node)
@@ -2596,13 +2628,20 @@ def row_parameter_leaves(query):
 
 
 def row_binding_obligations(query):
-    """Operations whose check waits for a binding, in exact rendering order."""
-    return tuple(
-        node
-        for value in row_value_roots(query)
-        for node in rows.rendered_value_nodes(value)
-        if type(node) is rows.SQLOperation and node.realization.obligation is not None
-    )
+    """Nodes whose check waits for a binding, in exact rendering order: row
+    operations and header-parameter structural window counts."""
+    result = []
+    for value in row_value_roots(query):
+        if type(value) is windowing.WindowArgument:
+            nodes = () if value.parameter is None else (value.parameter,)
+        else:
+            nodes = tuple(
+                node
+                for node in rows.rendered_value_nodes(value)
+                if type(node) is rows.SQLOperation
+            )
+        result.extend(node for node in nodes if node.realization.obligation is not None)
+    return tuple(result)
 
 
 def row_value_roots(query):

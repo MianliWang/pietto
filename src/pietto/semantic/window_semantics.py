@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
     NameExpr,
+    ParameterRefExpr,
     NamedWindowDeclaration,
     NamedWindowReference,
     OrderItem,
@@ -3884,7 +3885,14 @@ class DistributionWindowSemanticFact:
             raise ValueError("BALANCED_BUCKETS requires ntile identity")
         if self.ranking_fact is not None:
             raise ValueError("BALANCED_BUCKETS forbids ranking_fact")
-        if self.bucket_count is None or self.bucket_count <= 0:
+        if self.bucket_count is None:
+            # A query parameter count is fixed only by its binding.
+            if (
+                type(self.semantic_fact.expression.call.arguments[0])
+                is not ParameterRefExpr
+            ):
+                raise ValueError("BALANCED_BUCKETS requires positive bucket_count")
+        elif self.bucket_count <= 0:
             raise ValueError("BALANCED_BUCKETS requires positive bucket_count")
 
     @property
@@ -3926,12 +3934,20 @@ class FrameValueFunctionKind(StrEnum):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NthValuePositionFact:
-    """One exact positive integer literal position for nth_value."""
+    """One exact positive integer literal position for nth_value.
 
-    expression: LiteralExpr
-    effective_value: int
+    A query parameter read has no effective value until it is bound; the
+    binding obligation then requires a positive count.
+    """
+
+    expression: LiteralExpr | ParameterRefExpr
+    effective_value: int | None
 
     def __post_init__(self) -> None:
+        if type(self.expression) is ParameterRefExpr:
+            if self.effective_value is not None:
+                raise ValueError("a parameter position has no effective value")
+            return
         if type(self.expression) is not LiteralExpr:
             raise TypeError("nth_value position must be an exact literal")
         if (
@@ -3949,7 +3965,7 @@ class FrameValueWindowComputation:
 
     expression: WindowExpr
     function: FrameValueFunctionKind
-    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr | ParameterRefExpr
     value_type: ValueType
     position_fact: NthValuePositionFact | None
     modifiers: ResolvedWindowFunctionModifiers
@@ -3965,6 +3981,7 @@ class FrameValueWindowComputation:
             NameExpr,
             DottedNameExpr,
             LiteralExpr,
+            ParameterRefExpr,
         }:
             raise TypeError("frame-value computation input must be bounded")
         if type(self.value_type) is not ValueType:
@@ -4019,7 +4036,7 @@ class FrameValueWindowSemanticFact:
 
     semantic_fact: WindowExpressionSemanticFact
     function: FrameValueFunctionKind
-    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr | ParameterRefExpr
     value_type: ValueType
     position_fact: NthValuePositionFact | None
     modifiers: ResolvedWindowFunctionModifiers
@@ -4034,6 +4051,7 @@ class FrameValueWindowSemanticFact:
             NameExpr,
             DottedNameExpr,
             LiteralExpr,
+            ParameterRefExpr,
         }:
             raise TypeError("frame-value input must be an exact bounded expression")
         if type(self.value_type) is not ValueType:
@@ -4225,13 +4243,25 @@ def navigation_candidate_position(
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NavigationOffsetFact:
-    """One omitted or explicit nonnegative navigation offset."""
+    """One omitted or explicit nonnegative navigation offset.
 
-    expression: LiteralExpr | None
-    effective_value: int
+    A query parameter read has no effective value until it is bound; the
+    binding obligation then requires a nonnegative count.
+    """
+
+    expression: LiteralExpr | ParameterRefExpr | None
+    effective_value: int | None
     span: Span
 
     def __post_init__(self) -> None:
+        if type(self.expression) is ParameterRefExpr:
+            if self.effective_value is not None:
+                raise ValueError("a parameter offset has no effective value")
+            if self.span != self.expression.span:
+                raise ValueError(
+                    "explicit navigation offset span must match its expression"
+                )
+            return
         if self.expression is not None and type(self.expression) is not LiteralExpr:
             raise TypeError("expression must be an exact LiteralExpr or None")
         if type(self.effective_value) is not int:
@@ -4270,7 +4300,7 @@ class NavigationOffsetFact:
 class NavigationDefaultFact:
     """One omitted or bounded navigation default expression and its type."""
 
-    expression: NameExpr | DottedNameExpr | LiteralExpr | None
+    expression: NameExpr | DottedNameExpr | LiteralExpr | ParameterRefExpr | None
     value_type: ValueType | None
     always_null: bool
     span: Span
@@ -4280,6 +4310,7 @@ class NavigationDefaultFact:
             NameExpr,
             DottedNameExpr,
             LiteralExpr,
+            ParameterRefExpr,
         }:
             raise TypeError(
                 "expression must be an exact direct field, LiteralExpr, or None"
@@ -4336,7 +4367,7 @@ class NavigationWindowComputation:
 
     expression: WindowExpr
     direction: NavigationDirection
-    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr | ParameterRefExpr
     value_type: ValueType
     value_always_null: bool
     modifiers: ResolvedWindowFunctionModifiers
@@ -4355,6 +4386,7 @@ class NavigationWindowComputation:
             NameExpr,
             DottedNameExpr,
             LiteralExpr,
+            ParameterRefExpr,
         }:
             raise TypeError("navigation computation value must be bounded")
         if type(self.value_type) is not ValueType:
@@ -4421,7 +4453,7 @@ class NavigationWindowSemanticFact:
 
     semantic_fact: WindowExpressionSemanticFact
     direction: NavigationDirection
-    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr | ParameterRefExpr
     value_type: ValueType
     value_always_null: bool
     modifiers: ResolvedWindowFunctionModifiers
@@ -4441,6 +4473,7 @@ class NavigationWindowSemanticFact:
             NameExpr,
             DottedNameExpr,
             LiteralExpr,
+            ParameterRefExpr,
         }:
             raise TypeError("value_expression must be an exact bounded expression")
         if (

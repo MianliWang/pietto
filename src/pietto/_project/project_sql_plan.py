@@ -3028,6 +3028,16 @@ def build_project_sql_plan(
                         matching = tuple(
                             use for use in uses if use.expression is argument
                         )
+                        parameter = None
+                        if isinstance(argument, ParameterRefExpr):
+                            if not 0 <= argument.ordinal < len(query_parameters) or (
+                                query_parameters[argument.ordinal].declaration.name
+                                != argument.name
+                            ):
+                                raise ValueError(
+                                    "Parameter read is outside its entry query."
+                                )
+                            parameter = query_parameters[argument.ordinal]
                         argument_value = windows.ProjectSQLWindowArgument(
                             ref=ref(K.WINDOW_ARGUMENT),
                             window=window_ref,
@@ -3038,6 +3048,7 @@ def build_project_sql_plan(
                             use=None
                             if not matching
                             else _one(matching, "window argument input").ref,
+                            parameter=parameter,
                         )
                         arguments.append(argument_value.ref)
                         window_arguments.append(argument_value)

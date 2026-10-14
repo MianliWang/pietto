@@ -983,6 +983,16 @@ def derive_compiled_semantics(root, values, parameters=None):
             raise CompiledError("COMPILED_BINDING_VALUE")
         replacements[slot.get("literal")] = value
     _declared, bound = _compiled_parameter_values(records, parameters, family)
+    from pietto._project import project_sql_emission_windows as window_counts
+
+    # A header parameter read as a window offset, bucket count or position.
+    counts = {
+        address: role
+        for r in records.values()
+        if r.address.kind == "window_value"
+        for role, address in r.get("arguments")
+        if role in window_counts.COUNT_ROLES and address.kind == "parameter_read"
+    }
     facts, active = {}, set()
     null_parents = {}
     for record in records.values():
@@ -1160,17 +1170,27 @@ def derive_compiled_semantics(root, values, parameters=None):
                     if nullable
                     else EffectiveNullability.NON_NULL,
                 )
-                realized = (
-                    physical.parameter_realization(
+                if not physical_required:
+                    realized = None
+                elif ref in counts:
+                    if declaration.get("tag") != "Int" or nullable:
+                        raise CompiledError("COMPILED_WINDOW_PARAMETER")
+                    realized = window_counts.count_realization(
+                        family,
+                        counts[ref],
+                        bound=bound is not None,
+                        value=None if bound is None else bound[declaration.address],
+                    )
+                    if realized is None:
+                        raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
+                else:
+                    realized = physical.parameter_realization(
                         family,
                         declaration.get("tag"),
                         nullable,
                         bound=bound is not None,
                         value=None if bound is None else bound[declaration.address],
                     )
-                    if physical_required
-                    else None
-                )
             elif kind == "null_literal":
                 site = records[get("site")]
                 if site.get("reason") != "contextual_typed_null":
@@ -1376,6 +1396,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                     realized = None
             elif kind == "window_value":
                 from pietto._project import project_sql_emission_windows as windowing
+                from pietto._project import (
+                    project_sql_emission_parameters as parameter_physical,
+                )
                 from pietto._project.project_sql_plan_windows import (
                     resolved_result_type,
                 )
@@ -1411,12 +1434,25 @@ def derive_compiled_semantics(root, values, parameters=None):
                             if not defaults
                             else "NULL"
                             if defaults[0] is None
+                            else windowing.BINDING_DEFAULT
+                            if type(defaults[0]) is windowing.ParameterStatic
                             else str(defaults[0])
                         )
                         realized, problem = windowing.resolved_value_result(
                             family,
                             argument.realization,
-                            argument.origin,
+                            # A parameter value is its carrier anchor: MySQL
+                            # reads a SIGNED anchor like a literal's.
+                            (
+                                "literal"
+                                if parameter_physical.PHYSICAL[family][
+                                    argument.value_type.resolved_type.name
+                                ]
+                                == "my_signed_int"
+                                else "unsupported"
+                            )
+                            if value_reads[0].kind == "parameter_read"
+                            else argument.origin,
                             default,
                             retained,
                         )
@@ -1898,6 +1934,20 @@ def verify_compiled_semantics(value):
             )
         )
     )
+    # A window count parameter, against the emission verifier's own interval.
+    from pietto._project.project_sql_emission_verification import (
+        _COUNT_LOWER,
+        _COUNT_STORAGE,
+        _COUNT_UPPER,
+    )
+
+    count_roles = {
+        address: role
+        for r in records.values()
+        if r.address.kind == "window_value"
+        for role, address in r.get("arguments")
+        if role in _COUNT_LOWER and address.kind == "parameter_read"
+    }
     null_parents = {}
     for record in records.values():
         if record.address.kind != "operation":
@@ -2070,8 +2120,36 @@ def verify_compiled_semantics(value):
                     if declaration.get("nullable")
                     else EffectiveNullability.NON_NULL,
                 )
-                realization = (
-                    physical.parameter_realization(
+                if not physical_required:
+                    realization = None
+                elif current in count_roles:
+                    need(
+                        declaration.get("tag") == "Int"
+                        and declaration.get("nullable") is False,
+                        "SEMANTIC_WINDOW_COUNT",
+                    )
+                    low = _COUNT_LOWER[count_roles[current]]
+                    high = _COUNT_UPPER[family]
+                    if bound_parameters is not None:
+                        bound_value = bound_parameters[declaration.address]
+                        need(
+                            type(bound_value) is int and low <= bound_value <= high,
+                            "SEMANTIC_WINDOW_COUNT",
+                        )
+                        low = high = bound_value
+                    realization = physical.Realization(
+                        "Int",
+                        {"kind": _COUNT_STORAGE[family]},
+                        False,
+                        {"kind": "int_range", "min": str(low), "max": str(high)},
+                        (low, high),
+                        binding=bound_parameters is None,
+                        obligation=None
+                        if bound_parameters is not None
+                        else "structural_count_interval",
+                    )
+                else:
+                    realization = physical.parameter_realization(
                         family,
                         declaration.get("tag"),
                         declaration.get("nullable"),
@@ -2080,9 +2158,6 @@ def verify_compiled_semantics(value):
                         if bound_parameters is None
                         else bound_parameters[declaration.address],
                     )
-                    if physical_required
-                    else None
-                )
             elif kind == "null_literal":
                 site = records[get("site")]
                 need(site.get("reason") == "contextual_typed_null", "SEMANTIC_NULL")
@@ -2322,12 +2397,24 @@ def verify_compiled_semantics(value):
                             if not defaults
                             else "NULL"
                             if defaults[0] is None
+                            else windowing.BINDING_DEFAULT
+                            if type(defaults[0]) is windowing.ParameterStatic
                             else str(defaults[0])
                         )
+                        # A parameter value is its own anchor (a MySQL SIGNED
+                        # anchor reads like a literal), never a column origin.
+                        parameter_value = reads[0].kind == "parameter_read"
                         realization = resolved_window_value_result(
                             family,
                             argument.realization,
-                            argument.origin,
+                            (
+                                "literal"
+                                if family == "mysql"
+                                and argument.value_type.resolved_type.name == "Int"
+                                else "unsupported"
+                            )
+                            if parameter_value
+                            else argument.origin,
                             default,
                             retained,
                         )

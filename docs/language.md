@@ -503,9 +503,9 @@ query weighted(weight: Int not null, bonus: Int nullable):
 A nullable parameter bound to NULL makes `boosted` NULL in every row, so `n` is
 0 and `mean` is NULL. Every other position is refused (PIE-S2355), whether it
 reads the parameter or a `let:` binding or output that reads it: LIMIT, window
-expressions and named windows (frame offsets included), other call arguments
-(such as the bounds of `substr`, `len`, `replace`, `matches` and the prefix of
-`starts_with`), a GROUP BY key that names a parameter, an alias or a key of a
+expressions and named windows (frame offsets included) except the window
+arguments below, other call arguments (such as the bounds of `substr`, `len`,
+`replace`, `matches` and the prefix of `starts_with`), a GROUP BY key that names a parameter, an alias or a key of a
 JOIN query, other grouped SELECT items (a direct read, `sum`, `count_distinct`,
 an aggregate of an expression or of a parameter), a grouped ORDER BY key that
 is not an output name, and an ORDER BY key that reads no field, binding or
@@ -517,29 +517,69 @@ the body of a declaration with lets included (PIE-S2356). Headers stay
 PIE-S2346 in single-file analysis, in LEGACY_FLAT projects and beside relation
 lets, VALUES, set-operation or table-function FROM bodies.
 
+In a window call that is a SELECT item of a query without GROUP BY, SATISFYING
+or aggregates, a bare read is also available as a window argument: the value
+of `lag`, `lead`, `first_value`, `last_value` and `nth_value`, the default of
+`lag`/`lead`, and a structural count — the `lag`/`lead` offset, the `ntile`
+bucket count and the `nth_value` position:
+
+```pietto
+query neighbours(step: Int not null, fill: Int not null):
+    from orders
+    select:
+        id
+        previous = lag(amount, step, fill) window:
+            order by:
+                id
+        bucket = ntile(step) window:
+            order by:
+                id
+```
+
+A count parameter must be declared `Int not null` (PIE-S2358). A value
+parameter must be `Int` or `Float` and a `lag`/`lead` default parameter `Int`:
+`check` accepts the other tags, but `emit-sql` blocks a `Text` or `Bool` value
+with PIE-B1003 `window_parameter_value_kind_not_realized_yet` and any other
+default with PIE-B1003 `window_default_literal_kind_not_realized_yet`. A
+`lag`/`lead` result with a parameter offset may be NULL, as for any nonzero
+offset, even if the binding is 0. Any other window argument, window PARTITION BY and ORDER BY
+keys, frame offsets and a read nested in an operator inside a window argument
+stay refused (PIE-S2355).
+
 `emit-sql --project` renders every read outside an ORDER BY key as a typed
 placeholder under both literal policies (`CAST($n AS pg_catalog.int8)`,
 `CAST(? AS SIGNED)`, with the Text collation): PostgreSQL reuses one `$n` for
 every read of a parameter, MySQL writes one `?` per read, and bind-safe literal
 slots share the same numbering in rendering order. The SQL never depends on a
 value. The unbound template keeps each parameter's declared carrier; a check
-that needs the value, such as the range of `cutoff + 1` or of a later `next_day + 1`, is listed as a
-binding obligation naming every parameter it depends on and runs at every
-binding. A query whose parameters are all unread still emits this template;
-like any statement that renders no placeholder, it needs no `parameter_protocol`
-premise. `compile_query` keeps the unbound template, and
+that needs the value, such as the range of `cutoff + 1` or of a later
+`next_day + 1`, is listed as a binding obligation naming every parameter it
+depends on and runs at every binding. A query whose parameters are all unread
+still emits this template; like any statement that renders no placeholder, it
+needs no `parameter_protocol` premise. `compile_query` keeps the unbound template, and
 `execute(..., parameters=...)` binds it on the `postgres_rows` route only; the
 other routes, saving, relaying, recovery and bundle export refuse such a query
 (see [Parameters](execution.md#parameters)).
 
-The result and post-aggregation positions add no other check: an obligation
-is either `int_range_representable` (the range of `cutoff + 1`) or
+The result and post-aggregation positions add no other check: their
+obligations are `int_range_representable` (the range of `cutoff + 1`) or
 `text_result_width` (the width of `lower(label)`), listed at the operation
 that needs it. A source Int proves over its whole physical carrier, so over a
 BIGINT `amount` the obligation of `amount * weight` holds only for a weight of
 0, 1 or NULL, and that of `amount + bonus` only for 0 or NULL. A SATISFYING or
 QUALIFY read renders in the predicate over the aggregate or window stage, and a
 group key or aggregate reads the LET column that holds the value.
+
+A window value or Int default renders the same typed placeholder. A structural
+count is int4 on PostgreSQL and renders `CAST(CAST($n AS pg_catalog.int8) AS
+pg_catalog.int4)`. MySQL refuses `CAST(? AS SIGNED)` as a `lag`/`lead` offset
+or an `ntile` bucket count, so every MySQL count, the `nth_value` position
+included, renders a bare `?`. A count binding must lie in the target's
+interval: an offset from 0 and a bucket count or position from 1, up to
+2147483647 on PostgreSQL and 9223372036854775807 on MySQL (binding obligation
+`structural_count_interval`), and a binding outside it is refused before
+execution. A Bool or Text value argument and a non-Int default are refused at
+emission (PIE-B1003), as the same default literals are.
 
 ## Expressions
 

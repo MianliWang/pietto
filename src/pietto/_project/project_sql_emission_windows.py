@@ -19,6 +19,7 @@ from typing import Any
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_parameters as parameters
+from pietto.ast_nodes import ParameterRefExpr
 from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
 from pietto.semantic.window_semantics import (
     WindowFrameExclusion,
@@ -138,6 +139,69 @@ I32_MAX = (1 << 31) - 1
 # A non-negative uncast LAG/LEAD default of d digits displays d+1.
 MYSQL_DISPLAY = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
 MYSQL_BIGINT_DISPLAY = 10
+# Phase70 S04w: a header parameter fills a window argument as a native
+# placeholder. A value or Int default keeps its declared carrier anchor
+# (CAST($n AS pg_catalog.int8) / CAST(? AS SIGNED)): PostgreSQL resolves an
+# int8 default to an int8 result and MySQL reads a SIGNED anchor as display 21.
+# A structural count is int4 on PostgreSQL, so its int8 anchor is cast once
+# more; MySQL refuses CAST(? AS SIGNED) as a LAG/LEAD offset or NTILE count,
+# so every MySQL count is a bare `?`. Its interval, keyed by target family and
+# plan role, is a binding obligation. Emission, compiled derivation and the
+# execution binder (`structural_count_interval` in BINDING_CHECKS) take it from
+# this table; the emission and compiled-semantics verifiers re-derive it from
+# their own constants.
+COUNT_ROLES = frozenset({"offset", "bucket", "position"})
+STRUCTURAL_COUNT_OBLIGATION = "structural_count_interval"
+STRUCTURAL_COUNT_INTERVAL = {
+    ("postgres", "offset"): (0, I32_MAX),
+    ("postgres", "bucket"): (1, I32_MAX),
+    ("postgres", "position"): (1, I32_MAX),
+    ("mysql", "offset"): (0, I64_MAX),
+    ("mysql", "bucket"): (1, I64_MAX),
+    ("mysql", "position"): (1, I64_MAX),
+}
+STRUCTURAL_COUNT_STORAGE = {"postgres": "pg_int4", "mysql": "my_signed_int"}
+# The default role's image when a parameter fills it: any bound int64.
+BINDING_DEFAULT = "binding"
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterStatic:
+    """A compiled offset, bucket, position or default that a header parameter
+    fills: it has no value until a binding, only its declared nullability."""
+
+    nullable: bool
+
+
+def count_realization(
+    family, role, *, bound=False, value=None
+) -> rows.Realization | None:
+    """A structural count's image: its target interval for the unbound
+    template, or the one bound value, None when the value is outside it."""
+
+    low, high = STRUCTURAL_COUNT_INTERVAL[family, role]
+    storage = {"kind": STRUCTURAL_COUNT_STORAGE[family]}
+    if not bound:
+        return rows.Realization(
+            "Int",
+            storage,
+            False,
+            {"kind": "int_range", "min": str(low), "max": str(high)},
+            (low, high),
+            binding=True,
+            obligation=STRUCTURAL_COUNT_OBLIGATION,
+        )
+    if type(value) is not int or not low <= value <= high:
+        return None
+    return rows.Realization(
+        "Int",
+        storage,
+        False,
+        {"kind": "int_range", "min": str(value), "max": str(value)},
+        (value, value),
+    )
+
+
 VALUE_NULLABILITY = {
     EffectiveNullability.NON_NULL: False,
     EffectiveNullability.NULLABLE: True,
@@ -191,18 +255,20 @@ class WindowOrigin:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class WindowArgument:
-    """One realized window argument: a pre-window port or an exact literal."""
+    """One realized window argument: a pre-window port, an exact literal, or a
+    header-parameter placeholder leaf."""
 
     position: int
     role: str
     read: Any = None
     literal: str | None = None
+    parameter: Any = None
 
     def __repr__(self) -> str:
         return (
             f"WindowArgument(position={_scalar(self.position)}, "
             f"role={_scalar(self.role)}, literal={_scalar(self.literal)}, "
-            f"read={_present(self.read)})"
+            f"read={_present(self.read)}, parameter={_present(self.parameter)})"
         )
 
 
@@ -526,13 +592,54 @@ def _integer_literal(value) -> str | None:
     return str(value) if type(value) is int and not isinstance(value, bool) else None
 
 
-def independent_arguments(policy, items, uses, available):
+def parameter_argument(family, policy, item, native):
+    """One header-parameter window argument as its native placeholder leaf."""
+
+    role = item.role.value
+    parameter = item.parameter
+    use = None if native is None else native.get(item.ref)
+    if (
+        family not in STRUCTURAL_COUNT_STORAGE
+        or parameter is None
+        or use is None
+        or use.parameter is not parameter
+    ):
+        return None, ("PIE-B1008", "native_occurrence_allocation")
+    tag = parameter.tag
+    nullable = parameter.value_type.nullability is EffectiveNullability.NULLABLE
+    if role in COUNT_ROLES:
+        fact = (
+            policy.navigation.offset_fact.expression
+            if role == "offset" and policy.navigation is not None
+            else policy.frame_value.position_fact.expression
+            if role == "position" and policy.frame_value is not None
+            else item.expression
+            if role == "bucket" and policy.bucket_count is None
+            else None
+        )
+        if fact is not item.expression or tag != "Int" or nullable:
+            return None, ("PIE-B1004", "window_count_parameter_evidence_missing")
+        realization = count_realization(family, role)
+        assert realization is not None  # the unbound interval always exists
+    elif role == "default" and tag != "Int":
+        return None, ("PIE-B1003", "window_default_literal_kind_not_realized_yet")
+    elif role == "value" and tag not in {"Int", "Float"}:
+        return None, ("PIE-B1003", "window_parameter_value_kind_not_realized_yet")
+    elif role not in {"value", "default"}:
+        return None, ("PIE-B1003", "window_argument_role_not_realized_yet")
+    else:
+        realization = rows.parameter_realization(family, tag, nullable)
+    return rows.SQLParameterRead(item, use, use.physical_type, realization), None
+
+
+def independent_arguments(policy, items, uses, available, *, family=None, native=None):
     """Realize this occurrence's arguments from their retained authority.
 
     A value argument is an established pre-window port. An offset, default,
     bucket or position is a structural static value the analyzer already froze,
     so it is emitted as an exact literal rather than re-extracted from source
-    text or reclassified as a caller-bindable slot.
+    text or reclassified as a caller-bindable slot. A header-parameter read is
+    a native placeholder whose use ``native`` maps by argument reference.
     """
 
     ports = {u.role_position: u for u in uses if u.role.value == "window_argument"}
@@ -540,6 +647,12 @@ def independent_arguments(policy, items, uses, available):
     realized: list[WindowArgument] = []
     for item in items:
         role = item.role.value
+        if type(item.expression) is ParameterRefExpr:
+            leaf, problem = parameter_argument(family, policy, item, native)
+            if leaf is None:
+                return None, problem
+            realized.append(WindowArgument(item.position, role, parameter=leaf))
+            continue
         if role == "value":
             use = ports.get(0)
             read = None if use is None else available.get(use.input)
@@ -669,6 +782,7 @@ def build_stage(
     *,
     position_base,
     symbol,
+    native=None,
 ):
     """Realize one window stage: every occurrence keeps its own result column.
 
@@ -777,7 +891,12 @@ def build_stage(
                 ),
             )
         realized, problem = independent_arguments(
-            policy, items, uses.get(window.ref, ()), available
+            policy,
+            items,
+            uses.get(window.ref, ()),
+            available,
+            family=target,
+            native=native,
         )
         if realized is None:
             assert problem is not None
@@ -790,7 +909,10 @@ def build_stage(
             "lag": "offset",
             "lead": "offset",
         }.get(function)
-        if target == "postgres" and any(item.role == role for item in realized):
+        # A parameter count is checked per binding (STRUCTURAL_COUNT_INTERVAL).
+        if target == "postgres" and any(
+            item.role == role and item.parameter is None for item in realized
+        ):
             number = (
                 policy.bucket_count
                 if role == "bucket"
@@ -948,14 +1070,38 @@ def result_realization(family: str, function: str, arguments, retained):
             ),
             None,
         )
-    values = [item for item in arguments if item.read is not None]
-    if len(values) != 1:
+    values = [item for item in arguments if item.role == "value"]
+    if len(values) != 1 or (values[0].read is None) is (values[0].parameter is None):
         return None, ("PIE-B1004", "window_value_argument_evidence_missing")
-    read = values[0].read
-    default = next((item.literal for item in arguments if item.role == "default"), None)
-    return resolved_value_result(
-        family, read.realization, integer_origin(read), default, retained
+    value = values[0]
+    default = next(
+        (
+            BINDING_DEFAULT if item.parameter is not None else item.literal
+            for item in arguments
+            if item.role == "default"
+        ),
+        None,
     )
+    if value.parameter is not None:
+        # A parameter value is its SIGNED (or float) anchor, never a column.
+        leaf = value.parameter
+        origin = "literal" if leaf.physical_type == "my_signed_int" else "unsupported"
+        return resolved_value_result(
+            family, leaf.realization, origin, default, retained
+        )
+    return resolved_value_result(
+        family, value.read.realization, integer_origin(value.read), default, retained
+    )
+
+
+def default_interval(default) -> tuple[int, int] | None:
+    """The values a lag/lead default adds to its result: none, one, or int64."""
+
+    if default is None or default == "NULL":
+        return None
+    if default == BINDING_DEFAULT:
+        return I64_MIN, I64_MAX
+    return int(default), int(default)
 
 
 def resolved_value_result(family, carrier, origin, default, retained):
@@ -983,9 +1129,9 @@ def resolved_value_result(family, carrier, origin, default, retained):
     storage, domain = representation
     proof = rows.proven_int_bounds(carrier)
     assert proof is not None
-    number = None if default is None or default == "NULL" else int(default)
-    if number is not None:
-        proof = min(proof[0], number), max(proof[1], number)
+    extra = default_interval(default)
+    if extra is not None:
+        proof = min(proof[0], extra[0]), max(proof[1], extra[1])
     return rows.Realization("Int", storage, bool(nullable), domain, proof), None
 
 
@@ -1033,21 +1179,25 @@ def resolved_integer_value_result(family, realization, origin, default):
     bounds = rows.int_bounds(realization)
     proof = rows.proven_int_bounds(realization)
     kind = realization.storage.get("kind")
-    number = None if default is None or default == "NULL" else int(default)
+    extra = default_interval(default)
+    bound = default == BINDING_DEFAULT
+    number = None if extra is None or bound else extra[0]
     if bounds is None or proof is None:
         return None, ("PIE-B1004", "window_value_argument_evidence_missing")
     if number is not None and not I64_MIN <= number <= I64_MAX:
         return None, ("PIE-B1002", "window_default_integer_out_of_signed64_range")
     low, high = bounds
     proof_low, proof_high = proof
-    if number is not None:
-        low, high = min(low, number), max(high, number)
-        proof_low, proof_high = min(proof_low, number), max(proof_high, number)
+    if extra is not None:
+        low, high = min(low, extra[0]), max(high, extra[1])
+        proof_low, proof_high = min(proof_low, extra[0]), max(proof_high, extra[1])
     if family == "postgres":
         if kind not in PG_INT_ORDER:
             return None, ("PIE-B1004", "window_value_argument_evidence_missing")
         rank = PG_INT_ORDER.index(kind)
-        if number is not None:
+        if bound:
+            rank = 2  # an int8 anchor joins the anycompatible choice as int8
+        elif number is not None:
             rank = max(rank, 1 if I32_MIN <= number <= I32_MAX else 2)
         storage = PG_INT_ORDER[rank]
     else:
@@ -1062,7 +1212,9 @@ def resolved_integer_value_result(family, realization, origin, default):
                 "PIE-B1002",
                 "mysql_window_integer_result_origin_not_supported_in_phase66",
             )
-        if number is not None:
+        if bound:
+            display = max(display, 21)  # a SIGNED anchor's expression display
+        elif number is not None:
             if number < 0:
                 return None, (
                     "PIE-B1003",
@@ -1084,6 +1236,12 @@ def plan_projection_type():
     """The retained window projection type, for exact dispatch by identity."""
 
     return windows.ProjectSQLWindowProjection
+
+
+def plan_argument_type():
+    """The retained window argument type, for exact dispatch by identity."""
+
+    return windows.ProjectSQLWindowArgument
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1168,6 +1326,19 @@ def resolved_arguments(function, arguments, records, family):
     result = []
     for role, address in arguments:
         record = records[address]
+        if address.kind == "parameter_read":
+            # The same roles and tags emission admits for a header parameter.
+            declared = records[record.get("parameter")]
+            tag, nullable = declared.get("tag"), declared.get("nullable")
+            if (
+                tag not in ("Int", "Float")
+                if role == "value"
+                else tag != "Int" or (nullable and role != "default")
+            ):
+                raise CompiledError("COMPILED_WINDOW_PARAMETER")
+            if role != "value":
+                result.append((role, ParameterStatic(nullable)))
+            continue
         if role == "value":
             if address.kind != "read":
                 raise CompiledError("COMPILED_WINDOW_VALUE")
@@ -1281,8 +1452,9 @@ def compiled_specification(plan, address, reads, definitions):
     return specification
 
 
-def build_compiled_stage(plan, record, reads):
-    """Build fresh window occurrences with original arguments and target laws."""
+def build_compiled_stage(plan, record, reads, leaves):
+    """Build fresh window occurrences with original arguments and target laws;
+    ``leaves`` gives each header-parameter argument its placeholder leaf."""
     from pietto._project.project_compiled_schema import Address, CompiledError
     from pietto._project.project_sql_emission_ast import SQLSymbol
 
@@ -1310,7 +1482,9 @@ def build_compiled_stage(plan, record, reads):
             resolved_arguments(function, value.get("arguments"), records, family)
         )
         arguments = tuple(
-            WindowArgument(i, role, read=reads[a])
+            WindowArgument(i, role, parameter=leaves(a))
+            if a.kind == "parameter_read"
+            else WindowArgument(i, role, read=reads[a])
             if role == "value"
             else WindowArgument(
                 i, role, literal="NULL" if static[role] is None else str(static[role])

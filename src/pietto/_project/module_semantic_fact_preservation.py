@@ -951,9 +951,11 @@ def _validate_supported_window_analysis_family(
                 "Distribution analysis must retain its exact existing family payload."
             )
         _identity, expected_policy, _signature, _formula = distribution_matches[0]
+        bucket = expression.call.arguments[0] if expression.call.arguments else None
         expected_bucket_count = (
-            cast(LiteralExpr, expression.call.arguments[0]).value
+            cast(LiteralExpr, bucket).value
             if expected_policy.value == "balanced_buckets"
+            and type(bucket) is not ast.ParameterRefExpr
             else None
         )
         if (

@@ -441,7 +441,12 @@ def emit_compiled(root, values, named=None):
                 for a, r in records.items()
                 if a.kind == "read" and r.get("use") == use
             }
-            window_columns, window_stage = build_windows(plan, record, reads)
+            window_columns, window_stage = build_windows(
+                plan,
+                record,
+                reads,
+                lambda address: scalar(address, use, producer, alias),
+            )
         if record.address.kind == "aggregate":
             from pietto._project.project_sql_emission_aggregation import (
                 build_compiled_stage,

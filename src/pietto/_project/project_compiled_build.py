@@ -739,11 +739,13 @@ class _Export:
                 for actual, original in zip(
                     column.arguments, declared_arguments, strict=True
                 ):
-                    value = (
-                        self.read(actual.read, producer, use)
-                        if actual.read is not None
-                        else self.literals[id(original.expression)]
-                    )
+                    if actual.parameter is not None:
+                        # The read record of this argument's own native use.
+                        value = self.reads[id(original)]
+                    elif actual.read is not None:
+                        value = self.read(actual.read, producer, use)
+                    else:
+                        value = self.literals[id(original.expression)]
                     arguments.append((actual.role, value))
                 spec = self.window_spec(
                     column.specification, policy, producer, use, definitions
@@ -1854,6 +1856,9 @@ class _LogicalExport(_Export):
             for argument in (
                 a for a in self.plan.window_arguments if a.window is original.ref
             ):
+                if argument.parameter is not None:
+                    # A retained declaration carries no header parameter.
+                    raise CompiledError("COMPILED_EXPORT_SCALAR")
                 if argument.use is None:
                     value = self.literals[id(argument.expression)]
                 else:

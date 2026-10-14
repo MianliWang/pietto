@@ -1597,12 +1597,25 @@ def _window_result_realization(family, function, arguments, retained):
             bool(nullable),
             {"kind": "float64"},
         )
-    values = [item for item in arguments if item.read is not None]
+    values = [item for item in arguments if item.role == "value"]
     if len(values) != 1:
         raise ValueError("window value result argument")
-    read = values[0].read
-    defaults = [item.literal for item in arguments if item.role == "default"]
+    defaults = [
+        windowing.BINDING_DEFAULT if item.parameter is not None else item.literal
+        for item in arguments
+        if item.role == "default"
+    ]
     default = defaults[0] if defaults else None
+    if values[0].parameter is not None:
+        # A parameter value is its own anchor: a SIGNED anchor displays 21.
+        leaf = values[0].parameter
+        origin = "literal" if leaf.physical_type == "my_signed_int" else "unsupported"
+        return resolved_window_value_result(
+            family, leaf.realization, origin, default, retained
+        )
+    read = values[0].read
+    if read is None:
+        raise ValueError("window value result argument")
     # Keep the independent width check's own origin projection.
     if read.aggregate is not None:
         origin = (
@@ -1645,8 +1658,10 @@ def resolved_window_value_result(family, carrier, origin, default, retained):
     proof = rows.proven_int_bounds(carrier)
     if proof is None:
         raise ValueError("window value proof")
-    number = None if default is None or default == "NULL" else int(default)
-    if number is not None:
+    if default == windowing.BINDING_DEFAULT:
+        proof = _I64_MIN, _I64_MAX
+    elif default is not None and default != "NULL":
+        number = int(default)
         proof = min(proof[0], number), max(proof[1], number)
     return rows.Realization("Int", storage, bool(nullable), domain, proof)
 
@@ -1700,7 +1715,12 @@ def resolved_window_integer_result(family, realization, origin, default):
     low, high = int(domain["min"]), int(domain["max"])
     proof_low, proof_high = proof
     number = None
-    if default is not None and default != "NULL":
+    # An Int parameter default may be any signed64 binding: PostgreSQL types
+    # its int8 anchor int8 and MySQL displays its SIGNED anchor as 21.
+    bound = default == windowing.BINDING_DEFAULT
+    if bound:
+        low, high = proof_low, proof_high = _I64_MIN, _I64_MAX
+    elif default is not None and default != "NULL":
         if re.fullmatch(r"-?(0|[1-9][0-9]*)", default) is None:
             raise ValueError("window default literal form")
         number = int(default)
@@ -1712,7 +1732,9 @@ def resolved_window_integer_result(family, realization, origin, default):
         bits = _PG_INT_BITS.get(kind)
         if bits is None:
             raise ValueError("PostgreSQL window value width")
-        if number is not None:
+        if bound:
+            bits = 64
+        elif number is not None:
             bits = max(bits, 32 if -(1 << 31) <= number < 1 << 31 else 64)
         storage = _PG_INT_OF_BITS[bits]
     else:
@@ -1728,7 +1750,9 @@ def resolved_window_integer_result(family, realization, origin, default):
             )
         if display is None:
             raise ValueError("MySQL window value carrier outside the reviewed classes")
-        if number is not None:
+        if bound:
+            display = max(display, 21)
+        elif number is not None:
             if number < 0:
                 raise ValueError("MySQL window default literal form")
             display = max(display, len(str(number)) + 1)
@@ -2029,6 +2053,62 @@ def _range_thresholds_exact(unit, offsets, orders) -> bool:
     return True
 
 
+# Phase70 S04w, independently of the emission table: a structural count is
+# non-negative (offset) or positive (bucket, position), int4 on PostgreSQL and
+# signed64 on MySQL, and every binding is checked against that interval.
+_COUNT_LOWER = {"offset": 0, "bucket": 1, "position": 1}
+_COUNT_UPPER = {"postgres": (1 << 31) - 1, "mysql": (1 << 63) - 1}
+_COUNT_STORAGE = {"postgres": "pg_int4", "mysql": "my_signed_int"}
+
+
+def _window_parameter_argument(request, item, leaf, control) -> bool:
+    """One header-parameter window argument against the plan alone."""
+    family = request.family
+    parameter = item.parameter
+    if (
+        type(leaf) is not rows.SQLParameterRead
+        or type(item.expression) is not ast_nodes.ParameterRefExpr
+        or parameter is None
+        or not any(parameter is p for p in request.plan.parameters)
+        or leaf.original is not item
+        or control.original is not item
+        or type(leaf.use) is not parameters.NativeUse
+        or leaf.use is not control.use
+        or leaf.use.original is not item
+        or leaf.use.slot is not None
+        or leaf.use.parameter is not parameter
+        or leaf.physical_type != parameters.PHYSICAL[family].get(parameter.tag)
+        or leaf.use.physical_type != leaf.physical_type
+    ):
+        return False
+    nullable = parameter.value_type.nullability.value == "nullable"
+    role = item.role.value
+    if role in _COUNT_LOWER:
+        low, high = _COUNT_LOWER[role], _COUNT_UPPER[family]
+        expected = rows.Realization(
+            "Int",
+            {"kind": _COUNT_STORAGE[family]},
+            False,
+            {"kind": "int_range", "min": str(low), "max": str(high)},
+            (low, high),
+            binding=True,
+            obligation="structural_count_interval",
+        )
+        if parameter.tag != "Int" or nullable:
+            return False
+    elif (role, parameter.tag) in {
+        ("value", "Int"),
+        ("value", "Float"),
+        ("default", "Int"),
+    }:
+        expected = rows.parameter_realization(family, parameter.tag, nullable)
+    else:
+        return False
+    return _same_realization(leaf.realization, expected) and _same_realization(
+        control.realization, expected
+    )
+
+
 def _verify_window_column(request, column, window, export, columns, definitions, state):
     """Re-derive one window result column from the retained plan alone.
 
@@ -2083,12 +2163,24 @@ def _verify_window_column(request, column, window, export, columns, definitions,
             type(native_value) is not int or not minimum <= native_value <= 2147483647
         ):
             return False
+    # A placeholder's use (order, index) is checked by verify_row_parameters;
+    # here the control takes the same use and re-derives everything else.
+    native = {
+        a.parameter.original.ref: a.parameter.use
+        for a in column.arguments
+        if a.parameter is not None
+    }
     expected, problem = windowing.independent_arguments(
-        policy, items, uses.get(window.ref, ()), columns
+        policy,
+        items,
+        uses.get(window.ref, ()),
+        columns,
+        family=request.family,
+        native=native,
     )
     if expected is None or problem is not None:
         return False
-    for realized, control in zip(column.arguments, expected, strict=True):
+    for item, realized, control in zip(items, column.arguments, expected, strict=True):
         if (
             realized.position != control.position
             or realized.role != control.role
@@ -2097,6 +2189,13 @@ def _verify_window_column(request, column, window, export, columns, definitions,
             or (
                 realized.read is not None
                 and not _same_read(realized.read, control.read)
+            )
+            or (realized.parameter is None) is not (control.parameter is None)
+            or (
+                realized.parameter is not None
+                and not _window_parameter_argument(
+                    request, item, realized.parameter, control.parameter
+                )
             )
         ):
             return False
@@ -4919,13 +5018,26 @@ def verify_row_bytes(query, rendered):
                         argument.read.name,
                         identifier=True,
                     )
-                else:
+                elif argument.parameter is None:
                     take(
                         "literal",
                         "window_argument_literal",
                         reference,
                         argument.literal,
                     )
+                elif argument.role not in _COUNT_LOWER:
+                    scalar(argument.parameter, alias)
+                elif request.family == "postgres":
+                    take("syntax", "window_count_open", reference, "CAST(")
+                    scalar(argument.parameter, alias)
+                    take(
+                        "syntax",
+                        "window_count_close",
+                        reference,
+                        " AS pg_catalog.int4)",
+                    )
+                else:
+                    take("parameter", "Int", argument.parameter.original.ref, "?")
             take("syntax", "window_close", reference, ")")
             take("syntax", "window_over", reference, " OVER ")
             specification = column.specification
@@ -5691,6 +5803,18 @@ def verify_row_generated_requirements(request, query, generated):
                 )
                 expected.append(
                     ("window_specification", column.window.policy, "R15", ())
+                )
+                expected.extend(
+                    (
+                        "query_parameter",
+                        argument.parameter.original.ref,
+                        "R04",
+                        node_premises(
+                            request, argument.parameter.realization, (), "parameter"
+                        ),
+                    )
+                    for argument in column.arguments
+                    if argument.parameter is not None
                 )
                 # R15-INT-OFFSET-V1, enumerated from the retained policy's own
                 # frame rather than from the candidate's rendered bounds.

@@ -740,6 +740,9 @@ CUTOFF: dict[str, frozenset[str]] = {
         {"field", "resolution", "decimal_expression", "scalar_meaning"}
     ),
     "native_use": frozenset({"parameter"}),
+    # A window parameter read never reaches an observation: its native use has
+    # no slot, which keeps the whole artifact outside the closed schema.
+    "window_argument": frozenset({"parameter"}),
 }
 
 RULES = frozenset(f"R{number:02d}" for number in range(1, 27))

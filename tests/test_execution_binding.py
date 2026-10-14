@@ -712,3 +712,73 @@ def test_every_result_position_compiles_and_binds(tmp_path, target, name):
     checking.verify_binding(accepted)
     document = probe.decode_public(serialize_project_sql_emission(outcome))
     assert accepted.arguments == probe.decoded_arguments(document, values)
+
+
+WINDOW_COUNTS = """query result(k: Int not null, b: Int not null, p: Int not null):
+    from rows
+    select:
+        id
+        a = lag(id, k) window:
+            order by:
+                id
+        n = ntile(b) window:
+            order by:
+                id
+        t = nth_value(id, p) window:
+            order by:
+                id
+            rows between unbounded preceding and unbounded following
+"""
+# (offset, bucket count, position) at each end of every target interval.
+COUNT_LIMITS = {"postgres": 2**31 - 1, "mysql": 2**63 - 1}
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+def test_a_window_count_binds_only_inside_its_target_interval(tmp_path, target):
+    item = probe.parameterized_fixture(target, WINDOW_COUNTS)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    t = binding.prepare_live_template(outcome.artifact)
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    top = COUNT_LIMITS[target]
+    for values in ((0, 1, 1), (top, top, top)):
+        accepted = binding.bind_values(t, (), _named(t, *values))
+        checking.verify_binding(accepted)
+        assert accepted.arguments == probe.decoded_arguments(
+            document, dict(zip("kbp", values, strict=True))
+        )
+    for values in ((-1, 1, 1), (0, 0, 1), (0, 1, 0), (0, 1, -(2**63))):
+        with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+            binding.bind_values(t, (), _named(t, *values))
+    if target == "postgres":
+        for values in ((top + 1, 1, 1), (0, top + 1, 1), (0, 1, top + 1)):
+            with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+                binding.bind_values(t, (), _named(t, *values))
+    with pytest.raises(binding.BindingError, match="^BINDING_PARAMETER:0:Int$"):
+        binding.bind_values(t, (), _named(t, None, 1, 1))
+
+
+def test_a_window_count_check_reads_the_one_interval_table(tmp_path, monkeypatch):
+    """verify_binding re-checks every bound count against the shared table and
+    never binds a count whose obligation kind it does not know."""
+    from pietto._project import project_sql_emission_windows as windowing
+
+    item = probe.parameterized_fixture("postgres", WINDOW_COUNTS)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    t = binding.prepare_live_template(outcome.artifact)
+    accepted = binding.bind_values(t, (), _named(t, 5, 5, 5))
+    checking.verify_binding(accepted)
+    narrowed = dict(windowing.STRUCTURAL_COUNT_INTERVAL)
+    narrowed["postgres", "bucket"] = (1, 4)
+    monkeypatch.setattr(windowing, "STRUCTURAL_COUNT_INTERVAL", narrowed)
+    with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATION$"):
+        checking.verify_binding(accepted)
+    monkeypatch.undo()
+    checks = dict(checking.BINDING_CHECKS)
+    del checks["structural_count_interval"]
+    monkeypatch.setattr(checking, "BINDING_CHECKS", checks)
+    with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATION_KIND$"):
+        checking.verify_binding(accepted)

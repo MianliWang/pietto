@@ -1651,9 +1651,11 @@ def _window_structure(plan):
             # Independently enumerate admitted direct source roles, not the builder ledger.
             call = effective.call
             if any(
+                type(expression) not in _KNOWN_EXPRESSIONS | {ParameterRefExpr}
+                for expression in call.arguments
+            ) or any(
                 type(expression) not in _KNOWN_EXPRESSIONS
                 for expression in (
-                    *call.arguments,
                     *effective.spec.partition_by,
                     *(item.expression for item in effective.spec.order_by),
                 )
@@ -5607,6 +5609,18 @@ def _query_parameters(plan, selected) -> bool:
             for ordinal, (actual, parameter) in enumerate(
                 zip(plan.parameters, declared)
             )
+        )
+        # A window argument read names its declaration by header position.
+        and all(
+            argument.parameter is None
+            if type(argument.expression) is not ParameterRefExpr
+            else 0 <= argument.expression.ordinal < len(declared)
+            and argument.parameter is plan.parameters[argument.expression.ordinal]
+            and argument.parameter.declaration.name == argument.expression.name
+            and argument.parameter.tag == argument.expression.type_name
+            and argument.parameter.declaration.type.nullability
+            is argument.expression.nullability
+            for argument in plan.window_arguments
         )
     )
 

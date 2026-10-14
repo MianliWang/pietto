@@ -24,6 +24,7 @@ POSITION_MESSAGE = "Query parameters are not available in this position."
 COLLISION = "PIE-S2354"
 DECLARATION = "PIE-S2353"
 INPUT = "PIE-S2356"
+COUNT = "PIE-S2358"
 
 
 def _project(root: Path, body: str, *, schema: int = 2) -> Path:
@@ -259,10 +260,22 @@ REFUSED = {
         "    select:\n        id\n    order by:\n        cutoff\n",
         [(POSITION, 6, 9)],
     ),
-    "window_argument": (
-        "    select:\n        id\n        w = lag(id, cutoff) window:\n"
+    "window_argument_operand": (
+        "    select:\n        id\n        w = lag(id, cutoff + 1) window:\n"
         "            order by:\n                id\n",
         [(POSITION, 5, 21)],
+    ),
+    "window_partition": (
+        "    select:\n        id\n        r = row_number() window:\n"
+        "            partition by:\n                cutoff\n"
+        "            order by:\n                id\n",
+        [(POSITION, 7, 17)],
+    ),
+    "grouped_window": (
+        "    group by:\n        id\n    select:\n        id\n"
+        "        w = lag(id, cutoff) window:\n            order by:\n"
+        "                id\n",
+        [(POSITION, 7, 21)],
     ),
     "window_order": (
         "    let:\n        s = cutoff * 2\n    select:\n        id\n"
@@ -587,3 +600,85 @@ def test_a_header_name_never_shadows_a_completed_input_field(
     )
     distinct = entry.replace("extra", "other")
     assert _check(_project(tmp_path / "distinct", inputs + distinct)) == (0, [])
+
+
+def test_bare_reads_fill_window_values_defaults_and_counts(tmp_path: Path) -> None:
+    body = (
+        "query q(step: Int not null, fill: Int nullable, seed: Int not null):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        a = lag(id, step, fill) window:\n"
+        "            order by:\n                id\n"
+        "        b = ntile(step) window:\n"
+        "            order by:\n                id\n"
+        "        c = nth_value(plain, step) window:\n"
+        "            order by:\n                id\n"
+        "            rows between unbounded preceding and unbounded following\n"
+        "        d = first_value(seed) window:\n"
+        "            order by:\n                id\n"
+        "            rows between unbounded preceding and current row\n"
+    )
+    assert _check(_project(tmp_path, body)) == (0, [])
+
+
+def test_a_window_count_parameter_is_int_not_null(tmp_path: Path) -> None:
+    body = (
+        "query q(n: Int nullable, t: Text not null, r: Float not null):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        a = lag(id, n) window:\n"
+        "            order by:\n                id\n"
+        "        b = ntile(t) window:\n"
+        "            order by:\n                id\n"
+        "        c = nth_value(id, r) window:\n"
+        "            order by:\n                id\n"
+        "            rows between unbounded preceding and unbounded following\n"
+    )
+    message = "A window count parameter must be declared Int not null."
+    assert _check(_project(tmp_path, body), messages=True) == (
+        1,
+        [(COUNT, message, 5, 21), (COUNT, message, 8, 19), (COUNT, message, 11, 27)],
+    )
+
+
+def test_other_window_positions_never_read_a_parameter(tmp_path: Path) -> None:
+    body = (
+        "query q(cutoff: Int not null):\n"
+        "    from rows\n"
+        "    let:\n"
+        "        s = cutoff * 2\n"
+        "    select:\n"
+        "        id\n"
+        "        f = first_value(id) window:\n"
+        "            order by:\n                id\n"
+        "            rows between cutoff preceding and current row\n"
+        "        t = sum(cutoff) window:\n"
+        "            order by:\n                id\n"
+        "        p = row_number() window:\n"
+        "            partition by:\n                cutoff\n"
+        "            order by:\n                s\n"
+        "        n = lag(id, cutoff + 1) window:\n"
+        "            order by:\n                id\n"
+        "        g = first_value(id) window base\n"
+        "    window base:\n"
+        "        order by:\n"
+        "            id\n"
+        "        groups between current row and s following\n"
+    )
+    message = "Query parameters are not available in this position."
+    assert _check(_project(tmp_path, body), messages=True) == (
+        1,
+        [
+            (POSITION, message, line, column)
+            for line, column in (
+                (10, 26),  # frame offset
+                (11, 17),  # an argument of another window function
+                (16, 17),  # PARTITION BY key
+                (18, 17),  # ORDER BY key through a let
+                (19, 21),  # a read beneath an operator in an argument
+                (26, 40),  # named-window frame offset through a let
+            )
+        ],
+    )

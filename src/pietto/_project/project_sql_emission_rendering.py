@@ -791,9 +791,20 @@ def _window_value(w: _Writer, column, alias) -> None:
             w.identifier(
                 argument.read.name, "window_argument_column", argument.read.terminal
             )
-        else:
+        elif argument.parameter is None:
             assert argument.literal is not None
             w.emit(argument.literal, "literal", "window_argument_literal", reference)
+        elif argument.role not in windowing.COUNT_ROLES:
+            w.parameter_read(argument.parameter)
+        elif w.request.family == "postgres":
+            # PostgreSQL's structural count is int4; the int8 anchor is cast.
+            w.emit("CAST(", "syntax", "window_count_open", reference)
+            w.parameter_read(argument.parameter)
+            w.emit(" AS pg_catalog.int4)", "syntax", "window_count_close", reference)
+        else:
+            # MySQL refuses CAST(? AS SIGNED) as a LAG/LEAD offset or NTILE
+            # count; every MySQL count is a bare placeholder.
+            w.emit("?", "parameter", "Int", argument.parameter.original.ref)
     w.emit(")", "syntax", "window_close", reference)
     w.emit(" OVER ", "syntax", "window_over", reference)
     specification = column.specification

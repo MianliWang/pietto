@@ -554,6 +554,99 @@ def test_compile_arguments_are_checked_before_the_project_is_read(
         )
 
 
+WINDOWED = """
+query windowed(k: Int not null, b: Int not null, p: Int not null, v: Int nullable, f: Int not null):
+    from items
+    select:
+        id
+        a = lag(id, k, f) window:
+            order by:
+                id
+        n = ntile(b) window:
+            order by:
+                id
+        t = nth_value(id, p) window:
+            order by:
+                id
+            rows between unbounded preceding and unbounded following
+        l = lag(v) window:
+            order by:
+                id
+"""
+# k is a lag offset, b an ntile bucket count and p an nth_value position; v and
+# f are a window value and a lag default, which only their type constrains.
+WINDOW_BINDINGS = {
+    "lowest": ({"k": 0, "b": 1, "p": 1, "v": None, "f": -(2**63)}, None),
+    "highest": ({"k": 2**31 - 1, "b": 2**31 - 1, "p": 2**31 - 1, "v": 1, "f": 0}, None),
+    "offset_above_int4": (
+        {"k": 2**31, "b": 1, "p": 1, "v": 1, "f": 0},
+        ("PIE-R1004", "BINDING_INVALID"),
+    ),
+    "negative_offset": (
+        {"k": -1, "b": 1, "p": 1, "v": 1, "f": 0},
+        ("PIE-R1004", "BINDING_INVALID"),
+    ),
+    "zero_bucket": (
+        {"k": 0, "b": 0, "p": 1, "v": 1, "f": 0},
+        ("PIE-R1004", "BINDING_INVALID"),
+    ),
+    "zero_position": (
+        {"k": 0, "b": 1, "p": 0, "v": 1, "f": 0},
+        ("PIE-R1004", "BINDING_INVALID"),
+    ),
+    "null_count": (
+        {"k": None, "b": 1, "p": 1, "v": 1, "f": 0},
+        ("PIE-R1006", "BINDING_PARAMETER:0:Int"),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(WINDOW_BINDINGS))
+def test_window_parameters_compile_and_bind_their_count_interval(
+    tmp_path, monkeypatch, case
+):
+    """A window count binds only inside the PostgreSQL int4 interval of its
+    role; every check runs in execute() before any connection."""
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("an unopened attempt reached the driver")
+
+    monkeypatch.setattr(pg, "_connect", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + WINDOWED, encoding="utf-8")
+    query = compiled(project, kind="query", name="windowed")
+    assert [name for name, _, _ in query.parameters] == ["k", "b", "p", "v", "f"]
+    values, refusal = WINDOW_BINDINGS[case]
+    if refusal is not None:
+        with pytest.raises(execution.RequestRejected) as refused:
+            execution.execute(
+                query,
+                route="postgres_rows",
+                access=access(),
+                premise=PREMISE,
+                parameters=values,
+            )
+        assert (refused.value.code, refused.value.detail) == refusal
+        return
+    handle = execution.execute(
+        query,
+        route="postgres_rows",
+        access=access(),
+        premise=PREMISE,
+        parameters=values,
+    )
+    request = cast(Any, handle)._owner.request
+    # One `$n` per parameter in rendering order: k, f, b, p, v.
+    assert request.binding.arguments == tuple(values[n] for n in "kfbpv")
+    assert (
+        request.artifact.rendered.sql
+        == json.loads(cast(bytes, query.emission))["sql"].encode()
+    )
+    handle.close()
+
+
 def test_compiled_query_is_created_only_by_compile_query_or_load_bundle(query):
     with pytest.raises(TypeError, match=r"compile_query\(\) or load_bundle\(\)"):
         execution.CompiledQuery()

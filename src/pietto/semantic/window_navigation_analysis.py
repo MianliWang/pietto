@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypeGuard
+from typing import TypeGuard, cast
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto import ast_nodes as ast
@@ -13,6 +13,8 @@ from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
     NameExpr,
+    Nullability,
+    ParameterRefExpr,
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -87,6 +89,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.ParameterRefExpr,
     }
 )
 
@@ -198,7 +201,19 @@ _FRAME_VALUE_IDENTITIES = (
         FrameValueFunctionKind.NTH_VALUE,
     ),
 )
-type BoundedNavigationExpression = NameExpr | DottedNameExpr | LiteralExpr
+type BoundedNavigationExpression = (
+    NameExpr | DottedNameExpr | LiteralExpr | ParameterRefExpr
+)
+
+
+def _is_count_parameter(expression: Expression) -> TypeGuard[ParameterRefExpr]:
+    """A query parameter read that may stand for a structural window count."""
+
+    return (
+        type(expression) is ParameterRefExpr
+        and expression.type_name == "Int"
+        and expression.nullability is Nullability.NOT_NULL
+    )
 
 
 def navigation_window_function_frame_policy(
@@ -379,7 +394,13 @@ def analyze_navigation_computation_arguments(
         )
     else:
         offset_expression = arguments[1]
-        if (
+        if _is_count_parameter(offset_expression):
+            offset_fact = NavigationOffsetFact(
+                expression=offset_expression,
+                effective_value=None,
+                span=offset_expression.span,
+            )
+        elif (
             type(offset_expression) is not LiteralExpr
             or type(offset_expression.value) is not int
             or offset_expression.value < 0
@@ -393,11 +414,12 @@ def analyze_navigation_computation_arguments(
                     "be a nonnegative integer literal"
                 ),
             )
-        offset_fact = NavigationOffsetFact(
-            expression=offset_expression,
-            effective_value=offset_expression.value,
-            span=offset_expression.span,
-        )
+        else:
+            offset_fact = NavigationOffsetFact(
+                expression=offset_expression,
+                effective_value=offset_expression.value,
+                span=offset_expression.span,
+            )
 
     default_type: ValueType | None = None
     default_always_null = False
@@ -685,7 +707,7 @@ def analyze_frame_value_computation_arguments(
     result_formula = _FRAME_VALUE_RESULT_FORMULA
     if function is FrameValueFunctionKind.NTH_VALUE:
         position = arguments[1]
-        if (
+        if not _is_count_parameter(position) and (
             type(position) is not LiteralExpr
             or type(position.value) is not int
             or position.value < 1
@@ -701,7 +723,9 @@ def analyze_frame_value_computation_arguments(
             )
         position_fact = NthValuePositionFact(
             expression=position,
-            effective_value=position.value,
+            effective_value=None
+            if type(position) is ParameterRefExpr
+            else cast(int, cast(LiteralExpr, position).value),
         )
         position_type = infer_row_expression(
             position,
@@ -828,7 +852,7 @@ def _is_bounded_value_expression(
         raise ValueError(
             f"Unsupported navigation expression: {type(expression).__name__}"
         )
-    if type(expression) is NameExpr:
+    if type(expression) in {NameExpr, ParameterRefExpr}:
         return True
     if type(expression) is DottedNameExpr:
         return len(expression.parts) == 2 and (

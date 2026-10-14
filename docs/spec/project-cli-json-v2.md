@@ -269,20 +269,25 @@ including every `INPUT_REJECTED` and `BLOCKED` one, is v1 byte for byte, and a
 v1 reader rejects v2 by its tag. v2 is v1 with these differences:
 
 - `parameters`: one object per header parameter in header order,
-  `{"parameter": j, "name", "tag", "nullable", "reads": [expression refs]}`;
-  `reads` lists every rendered read in plan order.
+  `{"parameter": j, "name", "tag", "nullable", "reads": [refs]}`; `reads`
+  lists every rendered read in plan order: expression reads, then window
+  argument reads (`{"kind": "window_argument", "position": i}`).
 - `parameter_uses[i]` names its owner instead of a slot:
   `{"use", "owner": {"kind": "slot", "slot": i} | {"kind": "parameter",
   "parameter": j}, "server_index", "physical_type", "range"}`. Reads and
   bind-safe slots share one occurrence order: PostgreSQL gives each owner one
   `server_index`, MySQL one per occurrence.
 - `binding_obligations`: `[{"obligation": k, "kind", "subject", "parameters"}]`
-  in rendering order, one per operation whose check waits for a binding.
-  `kind` is `int_range_representable` (an Int result range) or
-  `text_result_width` (a Text result width); `parameters` lists every
-  parameter the subject depends on, directly or through `let:` bindings. It
-  may name a parameter whose value cannot change the check, never omit one
-  that can.
+  in rendering order, one per operation or window count argument whose check
+  waits for a binding. `kind` is `int_range_representable` (an Int result
+  range), `text_result_width` (a Text result width) or
+  `structural_count_interval` (a window count argument: an offset from 0, a
+  bucket count or position from 1, up to 2147483647 on PostgreSQL and
+  9223372036854775807 on MySQL). `subject` is an expression ref for an
+  operation and a window argument ref (`{"kind": "window_argument",
+  "position": i}`) for a count; `parameters` lists every parameter the subject
+  depends on, directly or through `let:` bindings. It may name a parameter
+  whose value cannot change the check, never omit one that can.
 - A generated requirement of kind `query_parameter` (rule R04, evidence
   `[{"parameter": j}]`) describes each rendered read.
 - A read inside an ORDER BY key, including a constant leaf under `select

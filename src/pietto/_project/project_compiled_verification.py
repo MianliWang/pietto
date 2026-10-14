@@ -803,7 +803,7 @@ def verify_description(value: Description) -> None:
                         *(
                             a
                             for role, a in window_value.get("arguments")
-                            if role == "value"
+                            if role == "value" and a.kind == "read"
                         ),
                     )
                     need(
@@ -821,7 +821,7 @@ def verify_description(value: Description) -> None:
             )
             for argument in get("arguments"):
                 need(type(argument) is tuple and len(argument) == 2, "WINDOW_ARGUMENT")
-                ref(argument[1], {"read", "literal", "null_literal"})
+                ref(argument[1], {"read", "literal", "null_literal", "parameter_read"})
             resolved_arguments(get("function"), get("arguments"), records, family)
         elif kind == "window_spec":
             refs(get("partition"), {"read"})
@@ -2239,7 +2239,28 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         role == item.role == source.role.value,
                         "EXPORT_WINDOW_ARGUMENT_ROLE",
                     )
-                    if item.read is not None:
+                    if item.parameter is not None:
+                        # The read record of this argument's own native use.
+                        leaf = item.parameter
+                        need(
+                            source.parameter is not None
+                            and leaf.original is source
+                            and leaf.use.original is source
+                            and leaf.use.parameter is source.parameter
+                            and records[a].address.kind == "parameter_read"
+                            and records[a].get("parameter")
+                            == Address("parameter", source.parameter.ordinal)
+                            and any(
+                                u is leaf.use and records[native].get("slot") == a
+                                for u, native in zip(
+                                    artifact.parameter_uses,
+                                    (r.address for r in grouped["native_use"]),
+                                    strict=True,
+                                )
+                            ),
+                            "EXPORT_WINDOW_PARAMETER",
+                        )
+                    elif item.read is not None:
                         check_read(a, item.read, producer, use)
                     else:
                         site_positions = tuple(
@@ -3139,9 +3160,18 @@ def _verify_compiled_emission(artifact, request):
             elif type(column) is windowing.WindowColumn:
                 need(
                     record.address.kind == "window"
-                    and expression.kind == "window_value",
+                    and expression.kind == "window_value"
+                    and len(column.arguments)
+                    == len(records[expression].get("arguments")),
                     "EMISSION_WINDOW_COLUMN",
                 )
+                # A header-parameter argument is a placeholder leaf in native
+                # order; the window stage check covers every other argument.
+                for argument, (_, address) in zip(
+                    column.arguments, records[expression].get("arguments"), strict=True
+                ):
+                    if address.kind == "parameter_read":
+                        scalar(argument.parameter, address, producer, use)
             elif type(column) is grouping.AggregateValueColumn:
                 value = records[expression]
                 function = value.get("function")
@@ -3600,7 +3630,17 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
                 and argument.role == role,
                 "WINDOW_ARGUMENT",
             )
-            if role == "value":
+            if address.kind == "parameter_read":
+                # The leaf itself is checked with the unit's native uses.
+                need(
+                    argument.literal is None
+                    and argument.read is None
+                    and argument.parameter is not None
+                    and (type(static.get(role)) is windowing.ParameterStatic)
+                    == (role != "value"),
+                    "WINDOW_PARAMETER_ARGUMENT",
+                )
+            elif role == "value":
                 need(
                     argument.literal is None and argument.read is not None,
                     "WINDOW_VALUE_ARGUMENT",

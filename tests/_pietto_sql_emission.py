@@ -779,14 +779,21 @@ def bindings(case, variant):
     return PARAMETER_BINDINGS.get((case, variant))
 
 
-def parameterized_fixture(target, body, policy="preserve_literals", *, protocol=True):
+def parameterized_fixture(
+    target, body, policy="preserve_literals", *, protocol=True, limits=None
+):
     """The published one-source fixture with ``body`` as its query ``result``.
 
-    The contract adds exact identifier case and, unless ``protocol`` is false,
-    the native parameter protocol every parameter read requires.
+    The contract adds exact identifier case, ``limits`` as its resource limits
+    and, unless ``protocol`` is false, the native parameter protocol every
+    parameter read requires.
     """
     base = fixture(target)
     contract = json.loads(base["contract"])
+    if limits is not None:
+        contract["environment"].append(
+            {"key": "resource_limits", "scope": "statement", "value": limits}
+        )
     contract["environment"].append(
         {
             "key": "identifier_case",
@@ -9670,6 +9677,9 @@ def _decode_fixed_public(document, limits):
 
 PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
 BINDING_OBLIGATION_KINDS = frozenset({"int_range_representable", "text_result_width"})
+# A window offset, bucket count or position (S04w): its subject is the window
+# argument the parameter fills, and MySQL renders it as a bare placeholder.
+COUNT_OBLIGATION = "structural_count_interval"
 
 
 def _decode_parameterized_public(document, limits):
@@ -9741,8 +9751,15 @@ def _decode_parameterized_public(document, limits):
         for read in _records(parameter["reads"]):
             _reference(read)
             key = (read["kind"], read["position"])
-            _need(read["kind"] == "expression" and key not in reads)
+            _need(read["kind"] in {"expression", "window_argument"})
+            _need(key not in reads)
             reads[key] = j
+    counts = set()
+    for obligation in _records(document["binding_obligations"]):
+        if type(obligation) is dict and obligation.get("kind") == COUNT_OBLIGATION:
+            _reference(obligation.get("subject"))
+            subject = obligation["subject"]
+            counts.add((subject["kind"], subject["position"]))
     placeholders = [i for i in lexical if i["kind"] == "parameter"]
     uses = _records(document["parameter_uses"])
     _need(len(uses) == len(placeholders) and len(uses) <= limits["parameters"])
@@ -9771,10 +9788,14 @@ def _decode_parameterized_public(document, limits):
             read = (subject["kind"], subject["position"])
             _need(reads.get(read) == owner["parameter"] and read not in seen_reads)
             seen_reads.add(read)
-            # The placeholder sits inside the read's own typed anchor.
-            _need(read in anchors)
-            start, end = anchors[read]
-            _need(start < interval["start"] and interval["end"] < end)
+            # The placeholder sits inside the read's own typed anchor; only a
+            # MySQL window count is a bare placeholder.
+            if family == "mysql" and read in counts:
+                _need(read not in anchors and tag == "Int")
+            else:
+                _need(read in anchors)
+                start, end = anchors[read]
+                _need(start < interval["start"] and interval["end"] < end)
         _need(
             interval["role"] == tag
             and use["physical_type"] == _fixed_physical(family, tag)
@@ -9805,10 +9826,19 @@ def _decode_parameterized_public(document, limits):
         _reference(obligation["subject"])
         _need(type(obligation["parameters"]) is list)
         depends = cast(list[int], obligation["parameters"])
+        subject = (obligation["subject"]["kind"], obligation["subject"]["position"])
         _need(
             obligation["obligation"] == k
-            and obligation["kind"] in BINDING_OBLIGATION_KINDS
-            and obligation["subject"]["kind"] == "expression"
+            and (
+                obligation["kind"] in BINDING_OBLIGATION_KINDS
+                and subject[0] == "expression"
+                # A count checks the one Int parameter its argument reads.
+                or obligation["kind"] == COUNT_OBLIGATION
+                and subject in reads
+                and depends == [reads[subject]]
+                and header[reads[subject]]["tag"] == "Int"
+                and header[reads[subject]]["nullable"] is False
+            )
             and bool(depends)
             and all(_ordinal(j) and j < len(header) for j in depends)
             and depends == sorted(set(depends))

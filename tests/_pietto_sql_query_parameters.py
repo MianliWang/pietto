@@ -17,13 +17,17 @@ def parameterized_case(
     policy: str = "preserve_literals",
     *,
     protocol: bool = True,
+    limits: dict[str, int] | None = None,
 ) -> Any:
     """Build the fixture with ``body`` as its selected query ``result``.
 
-    The contract adds exact identifier case and, unless ``protocol`` is false,
-    the native parameter protocol every parameter read requires.
+    The contract adds exact identifier case, ``limits`` as its resource limits
+    and, unless ``protocol`` is false, the native parameter protocol every
+    parameter read requires.
     """
-    item = probe.parameterized_fixture(target, body, policy, protocol=protocol)
+    item = probe.parameterized_fixture(
+        target, body, policy, protocol=protocol, limits=limits
+    )
     return probe.build_case(
         root / target / policy, item["source"], item["contract"], policy
     )

@@ -324,6 +324,96 @@ def test_a_parameterized_root_is_a_v2_payload_no_loader_accepts_yet(tmp_path, ta
         prepare_compiled_template(root)
 
 
+WINDOW_COUNTS = """query result(k: Int not null, b: Int not null):
+    from rows
+    select:
+        id
+        a = lag(id, k) window:
+            order by:
+                id
+        n = ntile(b) window:
+            order by:
+                id
+"""
+
+
+def _forged(description, change):
+    return type(description)(
+        description.compatibility,
+        description.producer,
+        description.query,
+        tuple(
+            (name, tuple(change(r) for r in records))
+            for name, records in description.members
+        ),
+    )
+
+
+def test_a_window_parameter_argument_is_tied_to_its_own_read(tmp_path, monkeypatch):
+    """Export, structure and semantics each re-derive a window count read: a
+    swapped read, a nullable count and a widened interval are all refused."""
+    from dataclasses import replace
+    import _pietto_sql_emission as probe
+    from pietto._project import project_sql_emission_windows as windowing
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_verification import verify_export
+    from pietto._project.project_completed_semantics import (
+        derive_compiled_semantics,
+        verify_compiled_semantics,
+    )
+
+    item = probe.parameterized_fixture("postgres", WINDOW_COUNTS)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    built = build_compiled(outcome.artifact)
+    description = built.root.description
+    values = [r for r in description.records if r.address.kind == "window_value"]
+    (value, offset), (bucket,) = (v.get("arguments") for v in values)
+    assert (offset[0], bucket[0]) == ("offset", "bucket")
+    assert offset[1].kind == bucket[1].kind == "parameter_read"
+    position = wire.FIELDS["window_value"].index("arguments")
+
+    def swapped(record):
+        if record is not values[0]:
+            return record
+        changed = list(record.values)
+        changed[position] = (value, ("offset", bucket[1]))
+        return type(record)(record.address, tuple(changed))
+
+    # A valid-looking read of the other count parameter.
+    with pytest.raises(wire.CompiledError, match="^COMPILED_EXPORT_WINDOW_PARAMETER$"):
+        verify_export(_forged(description, swapped), outcome.artifact)
+    header = [r for r in description.records if r.address.kind == "parameter"]
+    nullable = _forged(
+        description, lambda r: _header(r, "nullable", True) if r is header[0] else r
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_WINDOW_PARAMETER$"):
+        verify_description(nullable)
+    root = built.root
+    verify_compiled_semantics(derive_compiled_semantics(root, (), (1, 1)))
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        derive_compiled_semantics(root, (), (0, 0))
+    exact = windowing.count_realization
+
+    def widened(*arguments, **keywords):
+        found = exact(*arguments, **keywords)
+        if keywords.get("bound") or found is None:
+            return found
+        return replace(
+            found,
+            domain={**found.domain, "min": "0"},
+            proven_int_range=(0, (1 << 31) - 1),
+        )
+
+    # The template's bucket interval claims 0: only the verifier refuses it.
+    with monkeypatch.context() as patch:
+        patch.setattr(windowing, "count_realization", widened)
+        forged = derive_compiled_semantics(root, (), None)
+    with pytest.raises(wire.CompiledError, match="^COMPILED_SEMANTIC_REALIZATION$"):
+        verify_compiled_semantics(forged)
+
+
 def test_a_parameter_read_fact_keeps_its_proven_int_range(tmp_path, monkeypatch):
     from dataclasses import replace
     from pietto._project import project_sql_emission_rows as physical

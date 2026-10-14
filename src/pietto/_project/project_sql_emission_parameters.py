@@ -7,6 +7,7 @@ import math
 from typing import Any
 
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project.project_sql_plan_windows import ProjectSQLWindowArgument
 from pietto.semantic.model import TypeKind, ValueTypeKind, EffectiveNullability
 
 __all__: tuple[str, ...] = ()
@@ -205,7 +206,10 @@ def allocate_uses(family, occurrences, limit):
     result = []
     for ordinal, (item, physical) in enumerate(occurrences):
         kind = type(item)
-        named = kind in (row.ProjectSQLParameterRead, row.CompiledParameterRead)
+        # A header-parameter read, in a row expression or as a window argument.
+        named = kind in (row.ProjectSQLParameterRead, row.CompiledParameterRead) or (
+            kind is ProjectSQLWindowArgument and item.parameter is not None
+        )
         if not named and kind not in (
             row.ProjectSQLBoundLiteral,
             row.CompiledBoundLiteral,

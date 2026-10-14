@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 import _pietto_sql_emission as probe
+from _pietto_sql_query_parameters import PROTOCOL
 from _pietto_sql_query_parameters import parameterized_case as _case
 import _pietto_target_conformance_cases as conformance
 from pietto._project.project_sql_emission import serialize_project_sql_emission
@@ -633,3 +634,422 @@ def test_conformance_bindings_cover_every_use_of_the_position_witness(
     rows, labels, _ = conformance.parameter_expectation(target, variant)
     assert [c["label"] for c in document["columns"]] == list(labels)
     assert all(len(row) == len(labels) for row in rows)
+
+
+WINDOWS = """query result(k: Int not null, d: Int not null, v: Int not null):
+    from rows
+    select:
+        id
+        a = lag(id, k, d) window:
+            order by:
+                id
+        b = ntile(k) window:
+            order by:
+                id
+        c = nth_value(id, k) window:
+            order by:
+                id
+            rows between unbounded preceding and unbounded following
+        e = lag(v) window:
+            order by:
+                id
+"""
+_CARRIED = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS '
+        '(SELECT "s0"."order.id" AS "c0", "s0"."flag value" AS "c1", '
+        '"s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", '
+        '"s0"."ratio value" AS "c4", '
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS "
+        "(SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, "
+        '`s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, '
+        "`s0`.`ratio value` AS `c4`, "
+    ),
+}
+WINDOW_SQL = {
+    "postgres": _CARRIED["postgres"]
+    + 'LAG("s0"."order.id", CAST(CAST($1 AS pg_catalog.int8) AS pg_catalog.int4), '
+    'CAST($2 AS pg_catalog.int8)) OVER (ORDER BY "s0"."order.id" ASC) AS "c5", '
+    "NTILE(CAST(CAST($1 AS pg_catalog.int8) AS pg_catalog.int4)) OVER "
+    '(ORDER BY "s0"."order.id" ASC) AS "c6", '
+    'NTH_VALUE("s0"."order.id", CAST(CAST($1 AS pg_catalog.int8) AS '
+    'pg_catalog.int4)) OVER (ORDER BY "s0"."order.id" ASC ROWS BETWEEN UNBOUNDED '
+    'PRECEDING AND UNBOUNDED FOLLOWING) AS "c7", '
+    'LAG(CAST($3 AS pg_catalog.int8)) OVER (ORDER BY "s0"."order.id" ASC) AS "c8" '
+    'FROM "public"."phase66 source é" AS "s0") SELECT "t1"."c0" AS "id", '
+    '"t1"."c5" AS "a", "t1"."c6" AS "b", "t1"."c7" AS "c", "t1"."c8" AS "e" '
+    'FROM "p0" AS "t1"',
+    "mysql": _CARRIED["mysql"]
+    + "LAG(`s0`.`order.id`, ?, CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` "
+    "ASC) AS `c5`, NTILE(?) OVER (ORDER BY `s0`.`order.id` ASC) AS `c6`, "
+    "NTH_VALUE(`s0`.`order.id`, ?) OVER (ORDER BY `s0`.`order.id` ASC ROWS "
+    "BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS `c7`, "
+    "LAG(CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` ASC) AS `c8` "
+    "FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, "
+    "`t1`.`c5` AS `a`, `t1`.`c6` AS `b`, `t1`.`c7` AS `c`, `t1`.`c8` AS `e` "
+    "FROM `p0` AS `t1`",
+}
+# Native evidence (lanes4/s04w-probe-run): PostgreSQL's counts are int4 and its
+# int8 default/value anchors give int8 results; MySQL refuses CAST(? AS SIGNED)
+# as LAG/NTILE counts (1064) but returns a SIGNED anchor value as BIGINT.
+WINDOW_COLUMNS = {
+    "postgres": {
+        "a": (False, "pg_int8", INT_MIN, INT_MAX),
+        "b": (False, "pg_int4", "0", str((1 << 31) - 1)),
+        "c": (True, "pg_int8", "-9007199254740993", "9007199254740993"),
+        "e": (True, "pg_int8", INT_MIN, INT_MAX),
+    },
+    "mysql": {
+        "a": (False, "my_bigint", INT_MIN, INT_MAX),
+        "b": (False, "my_bigint", "0", INT_MAX),
+        "c": (True, "my_bigint", "-9007199254740993", "9007199254740993"),
+        "e": (True, "my_bigint", INT_MIN, INT_MAX),
+    },
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_window_values_defaults_and_counts_are_placeholders(
+    tmp_path: Path, target: str, policy: str
+) -> None:
+    _, outcome = _case(tmp_path, target, WINDOWS, policy)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    document = _document(outcome)
+    assert document["sql"] == WINDOW_SQL[target]
+    uses = document["parameter_uses"]
+    # Rendering order: k (offset), d (default), k (bucket), k (position), v.
+    assert [u["owner"]["parameter"] for u in uses] == [0, 1, 0, 0, 2]
+    assert [u["server_index"] for u in uses] == (
+        [1, 2, 1, 1, 3] if target == "postgres" else [1, 2, 3, 4, 5]
+    )
+    assert {u["physical_type"] for u in uses} == {PLACEHOLDER[target]}
+    reads = {p["name"]: p["reads"] for p in document["parameters"]}
+    assert {name: [r["kind"] for r in refs] for name, refs in reads.items()} == {
+        "k": ["window_argument"] * 3,
+        "d": ["window_argument"],
+        "v": ["window_argument"],
+    }
+    assert [
+        (o["kind"], o["subject"], o["parameters"])
+        for o in document["binding_obligations"]
+    ] == [("structural_count_interval", ref, [0]) for ref in reads["k"]]
+    requirements = [
+        r for r in document["requirements"] if r["kind"] == "query_parameter"
+    ]
+    assert [r["evidence"] for r in requirements] == [
+        [{"parameter": u["owner"]["parameter"]}] for u in uses
+    ]
+    columns = {c["label"]: c for c in document["columns"]}
+    for label, (nullable, storage, low, high) in WINDOW_COLUMNS[target].items():
+        representation = columns[label]["representation"]
+        assert (columns[label]["nullable"], representation["storage"]["kind"]) == (
+            nullable,
+            storage,
+        )
+        assert (representation["domain"]["min"], representation["domain"]["max"]) == (
+            low,
+            high,
+        )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_window_reads_count_toward_the_parameter_occurrence_limit(
+    tmp_path: Path, target: str
+) -> None:
+    # WINDOWS renders five parameter occurrences on both targets.
+    _, accepted = _case(
+        tmp_path / "5", target, WINDOWS, "preserve_literals", limits={"parameters": 5}
+    )
+    assert accepted.status == "VERIFIED", accepted.blockers
+    _, refused = _case(
+        tmp_path / "4", target, WINDOWS, "preserve_literals", limits={"parameters": 4}
+    )
+    assert refused.status == "BLOCKED"
+    # As for bind-safe slots, the refused allocation is reported with the limit.
+    assert [(b.code, b.detail) for b in refused.blockers] == [
+        ("PIE-B1008", "native_occurrence_allocation"),
+        ("PIE-B1007", "parameter_occurrence_limit"),
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_the_public_decoder_reads_window_reads_and_count_obligations(
+    tmp_path: Path, target: str
+) -> None:
+    _, outcome = _case(tmp_path, target, WINDOWS, "preserve_literals")
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    values = {"k": 1, "d": -1, "v": 3}
+    # Rendering order k (offset), d (default), k (bucket), k (position), v.
+    assert probe.decoded_arguments(document, values) == (
+        (1, -1, 3) if target == "postgres" else (1, -1, 1, 1, 3)
+    )
+
+    def depends(d):
+        d["binding_obligations"][0]["parameters"] = [1]
+
+    def subject(d):
+        d["binding_obligations"][0]["subject"] = {"kind": "expression", "position": 0}
+
+    def unknown(d):
+        d["binding_obligations"][0]["kind"] = "unregistered_check"
+
+    for change in (depends, subject, unknown):
+        with pytest.raises(ValueError):
+            probe.decode_public(_mutated(document, change))
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_parameter_offset_may_be_null_and_shares_the_where_numbering(
+    tmp_path: Path, target: str
+) -> None:
+    body = (
+        "query result(k: Int not null):\n"
+        "    from rows\n"
+        "    where id > k\n"
+        "    select:\n"
+        "        id\n"
+        "        z = lag(id, k, 0) window:\n"
+        "            order by:\n"
+        "                id\n"
+        "        o = lag(id, 0) window:\n"
+        "            order by:\n"
+        "                id\n"
+        "        n = lead(id, k) window:\n"
+        "            order by:\n"
+        "                id\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    assert outcome.status == "VERIFIED", outcome.blockers
+    document = _document(outcome)
+    columns = {c["label"]: c for c in document["columns"]}
+    # A parameter offset is never assumed to be 0: only a default keeps non-NULL.
+    assert [columns[label]["nullable"] for label in ("z", "o", "n")] == [
+        False,
+        False,
+        True,
+    ]
+    uses = document["parameter_uses"]
+    sql = document["sql"].encode()
+    tokens = [sql[u["range"]["start"] : u["range"]["end"]].decode() for u in uses]
+    assert len(uses) == 3
+    if target == "postgres":
+        assert tokens == ["$1"] * 3 and document["sql"].count("$1") == 3
+    else:
+        assert tokens == ["?"] * 3 and document["sql"].count("?") == 3
+        assert [u["server_index"] for u in uses] == [1, 2, 3]
+    assert [o["kind"] for o in document["binding_obligations"]] == [
+        "structural_count_interval"
+    ] * 2
+    # Plan order: expression reads, then window argument reads.
+    assert [r["kind"] for r in document["parameters"][0]["reads"]] == [
+        "expression",
+        "window_argument",
+        "window_argument",
+    ]
+
+
+WINDOW_REFUSALS = {
+    "text_value": (
+        "label: Text not null",
+        "lag(label)",
+        ("PIE-B1003", "window_parameter_value_kind_not_realized_yet"),
+    ),
+    "bool_value": (
+        "flag2: Bool not null",
+        "lag(flag2)",
+        ("PIE-B1003", "window_parameter_value_kind_not_realized_yet"),
+    ),
+    "text_default": (
+        "label: Text not null",
+        "lag(text, 1, label)",
+        ("PIE-B1003", "window_default_literal_kind_not_realized_yet"),
+    ),
+    "float_value": ("r: Float not null", "lag(r)", None),
+}
+
+
+@pytest.mark.parametrize(
+    ("header", "call", "expected"), WINDOW_REFUSALS.values(), ids=tuple(WINDOW_REFUSALS)
+)
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_unmeasured_window_parameter_kinds_are_refused(
+    tmp_path: Path,
+    target: str,
+    header: str,
+    call: str,
+    expected: tuple[str, str] | None,
+) -> None:
+    body = (
+        f"query result({header}):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        f"        w = {call} window:\n"
+        "            order by:\n"
+        "                id\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    if expected is None:
+        assert outcome.status == "VERIFIED", outcome.blockers
+        column = {c["label"]: c for c in _document(outcome)["columns"]}["w"]
+        assert column["representation"]["storage"]["kind"] == (
+            "pg_float8" if target == "postgres" else "my_double"
+        )
+        return
+    assert outcome.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in outcome.blockers] == [expected]
+
+
+# The counts of WINDOWS rendered as value placeholders: consistent bytes.
+FORGED_COUNT = {
+    "postgres": 'LAG("s0"."order.id", CAST($1 AS pg_catalog.int8), CAST($2',
+    "mysql": "LAG(`s0`.`order.id`, CAST(? AS SIGNED), CAST(? AS SIGNED))",
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_verifiers_reject_forged_window_parameters(
+    tmp_path: Path, target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_windows as windowing
+    from pietto._project.project_sql_emission_ast import SQLRowQuery, row_value_roots
+    from pietto._project.project_sql_emission_rendering import render_row_sql
+
+    checked, outcome = _case(tmp_path, target, WINDOWS, "preserve_literals")
+    artifact = outcome.artifact
+    assert artifact is not None
+    query = artifact.ast
+    assert type(query) is SQLRowQuery
+    # The closed observation schema has no parameter read; export refuses it.
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+
+    def refused(owner: Any, name: str, value: Any) -> bool:
+        original = getattr(owner, name)
+        object.__setattr__(owner, name, value)
+        try:
+            return not verify_project_sql_emission(artifact, artifact.request).verified
+        finally:
+            object.__setattr__(owner, name, original)
+
+    # MySQL refuses CAST(? AS SIGNED) as a LAG or NTILE count, and PostgreSQL's
+    # count is int4: the verifier re-derives the count tokens on its own.
+    assert not refused(artifact, "rendered", render_row_sql(query))
+    with monkeypatch.context() as patch:
+        patch.setattr(windowing, "COUNT_ROLES", frozenset())
+        forged = render_row_sql(query)
+    assert FORGED_COUNT[target] in forged.sql.decode()
+    assert refused(artifact, "rendered", forged)
+
+    # Each parameter leaf claiming another valid-looking realization.
+    leaves = {
+        root.role: root.parameter
+        for root in row_value_roots(query)
+        if type(root) is windowing.WindowArgument and root.parameter is not None
+    }
+    offset, value = leaves["offset"].realization, leaves["value"].realization
+    for leaf, realization in (
+        (leaves["offset"], replace(offset, domain=dict(offset.domain, min="-1"))),
+        (leaves["default"], leaves["bucket"].realization),
+        (
+            leaves["value"],
+            replace(
+                value,
+                domain=dict(value.domain, min="0", max="100"),
+                proven_int_range=(0, 100),
+            ),
+        ),
+    ):
+        assert refused(leaf, "realization", realization)
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+
+    # A lost plan read, and a read naming another `Int not null` parameter.
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    roles = {a.role.value: a for a in plan.window_arguments if a.parameter is not None}
+    for argument, parameter in (
+        (roles["default"], None),
+        (roles["offset"], plan.parameters[1]),
+    ):
+        original = argument.parameter
+        object.__setattr__(argument, "parameter", parameter)
+        again = verify_project_sql_plan(
+            plan,
+            checked.completed,
+            checked.analysis_bundle,
+            checked.selected_owner,
+            literal_policy=checked.literal_policy,
+        )
+        object.__setattr__(argument, "parameter", original)
+        assert again.issues == (ProjectSQLPlanVerificationIssue.QUERY_PARAMETERS,)
+
+
+JOINED = """query result(k: Int not null):
+    from lhs
+    inner join rhs as r:
+        from lhs
+        on lhs.id == r.id
+    select:
+        a = lhs.id
+        w = lag(lhs.id, k, k) window:
+            order by:
+                lhs.id
+"""
+NAMED = """query result(k: Int not null):
+    from rows
+    select:
+        id
+        w = ntile(k) window composed
+        x = lag(id, k) window composed
+    window composed = base
+    window base:
+        order by:
+            id desc
+"""
+SHAPES = {
+    ("joined", "postgres"): 'LAG("t0"."c0", CAST(CAST($1 AS pg_catalog.int8) AS '
+    'pg_catalog.int4), CAST($1 AS pg_catalog.int8)) OVER (ORDER BY "t0"."c0" ASC)',
+    ("joined", "mysql"): "LAG(`t0`.`c0`, ?, CAST(? AS SIGNED)) OVER "
+    "(ORDER BY `t0`.`c0` ASC)",
+    ("named", "postgres"): "NTILE(CAST(CAST($1 AS pg_catalog.int8) AS "
+    'pg_catalog.int4)) OVER "w0" AS "c5", LAG("s0"."order.id", CAST(CAST($1 AS '
+    'pg_catalog.int8) AS pg_catalog.int4)) OVER "w0" AS "c6"',
+    ("named", "mysql"): "NTILE(?) OVER `w0` AS `c5`, LAG(`s0`.`order.id`, ?) "
+    "OVER `w0` AS `c6`",
+}
+
+
+@pytest.mark.parametrize("shape", ("joined", "named"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_window_parameters_over_a_join_and_a_named_window(
+    tmp_path: Path, target: str, shape: str
+) -> None:
+    if shape == "named":
+        _, outcome = _case(tmp_path, target, NAMED, "preserve_literals")
+    else:
+        item = probe.join_witness(target, JOINED, policy="preserve_literals")
+        contract = json.loads(item["contract"])
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": PROTOCOL[target],
+            }
+        )
+        _, outcome = probe.build_case(
+            tmp_path / target,
+            item["source"],
+            probe.encoded(contract).decode(),
+            "preserve_literals",
+        )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    document = _document(outcome)
+    assert SHAPES[shape, target] in document["sql"]
+    # The joined default is a value, not a count: only counts are obligations.
+    assert [o["kind"] for o in document["binding_obligations"]] == [
+        "structural_count_interval"
+    ] * (1 if shape == "joined" else 2)

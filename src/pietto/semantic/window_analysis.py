@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import cast
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto.ast_nodes import (
@@ -12,7 +13,9 @@ from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
     NameExpr,
+    Nullability,
     OrderItem,
+    ParameterRefExpr,
     QueryDef,
     SelectItem,
     TableDef,
@@ -810,7 +813,13 @@ def analyze_window_computation(
     signature_arguments: tuple[LogicalTypeIdentity, ...] = ()
     if distribution_policy is DistributionWindowPolicy.BALANCED_BUCKETS:
         argument = expression.call.arguments[0]
-        if (
+        # A query parameter count (Int not null) is fixed only by its binding.
+        counted = (
+            type(argument) is ParameterRefExpr
+            and argument.type_name == "Int"
+            and argument.nullability is Nullability.NOT_NULL
+        )
+        if not counted and (
             type(argument) is not LiteralExpr
             or type(argument.value) is not int
             or argument.value <= 0
@@ -825,7 +834,7 @@ def analyze_window_computation(
                     "integer literal"
                 ),
             )
-        bucket_count = argument.value
+        bucket_count = None if counted else cast(int, cast(LiteralExpr, argument).value)
         signature_arguments = (_DISTRIBUTION_INT_RESULT_IDENTITY,)
     signature_match = bind_signature(signature, signature_arguments)
     if type(signature_match) is not SignatureMatch:
