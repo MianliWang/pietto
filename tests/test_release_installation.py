@@ -139,7 +139,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
         "pyarrow": "26.0.0",
-        "ruff": "0.16.10",
+        "ruff": "0.17.0",
         "typing-extensions": "4.16.0",
     }
     edges = {
