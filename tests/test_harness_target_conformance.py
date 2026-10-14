@@ -1732,10 +1732,10 @@ def test_ci_uses_strict_raw_same_run_receipt_transport() -> None:
         in workflow
     )
     assert (
-        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in workflow
+        "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in workflow
     )
     assert (
-        "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in workflow
+        "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" in workflow
     )
     assert "    outputs:" not in workflow
     for target in cases.TARGETS:
