@@ -92,6 +92,7 @@ __all__: tuple[str, ...] = ()
 _KNOWN_EXPRESSIONS = frozenset(
     {
         ast_nodes.LiteralExpr,
+        ast_nodes.ParameterRefExpr,
         ast_nodes.NameExpr,
         ast_nodes.DottedNameExpr,
         ast_nodes.CallExpr,
@@ -1776,6 +1777,7 @@ def _aggregate_result_realization(family, function, argument, retained):
         True,
         carrier.domain,
         carrier.proven_int_range,
+        binding=carrier.binding,
     )
 
 
@@ -2853,6 +2855,9 @@ def _same_order_expression(left, right):
         return left.parts == right.parts
     if type(left) is LiteralExpr:
         return type(left.value) is type(right.value) and left.value == right.value
+    if type(left) is ast_nodes.ParameterRefExpr:
+        # Matching only: one header parameter is one value, never a new use.
+        return (left.name, left.ordinal) == (right.name, right.ordinal)
     if type(left) is UnaryExpr:
         return left.operator == right.operator and _same_order_expression(
             left.operand, right.operand

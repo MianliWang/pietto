@@ -385,6 +385,8 @@ def result_realization(family: str, function: str, argument, retained):
             True,
             carrier.domain,
             carrier.proven_int_range,
+            # An extreme of a binding-dependent value is fixed only by a binding.
+            binding=carrier.binding,
         ),
         None,
     )

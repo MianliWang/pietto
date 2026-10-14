@@ -77,6 +77,7 @@ __all__: tuple[str, ...] = ()
 _KNOWN_EXPRESSIONS = frozenset(
     {
         ast.LiteralExpr,
+        ast.ParameterRefExpr,
         ast.NameExpr,
         ast.DottedNameExpr,
         ast.CallExpr,
@@ -443,6 +444,7 @@ def ready(entry, indexed):
             NameExpr,
             DottedNameExpr,
             LiteralExpr,
+            ast.ParameterRefExpr,
             UnaryExpr,
             BinaryExpr,
             ComparisonExpr,

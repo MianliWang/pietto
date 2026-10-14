@@ -564,7 +564,7 @@ def _count_expression_shape(expression: Expression) -> tuple[bool, bool]:
 
     if isinstance(expression, (NameExpr, DottedNameExpr)):
         return True, True
-    if isinstance(expression, LiteralExpr):
+    if isinstance(expression, (LiteralExpr, ParameterRefExpr)):
         return True, False
     if isinstance(expression, UnaryExpr):
         if expression.operator not in {"+", "-"}:
@@ -628,6 +628,8 @@ def _numeric_literal_argument_shape(
         return True, True, False
     if isinstance(expression, LiteralExpr):
         return type(expression.value) in {int, float}, False, True
+    if isinstance(expression, ParameterRefExpr):
+        return expression.type_name in {"Int", "Float"}, False, True
     if isinstance(expression, UnaryExpr):
         if expression.operator not in {"+", "-"}:
             return False, False, False

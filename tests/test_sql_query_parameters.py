@@ -10,6 +10,7 @@ for a binding; nothing in the SQL text depends on a value.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ import pytest
 
 import _pietto_sql_emission as probe
 from _pietto_sql_query_parameters import parameterized_case as _case
+import _pietto_target_conformance_cases as conformance
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_cli import _render_verified
 from pietto._project.project_sql_emission_verification import (
@@ -422,3 +424,212 @@ def test_the_public_decoder_binds_an_unread_parameter_by_its_family_domain(
     else:
         with pytest.raises(ValueError):
             probe.decoded_arguments(document, nul)
+
+
+# Result and post-aggregation positions. The bodies are the conformance bodies,
+# so the native oracles and these exact bytes describe one template.
+POSITIONS = probe.PARAMETER_POSITION_BODIES
+POSITION_SQL = {
+    ("grouped", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."order.id" AS "c0", "s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", "s0"."ratio value" AS "c4", ("s0"."order.id" * CAST($1 AS pg_catalog.int8)) AS "c5" FROM "public"."phase66 source é" AS "s0"), '
+        '"p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", "t1"."c5" AS "c5", ("t1"."c0" + CAST($2 AS pg_catalog.int8)) AS "c6" FROM "p0" AS "t1"), '
+        '"p2" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t2"."c5" AS "c0", COUNT(*) AS "c1", COUNT("t2"."c6") AS "c2", AVG(CAST("t2"."c6" AS pg_catalog.float8)) AS "c3", MAX("t2"."c6") AS "c4" FROM "p1" AS "t2" GROUP BY "t2"."c5"), '
+        '"p3" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1", "t3"."c2" AS "c2", "t3"."c3" AS "c3", "t3"."c4" AS "c4" FROM "p2" AS "t3" WHERE ("t3"."c1" > CAST($1 AS pg_catalog.int8))), '
+        '"p4" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "t4"."c0" AS "c0", "t4"."c1" AS "c1", "t4"."c2" AS "c2", "t4"."c3" AS "c3", "t4"."c4" AS "c4", "t4"."c2" AS "c5" FROM "p3" AS "t4") '
+        'SELECT "t0"."c0" AS "k", "t0"."c1" AS "c", "t0"."c2" AS "n", "t0"."c3" AS "a", "t0"."c4" AS "m" FROM "p4" AS "t0" ORDER BY "t0"."c5" DESC'
+    ),
+    ("grouped", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, (`s0`.`order.id` * CAST(? AS SIGNED)) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`), '
+        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5`, (`t1`.`c0` + CAST(? AS SIGNED)) AS `c6` FROM `p0` AS `t1`), "
+        "`p2` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t2`.`c5` AS `c0`, COUNT(*) AS `c1`, COUNT(`t2`.`c6`) AS `c2`, AVG(CAST(`t2`.`c6` AS DOUBLE)) AS `c3`, MAX(`t2`.`c6`) AS `c4` FROM `p1` AS `t2` GROUP BY `t2`.`c5`), "
+        "`p3` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS `c1`, `t3`.`c2` AS `c2`, `t3`.`c3` AS `c3`, `t3`.`c4` AS `c4` FROM `p2` AS `t3` WHERE (`t3`.`c1` > CAST(? AS SIGNED))), "
+        "`p4` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t4`.`c0` AS `c0`, `t4`.`c1` AS `c1`, `t4`.`c2` AS `c2`, `t4`.`c3` AS `c3`, `t4`.`c4` AS `c4`, `t4`.`c2` AS `c5` FROM `p3` AS `t4`) "
+        "SELECT `t0`.`c0` AS `k`, `t0`.`c1` AS `c`, `t0`.`c2` AS `n`, `t0`.`c3` AS `a`, `t0`.`c4` AS `m` FROM `p4` AS `t0` ORDER BY `t0`.`c5` DESC"
+    ),
+    ("result", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "s0"."order.id" AS "c0", "s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", "s0"."ratio value" AS "c4" FROM "public"."phase66 source é" AS "s0" WHERE (strpos("s0"."text `""é", CAST($1 AS pg_catalog.text) COLLATE "C") > 0)), '
+        '"p1" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", ROW_NUMBER() OVER (ORDER BY "t1"."c0" ASC) AS "c5" FROM "p0" AS "t1"), '
+        '"p2" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2", "t2"."c3" AS "c3", "t2"."c4" AS "c4", "t2"."c5" AS "c5" FROM "p1" AS "t2" WHERE ("t2"."c5" <= (CAST($2 AS pg_catalog.int8) + CAST(1 AS pg_catalog.int8)))), '
+        '"p3" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t3"."c0" AS "c0", ("t3"."c0" * CAST($2 AS pg_catalog.int8)) AS "c1", lower(CAST($1 AS pg_catalog.text) COLLATE "C") AS "c2", "t3"."c5" AS "c3", "t3"."c0" AS "c4" FROM "p2" AS "t3") '
+        'SELECT "t0"."c0" AS "id", "t0"."c1" AS "s", "t0"."c2" AS "u", "t0"."c3" AS "r" FROM "p3" AS "t0" ORDER BY "t0"."c1" ASC'
+    ),
+    ("result", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (INSTR(`s0`.`text ``"é`, CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) > 0)), '
+        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS `c5` FROM `p0` AS `t1`), "
+        "`p2` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, `t2`.`c4` AS `c4`, `t2`.`c5` AS `c5` FROM `p1` AS `t2` WHERE (`t2`.`c5` <= (CAST(? AS SIGNED) + CAST(1 AS SIGNED)))), "
+        "`p3` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t3`.`c0` AS `c0`, (`t3`.`c0` * CAST(? AS SIGNED)) AS `c1`, LOWER(CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) AS `c2`, `t3`.`c5` AS `c3`, `t3`.`c0` AS `c4` FROM `p2` AS `t3`) "
+        "SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `s`, `t0`.`c2` AS `u`, `t0`.`c3` AS `r` FROM `p3` AS `t0` ORDER BY `t0`.`c1` ASC"
+    ),
+}
+# (owner parameter per native use, obligations as (kind, parameters)).
+POSITION_USES = {
+    # k = id * low (LET), s = id + high (LET), then SATISFYING c > low.
+    "grouped": (
+        [0, 1, 0],
+        [("int_range_representable", [0]), ("int_range_representable", [1])],
+    ),
+    # WHERE contains(text, label), QUALIFY r <= low + 1, s = id * low,
+    # u = lower(label); the ORDER key id * low only matches s.
+    "result": (
+        [1, 0, 0, 1],
+        [
+            ("int_range_representable", [0]),
+            ("int_range_representable", [0]),
+            ("text_result_width", [1]),
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("name", tuple(POSITIONS))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_result_and_aggregate_positions_emit_exact_sql(
+    tmp_path: Path, target: str, name: str
+) -> None:
+    _, outcome = _case(tmp_path, target, POSITIONS[name], "preserve_literals")
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    assert document["format"] == "pietto.sql-emission.v2"
+    assert document["sql"] == "".join(POSITION_SQL[name, target])
+    owners, obligations = POSITION_USES[name]
+    uses = document["parameter_uses"]
+    assert [u["owner"] for u in uses] == [
+        {"kind": "parameter", "parameter": owner} for owner in owners
+    ]
+    if target == "mysql":
+        assert [u["server_index"] for u in uses] == list(range(1, len(owners) + 1))
+    else:
+        first: dict[int, int] = {}
+        assert [u["server_index"] for u in uses] == [
+            first.setdefault(owner, len(first) + 1) for owner in owners
+        ]
+    assert [
+        (o["kind"], o["parameters"]) for o in document["binding_obligations"]
+    ] == obligations
+    # A read in an ORDER tree is matching only: no use, listed read or R04.
+    assert not any(token in document["sql"].split("ORDER BY")[-1] for token in "$?")
+    assert sum(len(p["reads"]) for p in document["parameters"]) == len(owners)
+    assert [
+        r["evidence"]
+        for r in document["requirements"]
+        if r["kind"] == "query_parameter"
+    ] == [[{"parameter": owner}] for owner in owners]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_distinct_order_key_treats_a_read_as_a_constant_leaf(
+    tmp_path: Path, target: str
+) -> None:
+    body = (
+        "query result(low: Int not null):\n"
+        "    from rows\n"
+        "    select distinct:\n"
+        "        id\n"
+        "        s = id + low\n"
+        "    order by:\n"
+        "        id + low\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    head, tail = document["sql"].split(" ORDER BY ")
+    assert head.count("$1" if target == "postgres" else "?") == 1
+    assert tail == ('"t0"."c1" ASC' if target == "postgres" else "`t0`.`c1` ASC")
+    assert len(document["parameter_uses"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("key", "detail"),
+    (
+        ("id + high", "order_expression_requires_established_port"),
+        # Outside a grouped query an output name is no ORDER key, as without
+        # parameters.
+        ("s", "order"),
+    ),
+    ids=("other_parameter", "output_name"),
+)
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_an_order_key_matches_only_the_same_restated_parameter(
+    tmp_path: Path, target: str, key: str, detail: str
+) -> None:
+    body = (
+        "query result(low: Int not null, high: Int not null):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        s = id + low\n"
+        "    order by:\n"
+        f"        {key}\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    document = _document(outcome)
+    assert document["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["reason"], b["subject"]["detail"]) for b in document["blockers"]
+    ] == [("PIE-B1003", "UNSUPPORTED_RULE", detail)]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_closed_builtin_value_arguments_take_parameters(
+    tmp_path: Path, target: str
+) -> None:
+    body = (
+        "query result(low: Int not null, label: Text nullable):\n"
+        "    from rows\n"
+        "    where contains(label, text) and starts_with(label, text)"
+        " and ends_with(label, text)\n"
+        "    select:\n"
+        "        id\n"
+        "        a = lower(label)\n"
+        "        b = upper(label)\n"
+        "        c = trim(label)\n"
+        "        d = coalesce(label, text)\n"
+        "        e = nullif(label, text)\n"
+        "        f = nullif(text, label)\n"
+        "        g = coalesce(low, id)\n"
+        "        h = sign(low - id)\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    # Width follows the parameter except for nullif(text, label), whose result
+    # is bounded by its first argument; only low - id needs an Int range.
+    assert Counter(o["kind"] for o in document["binding_obligations"]) == Counter(
+        {"text_result_width": 5, "int_range_representable": 1}
+    )
+    columns = {c["label"]: c["representation"]["domain"] for c in document["columns"]}
+    assert columns["f"]["max_characters"] == 64
+    assert columns["h"] == {"kind": "int_range", "min": "-1", "max": "1"}
+
+
+@pytest.mark.parametrize("variant", tuple(probe.PARAMETER_POSITION_VARIANTS))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_conformance_bindings_cover_every_use_of_the_position_witness(
+    tmp_path: Path, target: str, variant: str
+) -> None:
+    """Each registered witness binds every header parameter, and its native
+    oracle has the template's width; the product binder accepts the same
+    values (tests/test_execution_binding.py)."""
+    item = probe.fixture(target, "Q_query_parameters", variant)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    binding = probe.bindings("Q_query_parameters", variant)
+    assert binding is not None
+    assert [p["name"] for p in document["parameters"]] == list(binding)
+    records = conformance.parameter_records(document, binding)
+    indices = {u["server_index"] for u in document["parameter_uses"]}
+    assert len(records) == len(indices)
+    first = {
+        u["server_index"]: u["owner"]["parameter"] for u in document["parameter_uses"]
+    }
+    names = [document["parameters"][first[i]]["name"] for i in sorted(indices)]
+    # The wire spelling of an Int or Text value is its decimal or exact text.
+    assert [
+        None if record == conformance.NULL else record["value"] for record in records
+    ] == [None if binding[name] is None else str(binding[name]) for name in names]
+    rows, labels, _ = conformance.parameter_expectation(target, variant)
+    assert [c["label"] for c in document["columns"]] == list(labels)
+    assert all(len(row) == len(labels) for row in rows)

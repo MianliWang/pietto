@@ -1,10 +1,14 @@
 """Entry-query header parameters: declarations, positions and dependence.
 
-A query header parameter is a named value bound at execution. Phase70 S04
-admits a read only in the row roles (``let:``, ``where``, the SELECT list of
-an ungrouped query and JOIN ``on``) and only beneath scalar operators; every
-other position (window frames included), including any read through a let or
-output that depends on a parameter, is refused here before semantic analysis.
+A query header parameter is a named value bound at execution. A read, or a
+let or output whose value depends on one, is admitted beneath scalar operators
+and the value arguments of a closed set of scalar builtins in the row roles
+(``let:``, ``where``, JOIN ``on``, an ungrouped SELECT list) and in the result
+roles (SATISFYING, QUALIFY and ORDER BY keys). A grouped SELECT list admits a
+dependent value only as a computed LET group key or as the one LET argument of
+count, avg, min or max; a GROUP BY key only as a computed LET binding without
+JOIN. Every other position (LIMIT, windows and their frames, structural call
+arguments) is refused here before semantic analysis.
 """
 
 from __future__ import annotations
@@ -63,6 +67,23 @@ COLLISION_MESSAGE = (
 )
 INPUT_MESSAGE = "A query with parameters cannot be the input of another relation."
 _POSITION_MESSAGE = "Query parameters are not available in this position."
+# Aggregates whose one LET argument may depend on a parameter: the LET site
+# carries every binding obligation and the result law reads only its port.
+_LET_AGGREGATES = frozenset({"count", "avg", "min", "max"})
+# Scalar builtins and the argument positions that carry a value (None: all).
+# Absent builtins and positions are structural or fixed-value (substr bounds,
+# len, replace, matches, a starts_with/ends_with needle rendered twice).
+_VALUE_ARGUMENTS: dict[str, tuple[int, ...] | None] = {
+    "lower": (0,),
+    "upper": (0,),
+    "trim": (0,),
+    "contains": (0, 1),
+    "starts_with": (0,),
+    "ends_with": (0,),
+    "nullif": (0, 1),
+    "coalesce": None,
+    "sign": (0,),
+}
 # Operators a parameter value may pass through on its way to a row result.
 _SCALAR_OPERATORS = (
     UnaryExpr,
@@ -228,9 +249,26 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
             for item in definition.select_items
         )
     )
-    admitted: list[Node] = []
-    if definition.let_clause is not None:
-        admitted.extend(item.expression for item in definition.let_clause.bindings)
+    bindings = () if definition.let_clause is None else definition.let_clause.bindings
+    binding_by_name: dict[str, Node] = {}
+    for binding in bindings:
+        binding_by_name.setdefault(binding.name, binding.expression)
+    admitted: list[Node] = [binding.expression for binding in bindings]
+    refused: list[Node] = []
+    # A computed LET group key reads only its LET port (JOIN keys: later).
+    keys: set[str] = set()
+    if definition.group_by_clause is not None:
+        for item in definition.group_by_clause.items:
+            key = item.key
+            if (
+                not definition.join_clauses
+                and type(key) is NameExpr
+                and key.name in binding_by_name
+                and type(binding_by_name[key.name]) not in {NameExpr, DottedNameExpr}
+            ):
+                keys.add(key.name)
+            else:
+                refused.append(item)
     if definition.where_clause is not None:
         admitted.append(definition.where_clause.expression)
     admitted.extend(
@@ -238,39 +276,69 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
         for clause in definition.join_clauses
         if clause.on_clause is not None
     )
-    refused: list[Node] = []
     for item in definition.select_items:
-        if grouped or type(item.expression) is WindowExpr:
-            refused.append(item.expression)
-        else:
-            admitted.append(item.expression)
-    if definition.group_by_clause is not None:
-        refused.append(definition.group_by_clause)
+        expression = item.expression
+        if type(expression) is WindowExpr:
+            refused.append(expression)
+        elif not grouped:
+            admitted.append(expression)
+        elif not (
+            (type(expression) is NameExpr and cast(NameExpr, expression).name in keys)
+            or _let_aggregate(expression)
+        ):
+            refused.append(expression)
     refused.extend(definition.named_windows)
-    # These clauses also resolve SELECT output names.
-    late = [
-        clause
-        for clause in (
-            definition.satisfying_clause,
-            definition.qualify_clause,
-            definition.order_by_clause,
-            definition.limit_clause,
-        )
-        if clause is not None
-    ]
+    # SATISFYING, QUALIFY, ORDER BY and LIMIT also resolve SELECT output names,
+    # so what they admit or refuse is checked against dependent outputs too.
+    admitted_late: list[Node] = []
+    late: list[Node] = []
+    for clause in (definition.satisfying_clause, definition.qualify_clause):
+        if clause is not None:
+            admitted_late.append(clause.expression)
+    if definition.order_by_clause is not None:
+        for order in definition.order_by_clause.items:
+            # A grouped ORDER key is a bare output name; an ungrouped one must
+            # read a field, let or output (a constant key orders nothing).
+            if (
+                type(order.expression) is not NameExpr
+                if grouped
+                else not any(
+                    type(node) in {NameExpr, DottedNameExpr}
+                    for node in _value_nodes(order.expression)
+                )
+            ):
+                late.append(order.expression)
+            else:
+                admitted_late.append(order.expression)
+    if definition.limit_clause is not None:
+        late.append(definition.limit_clause)
 
-    # Beneath scalar operators of a row role a read stays admitted; below any
-    # other expression (a call, a window or a relation read) it is refused.
-    for root in admitted:
-        pending: list[Node] = [root]
-        while pending:
-            node = pending.pop()
-            if isinstance(node, _SCALAR_OPERATORS):
-                pending.extend(_children(node))
-            elif type(node) is CallExpr:
-                refused.extend(cast(CallExpr, node).arguments)
-            elif type(node) not in {ParameterRefExpr, NameExpr}:
-                refused.extend(_children(node))
+    # Beneath scalar operators and builtin value arguments a read stays
+    # admitted; below any other expression (a window, a structural argument or
+    # a relation read) it is refused.
+    for roots, out in ((admitted, refused), (admitted_late, late)):
+        for root in roots:
+            pending: list[Node] = [root]
+            while pending:
+                node = pending.pop()
+                if isinstance(node, _SCALAR_OPERATORS):
+                    pending.extend(_children(node))
+                elif type(node) is CallExpr:
+                    call = cast(CallExpr, node)
+                    if _let_aggregate(call):
+                        continue
+                    values = (
+                        _VALUE_ARGUMENTS.get(cast(NameExpr, call.callee).name, ())
+                        if type(call.callee) is NameExpr
+                        else ()
+                    )
+                    for index, argument in enumerate(call.arguments):
+                        if values is None or index in values:
+                            pending.append(argument)
+                        else:
+                            out.append(argument)
+                elif type(node) not in {ParameterRefExpr, NameExpr}:
+                    out.extend(_children(node))
     # A GROUP BY key is a bare name, never rewritten to a read.
     names = lets | {parameter.name for parameter in definition.parameters}
     return [
@@ -281,6 +349,20 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
         if type(node) is ParameterRefExpr
         or (type(node) is NameExpr and cast(NameExpr, node).name in visible)
     ]
+
+
+def _let_aggregate(node: Node) -> bool:
+    """count/avg/min/max over one bare name (the LET it reads is checked)."""
+
+    if type(node) is not CallExpr:
+        return False
+    call = cast(CallExpr, node)
+    return (
+        type(call.callee) is NameExpr
+        and cast(NameExpr, call.callee).name in _LET_AGGREGATES
+        and len(call.arguments) == 1
+        and type(call.arguments[0]) is NameExpr
+    )
 
 
 def _children(node: object) -> tuple[Node, ...]:

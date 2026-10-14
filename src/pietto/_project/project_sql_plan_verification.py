@@ -4635,6 +4635,7 @@ def _result_structure(plan):
                                 NameExpr,
                                 DottedNameExpr,
                                 LiteralExpr,
+                                ParameterRefExpr,
                                 UnaryExpr,
                                 BinaryExpr,
                                 ComparisonExpr,

@@ -12,6 +12,8 @@ from pietto._project.project_sql_plan import ProjectSQLPlan
 
 from _pietto_execution_binding import bind, proof_artifact, template
 import _pietto_results_product as product
+import _pietto_sql_emission as probe
+from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project import project_execution_template as binding
 from pietto._project import project_execution_binding_verification as checking
 from pietto._project import project_sql_emission_parameters as parameters
@@ -448,16 +450,21 @@ def test_unselected_retained_request_is_not_dropped(tmp_path):
     checking.verify_binding(accepted)
 
 
-def _parameterized(directory, target, variant):
-    """The compiled template of the published v2 conformance query."""
-    import _pietto_sql_emission as probe
-
+def _witness(directory, target, variant):
+    """The published v2 conformance query: its compiled template and its
+    independently decoded public document."""
     item = probe.fixture(target, "Q_query_parameters", variant)
     _, outcome = probe.build_case(
         directory, item["source"], item["contract"], item["policy"]
     )
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
-    return binding.prepare_live_template(outcome.artifact)
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    return binding.prepare_live_template(outcome.artifact), document
+
+
+def _parameterized(directory, target, variant):
+    """The compiled template of the published v2 conformance query."""
+    return _witness(directory, target, variant)[0]
 
 
 def _named(t, *values):
@@ -562,3 +569,146 @@ def test_a_forged_parameter_binding_is_refused(tmp_path):
     foreign = binding.bind_values(bound, _literals(bound), _named(bound, 1, "x"))
     with pytest.raises(binding.BindingError, match="^BINDING_TEMPLATE_BYTES$"):
         checking.verify_binding(replace(accepted, artifact=foreign.artifact))
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+@pytest.mark.parametrize("variant", sorted(probe.PARAMETER_POSITION_VARIANTS))
+def test_each_position_witness_binds_to_its_decoded_arguments(
+    tmp_path, target, variant
+):
+    """A result or post-aggregation witness binds through the product binder,
+    which re-derives every obligation, and sends exactly the arguments the
+    conformance runner decodes for it."""
+    t, document = _witness(tmp_path, target, variant)
+    values = probe.bindings("Q_query_parameters", variant)
+    assert values is not None
+    accepted = binding.bind_values(
+        t, _literals(t), _named(t, *(values[p.name] for p in t.parameters))
+    )
+    checking.verify_binding(accepted)
+    assert accepted.artifact.rendered.sql == t.artifact.rendered.sql
+    assert accepted.arguments == probe.decoded_arguments(document, values)
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+@pytest.mark.parametrize(
+    ("variant", "values"),
+    [
+        # `id` proves over its whole int8 carrier: id * 2 and id + 1 leave it.
+        ("grouped_null_high", {"low": 2, "high": None}),
+        ("grouped_value_high", {"low": 1, "high": 1}),
+        ("result_contains_a", {"low": -1, "label": "a"}),
+        # `id * low` and `low + 1` both leave int8 here.
+        ("result_null_label", {"low": 2**63 - 1, "label": None}),
+    ],
+)
+def test_a_position_binding_outside_its_proven_range_is_refused(
+    tmp_path, target, variant, values
+):
+    t, _ = _witness(tmp_path, target, variant)
+    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+        binding.bind_values(
+            t, _literals(t), _named(t, *(values[p.name] for p in t.parameters))
+        )
+
+
+QUALIFY_ONLY = """query result(low: Int not null, label: Text nullable):
+    from rows
+    where contains(text, label)
+    select:
+        id
+        r = row_number() window:
+            order by:
+                id
+    qualify:
+        r <= low + 1
+"""
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+def test_the_qualify_obligation_alone_refuses_its_overflowing_binding(tmp_path, target):
+    """QUALIFY `r <= low + 1` is this body's only Int obligation, so only the
+    predicate-stage range refuses the int8 top."""
+    item = probe.parameterized_fixture(target, QUALIFY_ONLY)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    t = binding.prepare_live_template(outcome.artifact)
+    checking.verify_binding(binding.bind_values(t, (), _named(t, 2**63 - 2, None)))
+    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+        binding.bind_values(t, (), _named(t, 2**63 - 1, None))
+
+
+# The S04r positions the conformance witnesses leave out, each compiled and
+# bound through the product binder: the closed builtin value arguments, a
+# DISTINCT ORDER key's constant leaf, MIN over a dependent LET and SATISFYING
+# over a JOIN.
+COMPILED_POSITIONS = {
+    "builtins_distinct": (
+        """query result(low: Int not null, label: Text nullable):
+    from rows
+    where starts_with(label, text) or ends_with(label, text) or label is null
+    select distinct:
+        id
+        b = upper(label)
+        c = trim(label)
+        d = coalesce(label, text)
+        e = nullif(label, text)
+        g = coalesce(low, id)
+        h = sign(low)
+        s = id + low
+    order by:
+        id + low
+""",
+        {"low": 0, "label": "x"},
+    ),
+    "let_min": (
+        """query result(low: Int not null, high: Int nullable):
+    from rows
+    let:
+        s = id + high
+        k = id * low
+    group by:
+        k
+    select:
+        k
+        lo = min(s)
+""",
+        {"low": 1, "high": None},
+    ),
+    "joined_satisfying": (
+        """query result(low: Int not null):
+    from rows
+    inner join rows as r:
+        from rows
+        on rows.id == r.id
+    group by:
+        rows.id
+    select:
+        k = rows.id
+        n = count()
+    satisfying:
+        n > low
+""",
+        {"low": 1},
+    ),
+}
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+@pytest.mark.parametrize("name", sorted(COMPILED_POSITIONS))
+def test_every_result_position_compiles_and_binds(tmp_path, target, name):
+    body, values = COMPILED_POSITIONS[name]
+    item = probe.parameterized_fixture(target, body)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    t = binding.prepare_live_template(outcome.artifact)
+    accepted = binding.bind_values(
+        t, _literals(t), _named(t, *(values[p.name] for p in t.parameters))
+    )
+    checking.verify_binding(accepted)
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert accepted.arguments == probe.decoded_arguments(document, values)

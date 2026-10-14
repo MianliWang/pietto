@@ -1021,7 +1021,18 @@ def parameter_expectation(target, variant):
     The native relation holds (id 11, plain 7) twice; `where id > low and
     plain != 3` keeps both for low 10 and -5, `echo` is the bound label (a typed
     NULL when unbound to a value) and `above` is low + 1. Stated by hand from
-    the bindings, never read back from SQL."""
+    the bindings, never read back from SQL. A position variant takes its
+    PARAMETER_POSITION_EXPECTED rows."""
+    if variant in emission.PARAMETER_POSITION_VARIANTS:
+        columns = PARAMETER_POSITION_COLUMNS[
+            emission.PARAMETER_POSITION_VARIANTS[variant]
+        ]
+        codes = AGGREGATE_TYPE_CODES[target]
+        return (
+            PARAMETER_POSITION_EXPECTED[variant],
+            tuple(label for label, _ in columns),
+            [codes[tag] for _, tag in columns],
+        )
     values = emission.bindings("Q_query_parameters", variant)
     assert values is not None
     label = values["label"]
@@ -2546,3 +2557,43 @@ def check_case(case: dict[str, Any], target: str, generation: Any = None) -> Non
             raise ValueError("query privilege evidence missing")
     else:
         raise ValueError("unknown case")
+
+
+# Phase70 S04r: the native oracle of each position variant of
+# Q_query_parameters over the four published emission rows (id = BIG, BIG, 0,
+# 1; text = "trail 😀  " x2, "A", "a "), stated by hand from those rows, the
+# variant's binding (emission.PARAMETER_BINDINGS) and the published rules.
+PARAMETER_POSITION_EXPECTED = {
+    # k = id gives groups {BIG: 2 rows, 0, 1}; only c > 1 survives. A NULL bound
+    # to `high` makes every s NULL: count 0, avg and max NULL.
+    "grouped_null_high": [
+        [_integer(BIG_TEXT), _integer("2"), _integer("0"), NULL, NULL]
+    ],
+    # s = id; avg casts each BIG to binary64 first (2^53, ties to even).
+    "grouped_value_high": [
+        [
+            _integer(BIG_TEXT),
+            _integer("2"),
+            _integer("2"),
+            _float(float(BIG)),
+            _integer(BIG_TEXT),
+        ]
+    ],
+    # low 0 collapses every row into one group (k = 0), and c > 0 keeps it.
+    "grouped_zero_collapse": [
+        [_integer("0"), _integer("4"), _integer("0"), NULL, NULL]
+    ],
+    # "a" is in "trail 😀  " (twice) and "a ", not in "A"; row_number over id
+    # numbers 1, BIG, BIG as 1, 2, 3 and QUALIFY keeps r <= 2; ORDER BY id * 1.
+    "result_contains_a": [
+        [_integer("1"), _integer("1"), _text("a"), _integer("1")],
+        [_integer(BIG_TEXT), _integer(BIG_TEXT), _text("a"), _integer("2")],
+    ],
+    # contains(text, NULL) is UNKNOWN for every row.
+    "result_null_label": [],
+}
+# Output labels and logical tags of each position body.
+PARAMETER_POSITION_COLUMNS = {
+    "grouped": (("k", "Int"), ("c", "Int"), ("n", "Int"), ("a", "Float"), ("m", "Int")),
+    "result": (("id", "Int"), ("s", "Int"), ("u", "Text"), ("r", "Int")),
+}

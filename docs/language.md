@@ -459,27 +459,71 @@ relation name of the module, a JOIN binding, a SELECT output or a named window
 is an error (PIE-S2354), so a read never changes meaning; a SELECT item that
 only reads a parameter needs its own alias.
 
-A read is available in `let:` bindings, `where`, JOIN `on` and the SELECT items
-of a query without GROUP BY, SATISFYING or aggregates, beneath unary, binary,
-comparison, null-test, BETWEEN, conditional, literal-list `in` and `cast`
-operators. Every other position is refused (PIE-S2355), whether it reads the
-parameter or a `let:` binding or output that reads it: call arguments, window
-expressions and named windows (frame offsets included), GROUP BY keys,
-SATISFYING, QUALIFY, ORDER BY, LIMIT and grouped SELECT items. An output that
-reads a parameter counts only in SATISFYING, QUALIFY, ORDER BY and LIMIT;
-elsewhere its name reads the input field it may shadow. A query with parameters
-is never the input of another relation, a relation let or the body of a
-declaration with lets included (PIE-S2356). Headers stay PIE-S2346 in
-single-file analysis, in LEGACY_FLAT projects and beside relation lets, VALUES,
-set-operation or table-function FROM bodies.
+A read, or a `let:` binding or output whose value reads one, is available
+beneath unary, binary, comparison, null-test, BETWEEN, conditional,
+literal-list `in` and `cast` operators and the value arguments of `lower`,
+`upper`, `trim`, `contains` (both), `starts_with`/`ends_with` (the text, not
+the prefix or suffix), `coalesce` (all), `nullif` (both) and `sign`, in these
+positions:
 
-`emit-sql --project` renders every read as a typed placeholder under both
-literal policies (`CAST($n AS pg_catalog.int8)`, `CAST(? AS SIGNED)`, with the
-Text collation): PostgreSQL reuses one `$n` for every read of a parameter,
-MySQL writes one `?` per read, and bind-safe literal slots share the same
-numbering in rendering order. The SQL never depends on a value. The unbound
-template keeps each parameter's declared carrier; a check that needs the value,
-such as the range of `cutoff + 1` or of a later `next_day + 1`, is listed as a
+- `let:` bindings, `where`, JOIN `on` and the SELECT items of a query without
+  GROUP BY, SATISFYING or aggregates;
+- `satisfying` comparisons and `qualify`;
+- ORDER BY keys that name a `let:` binding or restate a selected expression
+  (`order by: id + cutoff` with `s = id + cutoff` selected); a restated key
+  reuses that SELECT value, so a read in an ORDER key renders no placeholder
+  of its own, and under `select distinct` a read counts as a constant leaf.
+  Outside a grouped query a key cannot name a SELECT output;
+- in a grouped query, a SELECT item that names a computed group key or applies
+  `count`, `avg`, `min` or `max` to one `let:` name, and an ORDER BY key that
+  names an output;
+- a GROUP BY key that names a computed `let:` binding in a query without JOIN
+  inputs (`let: bucket = amount * weight` with `group by: bucket`).
+
+For example:
+
+```pietto
+query weighted(weight: Int not null, bonus: Int nullable):
+    from orders
+    let:
+        bucket = amount * weight
+        boosted = amount + bonus
+    group by:
+        bucket
+    select:
+        bucket
+        n = count(boosted)
+        mean = avg(boosted)
+    satisfying:
+        n >= weight
+    order by:
+        n desc
+```
+
+A nullable parameter bound to NULL makes `boosted` NULL in every row, so `n` is
+0 and `mean` is NULL. Every other position is refused (PIE-S2355), whether it
+reads the parameter or a `let:` binding or output that reads it: LIMIT, window
+expressions and named windows (frame offsets included), other call arguments
+(such as the bounds of `substr`, `len`, `replace`, `matches` and the prefix of
+`starts_with`), a GROUP BY key that names a parameter, an alias or a key of a
+JOIN query, other grouped SELECT items (a direct read, `sum`, `count_distinct`,
+an aggregate of an expression or of a parameter), a grouped ORDER BY key that
+is not an output name, and an ORDER BY key that reads no field, binding or
+output. An output that reads a parameter counts only in SATISFYING, QUALIFY,
+ORDER BY and LIMIT; elsewhere its name reads the input field it may shadow. A
+position that a literal cannot use either keeps the literal's diagnostic. A
+query with parameters is never the input of another relation, a relation let or
+the body of a declaration with lets included (PIE-S2356). Headers stay
+PIE-S2346 in single-file analysis, in LEGACY_FLAT projects and beside relation
+lets, VALUES, set-operation or table-function FROM bodies.
+
+`emit-sql --project` renders every read outside an ORDER BY key as a typed
+placeholder under both literal policies (`CAST($n AS pg_catalog.int8)`,
+`CAST(? AS SIGNED)`, with the Text collation): PostgreSQL reuses one `$n` for
+every read of a parameter, MySQL writes one `?` per read, and bind-safe literal
+slots share the same numbering in rendering order. The SQL never depends on a
+value. The unbound template keeps each parameter's declared carrier; a check
+that needs the value, such as the range of `cutoff + 1` or of a later `next_day + 1`, is listed as a
 binding obligation naming every parameter it depends on and runs at every
 binding. A query whose parameters are all unread still emits this template;
 like any statement that renders no placeholder, it needs no `parameter_protocol`
@@ -487,6 +531,15 @@ premise. `compile_query` keeps the unbound template, and
 `execute(..., parameters=...)` binds it on the `postgres_rows` route only; the
 other routes, saving, relaying, recovery and bundle export refuse such a query
 (see [Parameters](execution.md#parameters)).
+
+The result and post-aggregation positions add no other check: an obligation
+is either `int_range_representable` (the range of `cutoff + 1`) or
+`text_result_width` (the width of `lower(label)`), listed at the operation
+that needs it. A source Int proves over its whole physical carrier, so over a
+BIGINT `amount` the obligation of `amount * weight` holds only for a weight of
+0, 1 or NULL, and that of `amount + bonus` only for 0 or NULL. A SATISFYING or
+QUALIFY read renders in the predicate over the aggregate or window stage, and a
+group key or aggregate reads the LET column that holds the value.
 
 ## Expressions
 

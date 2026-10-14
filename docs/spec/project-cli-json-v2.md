@@ -270,7 +270,7 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
 
 - `parameters`: one object per header parameter in header order,
   `{"parameter": j, "name", "tag", "nullable", "reads": [expression refs]}`;
-  `reads` lists every read in plan order.
+  `reads` lists every rendered read in plan order.
 - `parameter_uses[i]` names its owner instead of a slot:
   `{"use", "owner": {"kind": "slot", "slot": i} | {"kind": "parameter",
   "parameter": j}, "server_index", "physical_type", "range"}`. Reads and
@@ -284,7 +284,11 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
   may name a parameter whose value cannot change the check, never omit one
   that can.
 - A generated requirement of kind `query_parameter` (rule R04, evidence
-  `[{"parameter": j}]`) describes each read.
+  `[{"parameter": j}]`) describes each rendered read.
+- A read inside an ORDER BY key, including a constant leaf under `select
+  distinct`, only matches the key to the selected expression it restates. It
+  is not rendered, so it has no `reads` entry, R04 requirement or
+  `parameter_uses` entry.
 - A value whose range or width cannot be proven without a binding keeps its
   declared carrier: an Int domain spans the full signed 64-bit range and a
   Text domain has `"max_characters": null`; on MySQL a bare Text read keeps

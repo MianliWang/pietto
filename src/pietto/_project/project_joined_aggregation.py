@@ -62,6 +62,7 @@ from pietto.ast_nodes import (
     Expression,
     GroupByItem,
     LiteralExpr,
+    ParameterRefExpr,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -72,7 +73,10 @@ from pietto.errors import Diagnostic, Severity
 from pietto.semantic import group_by as semantic_group_by
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic import aggregates as semantic_aggregates
-from pietto.semantic.expressions import resolved_comparison_value_type
+from pietto.semantic.expressions import (
+    query_parameter_value_type,
+    resolved_comparison_value_type,
+)
 from pietto.semantic.model import ValueType, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
@@ -1918,6 +1922,10 @@ def _infer_satisfying_value(
 ) -> ValueType:
     if type(expression) is LiteralExpr:
         value_type = semantic_satisfying._literal_value_type(expression)
+    elif type(expression) is ParameterRefExpr:
+        value_type = query_parameter_value_type(
+            expression.type_name, expression.nullability
+        )
     elif type(expression) is NameExpr:
         matches = tuple(
             output for output in outputs if output.output_name == expression.name
@@ -2006,7 +2014,7 @@ def _infer_satisfying_predicate(
     value_types: dict[Expression, ValueType],
     references: list[ProjectJoinedSatisfyingReference],
 ) -> ValueType:
-    if type(expression) in {NameExpr, LiteralExpr, CallExpr}:
+    if type(expression) in {NameExpr, LiteralExpr, ParameterRefExpr, CallExpr}:
         return _infer_satisfying_value(
             expression,
             input_filter=input_filter,

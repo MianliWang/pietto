@@ -441,6 +441,7 @@ def _blockers(
                                 type(node)
                                 not in {
                                     LiteralExpr,
+                                    ParameterRefExpr,
                                     NameExpr,
                                     DottedNameExpr,
                                     WindowExpr,

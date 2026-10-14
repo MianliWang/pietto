@@ -48,6 +48,7 @@ __all__: tuple[str, ...] = ()
 _KNOWN_EXPRESSIONS = frozenset(
     {
         ast.LiteralExpr,
+        ast.ParameterRefExpr,
         ast.NameExpr,
         ast.DottedNameExpr,
         ast.CallExpr,
@@ -429,6 +430,9 @@ def _same_order_expression(left, right):
         return left.parts == right.parts
     if type(left) is LiteralExpr:
         return type(left.value) is type(right.value) and left.value == right.value
+    if type(left) is ast.ParameterRefExpr:
+        # Matching only: one header parameter is one value, never a new use.
+        return (left.name, left.ordinal) == (right.name, right.ordinal)
     if type(left) is UnaryExpr:
         return left.operator == right.operator and _same_order_expression(
             left.operand, right.operand

@@ -750,8 +750,9 @@ The values:
 
 A query can declare named parameters in its header, for example
 `query since(low: Int not null, note: Text nullable):`, and read them in `let`,
-`where`, JOIN `on` and the items of an ungrouped `select` (see
-[Language](language.md)). Pietto sends each parameter to the server as a
+`where`, JOIN `on`, the items of an ungrouped `select`, `satisfying`, `qualify`
+and ORDER BY keys, and in a grouped query through a computed `let` group key or
+a `count`, `avg`, `min` or `max` of one `let` (see [Language](language.md)). Pietto sends each parameter to the server as a
 parameter of the prepared statement, under either literal policy, so the SQL
 text is the same for every binding: PostgreSQL reuses one `$n` per parameter,
 MySQL sends one `?` per read. `compile_query` gives the `pietto.sql-emission.v2`

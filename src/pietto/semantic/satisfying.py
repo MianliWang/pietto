@@ -14,6 +14,7 @@ from pietto.ast_nodes import (
     FromClause,
     GroupByItem,
     LiteralExpr,
+    ParameterRefExpr,
     NameExpr,
     Node,
     QueryDef,
@@ -32,7 +33,10 @@ from pietto.semantic.aggregates import (
     is_semantic_aggregate_call,
     semantic_aggregate_call_name,
 )
-from pietto.semantic.expressions import resolved_comparison_value_type
+from pietto.semantic.expressions import (
+    query_parameter_value_type,
+    resolved_comparison_value_type,
+)
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -268,7 +272,7 @@ def _infer_predicate(
     value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
-    if isinstance(expression, (NameExpr, LiteralExpr, CallExpr)):
+    if isinstance(expression, (NameExpr, LiteralExpr, ParameterRefExpr, CallExpr)):
         value_type = _infer_value(
             expression,
             output_scope,
@@ -368,6 +372,12 @@ def _infer_value(
 ) -> ValueType:
     if isinstance(expression, LiteralExpr):
         value_type = _literal_value_type(expression)
+        value_types[expression] = value_type
+        return value_type
+    if isinstance(expression, ParameterRefExpr):
+        value_type = query_parameter_value_type(
+            expression.type_name, expression.nullability
+        )
         value_types[expression] = value_type
         return value_type
     if isinstance(expression, NameExpr):

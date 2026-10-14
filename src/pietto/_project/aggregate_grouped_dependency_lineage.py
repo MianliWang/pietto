@@ -61,6 +61,7 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     Expression,
     LiteralExpr,
+    ParameterRefExpr,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -573,7 +574,7 @@ def _aggregate_field_dependencies(
         )
 
     def visit(current: Expression) -> None:
-        if isinstance(current, LiteralExpr):
+        if isinstance(current, (LiteralExpr, ParameterRefExpr)):
             return
         if isinstance(current, NameExpr):
             if current.name not in input_schema.fields:

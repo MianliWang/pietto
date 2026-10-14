@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -24,29 +23,7 @@ def parameterized_case(
     The contract adds exact identifier case and, unless ``protocol`` is false,
     the native parameter protocol every parameter read requires.
     """
-    base = probe.fixture(target)
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
-    if protocol:
-        contract["environment"].append(
-            {
-                "key": "parameter_protocol",
-                "scope": "statement",
-                "value": PROTOCOL[target],
-            }
-        )
-    source = base["source"].split("table result:", 1)[0] + body
+    item = probe.parameterized_fixture(target, body, policy, protocol=protocol)
     return probe.build_case(
-        root / target / policy,
-        source,
-        probe.encoded(contract).decode(),
-        policy,
+        root / target / policy, item["source"], item["contract"], policy
     )

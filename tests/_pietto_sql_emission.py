@@ -55,9 +55,18 @@ VARIANTS = {
         "empty_preserve",
         "empty_bind",
     ),
-    # Phase70 S04: one v2 template per literal policy; PARAMETER_BINDINGS gives
-    # each variant's caller values.
-    "Q_query_parameters": ("preserve", "bind"),
+    # Phase70 S04: one v2 template per literal policy, then the S04r result and
+    # post-aggregation positions (PARAMETER_POSITION_VARIANTS); PARAMETER_BINDINGS
+    # gives each variant's caller values.
+    "Q_query_parameters": (
+        "preserve",
+        "bind",
+        "grouped_null_high",
+        "grouped_value_high",
+        "grouped_zero_collapse",
+        "result_contains_a",
+        "result_null_label",
+    ),
     "R_fixed_direct": (
         "table_preserve",
         "table_bind",
@@ -704,10 +713,64 @@ PARAMETER_BODY = """query result(low: Int not null, label: Text nullable):
         echo = label
         above = low + 1
 """
+# Phase70 S04r: header parameters in post-aggregation and result positions over
+# the published emission rows. `id` proves over its whole int8 carrier, so
+# `id * low` binds only low 0 or 1 and `id + high` only high 0 or NULL; the
+# product binder refuses any other value before execution (D70.01).
+PARAMETER_POSITION_BODIES = {
+    # Computed key, LET aggregates, SATISFYING and grouped ORDER over parameters.
+    "grouped": """query result(low: Int not null, high: Int nullable):
+    from rows
+    let:
+        k = id * low
+        s = id + high
+    group by:
+        k
+    select:
+        k
+        c = count()
+        n = count(s)
+        a = avg(s)
+        m = max(s)
+    satisfying:
+        c > low
+    order by:
+        n desc
+""",
+    # A closed builtin value argument, QUALIFY arithmetic and a matched ORDER key.
+    "result": """query result(low: Int not null, label: Text nullable):
+    from rows
+    where contains(text, label)
+    select:
+        id
+        s = id * low
+        u = lower(label)
+        r = row_number() window:
+            order by:
+                id
+    qualify:
+        r <= low + 1
+    order by:
+        id * low
+""",
+}
+# Each S04r variant binds one position body.
+PARAMETER_POSITION_VARIANTS = {
+    "grouped_null_high": "grouped",
+    "grouped_value_high": "grouped",
+    "grouped_zero_collapse": "grouped",
+    "result_contains_a": "result",
+    "result_null_label": "result",
+}
 # The caller values of each Q_query_parameters variant, by parameter name.
 PARAMETER_BINDINGS = {
     ("Q_query_parameters", "preserve"): {"low": 10, "label": "雪?%s $1"},
     ("Q_query_parameters", "bind"): {"low": -5, "label": None},
+    ("Q_query_parameters", "grouped_null_high"): {"low": 1, "high": None},
+    ("Q_query_parameters", "grouped_value_high"): {"low": 1, "high": 0},
+    ("Q_query_parameters", "grouped_zero_collapse"): {"low": 0, "high": None},
+    ("Q_query_parameters", "result_contains_a"): {"low": 1, "label": "a"},
+    ("Q_query_parameters", "result_null_label"): {"low": 1, "label": None},
 }
 
 
@@ -716,9 +779,48 @@ def bindings(case, variant):
     return PARAMETER_BINDINGS.get((case, variant))
 
 
+def parameterized_fixture(target, body, policy="preserve_literals", *, protocol=True):
+    """The published one-source fixture with ``body`` as its query ``result``.
+
+    The contract adds exact identifier case and, unless ``protocol`` is false,
+    the native parameter protocol every parameter read requires.
+    """
+    base = fixture(target)
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    if protocol:
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    return {
+        "source": base["source"].split("table result:", 1)[0] + body,
+        "contract": encoded(contract).decode(),
+        "policy": policy,
+    }
+
+
 def parameter_fixture(target, variant):
     """A v2 template over the native rows: two header parameters, read in WHERE
-    and SELECT, and a deferred Int range check (`low + 1`)."""
+    and SELECT, and a deferred Int range check (`low + 1`); an S04r variant
+    binds one position body over the published emission rows instead."""
+    if variant in PARAMETER_POSITION_VARIANTS:
+        return parameterized_fixture(
+            target, PARAMETER_POSITION_BODIES[PARAMETER_POSITION_VARIANTS[variant]]
+        )
     base = native_fixture(target, variant)
     contract = json.loads(base["contract"])
     contract["environment"].append(

@@ -44,6 +44,7 @@ from pietto.ast_nodes import (
     GroupByItem,
     IsNullExpr,
     LiteralExpr,
+    ParameterRefExpr,
     NameExpr,
     OrderItem,
     QueryDef,
@@ -72,6 +73,7 @@ __all__: tuple[str, ...] = ()
 _KNOWN_EXPRESSIONS = frozenset(
     {
         ast.LiteralExpr,
+        ast.ParameterRefExpr,
         ast.NameExpr,
         ast.DottedNameExpr,
         ast.CallExpr,
@@ -849,7 +851,7 @@ def _satisfying_dependency_occurrences(
         )
     if isinstance(expression, NameExpr):
         return (expression,)
-    if isinstance(expression, LiteralExpr):
+    if isinstance(expression, (LiteralExpr, ParameterRefExpr)):
         return ()
     if isinstance(expression, CallExpr):
         return (expression,)
@@ -1384,15 +1386,15 @@ def _satisfying_traversal_is_supported(expression: Expression) -> bool:
         raise ValueError(
             f"Unsupported satisfying expression: {type(expression).__name__}"
         )
-    if isinstance(expression, (NameExpr, LiteralExpr, CallExpr)):
+    if isinstance(expression, (NameExpr, LiteralExpr, ParameterRefExpr, CallExpr)):
         return True
     if isinstance(expression, ComparisonExpr):
         return isinstance(
             expression.left,
-            (NameExpr, LiteralExpr, CallExpr),
+            (NameExpr, LiteralExpr, ParameterRefExpr, CallExpr),
         ) and isinstance(
             expression.right,
-            (NameExpr, LiteralExpr, CallExpr),
+            (NameExpr, LiteralExpr, ParameterRefExpr, CallExpr),
         )
     if isinstance(expression, BinaryExpr) and expression.operator in {"and", "or"}:
         return _satisfying_traversal_is_supported(
