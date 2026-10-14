@@ -288,7 +288,11 @@ read only inside a relation let; a partial,
 reordered or substituted tuple is refused. It is not an option on
 `compile_query`. A query that groups by a value its own `let:` computes is not
 an R2 shape yet: `save_recoverable` and `recover` refuse it with `PIE-R1004`
-(`PUBLIC_R2_COMPUTED_GROUP_KEY`) before any workspace access or connection.
+(`PUBLIC_R2_COMPUTED_GROUP_KEY`) before any workspace access or connection. A
+query with a typed VALUES body, even one read beside a physical source, is
+refused the same way (`PIE-R1004`, `PUBLIC_R2_VALUES_COORDINATE_BASIS`): a fixed
+row has no recovery coordinate. An ordinary `save` of such a query is not R2
+and is not refused.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,
 access, premise, limits, isolation="stable", values=None, job=None) ->
 SaveReply` records R2 retention before progress. `recover(workspace, *, job,
@@ -533,6 +537,11 @@ and fresh trust, source, value and deployment inputs.
   of the query and must include `pg_catalog`, because qualification checks
   built-in definitions there; other `pg_*` schemas and `information_schema` are
   refused. Pietto binds it to the compiled query's own sources on every call.
+  A query whose only inputs are typed VALUES bodies has no source relation: its
+  qualification still verifies the session context (server version,
+  `search_path`, isolation level and read-only transaction) under a premise
+  that includes `pg_catalog`, and records that it has no relation root and
+  checked no relation catalog.
 - `MySQLAccess(host, port, database, user, password, ca_file, account,
   roles="NONE")` is the explicit MySQL connection input. It redacts its
   password and cannot be pickled or copied. `ca_file` is required; Pietto
@@ -540,7 +549,11 @@ and fresh trust, source, value and deployment inputs.
   are checked against the freshly observed session context.
 - `MySQLDeploymentPremise(schemas)` is the same operator commitment for the
   query's MySQL sources. The schemas must cover every source and cannot name
-  `mysql`, `sys`, `information_schema` or `performance_schema`.
+  `mysql`, `sys`, `information_schema` or `performance_schema`. A MySQL query
+  that reads no physical relation, because its only inputs are typed VALUES
+  bodies, is BLOCKED by `compile_query` (`PIE-B1003`), and the MySQL route also
+  refuses any compiled query that reads no physical relation before connecting
+  (`PIE-R1003`); a VALUES body read beside a physical source is neither.
 - `ExecutionLimits(batch_rows=256, batch_bytes=1 MiB, max_rows=1048576,
   max_bytes=64 MiB, seconds=20.0)` bounds one attempt; `seconds` is its
   deadline, `max_bytes` also counts the route's qualifying profile and catalog

@@ -17,6 +17,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project import project_sql_plan_literals as literals
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerification,
@@ -47,6 +48,7 @@ class ProjectSQLDemandFamily(StrEnum):
     WINDOW = "window"
     RESULT = "result"
     SET = "set"
+    VALUES = "values"
     LITERAL = "fixed_literal_transport"
 
 
@@ -64,6 +66,7 @@ DEMAND_FAMILIES = MappingProxyType(
         windows.ProjectSQLWindowDemand: F.WINDOW,
         results.ProjectSQLResultDemand: F.RESULT,
         sets.ProjectSQLSetDemand: F.SET,
+        valuesplan.ProjectSQLValuesDemand: F.VALUES,
         literals.ProjectSQLLiteralDemand: F.LITERAL,
     }
 )
@@ -77,6 +80,7 @@ type ProjectSQLDemandSubkind = (
     | windows.ProjectSQLWindowDemandKind
     | results.ProjectSQLResultDemandKind
     | sets.ProjectSQLSetDemandKind
+    | valuesplan.ProjectSQLValuesDemandKind
     | literals.ProjectSQLLiteralTag
     | None
 )
@@ -158,6 +162,10 @@ SUBKINDS: Mapping[ProjectSQLDemandFamily, tuple[ProjectSQLDemandSubkind, ...]] =
                 sets.ProjectSQLSetDemandKind.OPERAND,
                 sets.ProjectSQLSetDemandKind.INPUT,
                 sets.ProjectSQLSetDemandKind.COLUMN,
+            ),
+            F.VALUES: (
+                valuesplan.ProjectSQLValuesDemandKind.ROWS,
+                valuesplan.ProjectSQLValuesDemandKind.COLUMN,
             ),
             F.LITERAL: (
                 literals.ProjectSQLLiteralTag.BOOL,
@@ -389,6 +397,7 @@ def context_index(plan: sql.ProjectSQLPlan):
         *plan.join_tails,
         *plan.result_boundaries,
         *plan.set_bodies,
+        *plan.values_bodies,
     ):
         put(stage, stage.definition, (stage.ref,))
         stages.append(stage.ref)
@@ -454,6 +463,7 @@ def context_index(plan: sql.ProjectSQLPlan):
         put(value, context.definition, context.stages, (value.use.ref,))
     inherit(plan.set_inputs, "operand")
     inherit(plan.set_columns, "body")
+    inherit(plan.values_columns, "body")
     for site in plan.literal_sites:
         context = contexts[site.position.context_ref]
         put(site, context.definition, context.stages, context.input_uses)
@@ -822,6 +832,7 @@ def _verify_report(report, verification):
                 windows.ProjectSQLWindowDemand,
                 results.ProjectSQLResultDemand,
                 sets.ProjectSQLSetDemand,
+                valuesplan.ProjectSQLValuesDemand,
             ),
         ):
             kind = demand.kind
@@ -1723,6 +1734,8 @@ def verify_compiled_requirement_inputs(records):
             "set_operand": F.SET,
             "set_input": F.SET,
             "set_column": F.SET,
+            "values_body": F.VALUES,
+            "values_column": F.VALUES,
             "definition": F.SOURCE,
             "export": F.EXPORT,
         }

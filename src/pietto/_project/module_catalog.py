@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef
+from pietto.ast_nodes import SetRelationDef, ValuesBody, ValuesRelationDef
 
 from dataclasses import dataclass, field
 import heapq
@@ -41,6 +41,7 @@ __all__: tuple[str, ...] = ()
 
 _DEFINITION_TYPES = (
     SetRelationDef,
+    ValuesRelationDef,
     TypeDef,
     EnumDef,
     ShapeDef,
@@ -93,7 +94,7 @@ _SELECT_FIELDS = (
 
 def _relation_block_view(
     *, span: Span, name: str, kind: ModuleDeclarationKind, body: RelationBody
-) -> TableDef | QueryDef | SetRelationDef:
+) -> TableDef | QueryDef | SetRelationDef | ValuesRelationDef:
     """Present one authored block body in the existing relation-definition shape.
 
     The view owns no clause of its own: every clause is the authored node, so
@@ -102,6 +103,8 @@ def _relation_block_view(
 
     if type(body) is SetOperationBody:
         return SetRelationDef(span=span, name=name, kind=kind, body=body)
+    if type(body) is ValuesBody:
+        return ValuesRelationDef(span=span, name=name, kind=kind, body=body)
     if type(body) is SelectBody and type(body.from_clause) is FromClause:
         relation = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
         return relation(
@@ -113,7 +116,7 @@ def _relation_block_view(
 
 
 def _is_relation_block_view(
-    view: Definition,
+    view: Definition | ValuesRelationDef,
     *,
     span: Span,
     name: str,
@@ -124,6 +127,10 @@ def _is_relation_block_view(
         return False
     if type(body) is SetOperationBody:
         return type(view) is SetRelationDef and view.kind is kind and view.body is body
+    if type(body) is ValuesBody:
+        return (
+            type(view) is ValuesRelationDef and view.kind is kind and view.body is body
+        )
     expected = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
     return (
         type(body) is SelectBody
@@ -142,7 +149,7 @@ def _block_kind(authored: BlockRelationDef | LetRelationDef) -> ModuleDeclaratio
 
 def _block_view_of(
     authored: BlockRelationDef | LetRelationDef,
-) -> TableDef | QueryDef | SetRelationDef:
+) -> TableDef | QueryDef | SetRelationDef | ValuesRelationDef:
     return _relation_block_view(
         span=authored.span,
         name=authored.name,
@@ -151,9 +158,14 @@ def _block_view_of(
     )
 
 
-def relation_reads(definition: Definition) -> tuple[str, ...]:
-    """Every relation name one relation body reads: FROM, JOIN targets, operands."""
+def relation_reads(definition: Definition | ValuesRelationDef) -> tuple[str, ...]:
+    """Every relation name one relation body reads: FROM, JOIN targets, operands.
 
+    A typed VALUES body is a zero-input relation and reads none.
+    """
+
+    if type(definition) is ValuesRelationDef:
+        return ()
     if type(definition) is SetRelationDef:
         return tuple(operand.relation_name for operand in definition.body.operands)
     if type(definition) is TableDef or type(definition) is QueryDef:
@@ -210,14 +222,14 @@ class ProjectDeclarationOccurrence:
     identity: ProjectNominalDeclarationIdentity
     module_position: int
     declaration_position: int
-    definition: Definition
+    definition: Definition | ValuesRelationDef
     let_position: int | None = None
     authored_block: BlockRelationDef | LetRelationDef | None = field(
         default=None, compare=False, hash=False, repr=False
     )
 
     @property
-    def authored(self) -> Definition | LetRelationDef:
+    def authored(self) -> Definition | ValuesRelationDef | LetRelationDef:
         """Return the exact source node this occurrence was built from."""
 
         return self.definition if self.authored_block is None else self.authored_block

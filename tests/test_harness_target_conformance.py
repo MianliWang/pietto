@@ -1137,6 +1137,11 @@ def valid_receipts(
                             target, record["variant"]
                         )
                         names = list(labels)
+                    elif case_id == "Q_values_rows":
+                        rows, labels, types = cases.values_expectation(
+                            target, record["variant"]
+                        )
+                        names = list(labels)
                     elif case_id == "G_scan_row_domains":
                         rows, labels, types, _ = cases.row_domain_expectation(
                             target, record["variant"]
@@ -1685,6 +1690,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "P_native_identifiers",
         "Q_native_lifecycle",
         "Q_query_parameters",
+        "Q_values_rows",
         "R_fixed_direct",
         "S_fixed_named",
         "S_set_boundaries",

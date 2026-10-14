@@ -22,6 +22,7 @@ from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
+from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project.project_sql_emission_contract import (
     Blocker,
@@ -606,6 +607,17 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
             add("PIE-B1006", "negative_original_target_evidence", aspect.entry.subject)
     for obligation in request.report.report.summary.enforcement_required:
         add("PIE-B1006", "original_enforcement_not_fulfilled", obligation.entry.subject)
+    if request.family == "mysql" and not plan.sources:
+        # D70.05: a statement reading no physical relation (pure VALUES) needs a
+        # non-vacuous source qualification; MySQL offers none in this phase.
+        add(
+            "PIE-B1003",
+            "zero_physical_source_not_admitted_on_target",
+            plan.scope,
+            plan.values_bodies[0].relation.definition.body.span
+            if plan.values_bodies
+            else None,
+        )
     for source in plan.sources:
         if source_family(source) != request.family:
             add(
@@ -1136,16 +1148,22 @@ def admitted_row_shape(plan):
         for d in plan.bindings.definitions
         if type(d.entry.owner.definition) is not SourceDef
     )
+    # A VALUES definition is a zero-input leaf like a source, but it is also a
+    # named producer: it owns its outputs and reads no input use.
+    leaves = len(plan.sources) + len(plan.values_bodies)
     return bool(
-        plan.sources
-        and (len(plan.sources) == 1 or plan.set_bodies)
+        leaves
+        and (leaves == 1 or plan.set_bodies)
         and named
         and len(plan.input_uses)
-        == len(named) + sum(len(body.operands) - 1 for body in plan.set_bodies)
+        == len(named)
+        - len(plan.values_bodies)
+        + sum(len(body.operands) - 1 for body in plan.set_bodies)
         and len(plan.projections)
         + len(plan.aggregate_projections)
         + len(plan.window_projections)
         + sum(len(body.columns) for body in plan.set_bodies)
+        + sum(len(body.columns) for body in plan.values_bodies)
         == len(plan.all_exports)
         and not plan.joins
         and all(type(e) in ADMITTED_STAGE_EXPRESSIONS for e in plan.expressions)
@@ -1153,6 +1171,7 @@ def admitted_row_shape(plan):
         and windowing.blocks_admitted(plan)
         and resulting.boundaries_admitted(plan)
         and setting.bodies_admitted(plan)
+        and valuing.bodies_admitted(plan)
     )
 
 
@@ -1617,6 +1636,7 @@ def realize_rows(request, *, _guarded=None):
         window_projection.setdefault(entry.block, []).append(entry)
     result_groups = resulting.boundaries_by_definition(plan)
     set_groups = setting.bodies_by_definition(plan)
+    values_groups = valuing.bodies_by_definition(plan)
     ordered = []
     for definition, blocks in groups:
         stage = stages.get(definition.original.ref)
@@ -1695,10 +1715,29 @@ def realize_rows(request, *, _guarded=None):
     stage_ports = {port.ref: port for port in plan.stage_ports}
     units: list[Any] = []
     bodies: list[RowBody] = []
-    by_definition: dict[Any, RowBody] = {}
+    by_definition: dict[Any, RowBody | valuing.ValuesBody] = {}
     by_join: dict[Any, joining.JoinBody] = {}
     nodes = 0
     for definition, blocks in groups:
+        values_body = values_groups.get(definition.original.ref)
+        if values_body is not None:
+            # A VALUES definition is one closed zero-input unit; it reads no use.
+            unit, problem = valuing.build_values_unit(
+                request,
+                definition,
+                values_body,
+                index=len(units),
+                final=definition.original.entry.owner is plan.scope.selected_owner,
+                symbol=SQLSymbol,
+            )
+            if unit is None:
+                assert problem is not None
+                add(*problem)
+                return RowRealization(tuple(problems), None)
+            units.append(unit)
+            by_definition[definition.original.ref] = unit
+            nodes += valuing.node_count(unit)
+            continue
         set_body = set_groups.get(definition.original.ref)
         if set_body is not None:
             # A SET definition is one closed unit over its operands' terminals.
@@ -2141,7 +2180,7 @@ def realize_rows(request, *, _guarded=None):
         return RowRealization(tuple(problems), None)
     nodes += 3 * len(bodies) + 2 * sum(len(b.columns) for b in bodies)
     nodes += sum(2 + len(b.columns) for b in bodies if not b.final)
-    if plan.joins or plan.set_bodies:
+    if plan.joins or plan.set_bodies or plan.values_bodies:
         return JoinRealization((), SQLJoinQuery(request, tuple(units), nodes))
     return RowRealization((), SQLRowQuery(request, tuple(bodies), nodes))
 
@@ -2321,7 +2360,11 @@ def join_requirements(request, unit, naming):
         result.append(GeneratedRequirement("membership", join.ref, "R11", naming))
         result.append(GeneratedRequirement("correlation", join.ref, "R11", naming))
         result.append(GeneratedRequirement("sentinel", unit.sentinel, "R11", naming))
-        if type(unit.inputs[1].producer) in {resulting.RowResultBody, setting.SetBody}:
+        if type(unit.inputs[1].producer) in {
+            resulting.RowResultBody,
+            setting.SetBody,
+            valuing.ValuesBody,
+        }:
             # The right side is a complete post-DISTINCT/ORDER/LIMIT or SET
             # terminal; membership wraps that terminal, never its projection,
             # an operand or a source.
@@ -2383,6 +2426,14 @@ def row_generated_requirements(request, query):
         if type(unit) is setting.SetBody:
             generated.extend(
                 setting.requirements(request, unit, naming, GeneratedRequirement)
+            )
+            generated.append(
+                GeneratedRequirement("read_only_select_bytes", unit, "R23", ())
+            )
+            continue
+        if type(unit) is valuing.ValuesBody:
+            generated.extend(
+                valuing.requirements(request, unit, naming, GeneratedRequirement)
             )
             generated.append(
                 GeneratedRequirement("read_only_select_bytes", unit, "R23", ())

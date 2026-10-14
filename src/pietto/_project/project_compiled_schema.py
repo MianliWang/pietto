@@ -15,8 +15,9 @@ FORMAT = "pietto.compiled-execution.v1"
 # A root with header parameters (an unbound template) is tagged v2; S11 owns
 # its transport, so decode refuses the tag until then.
 PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
-# schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``.
-VERSIONS = (2, 1, 2, 1)
+# schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
+# 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch).
+VERSIONS = (3, 1, 3, 1)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20
@@ -148,6 +149,10 @@ FIELDS = {
     ),
     "set": ("owner", "kind", "quantifier", "operands", "outputs", "layout"),
     "set_value": ("owner", "inputs", "logical"),
+    # A zero-input typed VALUES relation: ``fields`` describe its declared
+    # columns (``field.source`` is this record), ``rows`` hold the fixed cells
+    # inline as scalars or null, in source order.
+    "values": ("owner", "fields", "rows", "outputs", "layout"),
     "request": ("owner", "use", "scope", "unit", "path", "hop", "pairs"),
     "match_use": ("owner", "position", "boundaries", "path"),
     "match_path": ("steps",),

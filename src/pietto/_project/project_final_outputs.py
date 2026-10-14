@@ -132,6 +132,7 @@ from pietto._project.project_grain import (
     ProjectGrainDependencyFact,
 )
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
+from pietto._project.project_values import ProjectValuesColumn, ProjectValuesRelation
 from pietto._project.project_set_operations import (
     ProjectSetInputScope,
     ProjectSetOperandUse,
@@ -201,6 +202,7 @@ from pietto._project.row_expression_type_facts import (
 from pietto.ast_nodes import (
     DistinctClause,
     SetRelationDef,
+    ValuesRelationDef,
     SetOperationKind,
     SetOperationQuantifier,
     AuthoredJoinKind,
@@ -398,6 +400,7 @@ class ProjectCompletedRowDomainKind(StrEnum):
     GLOBAL = "global"
     DISTINCT = "distinct"
     SET = "set"
+    VALUES = "values"
 
 
 type ProjectPreservedRowDomainAuthority = (
@@ -454,6 +457,14 @@ class ProjectCompletedRowDomain:
             return
         if self.set_origin is not None:
             raise ValueError("Non-set row domains cannot carry a set origin.")
+        if self.kind is ProjectCompletedRowDomainKind.VALUES:
+            if (
+                self.distinct is not None
+                or self.preserved is not None
+                or self.grouped_basis
+            ):
+                raise ValueError("VALUES row domain has no inherited row authority.")
+            return
         if self.distinct is not None:
             expected = (
                 ProjectCompletedRowDomainKind.GLOBAL
@@ -1391,6 +1402,7 @@ class ProjectNoJoinReplayRoot:
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
             }
             or type(self.semantic_facts) is not ProjectModuleRelationSemanticFacts
             or self.semantic_facts.owner is not self.owner
@@ -1748,6 +1760,114 @@ class ProjectCompletedSetOutput:
             raise ValueError("Set uniqueness cannot be grafted from another output.")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletedValuesOutputField:
+    """One typed VALUES header column as a canonical non-SELECT field."""
+
+    owner: ProjectDeclarationOccurrence = field(repr=False)
+    source: ProjectValuesColumn = field(repr=False)
+    output_name: str = field(init=False)
+    identity: ProjectModuleRowFieldIdentity = field(init=False)
+    field: ProjectRowField = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.source) is not ProjectValuesColumn:
+            raise TypeError("VALUES field requires its exact header column.")
+        object.__setattr__(self, "output_name", self.source.name)
+        object.__setattr__(
+            self,
+            "identity",
+            _completed_field_identity(
+                self.owner, self.source.position, self.source.name
+            ),
+        )
+        object.__setattr__(self, "field", self.source.field)
+
+    @property
+    def output_position(self) -> int:
+        return self.source.position
+
+    @property
+    def type_sources(self) -> tuple[ProjectRowEquivalenceField, ...]:
+        return ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectValuesGrainOrigin(ProjectGrainOriginAuthority):
+    """VALUES rows are fixed literal tuples with no row identity of their own."""
+
+    witness: ProjectValuesRelation = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletedValuesOutput:
+    """The zero-input typed VALUES variant in the canonical effective-output ledger.
+
+    It reads no relation: its schema is the header and its rows are fixed literal
+    tuples, so it has no dependencies, keys, functional dependencies or grain.
+    """
+
+    base_entry: ProjectEffectiveOutputTerminal = field(repr=False)
+    root: ProjectValuesRelation = field(repr=False)
+    fields: tuple[ProjectCompletedValuesOutputField, ...] = field(init=False)
+    schema: ProjectRowSchema = field(init=False)
+    row_domain: ProjectCompletedRowDomain = field(init=False)
+    origin: ProjectValuesGrainOrigin = field(init=False, repr=False)
+    uniqueness: None = field(default=None, init=False)
+    ordering: None = field(default=None, init=False)
+    limit: None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.base_entry) is not ProjectEffectiveOutputTerminal
+            or type(self.root) is not ProjectValuesRelation
+            or self.root.definition is not self.base_entry.owner.definition
+            or self.root.diagnostics
+        ):
+            raise TypeError("Completed VALUES output requires its exact typed body.")
+        fields = tuple(
+            ProjectCompletedValuesOutputField(owner=self.owner, source=column)
+            for column in self.root.columns
+        )
+        if self.root.schema is None:
+            raise ValueError("Completed VALUES output requires its typed schema.")
+        object.__setattr__(self, "fields", fields)
+        object.__setattr__(self, "schema", self.root.schema)
+        object.__setattr__(
+            self,
+            "row_domain",
+            ProjectCompletedRowDomain(kind=ProjectCompletedRowDomainKind.VALUES),
+        )
+        object.__setattr__(self, "origin", ProjectValuesGrainOrigin(witness=self.root))
+        self.validate()
+
+    @property
+    def owner(self) -> ProjectDeclarationOccurrence:
+        return self.base_entry.owner
+
+    @property
+    def dependencies(self) -> tuple[ProjectCompletionDependency, ...]:
+        return self.base_entry.dependencies
+
+    def validate(self) -> None:
+        if (
+            self.base_entry.dependencies
+            or not isinstance(self.owner.definition, ValuesRelationDef)
+            or len(self.fields) != len(self.root.columns)
+            or any(
+                f.owner is not self.owner
+                or f.source is not column
+                or self.schema.fields.get(f.output_name) is not f.field
+                or f.field is not column.field
+                for f, column in zip(self.fields, self.root.columns, strict=True)
+            )
+            or tuple(self.schema.fields) != tuple(f.output_name for f in self.fields)
+            or self.row_domain.kind is not ProjectCompletedRowDomainKind.VALUES
+            or self.origin.witness is not self.root
+        ):
+            raise ValueError("Completed VALUES output lost its exact typed header.")
+
+
 class ProjectEffectiveOutputCompletionTerminalReason(StrEnum):
     CURRENT_JOIN_CONDITION_NON_CONCRETE = "current_join_condition_non_concrete"
     CURRENT_JOIN_INPUT_NON_CONCRETE = "current_join_input_non_concrete"
@@ -1937,6 +2057,7 @@ class ProjectEffectiveOutputCompletionTerminal:
                 ProjectEffectiveOutputTerminal,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
                 ProjectEffectiveOutputCompletionTerminal,
             }
         ):
@@ -1962,6 +2083,7 @@ class ProjectEffectiveOutputCompletionTerminal:
             ProjectExistingEffectiveOutput,
             ProjectCompletedEffectiveOutput,
             ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
         } or self.reason is (
             ProjectEffectiveOutputCompletionTerminalReason.JOINED_QUALIFY_NON_CONCRETE
         ):
@@ -1985,12 +2107,14 @@ type ProjectConcreteEffectiveOutputEntry = (
     ProjectExistingEffectiveOutput
     | ProjectCompletedEffectiveOutput
     | ProjectCompletedSetOutput
+    | ProjectCompletedValuesOutput
 )
 type ProjectEffectiveOutputCompletionEntry = (
     ProjectExistingEffectiveOutput
     | ProjectEffectiveOutputTerminal
     | ProjectCompletedEffectiveOutput
     | ProjectCompletedSetOutput
+    | ProjectCompletedValuesOutput
     | ProjectEffectiveOutputCompletionTerminal
 )
 
@@ -2027,6 +2151,7 @@ class ProjectEffectiveJoinInputAuthority(ProjectCurrentInputAuthority):
             ProjectExistingEffectiveOutput,
             ProjectCompletedEffectiveOutput,
             ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
         }:
             raise TypeError(
                 "Effective input requires exact concrete completion authority."
@@ -2041,7 +2166,9 @@ class ProjectEffectiveJoinInputAuthority(ProjectCurrentInputAuthority):
             raise ValueError(
                 "Effective input is detached from the exact completion snapshot."
             )
-        if isinstance(self.entry, ProjectCompletedSetOutput):
+        if isinstance(
+            self.entry, (ProjectCompletedSetOutput, ProjectCompletedValuesOutput)
+        ):
             self.entry.validate()
         else:
             self.entry.__post_init__()
@@ -2143,6 +2270,33 @@ def _current_input_properties(
     incoming: ProjectIROutputRelationalProperties | None,
 ) -> ProjectIROutputRelationalProperties:
     entry = authority.entry
+    if isinstance(entry, ProjectCompletedValuesOutput):
+        if (
+            output.authority is not authority
+            or incoming is not None
+            or output.set_inputs
+        ):
+            raise ValueError("VALUES materialization reads no input properties.")
+        fields = _field_occurrences(output)
+        return ProjectIROutputRelationalProperties(
+            output=output,
+            fields=fields,
+            value_classes=_singleton_classes(output, fields),
+            keys=(),
+            fds=(),
+            fd_index=_compile_output_fd_index(
+                output, _singleton_classes(output, fields), ()
+            ),
+            grain=ProjectIRProvidedIntrinsicGrain(
+                output=output,
+                state=ProjectGrainBasisState.UNKNOWN,
+                factors=(),
+                active=(),
+                dependencies=(),
+                origin_set=entry.origin,
+                witness=authority,
+            ),
+        )
     if isinstance(entry, ProjectCompletedSetOutput):
         if (
             output.authority is not authority
@@ -2465,6 +2619,7 @@ class ProjectEffectiveOutputCompletion:
                 ProjectEffectiveOutputTerminal,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
                 ProjectEffectiveOutputCompletionTerminal,
             }
             for entry in self.entries
@@ -2494,6 +2649,7 @@ class ProjectEffectiveOutputCompletion:
                 in {
                     ProjectCompletedEffectiveOutput,
                     ProjectCompletedSetOutput,
+                    ProjectCompletedValuesOutput,
                     ProjectEffectiveOutputCompletionTerminal,
                 }
                 and cast(
@@ -2719,7 +2875,14 @@ def _output_names(
 
 
 def _entry_schema(entry: ProjectConcreteEffectiveOutputEntry) -> ProjectRowSchema:
-    if isinstance(entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)):
+    if isinstance(
+        entry,
+        (
+            ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
+        ),
+    ):
         return entry.schema
     if type(entry) is ProjectExistingEffectiveOutput:
         state = entry.fragment.semantic_facts.state
@@ -2737,7 +2900,14 @@ def _entry_schema(entry: ProjectConcreteEffectiveOutputEntry) -> ProjectRowSchem
 def _entry_row_domain(
     entry: ProjectConcreteEffectiveOutputEntry,
 ) -> ProjectPreservedRowDomainAuthority:
-    if isinstance(entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)):
+    if isinstance(
+        entry,
+        (
+            ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
+        ),
+    ):
         return entry.row_domain
     if type(entry) is ProjectExistingEffectiveOutput:
         return entry.properties.grain
@@ -2963,6 +3133,13 @@ def _validate_completion_overlay_membership(
         overlay.base.entries,
         strict=True,
     ):
+        if isinstance(entry, ProjectCompletedValuesOutput):
+            if entry.base_entry is not base_entry:
+                raise ValueError(
+                    "VALUES output is detached from its exact completion root."
+                )
+            entry.validate()
+            continue
         if isinstance(entry, ProjectCompletedSetOutput):
             if (
                 entry.base_entry is not base_entry
@@ -3077,6 +3254,7 @@ def _validate_completion_overlay_membership(
         if type(entry) not in {
             ProjectCompletedEffectiveOutput,
             ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
             ProjectEffectiveOutputCompletionTerminal,
         }:
             continue
@@ -4847,6 +5025,7 @@ def _complete_set_output(
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
             ),
         ):
             blockers.extend(entries or (resolution,))
@@ -4940,6 +5119,33 @@ def _complete_set_output(
     return ProjectCompletedSetOutput(
         root=ProjectSetOperation(scope=scope, uses=tuple(uses))
     )
+
+
+def _complete_values_output(
+    completion: ProjectCompletion, base_entry: ProjectEffectiveOutputEntry
+) -> ProjectCompletedValuesOutput | ProjectEffectiveOutputEntry:
+    """Complete one typed VALUES body; a rejected body keeps its base terminal.
+
+    A rejected body keeps the diagnostics its semantic facts already carry. As
+    for a SELECT owner, whether others may read it by name is the readers'
+    concern, not the body's.
+    """
+    owner = base_entry.owner
+    definition = owner.definition
+    assert isinstance(definition, ValuesRelationDef)
+    if (
+        type(base_entry) is not ProjectEffectiveOutputTerminal
+        or base_entry.dependencies
+    ):
+        raise ValueError(
+            "VALUES completion requires its dependency-free base terminal."
+        )
+    root = ProjectValuesRelation(definition=definition)
+    if _semantic_facts(completion, owner).helper_diagnostics != root.diagnostics:
+        raise ValueError("VALUES completion lost its exact semantic diagnostics.")
+    if root.diagnostics:
+        return base_entry
+    return ProjectCompletedValuesOutput(base_entry=base_entry, root=root)
 
 
 def _complete_joined_output(
@@ -5058,13 +5264,20 @@ def _complete_no_join_output(
         )
     input_schema = _entry_schema(upstream_entry)
     upstream_definition = resolution.target_symbol.target_occurrence.definition
-    if type(upstream_definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
+    if type(upstream_definition) not in {
+        SourceDef,
+        TableDef,
+        QueryDef,
+        SetRelationDef,
+        ValuesRelationDef,
+    }:
         raise TypeError("No-JOIN replay upstream must produce rows.")
     let_scope = build_project_relation_let_scope_facts(
         definition=definition,
         input_schema=input_schema,
         upstream_definition=cast(
-            SourceDef | TableDef | QueryDef | SetRelationDef, upstream_definition
+            SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef,
+            upstream_definition,
         ),
     )
     if let_scope.status not in {
@@ -5105,7 +5318,7 @@ def _complete_no_join_output(
             source_schema=input_schema,
             source_symbol=upstream_symbol,
             upstream_definition=cast(
-                SourceDef | TableDef | QueryDef | SetRelationDef,
+                SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef,
                 upstream_definition,
             ),
             fallback_path=owner.identity.module_path,
@@ -5826,7 +6039,12 @@ class _CurrentJoinBuild:
             return result.properties
         entry = authority.entry
         if not isinstance(
-            entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)
+            entry,
+            (
+                ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
+            ),
         ):
             raise TypeError("Materialization requires a completed producer.")
         set_inputs = (
@@ -5835,7 +6053,9 @@ class _CurrentJoinBuild:
             else ()
         )
         incoming = None
-        if isinstance(entry.root, ProjectConcreteNoJoinReplay):
+        if isinstance(entry, ProjectCompletedEffectiveOutput) and isinstance(
+            entry.root, ProjectConcreteNoJoinReplay
+        ):
             incoming = self.materialize(self.provider(entry.root.upstream_entry))
         result = ProjectCurrentMaterializedInput(
             authority=authority,
@@ -5907,6 +6127,7 @@ class _CurrentJoinBuild:
                     ProjectExistingEffectiveOutput,
                     ProjectCompletedEffectiveOutput,
                     ProjectCompletedSetOutput,
+                    ProjectCompletedValuesOutput,
                 ),
             ):
                 bindings.append(
@@ -6173,6 +6394,12 @@ def build_project_effective_output_completion(
             built_by_owner[id(owner)] = entry
             changed_current.add(id(owner))
             continue
+        if isinstance(definition, ValuesRelationDef):
+            entry = _complete_values_output(completion, base_entry)
+            built_by_owner[id(owner)] = entry
+            if entry is not base_entry:
+                changed_current.add(id(owner))
+            continue
         current = (
             current_state.attempt(base_entry, tuple(built_by_owner.values()))
             if type(base_entry) is ProjectEffectiveOutputTerminal
@@ -6225,6 +6452,7 @@ def build_project_effective_output_completion(
                     ProjectExistingEffectiveOutput,
                     ProjectCompletedEffectiveOutput,
                     ProjectCompletedSetOutput,
+                    ProjectCompletedValuesOutput,
                 }:
                     entry = _complete_no_join_output(
                         completion=completion,
@@ -6281,6 +6509,7 @@ def build_project_effective_output_completion(
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
             }:
                 entry = _complete_no_join_output(
                     completion=completion,
@@ -6357,7 +6586,10 @@ def completed_set_admission_diagnostics(
     for entry in overlay.entries:
         if isinstance(entry, ProjectCompletedSetOutput):
             facts = _semantic_facts(overlay.base, entry.owner)
-            if facts.helper_diagnostics != syntax_diagnostics(entry.owner.definition):
+            definition = entry.owner.definition
+            if isinstance(
+                definition, ValuesRelationDef
+            ) or facts.helper_diagnostics != syntax_diagnostics(definition):
                 raise ValueError(
                     "Set admission requires its exact owner-held temporary cause."
                 )

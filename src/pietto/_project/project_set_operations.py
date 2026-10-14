@@ -60,6 +60,7 @@ class ProjectSetInputScope:
         from pietto._project.project_final_outputs import (
             ProjectCompletedEffectiveOutput,
             ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
             ProjectEffectiveOutputCompletionTerminal,
         )
         from pietto._project.project_completion import (
@@ -89,6 +90,7 @@ class ProjectSetInputScope:
                     ProjectEffectiveOutputTerminal,
                     ProjectCompletedEffectiveOutput,
                     ProjectCompletedSetOutput,
+                    ProjectCompletedValuesOutput,
                     ProjectEffectiveOutputCompletionTerminal,
                 }
                 or entry.owner is not expected

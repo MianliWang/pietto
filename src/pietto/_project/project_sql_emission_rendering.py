@@ -27,6 +27,7 @@ from pietto._project.project_sql_emission_aggregation import (
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
+from pietto._project import project_sql_emission_values as valuing
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_joins import (
     JoinBody,
@@ -1007,6 +1008,78 @@ def _set_select(w: _Writer, unit) -> None:
             w.emit(")", "syntax", "set_fold_close", reference)
 
 
+def _values_select(w: _Writer, unit) -> None:
+    """One VALUES unit: typed rows, or a typed empty SELECT for zero rows.
+
+    A CTE body is the bare ``VALUES`` list, its aliases written by the CTE column
+    list; the selected statement labels the derived table's columns instead.
+    """
+    reference = unit.body.ref
+    family = w.request.family
+    if not unit.rows or unit.final:
+        w.emit("SELECT ", "syntax", "select", reference)
+        for position, column in enumerate(unit.columns):
+            subject = column.source.ref
+            if position:
+                w.emit(", ", "syntax", "separator", subject)
+            if unit.rows:
+                w.identifier(unit.scope.name, "values_scope", subject)
+                w.emit(".", "syntax", "values_qualifier", subject)
+                w.identifier(f"c{position}", "values_column", subject)
+            else:
+                w.emit("CAST(", "syntax", "anchor_open", subject)
+                w.emit("NULL", "literal", column.realization.tag, subject)
+                w.emit(
+                    parameters.anchor_suffix(column.physical),
+                    "syntax",
+                    "anchor_close",
+                    subject,
+                )
+            w.emit(" AS ", "syntax", "alias", subject)
+            w.identifier(column.label, "label", column.export.ref)
+        if not unit.rows:
+            w.emit(" WHERE FALSE", "syntax", "values_empty", reference)
+            return
+        w.emit(" FROM (", "syntax", "values_open", reference)
+    w.emit("VALUES ", "syntax", "values", reference)
+    for index, row in enumerate(unit.rows):
+        if index:
+            w.emit(", ", "syntax", "values_row_separator", reference)
+        w.emit(
+            "(" if family == "postgres" else "ROW(",
+            "syntax",
+            "values_row_open",
+            reference,
+        )
+        for position, (column, value) in enumerate(zip(unit.columns, row, strict=True)):
+            subject = column.source.ref
+            if position:
+                w.emit(", ", "syntax", "separator", subject)
+            w.emit("CAST(", "syntax", "anchor_open", subject)
+            w.emit(
+                valuing.cell_token(column.realization.tag, value, family),
+                "literal",
+                column.realization.tag,
+                subject,
+            )
+            w.emit(
+                parameters.anchor_suffix(column.physical),
+                "syntax",
+                "anchor_close",
+                subject,
+            )
+        w.emit(")", "syntax", "values_row_close", reference)
+    if unit.final:
+        w.emit(") AS ", "syntax", "values_close", reference)
+        w.identifier(unit.scope.name, "values_alias", reference)
+        w.emit(" (", "syntax", "values_columns_open", reference)
+        for position, column in enumerate(unit.columns):
+            if position:
+                w.emit(", ", "syntax", "separator", column.source.ref)
+            w.identifier(f"c{position}", "values_column_alias", column.source.ref)
+        w.emit(")", "syntax", "values_columns_close", reference)
+
+
 def _unit_select(w: _Writer, unit) -> None:
     if type(unit) is JoinBody:
         _join_select(w, unit)
@@ -1014,6 +1087,8 @@ def _unit_select(w: _Writer, unit) -> None:
         _result_select(w, unit)
     elif type(unit) is setting.SetBody:
         _set_select(w, unit)
+    elif type(unit) is valuing.ValuesBody:
+        _values_select(w, unit)
     else:
         _row_select(w, unit)
 

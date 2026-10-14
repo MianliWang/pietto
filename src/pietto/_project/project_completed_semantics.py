@@ -52,6 +52,7 @@ from pietto._project.project_completion import (
 )
 from pietto._project.project_final_outputs import (
     ProjectCompletedSetOutput,
+    ProjectCompletedValuesOutput,
     completed_set_admission_diagnostics,
     ProjectCompletedEffectiveOutput,
     ProjectEffectiveOutputCompletion,
@@ -87,7 +88,7 @@ from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationResult,
     verify_project_phase62,
 )
-from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from pietto.ast_nodes import QueryDef, SourceDef, TableDef, ValuesRelationDef
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.source_connectors import check_source_connectors
@@ -401,17 +402,18 @@ class _ProjectCompletedSemanticRoots:
                 *query_parameter_semantic_diagnostics(
                     self.semantic_result.module_relation_resolutions,
                     self.semantic_result.module_catalogs,
+                    # Every concrete input, VALUES bodies included, names its
+                    # fields; an entry kind with no schema reader fails closed.
                     {
                         entry.owner: frozenset(
                             project_final_outputs._entry_schema(entry).fields
                         )
                         for entry in effective_outputs.entries
-                        if isinstance(
+                        if not isinstance(
                             entry,
                             (
-                                ProjectExistingEffectiveOutput,
-                                ProjectCompletedEffectiveOutput,
-                                ProjectCompletedSetOutput,
+                                ProjectEffectiveOutputTerminal,
+                                ProjectEffectiveOutputCompletionTerminal,
                             ),
                         )
                     },
@@ -470,6 +472,7 @@ class ProjectConcreteCompletedSemanticResult:
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
             }
             for entry in effective_outputs.entries
         )
@@ -707,7 +710,7 @@ def _fallback_diagnostic(
     }:
         raise TypeError("Project completion fallback requires an exact terminal.")
     definition = entry.owner.definition
-    if type(definition) not in {SourceDef, TableDef, QueryDef}:
+    if type(definition) not in {SourceDef, TableDef, QueryDef, ValuesRelationDef}:
         raise TypeError("Project completion diagnostic requires a relation definition.")
     span = definition.span
     return Diagnostic(
@@ -764,6 +767,7 @@ def _final_diagnostics(
         if type(entry) in {
             ProjectCompletedEffectiveOutput,
             ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
         }:
             continue
         if type(entry) not in {

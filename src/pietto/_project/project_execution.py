@@ -268,6 +268,9 @@ def verify_postgres_adbc_deployment(request):
             (s.startswith("pg_") and s != "pg_catalog") or s == "information_schema"
             for s in premise.schemas
         )
+        # A statement with no relation root is qualified by its session context
+        # alone; its premise must still name the catalog its CASTs resolve in.
+        or (not sources and "pg_catalog" not in premise.schemas)
     ):
         raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
 
@@ -401,6 +404,10 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
                 or request.postgres_adbc_deployment is not None
             ):
                 raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_SCOPE")
+            if not request.artifact.request.sources:
+                # D70.05: a statement reading no physical relation has no
+                # non-vacuous MySQL source qualification in this phase.
+                raise ExecutionError("MYSQL_ZERO_SOURCE_ROUTE")
             verify_deployment(request, required=True)
     else:
         if (

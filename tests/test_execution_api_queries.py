@@ -1466,3 +1466,445 @@ def test_a_reused_let_is_one_producer_with_distinct_uses(tmp_path, case):
         accepted_compatibility=bundle.compatibility,
     )
     assert execution.export_bundle(loaded).payload == bundle.payload
+
+
+VALUES_SEED = """
+query seeded:
+    values(id: Int not null, label: Text nullable):
+        1, "a"
+        2, null
+"""
+
+
+def values_example(directory):
+    """The documented project plus a pure VALUES query and a source-free contract."""
+    project = api.write_example(directory)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + VALUES_SEED, encoding="utf-8")
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    contract["sources"] = []
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return project
+
+
+def _with_values(description, change):
+    """`description` with its one `values` record's values passed through `change`."""
+    return dataclasses.replace(
+        description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    Record(r.address, change(r.values))
+                    if r.address.kind == "values"
+                    else r
+                    for r in records
+                ),
+            )
+            for name, records in description.members
+        ),
+    )
+
+
+def test_a_compiled_values_query_carries_its_typed_rows_inline(tmp_path):
+    query = execution.compile_query(
+        values_example(tmp_path),
+        module="main.pietto",
+        kind="query",
+        name="seeded",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    (values,) = (r for r in records.values() if r.address.kind == "values")
+    assert not any(a.kind in ("source", "use") for a in records)
+    fields = [records[a].values for a in values.get("fields")]
+    assert [f[1:5] for f in fields] == [
+        (0, "id", "c0", ("Int", "non_null")),
+        (1, "label", "c1", ("Text", "nullable")),
+    ]
+    assert [
+        tuple(None if cell is None else (cell.tag, cell.value) for cell in row)
+        for row in values.get("rows")
+    ] == [(("Int", 1), ("Text", "a")), (("Int", 2), None)]
+    assert values.get("layout") == (None, (), "v0", True, 0)
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    emission = query.emission
+    assert emission is not None
+    live_sql = json.loads(emission)["sql"]
+    assert query._template.artifact.rendered.sql.decode() == live_sql
+    assert loaded._template.artifact.rendered.sql.decode() == live_sql
+    # A forged cell, column type or row width is not a VALUES record.
+    for change in (
+        lambda v: (v[0], v[1], ((None, v[2][0][1]), v[2][1]), *v[3:]),
+        lambda v: (v[0], v[1], ((v[2][0][1], v[2][0][0]), v[2][1]), *v[3:]),
+        lambda v: (v[0], v[1], (v[2][0][:1], v[2][1]), *v[3:]),
+        lambda v: (v[0], v[1], v[2] * 501, *v[3:]),
+    ):
+        with pytest.raises(CompiledError, match="VALUES"):
+            verify_description(_with_values(description, change))
+
+
+def test_a_zero_source_values_query_prepares_on_postgres_with_pg_catalog(
+    tmp_path, unconnected
+):
+    query = execution.compile_query(
+        values_example(tmp_path),
+        module="main.pietto",
+        kind="query",
+        name="seeded",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    handle = run(query, premise=execution.PostgresDeploymentPremise(("pg_catalog",)))
+    assert handle.route == "postgres_rows" and handle.outcome.end == "NOT_STARTED"
+    assert handle._owner.request.artifact.request.sources == ()
+    assert refused(
+        run, query, premise=execution.PostgresDeploymentPremise(("fixture",))
+    ) == ("PIE-R1002", "POSTGRES_DEPLOYMENT_PREMISE_SCOPE")
+
+
+def test_a_parameterized_query_over_values_binds_without_io(tmp_path, unconnected):
+    """A header parameter reads beside the VALUES columns it never shadows."""
+    project = values_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "query picked(low: Int not null):\n    from seeded\n    where id > low\n"
+        "    select:\n        id\n        label\n",
+        encoding="utf-8",
+    )
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="picked",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+    assert query.parameters == (("low", "Int", False),)
+    premise = execution.PostgresDeploymentPremise(("pg_catalog",))
+    handle = run(query, premise=premise, parameters={"low": 1})
+    sql, arguments = bound(handle)
+    assert arguments == (1,)
+    assert b'WHERE ("s0"."c0" > CAST($1 AS pg_catalog.int8))' in sql
+    handle.close()
+    assert refused(run, query, premise=premise, parameters={"low": "1"}) == (
+        "PIE-R1006",
+        "BINDING_PARAMETER:0:Int",
+    )
+
+
+VALUES_BESIDE = """query result:
+    let seed:
+        values(rid: Int not null, label: Text nullable, flag: Bool nullable, ratio: Float nullable):
+            1, "a", true, 0.5
+            2, null, null, null
+    from lhs
+    inner join seed as s:
+        from lhs
+        on lhs.id == s.rid
+    select:
+        a = lhs.id
+        b = s.label
+        c = s.flag
+        d = s.ratio
+"""
+# The header alone: every column's domain is its whole carrier.
+VALUES_EMPTY_BESIDE = """query result:
+    let seed:
+        values(rid: Int not null, label: Text nullable, flag: Bool nullable, ratio: Float nullable)
+    from lhs
+    left join seed as s:
+        from lhs
+        on lhs.id == s.rid
+    select:
+        a = lhs.id
+        b = s.label
+"""
+VALUES_CARRIERS = {
+    "postgres": ["pg_int8", "pg_text", "pg_bool", "pg_float8"],
+    "mysql": ["my_signed_int", "my_utf8mb4_text", "my_signed_bool", "my_double"],
+}
+
+
+@pytest.mark.parametrize("body", (VALUES_BESIDE, VALUES_EMPTY_BESIDE))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_values_beside_a_physical_source_compiles_loads_and_prepares(
+    tmp_path, target, body, unconnected
+):
+    """Each VALUES column keeps its target's literal carrier through compile,
+    export and load, though no contract source field has MySQL's carriers, and
+    the target's route prepares the query with the physical source only."""
+    query = execution.compile_query(
+        api.write_join_witness(tmp_path / target, target, body),
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect=target,
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    described = {r.address: r for r in decode(bundle.payload).records}
+    (values,) = (r for r in described.values() if r.address.kind == "values")
+    assert [
+        json.loads(described[a].get("physical"))["storage"]["kind"]
+        for a in values.get("fields")
+    ] == VALUES_CARRIERS[target]
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    sql = query._template.artifact.rendered.sql
+    assert loaded._template.artifact.rendered.sql == sql
+    if target == "postgres":
+        handle = run(
+            loaded,
+            premise=execution.PostgresDeploymentPremise(("public", "pg_catalog")),
+        )
+    else:
+        handle = execution.execute(
+            loaded,
+            route="mysql_rows",
+            access=execution.MySQLAccess(
+                "127.0.0.1",
+                3306,
+                "phase66",
+                "pietto_query",
+                PASSWORD,
+                "/explicit/ca.pem",
+                "pietto_query",
+            ),
+            premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+        )
+    assert handle.outcome.end == "NOT_STARTED"
+    request = handle._owner.request
+    assert request.artifact.rendered.sql == sql
+    assert [s.name for s in request.artifact.request.sources] == ["phase66 lhs é"]
+
+
+def _forged(payload, change):
+    """`payload` with every record passed through `change` (None keeps it),
+    encoded again: a sender who pins changed bytes himself."""
+    description = decode(payload)
+    return encode(
+        dataclasses.replace(
+            description,
+            members=tuple(
+                (name, tuple(change(r) or r for r in records))
+                for name, records in description.members
+            ),
+        )
+    )
+
+
+def _set(record, name, value):
+    at = FIELDS[record.address.kind].index(name)
+    return Record(
+        record.address, (*record.values[:at], value, *record.values[at + 1 :])
+    )
+
+
+def _at(address, change):
+    """`change` for the record at `address` only."""
+    return lambda r: change(r) if r.address == address else None
+
+
+def _physical(record, change):
+    from pietto._project.project_sql_emission_contract import canonical
+
+    value = json.loads(record.get("physical"))
+    change(value)
+    return _set(record, "physical", canonical(value).decode())
+
+
+def test_load_rederives_each_values_column_from_its_own_cells(tmp_path):
+    """A self-pinned VALUES record is refused when a column claims another
+    carrier or domain than its cells give, a cell PostgreSQL cannot store, or a
+    column, port or layout compile_query never writes."""
+    from pietto._project.project_compiled_schema import Scalar
+
+    query = execution.compile_query(
+        values_example(tmp_path),
+        module="main.pietto",
+        kind="query",
+        name="seeded",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    (values,) = (
+        r for r in decode(bundle.payload).records if r.address.kind == "values"
+    )
+    number, text = values.get("fields")
+    port = values.get("outputs")[0]
+    (one, a), (two, null) = values.get("rows")
+    at = _at
+    forgeries = {
+        "VALUES_REPRESENTATION": (
+            at(number, lambda r: _physical(r, lambda p: p["domain"].update(max="1"))),
+            at(number, lambda r: _physical(r, lambda p: p["domain"].update(min="0"))),
+            at(number, lambda r: _physical(r, lambda p: p.update(nullable=True))),
+            at(
+                number,
+                lambda r: _physical(r, lambda p: p.update(storage={"kind": "pg_int4"})),
+            ),
+            at(
+                text,
+                lambda r: _physical(r, lambda p: p["domain"].update(max_characters=6)),
+            ),
+            # Same length, so only the NUL that PostgreSQL text cannot hold differs.
+            at(
+                values.address,
+                lambda r: _set(r, "rows", ((one, Scalar("Text", "\0")), (two, null))),
+            ),
+        ),
+        "VALUES_COLUMNS": (
+            at(number, lambda r: _set(r, "column", "c1")),
+            at(number, lambda r: _set(r, "logical", None)),
+            at(port, lambda r: _set(r, "logical", ("Int", "nullable"))),
+        ),
+        "VALUES_LAYOUT": (
+            at(values.address, lambda r: _set(r, "layout", r.get("layout")[:4])),
+        ),
+    }
+    assert a == Scalar("Text", "a") and null is None
+    for category, changes in forgeries.items():
+        for change in changes:
+            forged = _forged(bundle.payload, change)
+            assert refused(load, bundle, forged, expected_pin=content_pin(forged)) == (
+                "PIE-R1008",
+                "COMPILED_" + category,
+            )
+
+
+def test_a_premise_context_naming_a_values_column_is_a_compiled_refusal(tmp_path):
+    """A self-pinned expression context that names a VALUES column, scoping the
+    physical source's premise, is a classified PIE-R1008 refusal: a VALUES
+    column has no source premise. Naming a source field keeps its own scope
+    refusal."""
+    query = execution.compile_query(
+        api.write_join_witness(tmp_path / "pg", "postgres", VALUES_BESIDE),
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for _, group in description.members for r in group}
+    (values,) = (r for r in records.values() if r.address.kind == "values")
+    (premise,) = (
+        r
+        for r in records.values()
+        if r.address.kind == "premise" and r.get("key") == "row_domain_matches"
+    )
+    (source,) = (r for r in records.values() if r.address.kind == "source")
+    context = Address("expression_context", 0)
+    for field, category in (
+        (values.get("fields")[0], "COMPILED_EXPRESSION_CONTEXT"),
+        (source.get("fields")[0], "COMPILED_CONTRACT_PREMISE_SCOPE"),
+    ):
+        added = Record(
+            context, (Address("declaration", 2), "where", 0, "query", 0, (field,))
+        )
+        members = tuple(
+            (
+                name,
+                tuple(
+                    _set(r, "scope", (premise.get("scope"), context))
+                    if r.address == premise.address
+                    else r
+                    for r in group
+                )
+                + ((added,) if name == "structure" else ()),
+            )
+            for name, group in description.members
+        )
+        forged = encode(dataclasses.replace(description, members=members))
+        assert refused(load, bundle, forged, expected_pin=content_pin(forged)) == (
+            "PIE-R1008",
+            category,
+        )
+
+
+def test_export_and_compiled_emission_check_values_records_against_their_unit(
+    tmp_path,
+):
+    """The exporter compares each VALUES record with the emitted unit, and the
+    compiled emission compares the unit it rebuilds with the record."""
+    from dataclasses import replace
+
+    from pietto._project.project_compiled_schema import Scalar
+    from pietto._project.project_compiled_verification import (
+        verify_compiled_values_unit,
+        verify_export,
+    )
+
+    project = values_example(tmp_path)
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "query",
+        "seeded",
+        "postgres",
+        "contract.json",
+        POLICIES["preserve"],
+    )
+    payload = build_compiled(outcome.artifact).payload
+    description = decode(payload)
+    verify_export(description, outcome.artifact)
+    (values,) = (r for r in description.records if r.address.kind == "values")
+    (one, _), second = values.get("rows")
+    label = values.get("fields")[0]
+    for category, change in (
+        (
+            "EXPORT_VALUES",
+            _at(values.address, lambda r: _set(r, "layout", (None, (), "v9", True, 0))),
+        ),
+        ("EXPORT_VALUES_COLUMN", _at(label, lambda r: _set(r, "label", "other"))),
+        (
+            "EXPORT_VALUES_ROW",
+            _at(
+                values.address,
+                lambda r: _set(r, "rows", ((one, Scalar("Text", "b")), second)),
+            ),
+        ),
+    ):
+        changed = decode(_forged(payload, change))
+        with pytest.raises(CompiledError, match=f"^COMPILED_{category}$"):
+            verify_export(changed, outcome.artifact)
+    artifact = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="seeded",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )._template.artifact
+    request = artifact.request
+    (record,) = (
+        r
+        for r in request.plan.ir.completed.root.records.values()
+        if r.address.kind == "values"
+    )
+    (body,) = artifact.ast.bodies
+    verify_compiled_values_unit(body, record, request)
+    first = body.columns[0]
+    for category, changed in (
+        ("VALUES_UNIT", replace(body, rows=body.rows[::-1])),
+        (
+            "VALUES_COLUMN",
+            replace(body, columns=(replace(first, label="x"), *body.columns[1:])),
+        ),
+    ):
+        with pytest.raises(CompiledError, match=f"^COMPILED_{category}$"):
+            verify_compiled_values_unit(changed, record, request)

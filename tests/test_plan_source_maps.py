@@ -94,6 +94,7 @@ def corpus(tmp_path_factory):
             "aggregate",
             "hidden_group",
             "hidden_window",
+            "values",
         )
     }
     cases["renamed"] = (_chain(), None)

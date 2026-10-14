@@ -120,11 +120,6 @@ DIAGNOSTICS = {
             ("PIE-S2334", "Set-operation semantics are not implemented.", 15, 5),
         ],
     ),
-    "values_body": (
-        "query q:\n    let a:\n        values(id: Int not null):\n            1\n"
-        "    from a\n    select:\n        id\n",
-        [("PIE-S2347", "VALUES body semantics are not implemented.", 8, 9)],
-    ),
     "capture": (
         "query q:\n    let a:\n        capture lhs\n        from rhs\n"
         "        select:\n            id\n    from a\n    select:\n        id\n",

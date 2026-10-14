@@ -162,7 +162,7 @@ def admitted_join_shape(plan, *, _guarded=None) -> bool:
         for item in plan.bindings.definitions
         if type(item.entry.owner.definition) is not SourceDef
     )
-    if not named or not plan.sources:
+    if not named or not (plan.sources or plan.values_bodies):
         return False
     inputs = {item.ref: item for item in plan.join_inputs}
     ports = {port.ref: port for port in plan.join_ports}

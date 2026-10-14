@@ -37,6 +37,11 @@ VARIANTS = {
     # Phase70 S03: closed relation lets, each emitted as its own named block.
     # S05: `diamond_limit` reads one let from two lets declared before it.
     "L_let_relations": ("chain", "imported", "hidden_join", "diamond_limit"),
+    # Phase70 S06: typed VALUES; a statement without a physical source is
+    # PostgreSQL only, and a rejected VALUES body never reaches SQL. A VALUES
+    # let joined with the published relation, with rows or with none, runs on
+    # both targets.
+    "Q_values_rows": ("top", "rejected", "let_join", "zero_left_join"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -449,6 +454,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return chain_fixture(target, case, variant)
     if case == "L_let_relations":
         return let_fixture(target, variant)
+    if case == "Q_values_rows":
+        return values_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
@@ -2027,6 +2034,57 @@ def let_fixture(target, variant):
     return item
 
 
+VALUES_BODIES = {
+    "top": """query result:
+    values(id: Int not null, label: Text nullable, ratio: Float nullable, flag: Bool nullable):
+        1, "a", 0.5, true
+        1, "a", 0.5, true
+        2, null, null, null
+""",
+    "rejected": """query result:
+    values(id: Int not null):
+        1 + 1
+""",
+    "let_join": """query result:
+    let seed:
+        values(rid: Int not null, label: Text nullable):
+            0, "z"
+            1, null
+            1, "y"
+    from rows
+    inner join seed as s:
+        from rows
+        on rows.id == s.rid
+    select:
+        a = rows.id
+        b = s.label
+""",
+    "zero_left_join": """query result:
+    let seed:
+        values(rid: Int not null, n: Int nullable)
+    from rows
+    left join seed as s:
+        from rows
+        on rows.id == s.rid
+    select:
+        a = rows.id
+        b = s.n
+""",
+}
+VALUES_LABELS = {
+    "top": ("id", "label", "ratio", "flag"),
+    "let_join": ("a", "b"),
+    "zero_left_join": ("a", "b"),
+}
+
+
+def values_fixture(target, variant):
+    """Typed VALUES beside the published source, which the statement never reads."""
+    item = join_fixture(target, "W_join_shapes", "inner")
+    header = item["source"].split("query result:", 1)[0]
+    return {**item, "source": header + VALUES_BODIES[variant]}
+
+
 ROW_DIRECT_BODY = """    from rows
     let:
         bumped = id + 1
@@ -3358,6 +3416,8 @@ PER_TARGET_STATUS = {
     # R09: the NULL-key FULL minimum positive is PostgreSQL only; MySQL keeps
     # its approved FULL non-support.
     ("V_join_full", "null_keys"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    # D70.05: a statement without a physical source is refused on MySQL.
+    ("Q_values_rows", "top"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
 }
 
 
@@ -3366,6 +3426,8 @@ def expected_status(case, variant, target=None):
         return PER_TARGET_STATUS[case, variant][target]
     if (case, variant) in MIGRATED_TO_SUCCESS:
         return "VERIFIED"
+    if (case, variant) == ("Q_values_rows", "rejected"):
+        return "BLOCKED"
     if case in {
         "V_row_blocked",
         "V_aggregate_blocked",
@@ -3999,6 +4061,9 @@ def _named_range_provenance(document, descriptors):
         "set_body": ["set_body"],
         "set_operand": ["set_operand"],
         "set_input": ["set_input"],
+        # Phase70 VALUES units own their body and each declared column.
+        "values_body": ["values_body"],
+        "values_column": ["values_column"],
     }
     associations = {
         "authored_cause",
@@ -4574,7 +4639,14 @@ def _scan_occurrences(document, contract, premises, family):
                 "unestablished physical scan premise",
             )
         occurrences.append((description, source_positions))
-    _need(bool(occurrences), "an emitted query must reach a physical relation")
+    valued = any(
+        r.get("denominator") == "generated" and r.get("kind") == "values_rows"
+        for r in document["requirements"]
+    )
+    _need(
+        bool(occurrences) or valued,
+        "an emitted query must reach a physical relation or a VALUES body",
+    )
     return occurrences, statements
 
 
@@ -4747,7 +4819,10 @@ def _decode_row_denominators(
     blocks = [
         body["block"]
         for body in bodies
-        if not body.get("join") and not body.get("result") and not body.get("set")
+        if not body.get("join")
+        and not body.get("result")
+        and not body.get("set")
+        and not body.get("values")
     ]
     families: dict[str, list[dict[str, Any]]] = {}
     for item in originals:
@@ -4841,9 +4916,18 @@ def _decode_fixed_public(document, limits):
         r.get("denominator") == "generated" and r.get("kind") == "set_operation"
         for r in document["requirements"]
     )
+    valued = any(
+        r.get("denominator") == "generated" and r.get("kind") == "values_rows"
+        for r in document["requirements"]
+    )
     if not joined and not setted:
-        _need(len(scan_occurrences) == 1, "one physical scan without a JOIN")
-    description, source_positions = scan_occurrences[0]
+        _need(
+            len(scan_occurrences) == 1 or valued and len(scan_occurrences) <= 1,
+            "one physical scan without a JOIN",
+        )
+    description, source_positions = (
+        scan_occurrences[0] if scan_occurrences else (cast(Any, None), [])
+    )
     scan_order = list(scan_occurrences)
     scan_definitions = _scan_definitions(document, scan_occurrences)
     # One source definition owns one contiguous block of plan source ports, and the
@@ -6723,6 +6807,7 @@ def _decode_fixed_public(document, limits):
         "window_projection": 0,
         "quotient_field": 0,
         "set_column": 0,
+        "values_column": 0,
     }
     result_nodes = [0]
 
@@ -7519,7 +7604,8 @@ def _decode_fixed_public(document, limits):
             scan = {"kind": "join", "body": source_body}
         elif peek() == "cte_reference":
             _need(
-                producer["kind"] in {"select_block", "result_boundary", "set_body"},
+                producer["kind"]
+                in {"select_block", "result_boundary", "set_body", "values_body"},
                 "named producer kind",
             )
             _, name = take("identifier", "cte_reference", subject=producer)
@@ -7532,6 +7618,8 @@ def _decode_fixed_public(document, limits):
                 == (
                     "set_body"
                     if source_body.get("set")
+                    else "values_body"
+                    if source_body.get("values")
                     else "result_boundary"
                     if source_body.get("result")
                     else "select_block"
@@ -8957,6 +9045,337 @@ def _decode_fixed_public(document, limits):
         row_bodies.append(body)
         return body
 
+    values_evidence = {
+        encoded(r["subject"]): r["evidence"]
+        for r in document["requirements"]
+        if r.get("denominator") == "generated" and r.get("kind") == "values_column"
+    }
+
+    def values_cell(tag, token):
+        """One fixed cell token, decoded by its declared tag alone."""
+        if token == "NULL":
+            return None
+        if tag == "Bool":
+            _need(token in {"TRUE", "FALSE"}, "VALUES Bool cell")
+            return token == "TRUE"
+        if tag == "Int":
+            return _fixed_payload("Int", token)
+        if tag == "Float":
+            if family == "postgres":
+                _need(token.startswith("'") and token.endswith("'"), "VALUES Float")
+                spelling = token[1:-1]
+            else:
+                _need("e" in token, "VALUES Float exponent")
+                spelling = token[:-2] if token.endswith("e0") else token
+            value = float(spelling)
+            _need(math.isfinite(value) and repr(value) == spelling, "VALUES Float")
+            return value
+        if family == "postgres":
+            _need(re.fullmatch(r"E'(?:\\[0-3][0-7]{2})*'", token) is not None)
+            value = bytes(
+                int(token[i + 1 : i + 4], 8) for i in range(2, len(token) - 1, 4)
+            ).decode()
+            _need("\0" not in value, "VALUES PostgreSQL text NUL")
+            return value
+        _need(re.fullmatch(r"X'(?:[0-9a-f]{2})*'", token) is not None)
+        return bytes.fromhex(token[2:-1]).decode()
+
+    def values_anchor_close(tag):
+        physical = _fixed_physical(family, tag)
+        close = (
+            " AS "
+            + {
+                "pg_bool": "pg_catalog.bool",
+                "pg_int8": "pg_catalog.int8",
+                "pg_float8": "pg_catalog.float8",
+                "pg_text": "pg_catalog.text",
+                "my_signed_bool": "SIGNED",
+                "my_signed_int": "SIGNED",
+                "my_double": "DOUBLE",
+                "my_utf8mb4_text": "CHAR CHARACTER SET utf8mb4",
+            }[physical]
+            + ")"
+        )
+        if tag == "Text":
+            close += (
+                ' COLLATE "C"' if family == "postgres" else " COLLATE utf8mb4_0900_bin"
+            )
+        return physical, close
+
+    def values_cast(tag):
+        """One `CAST(<cell> AS <declared type>)`, returning its decoded cell."""
+        token, _ = take("syntax", "anchor_open", "CAST(")
+        column = token["subject"]
+        _need(column["kind"] == "values_column", "VALUES cell column subject")
+        literal, text = take("literal", tag, None, column)
+        _, close = values_anchor_close(tag)
+        take("syntax", "anchor_close", close, column)
+        return values_cell(tag, text)
+
+    def values_select(block, final, cte_terminals):
+        """One VALUES unit: typed fixed rows, every alias written by the SQL.
+
+        Column tags come from the published declared-column evidence; each cell
+        is decoded from its own literal token under its CAST, and the realization
+        of every column is re-derived from those cells alone.
+        """
+        _need(block["kind"] == "values_body", "VALUES body scope")
+        base = row_counts["values_column"]
+        columns_seen: list[dict[str, Any]] = []
+        rows: list[list[Any]] = []
+        labelled = peek() == "select"
+        scope_name = f"v{block['position']}"
+
+        def declared(position):
+            reference = ref("values_column", base + position)
+            evidence = values_evidence.get(encoded(reference))
+            _need(
+                type(evidence) is list and len(evidence) == 1,
+                "declared VALUES column evidence",
+            )
+            item = cast(dict[str, Any], cast(list, evidence)[0])
+            _keys(item, ("position", "tag", "nullable"))
+            _need(
+                item["position"] == position
+                and item["tag"] in {"Bool", "Int", "Float", "Text"}
+                and type(item["nullable"]) is bool,
+                "declared VALUES column",
+            )
+            return reference, item["tag"], item["nullable"]
+
+        if labelled:
+            take("syntax", "select", "SELECT ", block)
+            while True:
+                position = len(columns_seen)
+                reference, tag, nullable = declared(position)
+                if position:
+                    take("syntax", "separator", ", ", reference)
+                if peek() == "values_scope":
+                    take("identifier", "values_scope", scope_name, reference)
+                    take("syntax", "values_qualifier", ".", reference)
+                    take("identifier", "values_column", f"c{position}", reference)
+                    empty = False
+                else:
+                    _need(values_cast(tag) is None, "a zero-row column is NULL")
+                    empty = True
+                take("syntax", "alias", " AS ", reference)
+                label_token, label = take("identifier", "label")
+                export = label_token["subject"]
+                _need(export["kind"] == "export", "VALUES label export kind")
+                columns_seen.append(
+                    {
+                        "reference": reference,
+                        "tag": tag,
+                        "nullable": nullable,
+                        "label": label,
+                        "export": export,
+                        "empty": empty,
+                    }
+                )
+                if peek() != "separator":
+                    break
+            width = len(columns_seen)
+            _need(len({c["empty"] for c in columns_seen}) == 1, "one VALUES spelling")
+            if columns_seen[0]["empty"]:
+                take("syntax", "values_empty", " WHERE FALSE", block)
+            else:
+                _need(final, "only a selected VALUES statement labels its table")
+                take("syntax", "values_open", " FROM (", block)
+        else:
+            width = 0
+            while encoded(ref("values_column", base + width)) in values_evidence:
+                width += 1
+            columns_seen = [
+                dict(
+                    zip(
+                        ("reference", "tag", "nullable"),
+                        declared(position),
+                        strict=True,
+                    ),
+                    label=f"c{position}",
+                    export=None,
+                    empty=False,
+                )
+                for position in range(width)
+            ]
+        _need(width > 0, "a VALUES body declares columns")
+        if not columns_seen[0]["empty"]:
+            take("syntax", "values", "VALUES ", block)
+            while True:
+                if rows:
+                    take("syntax", "values_row_separator", ", ", block)
+                take(
+                    "syntax",
+                    "values_row_open",
+                    "(" if family == "postgres" else "ROW(",
+                    block,
+                )
+                row = []
+                for position, column in enumerate(columns_seen):
+                    if position:
+                        take("syntax", "separator", ", ", column["reference"])
+                    value = values_cast(column["tag"])
+                    _need(
+                        value is not None or column["nullable"],
+                        "a NULL cell needs a nullable column",
+                    )
+                    row.append(value)
+                take("syntax", "values_row_close", ")", block)
+                rows.append(row)
+                if peek() != "values_row_separator":
+                    break
+            if final:
+                take("syntax", "values_close", ") AS ", block)
+                take("identifier", "values_alias", scope_name, block)
+                take("syntax", "values_columns_open", " (", block)
+                for position, column in enumerate(columns_seen):
+                    if position:
+                        take("syntax", "separator", ", ", column["reference"])
+                    take(
+                        "identifier",
+                        "values_column_alias",
+                        f"c{position}",
+                        column["reference"],
+                    )
+                take("syntax", "values_columns_close", ")", block)
+        _need(len(rows) <= 1000 and width <= 64, "VALUES static bounds")
+        if not final:
+            _need(
+                [c["label"] for c in columns_seen] == [f"c{i}" for i in range(width)],
+                "VALUES CTE column labels",
+            )
+        result_base = row_counts["result"]
+        terminals = [ref("result_port", result_base + i) for i in range(width)]
+        row_counts["result"] += width
+        row_counts["values_column"] += width
+        if cte_terminals is not None:
+            _need(cte_terminals == terminals, "declared VALUES terminals")
+        encoding = [i for i in statements if premises[i]["key"] == "client_encoding"]
+        row_generated.append(
+            (
+                "values_rows",
+                block,
+                "R04",
+                "naming",
+                {"rows": len(rows), "columns": width},
+            )
+        )
+        outgoing, published = [], []
+        for position, column in enumerate(columns_seen):
+            tag = column["tag"]
+            present = [row[position] for row in rows if row[position] is not None]
+            proven = None
+            if tag == "Int":
+                low, high = (
+                    (min(present), max(present))
+                    if present
+                    else (-(1 << 63), (1 << 63) - 1)
+                )
+                domain: dict[str, Any] = {
+                    "kind": "int_range",
+                    "min": str(low),
+                    "max": str(high),
+                }
+                proven = (-(1 << 63), (1 << 63) - 1)
+            elif tag == "Text":
+                domain = {
+                    "kind": "text",
+                    "max_characters": max((len(v) for v in present), default=0),
+                    "encoding": "UTF8" if family == "postgres" else "utf8mb4",
+                    "collation": "C" if family == "postgres" else "utf8mb4_0900_bin",
+                    "padding": "NO PAD",
+                }
+            elif tag == "Float":
+                domain = {"kind": "finite_float", "format": "binary64"}
+            else:
+                domain = {"kind": "bool01"}
+            realization = {
+                "tag": tag,
+                "storage": {"kind": _fixed_physical(family, tag)},
+                "nullable": column["nullable"],
+                "domain": domain,
+            }
+            if proven is not None:
+                realization["proven_int_range"] = proven
+            row_generated.append(
+                (
+                    "values_column",
+                    column["reference"],
+                    "R02",
+                    encoding if tag == "Text" else [],
+                    {"position": position, "tag": tag, "nullable": column["nullable"]},
+                )
+            )
+            outgoing.append(
+                {
+                    "name": f"c{position}",
+                    "terminal": terminals[position],
+                    "source_port": None,
+                    "realization": realization,
+                    "field": None,
+                    "literal": None,
+                    "origin": None,
+                    "helper": False,
+                }
+            )
+            published.append(
+                {
+                    "label": column["label"],
+                    "export": column["export"],
+                    "terminal": terminals[position],
+                    "realization": realization,
+                    "field": None,
+                    "literal": None,
+                    "root": None,
+                    "position": position,
+                    "origin": None,
+                }
+            )
+            if final:
+                _need(position < len(document["columns"]), "published VALUES columns")
+                expected = {
+                    "ordinal": position,
+                    "label": column["label"],
+                    "logical_type": {
+                        "kind": "builtin",
+                        "name": tag,
+                        "parameters": None,
+                    },
+                    "nullable": column["nullable"],
+                    "representation": {
+                        "storage": realization["storage"],
+                        "nullable": column["nullable"],
+                        "domain": domain,
+                    },
+                    "correspondence": {
+                        "export": column["export"],
+                        "sql_symbol": position + 1,
+                    },
+                }
+                _need(
+                    encoded(document["columns"][position]) == encoded(expected),
+                    "VALUES output published",
+                )
+        if final:
+            _need(len(document["columns"]) == width, "published VALUES columns")
+        row_generated.append(("read_only_select_bytes", None, "R23", [], None))
+        result_nodes[0] += 2 + width * (1 + len(rows))
+        body = {
+            "block": block,
+            "columns": published,
+            "outgoing": outgoing,
+            "projection": True,
+            "final": final,
+            "definition": next_row_definition(),
+            "scan": {"kind": "values"},
+            "header": cte_terminals,
+            "deferred": [],
+            "helpers": 0,
+            "values": True,
+        }
+        row_bodies.append(body)
+        return body
+
     row_ctes: dict[str, Any] = {}
     row_scopes: list[Any] = []
     row_source_definitions: list[Any] = []
@@ -9429,6 +9848,9 @@ def _decode_fixed_public(document, limits):
         """Walk every emitted stage definition once, in dependency order."""
         if peek() != "with":
             block = lexical[cursor][0]["subject"]
+            if block["kind"] == "values_body":
+                values_select(block, True, None)
+                return
             _need(block["kind"] == "select_block", "stage body scope")
             row_select(block, True, None)
             return
@@ -9443,8 +9865,14 @@ def _decode_fixed_public(document, limits):
             block = name_token["subject"]
             _need(
                 block["kind"]
-                in {"select_block", "join", "result_boundary", "set_body"},
-                "a generated CTE binds a select block, one JOIN, a result or SET body",
+                in {
+                    "select_block",
+                    "join",
+                    "result_boundary",
+                    "set_body",
+                    "values_body",
+                },
+                "a generated CTE binds a select block, one JOIN, a result, SET or VALUES",
             )
             _need(name == f"p{index}" and name not in row_ctes, "stage CTE name")
             _need(separator is None or separator["subject"] == block, "CTE separator")
@@ -9483,6 +9911,8 @@ def _decode_fixed_public(document, limits):
                 if block["kind"] == "result_boundary"
                 else set_select(block, False, header)
                 if block["kind"] == "set_body"
+                else values_select(block, False, header)
+                if block["kind"] == "values_body"
                 else row_select(block, False, header)
             )
             take("syntax", "cte_body_close", ")", block)
@@ -9491,18 +9921,22 @@ def _decode_fixed_public(document, limits):
         final_token, _ = take("syntax", "with_body", " ")
         final_block = final_token["subject"]
         _need(
-            final_block["kind"] in {"select_block", "result_boundary", "set_body"},
+            final_block["kind"]
+            in {"select_block", "result_boundary", "set_body", "values_body"},
             "final stage scope",
         )
         if final_block["kind"] == "result_boundary":
             result_select(final_block, True, None)
         elif final_block["kind"] == "set_body":
             set_select(final_block, True, None)
+        elif final_block["kind"] == "values_body":
+            values_select(final_block, True, None)
         else:
             row_select(final_block, True, None)
 
     row_grammar = any(
-        interval["role"] == "select" and interval["subject"]["kind"] == "select_block"
+        interval["role"] in {"select", "values"}
+        and interval["subject"]["kind"] in {"select_block", "values_body"}
         for interval, _ in lexical
     )
     if row_grammar:
@@ -10105,7 +10539,16 @@ def decode_public(data: bytes) -> dict[str, Any]:
             type(document["ranges"]) is list and type(document["requirements"]) is list
         )
         sources = _records(contract["sources"])
-        _need(bool(sources))
+        # Only a statement that reads a physical relation needs a contract
+        # source; a VALUES-only statement compiles with none.
+        _need(
+            bool(sources)
+            or not any(
+                type(interval.get("subject")) is dict
+                and interval["subject"].get("kind") == "source_port"
+                for interval in _records(document["ranges"])
+            )
+        )
         if parameterized:
             _decode_parameterized_public(document, limits)
             return document

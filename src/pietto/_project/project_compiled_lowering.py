@@ -307,7 +307,8 @@ def emit_compiled(root, values, named=None):
     units = tuple(
         r
         for r in records.values()
-        if r.address.kind in ("row", "aggregate", "window", "result", "set", "join")
+        if r.address.kind
+        in ("row", "aggregate", "window", "result", "set", "join", "values")
         and r.address in active
     )
     for index, record in enumerate(units):
@@ -347,6 +348,21 @@ def emit_compiled(root, values, named=None):
             bodies[record.address] = body
             columns_by_ref[record.address] = tuple(
                 replace(c.column, name=body.cte_columns[i].name)
+                for i, c in enumerate(body.columns)
+            )
+            continue
+        if record.address.kind == "values":
+            from pietto._project import project_sql_emission_values as valuing
+
+            definition = ScopeDefinition(
+                definitions[refs[record.address]],
+                tuple(plan.ports[p] for p in record.get("outputs")),
+            )
+            body = valuing.build_compiled_unit(plan, record, definition, request.family)
+            bodies[record.address] = body
+            names = record.get("layout")[1]
+            columns_by_ref[record.address] = tuple(
+                replace(c.column, name=names[i] if names else c.label)
                 for i, c in enumerate(body.columns)
             )
             continue

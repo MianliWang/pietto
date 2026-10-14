@@ -27,6 +27,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project import project_sql_plan_literals as literals
 
 from dataclasses import dataclass, field
@@ -97,6 +98,7 @@ from pietto._project.project_query_block_ir import (
     ProjectIRQueryBlockEntry,
     ProjectIRConcreteQueryBlockEntry,
     ProjectIRCompletedSetOperationOutput,
+    ProjectIRCompletedValuesOutput,
     ProjectIRQueryBlockRelationInputEdge,
     ProjectIRSetOperandInput,
     _active_output_identities,
@@ -136,6 +138,9 @@ from pietto.ast_nodes import (
     SetOperand,
     SourceDef,
     TableDef,
+    ValuesBody,
+    ValuesColumn,
+    ValuesRelationDef,
     JoinClause,
     LetBinding,
     WhereClause,
@@ -163,6 +168,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast.TableDef,
         ast.QueryDef,
         ast.SetRelationDef,
+        ast.ValuesRelationDef,
     }
 )
 
@@ -382,6 +388,11 @@ def _blockers(
                 (ProjectIRCompletedSetOperationOutput, ProjectIRQueryBlockTerminal),
             ):
                 raise ValueError("SET body requires its exact completed SET IR entry")
+        elif isinstance(definition, ValuesRelationDef):
+            if not isinstance(
+                entry, (ProjectIRCompletedValuesOutput, ProjectIRQueryBlockTerminal)
+            ):
+                raise ValueError("VALUES body requires its exact completed IR entry")
         elif isinstance(definition, (TableDef, QueryDef)):
             if joining.joined_tail(entry) is None:
                 for clause in definition.join_clauses:
@@ -982,6 +993,8 @@ class ProjectSQLPlanRefKind(StrEnum):
     SET_OPERAND = "set_operand"
     SET_INPUT = "set_input"
     SET_COLUMN = "set_column"
+    VALUES_BODY = "values_body"
+    VALUES_COLUMN = "values_column"
     RESULT_BOUNDARY = "result_boundary"
     RESULT_PORT = "result_port"
     DISTINCT = "distinct"
@@ -1156,6 +1169,8 @@ class ProjectSQLOriginRole(StrEnum):
     SET_OPERAND = "set_operand"
     SET_INPUT = "set_input"
     SET_COLUMN = "set_column"
+    VALUES_BODY = "values_body"
+    VALUES_COLUMN = "values_column"
     RESULT_BOUNDARY = "result_boundary"
     RESULT_PORT = "result_port"
     DISTINCT = "distinct"
@@ -1214,6 +1229,9 @@ class ProjectSQLOriginProvenance(StrEnum):
 
 type ProjectSQLCause = (
     SetOperationBody
+    | ValuesBody
+    | ValuesColumn
+    | ValuesRelationDef
     | DistinctClause
     | OrderByClause
     | LimitClause
@@ -1236,6 +1254,7 @@ type ProjectSQLCause = (
 type ProjectSQLOriginEvidence = (
     literals.Witness
     | sets.Witness
+    | valuesplan.Witness
     | results.Witness
     | windows.Witness
     | windows.Qualify
@@ -1293,6 +1312,7 @@ class ProjectSQLExportRepresentationDemand:
 type ProjectSQLDemand = (
     literals.ProjectSQLLiteralDemand
     | sets.ProjectSQLSetDemand
+    | valuesplan.ProjectSQLValuesDemand
     | results.ProjectSQLResultDemand
     | ProjectSQLSourceRealizationDemand
     | ProjectSQLExportRepresentationDemand
@@ -1384,6 +1404,8 @@ class ProjectSQLPlan:
     set_operands: tuple[sets.ProjectSQLSetOperand, ...]
     set_inputs: tuple[sets.ProjectSQLSetInput, ...]
     set_columns: tuple[sets.ProjectSQLSetColumn, ...]
+    values_bodies: tuple[valuesplan.ProjectSQLValuesBody, ...]
+    values_columns: tuple[valuesplan.ProjectSQLValuesColumn, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -1536,6 +1558,10 @@ def _root_inventory(
             if deps:
                 raise ValueError("A source definition cannot have relation inputs.")
             continue
+        if isinstance(entry, ProjectIRCompletedValuesOutput):
+            if deps:
+                raise ValueError("A VALUES definition cannot have relation inputs.")
+            continue
         if isinstance(entry, ProjectIRReusedEffectiveOutput):
             edge = _one(tuple(historical.get(key, ())), "historical cross edge")
             if len(deps) != 1 or edge.consumer is not entry.semantic_entry.fragment:
@@ -1631,12 +1657,14 @@ def _root_inventory(
 
 def _field_site(
     entry: ProjectIRConcreteQueryBlockEntry, position: int
-) -> SourceDef | TableDef | QueryDef | SetRelationDef | SelectItem:
+) -> SourceDef | TableDef | QueryDef | SetRelationDef | SelectItem | ValuesColumn:
     definition = entry.owner.definition
     if isinstance(definition, (TableDef, QueryDef)) and len(
         definition.select_items
     ) == len(entry.active_properties.relational.fields):
         return definition.select_items[position]
+    if isinstance(definition, ValuesRelationDef):
+        return definition.body.columns[position]
     if isinstance(definition, (SourceDef, TableDef, QueryDef, SetRelationDef)):
         return definition
     raise ValueError("Only relation definitions own exported fields.")
@@ -1884,7 +1912,10 @@ def build_project_sql_bindings(
         R.SELECTED_OWNER,
         P.GENERATED_STRUCTURE,
         selected_owner,
-        cast(TableDef | QueryDef | SetRelationDef, selected_owner.definition),
+        cast(
+            TableDef | QueryDef | SetRelationDef | ValuesRelationDef,
+            selected_owner.definition,
+        ),
         selected_owner,
     )
     for definition in definitions:
@@ -1895,7 +1926,8 @@ def build_project_sql_bindings(
             P.GENERATED_STRUCTURE,
             entry.owner,
             cast(
-                SourceDef | TableDef | QueryDef | SetRelationDef, entry.owner.definition
+                SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef,
+                entry.owner.definition,
             ),
             entry,
         )
@@ -2674,7 +2706,7 @@ def build_project_sql_plan(
     for definition in bindings.definitions:
         entry = definition.entry
         authored = entry.owner.definition
-        if isinstance(authored, (SourceDef, SetRelationDef)):
+        if isinstance(authored, (SourceDef, SetRelationDef, ValuesRelationDef)):
             continue
         assert isinstance(authored, (TableDef, QueryDef))
         authority = row.row_authority(completed, entry)
@@ -4019,10 +4051,10 @@ def build_project_sql_plan(
         object.__setattr__(plan, name, value)
     result_context = results.origin_context(plan)
     owners_by_definition = {d.ref: d.entry.owner for d in bindings.definitions}
-    for name, values in result_collections.items():
-        if name.startswith("set_"):
+    for name, witnesses in result_collections.items():
+        if name.startswith(("set_", "values_")):
             continue
-        for witness in values:
+        for witness in witnesses:
             definition_ref, cause, antecedents, demand_kind, provenance = (
                 results.origin_parts(witness, result_context)
             )
@@ -4071,6 +4103,35 @@ def build_project_sql_plan(
             )
             demands.append(
                 sets.ProjectSQLSetDemand(
+                    ref=demand_ref,
+                    subject=witness.ref,
+                    kind=kind,
+                    witness=witness,
+                    origin=demand_origin,
+                )
+            )
+    values_context = {body.ref: body for body in plan.values_bodies}
+    for witness in (*plan.values_bodies, *plan.values_columns):
+        definition_ref, cause, antecedents, provenance, kinds = valuesplan.origin_parts(
+            witness, values_context
+        )
+        owner = owners_by_definition[definition_ref]
+        original = origin(
+            witness.ref,
+            R(witness.ref.kind.value),
+            provenance,
+            owner,
+            cause,
+            witness,
+            antecedents,
+        )
+        for kind in kinds:
+            demand_ref = ref(K.DEMAND)
+            demand_origin = origin(
+                demand_ref, R.DEMAND, P.TYPE_PROOF, owner, cause, witness, (original,)
+            )
+            demands.append(
+                valuesplan.ProjectSQLValuesDemand(
                     ref=demand_ref,
                     subject=witness.ref,
                     kind=kind,

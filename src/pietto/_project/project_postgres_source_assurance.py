@@ -191,6 +191,15 @@ class SourceQualification:
     definition_stability: str = "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
     premise_compliance: str = "NOT_INDEPENDENTLY_VERIFIED"
     native_lifetime_protection: str = "NOT_DEMONSTRATED"
+    # A statement reading no relation (a pure VALUES query) is qualified by its
+    # verified session context and pg_catalog premise only: it has no relation
+    # root and no relation catalog was checked.
+    relation_roots: str = field(init=False)
+    relation_catalog: str = field(init=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "relation_roots", _relation_roots(self.roots))
+        object.__setattr__(self, "relation_catalog", _relation_catalog(self.roots))
 
     def verify(self, owner):
         from pietto._project.project_execution_postgres_adbc import (
@@ -212,6 +221,8 @@ class SourceQualification:
             or self.definition_stability != "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
             or self.premise_compliance != "NOT_INDEPENDENTLY_VERIFIED"
             or self.native_lifetime_protection != "NOT_DEMONSTRATED"
+            or self.relation_roots != _relation_roots(self.roots)
+            or self.relation_catalog != _relation_catalog(self.roots)
         ):
             raise ExecutionError("POSTGRES_SOURCE_QUALIFICATION_IDENTITY")
         owner._checkpoint()
@@ -230,6 +241,14 @@ class SourceQualification:
         from pietto._project.project_execution import verify_compiled_owner
 
         verify_compiled_owner(owner)
+
+
+def _relation_roots(roots) -> str:
+    return "PRESENT" if roots else "NONE"
+
+
+def _relation_catalog(roots) -> str:
+    return "CHECKED" if roots else "NOT_CATALOG_CHECKED"
 
 
 def qualify_sources(owner):
@@ -380,6 +399,8 @@ def qualify_sources(owner):
     premise = postgres_source_premise(owner.request)
     if premise is None:
         raise ExecutionError("POSTGRES_SOURCE_PREMISE_REQUIRED")
+    if not roots and "pg_catalog" not in premise.schemas:
+        raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
     from pietto._project.project_execution_source import requires_temporal_uuid_catalog
 
     root_oids, source_oids = [], []

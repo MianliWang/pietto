@@ -280,3 +280,89 @@ def test_role_depth_exhaustion_is_explicit_in_both_traversals(monkeypatch):
     monkeypatch.setattr(source, "verify_postgres_adbc_deployment", lambda request: None)
     with pytest.raises(ExecutionError, match="RESOURCE_LIMIT"):
         source.qualify_sources(owner)
+
+
+def test_a_zero_root_statement_is_qualified_by_its_session_context_alone(
+    monkeypatch,
+):
+    """A pure VALUES statement has no relation root. Its qualification is not
+    vacuous: the session context is still verified, the premise must name
+    pg_catalog, and the record says no root and no relation catalog check."""
+    from types import SimpleNamespace
+    from pietto._project import project_postgres_source_assurance as source
+    from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
+
+    context, raw, replies = catalog()
+    roles = tuple(r for r in replies if r.kind in ("role", "members"))
+    assert verify_catalog((), (), roles, context, ("pg_catalog",), raw) == ()
+    for index, value in (
+        (0, 180005),
+        (8, "read committed"),
+        (9, "off"),
+        (11, "public"),
+    ):
+        other = context[:index] + (value,) + context[index + 1 :]
+        with pytest.raises(ExecutionError, match="NATIVE_CONTEXT"):
+            verify_catalog(
+                (),
+                (),
+                roles,
+                other,
+                ("pg_catalog",),
+                NativeReply(CONTEXT_SQL.encode(), (), (other,), "NORMAL"),
+            )
+    empty = source.SourceQualification(None, None, context, (), (), (), ((), (), ()))
+    assert (empty.relation_roots, empty.relation_catalog) == (
+        "NONE",
+        "NOT_CATALOG_CHECKED",
+    )
+    rooted = source.SourceQualification(
+        None, None, context, (("public", "items"),), (), (), ((), (), ())
+    )
+    assert (rooted.relation_roots, rooted.relation_catalog) == ("PRESENT", "CHECKED")
+    lookup = {(SQL[r.kind], r.arguments): r for r in roles}
+    owner = SimpleNamespace(
+        request=SimpleNamespace(
+            artifact=SimpleNamespace(request=SimpleNamespace(sources=())),
+            limits=SimpleNamespace(max_bytes=1024 * 1024),
+        ),
+        requirements=(),
+        context=context,
+        _checkpoint=lambda: None,
+        _catalog_read=lambda sql, arguments: (
+            (),
+            lookup[sql, arguments].rows,
+            lookup[sql, arguments].native,
+        ),
+    )
+    monkeypatch.setattr(source, "verify_postgres_adbc_deployment", lambda request: None)
+    monkeypatch.setattr(
+        source,
+        "postgres_source_premise",
+        lambda request: SimpleNamespace(schemas=("public",)),
+    )
+    with pytest.raises(ExecutionError, match="POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE"):
+        source.qualify_sources(owner)
+
+
+def test_an_adbc_premise_for_a_zero_source_statement_names_pg_catalog():
+    """Pre-connect: with no source namespace, the premise must still name the
+    catalog the statement's CASTs resolve in."""
+    from types import SimpleNamespace
+    from pietto._project import project_execution as ex
+
+    access = ex.PostgresAccess("127.0.0.1", 5432, "app", "reader", "pw", "disable")
+
+    def request(schemas):
+        return SimpleNamespace(
+            route="postgres_adbc",
+            access=access,
+            artifact=SimpleNamespace(request=SimpleNamespace(sources=())),
+            postgres_adbc_deployment=ex.PostgresADBCDeploymentPremise(
+                access=access, sources=(), schemas=schemas
+            ),
+        )
+
+    ex.verify_postgres_adbc_deployment(request(("pg_catalog",)))
+    with pytest.raises(ExecutionError, match="POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE"):
+        ex.verify_postgres_adbc_deployment(request(("public",)))

@@ -217,3 +217,65 @@ def test_mysql_route_refuses_parameters_before_the_bridge(
             "PIE-R1003",
             "PUBLIC_PARAMETERS_ROUTE",
         )
+
+
+def test_mysql_refuses_a_zero_source_values_query_before_connect(tmp_path):
+    """No non-vacuous MySQL qualification exists for a statement without a
+    physical relation, so the compiled route is refused before any socket."""
+    import json
+
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "\nquery seeded:\n    values(id: Int not null):\n        1\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    contract["sources"] = []
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    postgres = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="seeded",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    mysql = object.__new__(execution.CompiledQuery)
+    for slot in execution.CompiledQuery.__slots__:
+        object.__setattr__(mysql, slot, getattr(postgres, slot))
+    object.__setattr__(mysql, "_dialect", "mysql")
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(mysql, route="mysql_rows", access=ACCESS, premise=PREMISE)
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1003",
+        "MYSQL_ZERO_SOURCE_ROUTE",
+    )
+    assert refused.value.attempt is None
+
+
+def test_mysql_compile_blocks_a_statement_without_a_physical_source(tmp_path):
+    """compile_query reports a MySQL statement whose only input is a VALUES
+    body as the command's BLOCKED document, before any execution exists."""
+    import json
+
+    project = api.write_join_witness(
+        tmp_path / "mysql",
+        "mysql",
+        "query result:\n    values(id: Int not null):\n        1\n",
+    )
+    with pytest.raises(execution.CompileRejected) as refused:
+        execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+    assert refused.value.status == "BLOCKED"
+    document = json.loads(refused.value.emission)
+    assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
+        ("PIE-B1003", "zero_physical_source_not_admitted_on_target")
+    ]

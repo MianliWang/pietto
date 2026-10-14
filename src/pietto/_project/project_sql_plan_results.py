@@ -66,8 +66,12 @@ from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_values as valuesplan
 from pietto.ast_nodes import SourceDef
-from pietto._project.project_query_block_ir import ProjectIRCompletedSetOperationOutput
+from pietto._project.project_query_block_ir import (
+    ProjectIRCompletedSetOperationOutput,
+    ProjectIRCompletedValuesOutput,
+)
 
 if TYPE_CHECKING:
     from pietto._project.project_sql_plan import ProjectSQLPlanRef, ProjectSQLPort
@@ -103,6 +107,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast.TableDef,
         ast.QueryDef,
         ast.SetRelationDef,
+        ast.ValuesRelationDef,
     }
 )
 
@@ -671,6 +676,8 @@ def build(plan, ref):
             "set_operands",
             "set_inputs",
             "set_columns",
+            "values_bodies",
+            "values_columns",
         )
     }
     ports = collections["result_ports"]
@@ -715,6 +722,21 @@ def build(plan, ref):
             raise ValueError("Unknown result definition")
         if isinstance(authored, SourceDef):
             terminals.update((value.ref, value) for value in definition.exports)
+            continue
+        if isinstance(entry, ProjectIRCompletedValuesOutput):
+            body, columns, outputs = valuesplan.build_body(definition, ref, port)
+            collections["values_bodies"].append(body)
+            collections["values_columns"].extend(columns)
+            for canonical, output in zip(definition.exports, outputs, strict=True):
+                collections["result_exports"].append(
+                    ProjectSQLResultExport(
+                        ref=ref(K.RESULT_EXPORT),
+                        definition=definition.ref,
+                        canonical=canonical,
+                        port=output.ref,
+                    )
+                )
+                terminals[canonical.ref] = output
             continue
         if isinstance(entry, ProjectIRCompletedSetOperationOutput):
             body, operands, inputs, columns, outputs = sets.build_body(

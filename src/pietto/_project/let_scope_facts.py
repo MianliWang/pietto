@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef
+from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -34,7 +34,9 @@ _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
 
 _DerivedRelation = TableDef | QueryDef
-_RelationDefinition = SourceDef | TableDef | QueryDef | SetRelationDef
+_RelationDefinition = (
+    SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
+)
 
 
 def _readonly_mapping(
@@ -329,8 +331,10 @@ def _source_row_schemas(
 def _relation_row_schemas(
     upstream_definition: _RelationDefinition,
     row_schema: RowSchema,
-) -> Mapping[_DerivedRelation | SetRelationDef, RowSchema]:
-    if isinstance(upstream_definition, (TableDef, QueryDef, SetRelationDef)):
+) -> Mapping[_DerivedRelation | SetRelationDef | ValuesRelationDef, RowSchema]:
+    if isinstance(
+        upstream_definition, (TableDef, QueryDef, SetRelationDef, ValuesRelationDef)
+    ):
         return {upstream_definition: row_schema}
     return {}
 

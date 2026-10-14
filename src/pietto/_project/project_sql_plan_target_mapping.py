@@ -16,6 +16,7 @@ from pietto._project import project_sql_plan_literals as lit
 from pietto._project import project_sql_plan_joins as joins
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectResolvedTypeKind,
@@ -86,6 +87,7 @@ class MappingGap(StrEnum):
     WINDOW = "original_window_inputs_policy_projection_and_lowering"
     RESULT = "original_result_boundary_equivalence_order_limit_or_export"
     SET = "original_set_operation_properties_membership_or_positional_types"
+    VALUES = "original_values_rows_declared_column_types_and_static_bounds"
     TYPE_UNMODELED = "no_exact_type_catalog_schema"
     SCALAR_UNMODELED = "no_exact_scalar_schema_for_original_typed_expression"
     AGGREGATE_UNMODELED = "no_direct_field_signature_mapping_for_original_argument"
@@ -108,6 +110,7 @@ RESIDUALS = MappingProxyType(
         F.WINDOW: MappingGap.WINDOW,
         F.RESULT: MappingGap.RESULT,
         F.SET: MappingGap.SET,
+        F.VALUES: MappingGap.VALUES,
     }
 )
 LITERAL_GAPS = (
@@ -189,6 +192,10 @@ SUPPORTED_SUBKINDS = MappingProxyType(
             "set_input_type_null_and_representation",
             "set_positional_column_and_value_sources",
         ),
+        "values": (
+            "values_fixed_rows_within_static_bounds",
+            "values_declared_column_type_and_nullability",
+        ),
     }
 )
 
@@ -204,6 +211,7 @@ SUPPORTED_VARIANTS = (
     win.ProjectSQLWindowDemand,
     results.ProjectSQLResultDemand,
     sets.ProjectSQLSetDemand,
+    valuesplan.ProjectSQLValuesDemand,
     lit.ProjectSQLLiteralDemand,
 )
 

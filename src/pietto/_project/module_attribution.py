@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef
+from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -2274,7 +2274,7 @@ def _build_row_facts(
     pending: list[ProjectModuleRelationRowFact] = []
     for fact in facts:
         definition = fact.owner.definition
-        if type(definition) is SetRelationDef:
+        if type(definition) in {SetRelationDef, ValuesRelationDef}:
             if fact.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
                 raise ValueError("Set syntax cannot publish concrete lineage.")
             lineage_by_owner[_declaration_identity(fact.owner)] = _empty_lineage(fact)

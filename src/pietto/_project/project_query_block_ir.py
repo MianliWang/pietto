@@ -83,6 +83,8 @@ from pietto._project.project_final_outputs import (
     ProjectDistinct,
     ProjectCompletedSetOutput,
     ProjectCompletedSetOutputField,
+    ProjectCompletedValuesOutput,
+    ProjectCompletedValuesOutputField,
     ProjectCompletedOutputField,
     ProjectConcreteNoJoinReplay,
     ProjectEffectiveOutputCompletionEntry,
@@ -228,6 +230,7 @@ class ProjectIRQueryBlockOperatorExtensionKind(StrEnum):
     QUALIFY = "qualify"
     DISTINCT = "distinct"
     SET_OPERATION = "set_operation"
+    VALUES = "values"
 
 
 type ProjectIRQueryBlockOperatorKind = (
@@ -322,6 +325,7 @@ type ProjectIRQueryBlockOperatorEvidence = (
     | ProjectRelationLimit
     | ProjectIRDistinctComparison
     | ProjectCompletedSetOutput
+    | ProjectCompletedValuesOutput
 )
 
 
@@ -357,6 +361,7 @@ class ProjectIRQueryBlockOperatorOccurrence:
             ProjectRelationLimit,
             ProjectIRDistinctComparison,
             ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
         }:
             raise TypeError("Query-block operator requires closed semantic evidence.")
         if (
@@ -365,6 +370,10 @@ class ProjectIRQueryBlockOperatorOccurrence:
             raise ValueError(
                 "Set operator requires its exact non-SELECT semantic output."
             )
+        if (self.kind is ProjectIRQueryBlockOperatorExtensionKind.VALUES) != isinstance(
+            self.evidence, ProjectCompletedValuesOutput
+        ):
+            raise ValueError("VALUES operator requires its exact typed VALUES output.")
         if (
             self.kind is ProjectIRQueryBlockOperatorExtensionKind.DISTINCT
         ) != isinstance(self.evidence, ProjectIRDistinctComparison):
@@ -397,6 +406,8 @@ def _operator_evidence_owner(
     elif type(evidence) is ProjectIRDistinctComparison:
         owner = evidence.semantic.owner
     elif type(evidence) is ProjectCompletedSetOutput:
+        owner = evidence.owner
+    elif type(evidence) is ProjectCompletedValuesOutput:
         owner = evidence.owner
     else:
         raise TypeError("Operator evidence requires a closed exact owner.")
@@ -638,6 +649,7 @@ type ProjectIRQueryBlockSemanticFieldSource = (
     | ProjectModuleWindowOutputFact
     | ProjectCompletedOutputField
     | ProjectCompletedSetOutputField
+    | ProjectCompletedValuesOutputField
     | ProjectIRRowField
     | ProjectIRStageRowField
 )
@@ -676,6 +688,7 @@ class ProjectIRQueryBlockRowField:
             ProjectModuleWindowOutputFact,
             ProjectCompletedOutputField,
             ProjectCompletedSetOutputField,
+            ProjectCompletedValuesOutputField,
             ProjectIRRowField,
             ProjectIRStageRowField,
         }:
@@ -730,6 +743,7 @@ class ProjectIRQueryBlockRowShape:
         final = self.operator.kind in {
             ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
             ProjectIRQueryBlockOperatorExtensionKind.SET_OPERATION,
+            ProjectIRQueryBlockOperatorExtensionKind.VALUES,
         }
         if any((item.final_identity is not None) is not final for item in self.fields):
             raise ValueError("Only FINAL_PROJECTION fields have final identity.")
@@ -1548,6 +1562,69 @@ class ProjectIRCompletedSetOperationOutput:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectIRCompletedValuesOutput:
+    """A zero-input VALUES producer: one operator node, one row output, no use."""
+
+    semantic_entry: ProjectCompletedValuesOutput = field(repr=False)
+    starting_allocation: ProjectIRAllocationState
+    ending_allocation: ProjectIRAllocationState
+    operator: ProjectIRQueryBlockOperatorOccurrence
+    active_output: ProjectIRQueryBlockRowOutput
+    active_properties: ProjectIRQueryBlockResultProperties
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.semantic_entry) is not ProjectCompletedValuesOutput
+            or self.operator.evidence is not self.semantic_entry
+            or self.operator.kind is not ProjectIRQueryBlockOperatorExtensionKind.VALUES
+            or self.active_output.row_shape.operator is not self.operator
+            or self.active_properties.output is not self.active_output
+            or len(self.active_output.row_shape.fields)
+            != len(self.semantic_entry.fields)
+            or any(
+                field.semantic_source is not semantic
+                or field.evidence is not semantic.field
+                or field.final_identity is not semantic.identity
+                or field.introduction_use is not None
+                for field, semantic in zip(
+                    self.active_output.row_shape.fields,
+                    self.semantic_entry.fields,
+                    strict=True,
+                )
+            )
+        ):
+            raise ValueError("VALUES IR requires its exact typed zero-input output.")
+
+    @property
+    def owner(self) -> ProjectDeclarationOccurrence:
+        return self.semantic_entry.owner
+
+    @property
+    def output(self) -> ProjectIRQueryBlockRowOutput:
+        return self.active_output
+
+    @property
+    def result_properties(self) -> ProjectIRQueryBlockResultProperties:
+        return self.active_properties
+
+    @property
+    def nodes(self) -> tuple[ProjectIRPlanNodeOccurrence, ...]:
+        return (self.operator.node,)
+
+    @property
+    def output_occurrences(self) -> tuple[ProjectIROutputValueOccurrence, ...]:
+        return (self.active_output.occurrence,)
+
+    @property
+    def input_slots(self) -> tuple[ProjectIRInputSlotOccurrence, ...]:
+        return ()
+
+    @property
+    def uses(self) -> tuple[()]:
+        return ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectIRQueryBlockTerminal:
     """One typed all-or-none IR terminal with zero owner-local allocation."""
 
@@ -1572,6 +1649,7 @@ class ProjectIRQueryBlockTerminal:
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
             }
             or type(self.reason) is not ProjectIRQueryBlockTerminalReason
         ):
@@ -1656,6 +1734,7 @@ type ProjectIRQueryBlockEntry = (
     | ProjectIRReboundExistingOutput
     | ProjectIRCompletedQueryBlockOutput
     | ProjectIRCompletedSetOperationOutput
+    | ProjectIRCompletedValuesOutput
     | ProjectIRQueryBlockTerminal
 )
 type ProjectIRConcreteQueryBlockEntry = (
@@ -1663,6 +1742,7 @@ type ProjectIRConcreteQueryBlockEntry = (
     | ProjectIRReboundExistingOutput
     | ProjectIRCompletedQueryBlockOutput
     | ProjectIRCompletedSetOperationOutput
+    | ProjectIRCompletedValuesOutput
 )
 
 
@@ -1849,6 +1929,7 @@ class ProjectIRQueryBlockSnapshot:
                 ProjectIRReboundExistingOutput,
                 ProjectIRCompletedQueryBlockOutput,
                 ProjectIRCompletedSetOperationOutput,
+                ProjectIRCompletedValuesOutput,
                 ProjectIRQueryBlockTerminal,
             }
             or entry.owner is not owner
@@ -1885,7 +1966,10 @@ class ProjectIRQueryBlockSnapshot:
         new_relational.extend(
             entry.active_properties.relational
             for entry in self.entries
-            if isinstance(entry, ProjectIRCompletedSetOperationOutput)
+            if isinstance(
+                entry,
+                (ProjectIRCompletedSetOperationOutput, ProjectIRCompletedValuesOutput),
+            )
         )
         if any(
             item.grain.origin_set is not self.grain_origins for item in new_relational
@@ -1984,8 +2068,22 @@ class _PendingTerminal:
         return None
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class _PendingValues:
+    semantic_entry: ProjectCompletedValuesOutput
+    starting_allocation: ProjectIRAllocationState
+    ending_allocation: ProjectIRAllocationState
+    operator: ProjectIRQueryBlockOperatorOccurrence
+    active_output: ProjectIRQueryBlockRowOutput
+
+
 type _PendingEntry = (
-    _PendingReuse | _PendingRebound | _PendingCompleted | _PendingSet | _PendingTerminal
+    _PendingReuse
+    | _PendingRebound
+    | _PendingCompleted
+    | _PendingSet
+    | _PendingValues
+    | _PendingTerminal
 )
 
 
@@ -2022,9 +2120,17 @@ def _fragment_row_outputs(
 def _semantic_entry_identities(
     entry: ProjectExistingEffectiveOutput
     | ProjectCompletedEffectiveOutput
-    | ProjectCompletedSetOutput,
+    | ProjectCompletedSetOutput
+    | ProjectCompletedValuesOutput,
 ) -> tuple[ProjectModuleRowFieldIdentity, ...]:
-    if isinstance(entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)):
+    if isinstance(
+        entry,
+        (
+            ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
+            ProjectCompletedValuesOutput,
+        ),
+    ):
         return tuple(item.identity for item in entry.fields)
     if type(entry) is not ProjectExistingEffectiveOutput:
         raise TypeError("Semantic output identity requires one concrete entry.")
@@ -2769,8 +2875,10 @@ def _pending_active_output(
         return entry.active_output
     if type(entry) is _PendingRebound:
         return entry.active_output
-    if type(entry) in {_PendingCompleted, _PendingSet}:
-        return cast(_PendingCompleted | _PendingSet, entry).active_output
+    if type(entry) in {_PendingCompleted, _PendingSet, _PendingValues}:
+        return cast(
+            _PendingCompleted | _PendingSet | _PendingValues, entry
+        ).active_output
     if type(entry) is _PendingTerminal:
         return None
     raise TypeError("Pending active output requires a closed entry.")
@@ -2934,6 +3042,7 @@ def _build_pending_entries(
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
                 ProjectCompletedSetOutput,
+                ProjectCompletedValuesOutput,
             ),
         ):
             pending_by_owner[id(owner)] = _PendingTerminal(
@@ -3015,6 +3124,9 @@ def _build_pending_entries(
                                 allocation=current,
                             )
                             current = pending.ending_allocation
+        elif type(semantic_entry) is ProjectCompletedValuesOutput:
+            pending = _build_values_structure(semantic_entry, current)
+            current = pending.ending_allocation
         elif type(semantic_entry) is ProjectCompletedSetOutput:
             incoming = tuple(
                 _pending_active_output(pending_by_owner[id(use.authority.owner)])
@@ -3152,12 +3264,14 @@ def _build_pending_entries(
                         ProjectExistingEffectiveOutput,
                         ProjectCompletedEffectiveOutput,
                         ProjectCompletedSetOutput,
+                        ProjectCompletedValuesOutput,
                     }:
                         raise ValueError("Concrete replay requires concrete semantics.")
                     concrete_upstream = cast(
                         ProjectExistingEffectiveOutput
                         | ProjectCompletedEffectiveOutput
-                        | ProjectCompletedSetOutput,
+                        | ProjectCompletedSetOutput
+                        | ProjectCompletedValuesOutput,
                         upstream_semantic,
                     )
                     authority = _resolved_relation_anchor(
@@ -3944,9 +4058,12 @@ def _active_properties(
     if type(entry) in {
         ProjectIRCompletedQueryBlockOutput,
         ProjectIRCompletedSetOperationOutput,
+        ProjectIRCompletedValuesOutput,
     }:
         return cast(
-            ProjectIRCompletedQueryBlockOutput | ProjectIRCompletedSetOperationOutput,
+            ProjectIRCompletedQueryBlockOutput
+            | ProjectIRCompletedSetOperationOutput
+            | ProjectIRCompletedValuesOutput,
             entry,
         ).active_properties
     raise ValueError("Active IR dependency requires a concrete output.")
@@ -4044,6 +4161,45 @@ def _build_final_entries(
                 row_properties=row_properties,
                 active_output=pending.active_output,
                 active_properties=active_properties,
+            )
+        elif type(pending) is _PendingValues:
+            fields = _field_occurrences(pending.active_output)
+            classes = tuple(
+                ProjectIROutputValueClass(output=pending.active_output, members=(item,))
+                for item in fields
+            )
+            relational = ProjectIROutputRelationalProperties(
+                output=pending.active_output,
+                fields=fields,
+                value_classes=classes,
+                keys=(),
+                fds=(),
+                fd_index=_compile_output_fd_index(pending.active_output, classes, ()),
+                grain=ProjectIRProvidedIntrinsicGrain(
+                    output=pending.active_output,
+                    state=ProjectGrainBasisState.UNKNOWN,
+                    factors=(),
+                    active=(),
+                    dependencies=(),
+                    origin_set=origins,
+                    witness=pending.semantic_entry.origin,
+                ),
+            )
+            built = ProjectIRCompletedValuesOutput(
+                semantic_entry=pending.semantic_entry,
+                starting_allocation=pending.starting_allocation,
+                ending_allocation=pending.ending_allocation,
+                operator=pending.operator,
+                active_output=pending.active_output,
+                active_properties=ProjectIRQueryBlockResultProperties(
+                    relational=relational,
+                    multiplicity=ProjectJoinedRowMultiplicity.BAG,
+                    ordering=None,
+                    cardinality=None,
+                    effect=ProjectIRQueryBlockEffectEvidence(
+                        output=pending.active_output
+                    ),
+                ),
             )
         elif type(pending) is _PendingSet:
             operands = tuple(
@@ -4207,7 +4363,9 @@ def _entry_structural_nodes(
         return entry.rebuilt_fragment.structural_stage.nodes
     if type(entry) is ProjectIRCompletedQueryBlockOutput:
         return entry.nodes
-    if isinstance(entry, ProjectIRCompletedSetOperationOutput):
+    if isinstance(
+        entry, (ProjectIRCompletedSetOperationOutput, ProjectIRCompletedValuesOutput)
+    ):
         return entry.nodes
     return ()
 
@@ -4219,7 +4377,9 @@ def _entry_structural_outputs(
         return entry.rebuilt_fragment.structural_stage.outputs
     if type(entry) is ProjectIRCompletedQueryBlockOutput:
         return entry.output_occurrences
-    if isinstance(entry, ProjectIRCompletedSetOperationOutput):
+    if isinstance(
+        entry, (ProjectIRCompletedSetOperationOutput, ProjectIRCompletedValuesOutput)
+    ):
         return entry.output_occurrences
     return ()
 
@@ -4342,6 +4502,58 @@ def build_project_query_block_ir(
         structural=structural,
         requirements=_build_requirement_images(completed, entries),
         retained_joins=_retain_historical_matches(completed, entries),
+    )
+
+
+def _build_values_structure(
+    entry: ProjectCompletedValuesOutput, allocation: ProjectIRAllocationState
+) -> _PendingValues:
+    relation = ProjectIRRelationAnchor(identity=_declaration_identity(entry.owner))
+    node = ProjectIRPlanNodeOccurrence(
+        ref=ProjectIRPlanNodeRef(
+            scope=allocation.scope, position=allocation.next_plan_node_position
+        ),
+        anchor=relation,
+    )
+    operator = ProjectIRQueryBlockOperatorOccurrence(
+        node=node, kind=ProjectIRQueryBlockOperatorExtensionKind.VALUES, evidence=entry
+    )
+    fields = tuple(
+        ProjectIRQueryBlockRowField(
+            field_position=i,
+            evidence=source.field,
+            semantic_source=source,
+            effective_nullability=source.field.nullability,
+            introduction_use=None,
+            nulling_joins=(),
+            final_identity=source.identity,
+        )
+        for i, source in enumerate(entry.fields)
+    )
+    output = ProjectIRQueryBlockRowOutput(
+        occurrence=ProjectIROutputValueOccurrence(
+            ref=ProjectIROutputValueRef(
+                scope=allocation.scope, position=allocation.next_output_value_position
+            ),
+            producer=node,
+            anchor=relation,
+        ),
+        row_shape=ProjectIRQueryBlockRowShape(
+            relation=relation, producer=node, operator=operator, fields=fields
+        ),
+    )
+    return _PendingValues(
+        semantic_entry=entry,
+        starting_allocation=allocation,
+        ending_allocation=ProjectIRAllocationState(
+            scope=allocation.scope,
+            next_plan_node_position=allocation.next_plan_node_position + 1,
+            next_output_value_position=allocation.next_output_value_position + 1,
+            next_input_slot_position=allocation.next_input_slot_position,
+            next_use_position=allocation.next_use_position,
+        ),
+        operator=operator,
+        active_output=output,
     )
 
 
@@ -4909,6 +5121,19 @@ def compiled_relational_properties(
             witness=record,
         )
         return properties(classes, retained, _key_fds(output, classes, retained), grain)
+    if kind == "values":
+        # Fixed literal rows carry no row identity: no key, FD or grain claim.
+        classes = _singleton_classes(output, fields)
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=ProjectGrainBasisState.UNKNOWN,
+            factors=(),
+            active=(),
+            dependencies=(),
+            origin_set=origin,
+            witness=record,
+        )
+        return properties(classes, (), (), grain)
     if kind == "join":
         from pietto._project.project_current_joins import compiled_join_properties
 

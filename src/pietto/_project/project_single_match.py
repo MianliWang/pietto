@@ -13,6 +13,7 @@ from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,
     ProjectConcreteNoJoinReplay,
     ProjectCompletedSetOutput,
+    ProjectCompletedValuesOutput,
     ProjectEffectiveOutputCompletion,
     ProjectRelationLimit,
     _relation_limit,
@@ -165,7 +166,7 @@ def _right_proofs(
     proofs: list[ProjectSingleMatchProof] = []
     # Only exact no-JOIN replay carries an upstream bound to this right input.
     while True:
-        if isinstance(entry, ProjectCompletedSetOutput):
+        if isinstance(entry, (ProjectCompletedSetOutput, ProjectCompletedValuesOutput)):
             break  # A generic set/grain label is not a Slice-7 cardinality proof.
         if isinstance(entry, ProjectCompletedEffectiveOutput):
             limit = entry.limit

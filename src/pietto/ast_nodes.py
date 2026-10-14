@@ -1041,6 +1041,33 @@ RelationBody = SelectBody | SetOperationBody | ValuesBody
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ValuesRelationDef(Node):
+    """TABLE/QUERY relation view of one typed VALUES body.
+
+    The parser never builds it: a project catalog presents a declaration or a
+    relation let whose body is a ``ValuesBody`` through this view, the way a set
+    body is presented as ``SetRelationDef``.
+    """
+
+    name: str
+    kind: ModuleDeclarationKind
+    body: ValuesBody
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not ModuleDeclarationKind or self.kind not in {
+            ModuleDeclarationKind.TABLE,
+            ModuleDeclarationKind.QUERY,
+        }:
+            raise TypeError("VALUES relation requires TABLE or QUERY declaration kind")
+        if (
+            type(self.name) is not str
+            or not self.name
+            or type(self.body) is not ValuesBody
+        ):
+            raise TypeError("VALUES relation requires a name and exact VALUES body")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LetRelationDef(Node):
     """A one-level ``let NAME:`` relation binding at the start of a body."""
 

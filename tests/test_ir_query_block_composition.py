@@ -421,6 +421,7 @@ def test_exact_authored_operator_sequences_cover_joined_replay_and_full_mixed_ta
         ProjectIRQueryBlockOperatorExtensionKind.QUALIFY,
         ProjectIRQueryBlockOperatorExtensionKind.DISTINCT,
         ProjectIRQueryBlockOperatorExtensionKind.SET_OPERATION,
+        ProjectIRQueryBlockOperatorExtensionKind.VALUES,
     )
 
 

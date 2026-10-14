@@ -51,6 +51,14 @@ def _cases():
         ),
         "hidden_order": (hidden_order, None),
         "set_membership": (right, _requests),
+        "values": (
+            minimal_source().split("query result:")[0]
+            + "query result:\n    let seed:\n"
+            + "        values(id: Int not null, name: Text nullable):\n"
+            + '            1, "a"\n            2, null\n'
+            + "    union all:\n        from seed\n        from rows\n",
+            None,
+        ),
     }
 
 

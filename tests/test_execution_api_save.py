@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import threading
+from typing import Any
 
 import pytest
 
@@ -484,3 +486,157 @@ def test_replayed_save_operation_is_read_only_before_claim_or_generation(
         assert store.job_record(workspace, original.job) == before
     finally:
         workspace.close()
+
+
+VALUES_JOIN = """
+query tagged:
+    let tags:
+        values(tid: Int not null, tag: Text not null):
+            1, "one"
+            2, "two"
+    from items
+    inner join tags as t:
+        from items
+        on items.id == t.tid
+    select:
+        id
+        tag = t.tag
+"""
+VALUES_ONLY = """
+query tagged:
+    values(tid: Int not null, tag: Text not null):
+        1, "one"
+"""
+MYSQL_VALUES_JOIN = """query tagged:
+    let tags:
+        values(tid: Int not null, tag: Text not null):
+            1, "one"
+    from lhs
+    inner join tags as t:
+        from lhs
+        on lhs.id == t.tid
+    select:
+        id = lhs.id
+        tag = t.tag
+"""
+
+
+def values_query(directory, case):
+    """A VALUES join beside a physical source on either target, or a
+    PostgreSQL query whose only input is a VALUES body."""
+    if case == "mysql_join":
+        project = api.write_join_witness(
+            directory / "mysql", "mysql", MYSQL_VALUES_JOIN
+        )
+    else:
+        project = api.write_example(directory)
+        main = project / "main.pietto"
+        body = VALUES_JOIN if case == "postgres_join" else VALUES_ONLY
+        main.write_text(main.read_text(encoding="utf-8") + body, encoding="utf-8")
+        if case == "postgres_only":
+            contract = json.loads(
+                (project / "contract.json").read_text(encoding="utf-8")
+            )
+            contract["sources"] = []
+            (project / "contract.json").write_text(
+                json.dumps(contract), encoding="utf-8"
+            )
+    return execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="tagged",
+        dialect="mysql" if case == "mysql_join" else "postgres",
+        emission_contract="contract.json",
+    )
+
+
+@pytest.mark.parametrize("case", ("postgres_join", "postgres_only", "mysql_join"))
+def test_values_rows_save_ordinarily_but_have_no_recovery_coordinates(
+    tmp_path, monkeypatch, case
+):
+    """A VALUES row has no source position or token column: an ordinary save is
+    admitted, and save_recoverable and recover are refused before any
+    workspace is opened, even beside a physical source."""
+    query = values_query(tmp_path, case)
+    bundle = execution.export_bundle(query)
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "4" * 32)
+
+    class Opened(Exception):
+        pass
+
+    def opened(*arguments, **keywords):
+        raise Opened
+
+    monkeypatch.setattr(private_workspace, "open_workspace", opened)
+    monkeypatch.setattr(store, "register_job", opened)
+    request: dict[str, Any] = (
+        dict(
+            route="mysql_rows",
+            access=execution.MySQLAccess(
+                "127.0.0.1", 3306, "phase66", "u", "pw", "/ca.pem", "u"
+            ),
+            premise=execution.MySQLDeploymentPremise(("phase66",)),
+        )
+        if case == "mysql_join"
+        else dict(
+            route="postgres_rows",
+            access=execution.PostgresAccess("127.0.0.1", 5432, "db", "u", "pw"),
+            premise=execution.PostgresDeploymentPremise(
+                ("pg_catalog",)
+                if case == "postgres_only"
+                else ("fixture", "pg_catalog")
+            ),
+        )
+    )
+    # The ordinary save passes every request check and reaches the workspace.
+    with pytest.raises(execution.RequestRejected) as reached:
+        execution.save(workspace, query, operation=execution.new_operation(), **request)
+    assert reached.value.code == "PIE-R1009" and "cause=Opened" in str(reached.value)
+    inputs = tuple(
+        execution.R2SourceInput(
+            source.namespace,
+            source.name,
+            "provider",
+            "v1",
+            "r1",
+            source.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for source in query._template.artifact.request.sources
+    )
+    assert len(inputs) == (0 if case == "postgres_only" else 1)
+    r2: dict[str, Any] = dict(
+        query=query,
+        source_requirements=inputs,
+        operation=execution.new_operation(),
+        limits=execution.ExecutionLimits(),
+        **request,
+    )
+    for call in (
+        lambda: execution.save_recoverable(workspace, **r2),
+        lambda: execution.recover(
+            workspace,
+            job="job-" + "5" * 32,
+            generation="gen-" + "6" * 32,
+            checkpoint=None,
+            expected_pin=bundle.pin,
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+            purpose="values recovery",
+            seconds=1,
+            **r2,
+        ),
+    ):
+        with pytest.raises(execution.RequestRejected) as refused:
+            call()
+        assert (refused.value.code, refused.value.detail) == (
+            "PIE-R1004",
+            "PUBLIC_R2_VALUES_COORDINATE_BASIS",
+        )

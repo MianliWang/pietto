@@ -22,6 +22,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_values as valuesplan
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -36,6 +37,7 @@ from pietto._project.project_query_block_ir_verification import (
 )
 from pietto._project.project_query_block_ir import (
     ProjectIRCompletedSetOperationOutput,
+    ProjectIRCompletedValuesOutput,
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRReboundExistingOutput,
     ProjectIRQueryBlockOperatorExtensionKind,
@@ -90,6 +92,7 @@ from pietto.ast_nodes import SelectItem, WindowExpr
 from pietto.ast_nodes import (
     SourceDef,
     SetRelationDef,
+    ValuesRelationDef,
     TableDef,
     QueryDef,
     CallExpr,
@@ -172,6 +175,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast_nodes.TableDef,
         ast_nodes.QueryDef,
         ast_nodes.SetRelationDef,
+        ast_nodes.ValuesRelationDef,
     }
 )
 
@@ -1961,7 +1965,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
             windows.authority(d.entry),
         )
         for d in definitions
-        if not isinstance(d.entry.owner.definition, SetRelationDef)
+        if not isinstance(d.entry.owner.definition, (SetRelationDef, ValuesRelationDef))
     ):
         return (Issue.UNSUPPORTED_SHAPE,)
     if plan.scope is not bindings.scope or any(
@@ -2013,6 +2017,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         or not _window_structure(plan)
         or not _result_structure(plan)
         or not _set_structure(plan)
+        or not _values_structure(plan)
     ):
         return (Issue.STRUCTURE,)
     join_by_definition = {d.ref: [] for d in definitions}
@@ -2037,7 +2042,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
     root_by_site = {}
     for definition in definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
-        if isinstance(authored, SetRelationDef):
+        if isinstance(authored, (SetRelationDef, ValuesRelationDef)):
             continue
         if not isinstance(authored, (TableDef, QueryDef)):
             return (Issue.UNSUPPORTED_SHAPE,)
@@ -3274,7 +3279,10 @@ def _row_origins_and_demands(plan):
         set_count
         + len(plan.set_bodies)
         + sum(body.requires_equivalence for body in plan.set_bodies)
+        + len(plan.values_bodies)
+        + len(plan.values_columns)
     )
+    set_count += len(plan.values_bodies) + len(plan.values_columns)
     if len(plan.demands) != demand_prefix + len(
         subjects
     ) + join_count + aggregate_count + window_count + result_count + set_demands + len(
@@ -4233,14 +4241,23 @@ def _result_structure(plan):
     stage_ports = {p.ref: p for p in plan.stage_ports}
     set_bodies = {body.definition: body for body in plan.set_bodies}
     set_columns = {column.ref: column for column in plan.set_columns}
+    values_bodies = {body.definition: body for body in plan.values_bodies}
+    values_columns = {column.ref: column for column in plan.values_columns}
     for definition in plan.bindings.definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
         if type(authored) not in _KNOWN_DEFINITIONS:
             return False
-        if isinstance(authored, SetRelationDef):
-            if not isinstance(entry, ProjectIRCompletedSetOperationOutput):
+        if isinstance(authored, (SetRelationDef, ValuesRelationDef)):
+            if isinstance(authored, ValuesRelationDef):
+                if not isinstance(entry, ProjectIRCompletedValuesOutput):
+                    return False
+                body = values_bodies[definition.ref]
+                columns_by_ref = values_columns
+            elif not isinstance(entry, ProjectIRCompletedSetOperationOutput):
                 return False
-            body = set_bodies[definition.ref]
+            else:
+                body = set_bodies[definition.ref]
+                columns_by_ref = set_columns
             outputs = take("result_ports", len(definition.exports))
             if not _same(body.outputs, tuple(port.ref for port in outputs)) or len(
                 body.columns
@@ -4255,7 +4272,7 @@ def _result_structure(plan):
                     strict=True,
                 )
             ):
-                column = set_columns[column_ref]
+                column = columns_by_ref[column_ref]
                 if (
                     port.definition is not definition.ref
                     or port.boundary is not body.ref
@@ -5283,7 +5300,147 @@ def _set_origins_and_demands(plan, origin_position, demand_position):
                 return (Issue.ORIGINS,)
             origin_position += 1
             demand_position += 1
+    return _values_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _values_origins_and_demands(plan, origin_position, demand_position):
+    Issue, R, P, K = (
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLOriginRole,
+        ProjectSQLOriginProvenance,
+        ProjectSQLPlanRefKind,
+    )
+    bodies = {body.ref: body for body in plan.values_bodies}
+    owners = {
+        definition.ref: definition.entry.owner
+        for definition in plan.bindings.definitions
+    }
+    for witness in (*plan.values_bodies, *plan.values_columns):
+        definition, cause, antecedents, provenance, kinds = valuesplan.origin_parts(
+            witness, bodies
+        )
+        owner = owners[definition]
+        origin = plan.origins[origin_position]
+        if not _origin_matches(
+            origin,
+            (
+                witness.ref,
+                R(witness.ref.kind.value),
+                provenance,
+                owner,
+                cause,
+                witness,
+                antecedents,
+            ),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 1
+        for kind in kinds:
+            demand, demand_origin = (
+                plan.demands[demand_position],
+                plan.origins[origin_position],
+            )
+            if (
+                type(demand) is not valuesplan.ProjectSQLValuesDemand
+                or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+                or demand.subject is not witness.ref
+                or demand.kind is not kind
+                or demand.witness is not witness
+                or demand.origin is not demand_origin.ref
+            ):
+                return (Issue.DEMANDS,)
+            if not _origin_matches(
+                demand_origin,
+                (
+                    demand.ref,
+                    R.DEMAND,
+                    P.TYPE_PROOF,
+                    owner,
+                    cause,
+                    witness,
+                    (origin.ref,),
+                ),
+                plan.scope,
+                origin_position,
+            ):
+                return (Issue.ORIGINS,)
+            origin_position += 1
+            demand_position += 1
     return _literal_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _values_structure(plan):
+    """Each VALUES definition owns one body whose columns are its declared header."""
+    K = ProjectSQLPlanRefKind
+    if not _inventory(
+        plan.values_bodies, valuesplan.ProjectSQLValuesBody, plan.scope, K.VALUES_BODY
+    ) or not _inventory(
+        plan.values_columns,
+        valuesplan.ProjectSQLValuesColumn,
+        plan.scope,
+        K.VALUES_COLUMN,
+    ):
+        return False
+    definitions = tuple(
+        d
+        for d in plan.bindings.definitions
+        if isinstance(d.entry.owner.definition, ValuesRelationDef)
+    )
+    if len(definitions) != len(plan.values_bodies):
+        return False
+    uses = {use.consumer for use in plan.input_uses}
+    ports = {port.ref: port for port in plan.result_ports}
+    column_cursor = 0
+    for definition, body in zip(definitions, plan.values_bodies, strict=True):
+        entry = definition.entry
+        if not isinstance(entry, ProjectIRCompletedValuesOutput):
+            return False
+        semantic = entry.semantic_entry
+        relation = semantic.root
+        if (
+            body.definition is not definition.ref
+            or body.source is not entry
+            or body.relation is not relation
+            or relation.definition is not entry.owner.definition
+            or relation.diagnostics
+            or body.rows is not relation.rows
+            or body.properties is not entry.active_properties
+            or definition.ref in uses
+            or len(body.columns) != len(relation.columns)
+            or len(body.outputs) != len(relation.columns)
+            or len(definition.exports) != len(relation.columns)
+        ):
+            return False
+        columns = plan.values_columns[column_cursor : column_cursor + len(body.columns)]
+        column_cursor += len(body.columns)
+        for i, (column, ref, output, source, semantic, canonical) in enumerate(
+            zip(
+                columns,
+                body.columns,
+                body.outputs,
+                relation.columns,
+                semantic.fields,
+                definition.exports,
+                strict=True,
+            )
+        ):
+            port = ports.get(output)
+            if (
+                column.ref is not ref
+                or column.body is not body.ref
+                or column.position != i
+                or column.source is not source
+                or column.semantic is not semantic
+                or column.field is not canonical.field
+                or column.output is not output
+                or port is None
+                or port.source is not column.ref
+                or semantic.source is not source
+            ):
+                return False
+    return column_cursor == len(plan.values_columns)
 
 
 def _literal_schema(plan, policy):

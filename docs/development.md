@@ -367,10 +367,12 @@ checks that the variant's digest matches that record's bytes, and reads only the
 record's bytes for every later check. A v2 reader rejects a v3 receipt at the format
 identity, and a v3 reader rejects a v2 receipt the same way. A v3 variant that still
 carries `public` is refused. The 34 MiB reserve does not change, and the format
-change adds no compression, sharding or document trimming. On this tree, the
-harness's offline synthetic receipts measure 34,647,171 bytes (PostgreSQL) and
-34,660,067 bytes (MySQL) in v2. In v3 they measure 17,642,772 and 18,184,260 bytes,
-which is 49.08% and 47.54% smaller.
+change adds no compression, sharding or document trimming. When v3 was introduced,
+the harness's offline synthetic receipts measured 34,647,171 bytes (PostgreSQL) and
+34,660,067 bytes (MySQL) in v2 and 17,642,772 and 18,184,260 bytes in v3, 49.08% and
+47.54% smaller. With the Phase70 batch-2 variants, the early native full-manifest run
+on 38865a75 wrote v3 receipts of 20,884,179 bytes (PostgreSQL) and 21,305,016 bytes
+(MySQL).
 
 
 The post-publication residual supplement keeps that denominator and receipt format. Its

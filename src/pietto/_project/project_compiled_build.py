@@ -32,6 +32,7 @@ from pietto._project import project_sql_emission_results as results
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_sets as setting
+from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_emission_joins as joining
 
 __all__: tuple[str, ...] = ()
@@ -538,6 +539,65 @@ class _Export:
             layout,
         )
 
+    def values_unit(self, unit, position):
+        """One zero-input typed VALUES unit with its fixed cells inline."""
+        from pietto._project.project_sql_emission_contract import canonical
+
+        address = self.reserve("values")
+        self.units[id(unit)] = address
+        fields, ports = [], []
+        for column in unit.columns:
+            realization = column.realization
+            logical = (
+                realization.tag,
+                "nullable" if realization.nullable is True else "non_null",
+            )
+            physical = canonical(
+                {
+                    "storage": realization.storage,
+                    "nullable": realization.nullable,
+                    "domain": realization.domain,
+                }
+            ).decode("utf-8")
+            field = self.add(
+                "field",
+                address,
+                column.ordinal,
+                column.source.source.name,
+                f"c{column.ordinal}",
+                logical,
+                physical,
+                None,
+                None,
+            )
+            fields.append(field)
+            ports.append(
+                self.add("port", address, column.ordinal, column.label, field, logical)
+            )
+        self.unit_ports[id(unit)] = tuple(ports)
+        cells = tuple(
+            tuple(
+                None if value is None else Scalar(column.realization.tag, value)
+                for column, value in zip(unit.columns, row, strict=True)
+            )
+            for row in unit.rows
+        )
+        layout = (
+            None if unit.symbol is None else unit.symbol.name,
+            tuple(c.name for c in unit.cte_columns),
+            unit.scope.name,
+            unit.final,
+            position,
+        )
+        return self.finish(
+            address,
+            self.declaration(unit.definition.original.entry.owner),
+            tuple(fields),
+            cells,
+            tuple(ports),
+            layout,
+        )
+
     def join_unit(self, unit, position):
         address = self.reserve("join")
         self.units[id(unit)] = address
@@ -641,6 +701,8 @@ class _Export:
             return self.join_unit(unit, position)
         if type(unit) is setting.SetBody:
             return self.set_unit(unit, position)
+        if type(unit) is valuing.ValuesBody:
+            return self.values_unit(unit, position)
         if type(unit) not in (sql.SQLSelect, sql.RowBody, results.RowResultBody):
             raise CompiledError("COMPILED_EXPORT_UNIT")
         owner = unit.definition.original.entry.owner
@@ -925,6 +987,12 @@ class _Export:
                 self.anchor(equality.original.ref, target)
             return
         self.anchor(unit.definition.original.ref, address)
+        if type(unit) is valuing.ValuesBody:
+            self.anchor(unit.body.ref, address)
+            for column, port in zip(unit.columns, ports, strict=True):
+                self.anchor(column.source.ref, self.records[port].get("source"))
+                self.anchor(column.export.ref, port)
+            return
         if type(unit) is setting.SetBody:
             self.anchor(unit.body.ref, address)
             for operand, use in zip(

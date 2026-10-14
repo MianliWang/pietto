@@ -754,6 +754,38 @@ NULL = {"kind": "null"}
 BIG_TEXT = "9007199254740993"
 
 
+def values_expectation(target, variant):
+    """The typed VALUES BAG, labels and carriers, by hand from the authored rows.
+
+    Only PostgreSQL executes `top`; its duplicate row stays and its last row's
+    NULLs keep their declared types. `let_join` matches the published ids 0 and
+    1 with the VALUES rows 0 and 1, 1 (BIG has no partner); `zero_left_join`
+    keeps every published id, BIG twice, with no partner in the zero-row let.
+    """
+    integer, text = (20, 25) if target == "postgres" else (8, 253)
+    if variant == "let_join":
+        rows = [
+            [_int("0"), {"kind": "text", "value": "z"}],
+            [_int("1"), NULL],
+            [_int("1"), {"kind": "text", "value": "y"}],
+        ]
+        return rows, emission.VALUES_LABELS[variant], [integer, text]
+    if variant == "zero_left_join":
+        rows = [[_int(BIG_TEXT), NULL]] * 2 + [[_int("0"), NULL], [_int("1"), NULL]]
+        return rows, emission.VALUES_LABELS[variant], [integer, integer]
+    one = [
+        _int("1"),
+        {"kind": "text", "value": "a"},
+        {"kind": "float", "value": (0.5).hex()},
+        {"kind": "bool", "value": True},
+    ]
+    return (
+        [one, one, [_int("2"), NULL, NULL, NULL]],
+        emission.VALUES_LABELS[variant],
+        [20, 25, 701, 16],
+    )
+
+
 def join_rows(variant):
     """The exact typed BAG each authored JOIN publishes, by hand."""
     if variant == "cross":
@@ -1545,6 +1577,17 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             emission.TRUTH_LABELS
         ):
             raise ValueError("three-valued positional logical metadata mismatch")
+        return
+    if case_id == "Q_values_rows":
+        expected_rows, labels, types = values_expectation(target, variant_name)
+        if (
+            Counter(json.dumps(row, sort_keys=True) for row in observation["rows"])
+            != Counter(json.dumps(row, sort_keys=True) for row in expected_rows)
+            or [m[0] for m in observation["metadata"]] != list(labels)
+            or [m[1] for m in observation["metadata"]] != types
+            or [c["label"] for c in document["columns"]] != list(labels)
+        ):
+            raise ValueError("VALUES typed BAG or metadata mismatch")
         return
     if case_id in {"W_join_shapes", "W_join_values", "V_join_full"}:
         expected_rows = join_rows(variant_name)

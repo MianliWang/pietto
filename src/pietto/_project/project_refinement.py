@@ -205,9 +205,14 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
     from pietto._project.project_compiled_schema import Address
 
     artifact = _live_root(template, binding, reanchor=reanchor)
+    records = artifact.request.verification.completed.root.records
     if _computed_group_key(artifact):
         raise ValueError("PUBLIC_R2_COMPUTED_GROUP_KEY")
-    policy = artifact.request.verification.completed.root.records[Address("policy", 0)]
+    if any(address.kind == "values" for address in records):
+        # A fixed VALUES row has no source position or token column, so no
+        # recovery coordinate can identify it, even beside a physical source.
+        raise ValueError("PUBLIC_R2_VALUES_COORDINATE_BASIS")
+    policy = records[Address("policy", 0)]
     if policy.get("refinement") is not None:
         expected = compiled_source_requirements(artifact)
         if tuple(requirement_state(r) for r in requirements) != tuple(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef
+from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 
 from collections.abc import Mapping
@@ -551,7 +551,7 @@ class ProjectSymbol:
     name: str
     path: str
     location: SourceLocation
-    definition: Definition
+    definition: Definition | ValuesRelationDef
 
 
 class ProjectResolvedTypeKind(StrEnum):
@@ -2678,7 +2678,11 @@ def _project_direct_relation_row_schema(
     *,
     source_schema: ProjectRowSchema,
     source_symbol: ProjectSymbol,
-    upstream_definition: SourceDef | TableDef | QueryDef | SetRelationDef,
+    upstream_definition: SourceDef
+    | TableDef
+    | QueryDef
+    | SetRelationDef
+    | ValuesRelationDef,
     upstream_state: ProjectRelationRowSchemaState | None = None,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
@@ -3249,11 +3253,11 @@ def _project_symbol(
 
 
 def _classify_project_definition(
-    definition: Definition,
+    definition: Definition | ValuesRelationDef,
 ) -> tuple[ProjectSymbolNamespace, ProjectSymbolKind]:
     """Classify a top-level definition into the Phase 45 hybrid namespace."""
 
-    if isinstance(definition, SetRelationDef):
+    if isinstance(definition, (SetRelationDef, ValuesRelationDef)):
         return ProjectSymbolNamespace.RELATION, ProjectSymbolKind(definition.kind.value)
     if isinstance(definition, TypeDef):
         return ProjectSymbolNamespace.TYPE, ProjectSymbolKind.TYPE_ALIAS

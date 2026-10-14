@@ -15,6 +15,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project import project_sql_plan_literals as literals
 from pietto._project import project_sql_plan_requirements as report
 from pietto._project.project_sql_plan_verification import (
@@ -169,6 +170,7 @@ def test_every_current_variant_and_meaningful_subkind_has_real_coverage(corpus):
         (F.WINDOW, windows.ProjectSQLWindowDemandKind),
         (F.RESULT, results.ProjectSQLResultDemandKind),
         (F.SET, sets.ProjectSQLSetDemandKind),
+        (F.VALUES, valuesplan.ProjectSQLValuesDemandKind),
         (F.SCOPE, row.ProjectSQLStageKind),
         (F.EXPRESSION, row.ProjectSQLExpressionRole),
         (F.STAGE_VALUE, row.ProjectSQLStagePortKind),

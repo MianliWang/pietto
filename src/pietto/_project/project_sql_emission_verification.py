@@ -63,6 +63,7 @@ from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
+from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
@@ -3630,6 +3631,156 @@ def _verify_set_unit(request, unit, definition, body, position, produced, last, 
     state["nodes"] += setting.node_count(unit)
 
 
+def _values_column_realization(tag, nullable, cells, family):
+    """Independent declared-type realization of one VALUES column's fixed cells."""
+    present = tuple(cell for cell in cells if cell is not None)
+    valid = {
+        "Bool": lambda v: type(v) is bool,
+        "Int": lambda v: type(v) is int and -(2**63) <= v <= 2**63 - 1,
+        "Float": lambda v: type(v) is float and math.isfinite(v),
+        "Text": lambda v: (
+            type(v) is str
+            and (family != "postgres" or "\0" not in v)
+            and v.encode("utf-8") is not None
+        ),
+    }[tag]
+    if not all(valid(v) for v in present):
+        raise ValueError("values cell domain")
+    storage = {
+        ("postgres", "Bool"): "pg_bool",
+        ("postgres", "Int"): "pg_int8",
+        ("postgres", "Float"): "pg_float8",
+        ("postgres", "Text"): "pg_text",
+        ("mysql", "Bool"): "my_signed_bool",
+        ("mysql", "Int"): "my_signed_int",
+        ("mysql", "Float"): "my_double",
+        ("mysql", "Text"): "my_utf8mb4_text",
+    }[(family, tag)]
+    proven = None
+    if tag == "Int":
+        low, high = (min(present), max(present)) if present else (-(2**63), 2**63 - 1)
+        domain = {"kind": "int_range", "min": str(low), "max": str(high)}
+        proven = (-(2**63), 2**63 - 1)
+    elif tag == "Text":
+        domain = {
+            "kind": "text",
+            "max_characters": max(map(len, present), default=0),
+            "encoding": "UTF8" if family == "postgres" else "utf8mb4",
+            "collation": "C" if family == "postgres" else "utf8mb4_0900_bin",
+            "padding": "NO PAD",
+        }
+    else:
+        domain = (
+            {"kind": "bool01"}
+            if tag == "Bool"
+            else {"kind": "finite_float", "format": "binary64"}
+        )
+    return storage, rows.Realization(tag, {"kind": storage}, nullable, domain, proven)
+
+
+def _verify_values_unit(request, unit, definition, body, position, last, state):
+    """Independent VALUES correspondence from the retained plan alone.
+
+    The column inventory, each declared column's type, nullability and fixed
+    cells, every output's realization and the terminal image are re-derived from
+    the plan collections and the authored body; the builder is never reused.
+    """
+    plan = request.plan
+    family = request.family
+    exports = definition.original.exports
+    relation = body.relation
+    authored = relation.definition
+    columns = sorted(
+        (c for c in plan.values_columns if c.body is body.ref),
+        key=lambda c: c.position,
+    )
+    if (
+        type(unit) is not valuing.ValuesBody
+        or unit.definition is not definition
+        or unit.body is not body
+        or unit.index != position
+        or unit.final != last
+        or unit.final != (definition.original.entry.owner is plan.scope.selected_owner)
+        or unit.predicate is not None
+        or unit.aggregation is not None
+        or unit.window is not None
+        or authored is not definition.original.entry.owner.definition
+        or relation.diagnostics
+        or unit.rows is not body.rows
+        or body.rows is not relation.rows
+        or len(body.rows) != len(authored.body.rows)
+        or tuple(c.ref for c in columns) != tuple(body.columns)
+        or len(columns) != len(authored.body.columns)
+        or len(unit.columns) != len(columns)
+        or len(exports) != len(columns)
+        or len(definition.terminals) != len(columns)
+        or any(len(row) != len(columns) for row in body.rows)
+        or any(
+            u.original.consumer is definition.original.ref for u in request.layout.uses
+        )
+        or type(unit.scope) is not SQLSymbol
+        or unit.scope.position != 0
+        or unit.scope.binding is not body.ref
+        or unit.scope.name != f"v{body.ref.position}"
+    ):
+        raise ValueError("values unit placement")
+    for ordinal, (realized, column, export, terminal, declared) in enumerate(
+        zip(
+            unit.columns,
+            columns,
+            exports,
+            definition.terminals,
+            authored.body.columns,
+            strict=True,
+        )
+    ):
+        nullable = declared.type.nullability.value == "nullable"
+        if (
+            declared.type.name not in {"Bool", "Int", "Float", "Text"}
+            or declared.type.arguments
+            or declared.type.nullability.value not in {"nullable", "not_null"}
+            or column.source.name != declared.name
+            or column.source.logical_type != declared.type.name
+            or column.source.nullable != nullable
+            or any(row[ordinal] is None and not nullable for row in body.rows)
+        ):
+            raise ValueError("values declared column")
+        storage, realization = _values_column_realization(
+            declared.type.name,
+            nullable,
+            tuple(row[ordinal] for row in body.rows),
+            family,
+        )
+        label = export.identity.name if unit.final else f"c{ordinal}"
+        if (
+            type(realized) is not valuing.ValuesOutputColumn
+            or realized.ordinal != ordinal
+            or realized.source is not column
+            or realized.export is not export
+            or realized.output is not terminal
+            or column.output is not terminal.ref
+            or terminal.canonical is not export
+            or column.position != ordinal
+            or realized.physical != storage
+            or not _same_realization(realized.realization, realization)
+            or realized.label != label
+            or realized.symbol.position != ordinal + 1
+            or realized.symbol.binding is not export.ref
+            or realized.symbol.name != label
+            or not identifier_valid(label, family, label=unit.final)
+            or not _same_read(
+                realized.column,
+                rows.StageColumn(ordinal, label, terminal.ref, realization),
+            )
+        ):
+            raise ValueError("values column")
+        state["symbols"].append(realized.symbol)
+    if unit.terminals != tuple(definition.terminals):
+        raise ValueError("values terminals")
+    _verify_body_scope(unit, position, state)
+    state["nodes"] += 2 + len(unit.columns) * (1 + len(unit.rows))
+
+
 def verify_row_query(request, query, *, _guarded=None):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
@@ -3639,7 +3790,8 @@ def verify_row_query(request, query, *, _guarded=None):
             not prepared_current(request)
             or type(query) not in {SQLRowQuery, SQLJoinQuery}
             or query.request is not request
-            or (type(query) is SQLJoinQuery) != bool(plan.joins or plan.set_bodies)
+            or (type(query) is SQLJoinQuery)
+            != bool(plan.joins or plan.set_bodies or plan.values_bodies)
             or (
                 joining.admitted_join_shape(plan, _guarded=_guarded)
                 if joined
@@ -3686,8 +3838,15 @@ def verify_row_query(request, query, *, _guarded=None):
         }
         result_groups = resulting.boundaries_by_definition(plan)
         set_groups = setting.bodies_by_definition(plan)
+        values_groups = {body.definition: body for body in plan.values_bodies}
         expected = []
         for definition, blocks in definition_blocks(request):
+            values_body = values_groups.get(definition.original.ref)
+            if values_body is not None:
+                if blocks or join_groups.get(definition.original.ref):
+                    return False
+                expected.append((definition, values_body, "values"))
+                continue
             set_body = set_groups.get(definition.original.ref)
             if set_body is not None:
                 if blocks or join_groups.get(definition.original.ref):
@@ -3727,6 +3886,18 @@ def verify_row_query(request, query, *, _guarded=None):
                     guarded=_guarded,
                 )
                 by_join[block.ref] = body
+                continue
+            if index == "values":
+                _verify_values_unit(
+                    request,
+                    body,
+                    definition,
+                    block,
+                    position,
+                    position == len(units) - 1,
+                    state,
+                )
+                produced[definition.original.ref] = body
                 continue
             if index == "set":
                 _verify_set_unit(
@@ -5241,6 +5412,105 @@ def verify_row_bytes(query, rendered):
                 if position < count - 1:
                     take("syntax", "set_fold_close", reference, ")")
 
+        def values_select(unit):
+            reference = unit.body.ref
+            pg = request.family == "postgres"
+            labelled = not unit.rows or unit.final
+            if labelled:
+                take("syntax", "select", reference, "SELECT ")
+                for position, column in enumerate(unit.columns):
+                    subject = column.source.ref
+                    if position:
+                        take("syntax", "separator", subject, ", ")
+                    if unit.rows:
+                        take(
+                            "identifier",
+                            "values_scope",
+                            subject,
+                            unit.scope.name,
+                            identifier=True,
+                        )
+                        take("syntax", "values_qualifier", subject, ".")
+                        take(
+                            "identifier",
+                            "values_column",
+                            subject,
+                            f"c{position}",
+                            identifier=True,
+                        )
+                    else:
+                        take("syntax", "anchor_open", subject, "CAST(")
+                        take("literal", column.realization.tag, subject, "NULL")
+                        take(
+                            "syntax",
+                            "anchor_close",
+                            subject,
+                            parameters.anchor_suffix(column.physical),
+                        )
+                    take("syntax", "alias", subject, " AS ")
+                    take(
+                        "identifier",
+                        "label",
+                        column.export.ref,
+                        column.label,
+                        identifier=True,
+                    )
+                if not unit.rows:
+                    take("syntax", "values_empty", reference, " WHERE FALSE")
+                    return
+                take("syntax", "values_open", reference, " FROM (")
+            take("syntax", "values", reference, "VALUES ")
+            for index, row in enumerate(unit.rows):
+                if index:
+                    take("syntax", "values_row_separator", reference, ", ")
+                take("syntax", "values_row_open", reference, "(" if pg else "ROW(")
+                if len(row) != len(unit.columns):
+                    raise ValueError("values row width")
+                for position, (column, value) in enumerate(
+                    zip(unit.columns, row, strict=True)
+                ):
+                    subject = column.source.ref
+                    tag = column.realization.tag
+                    if position:
+                        take("syntax", "separator", subject, ", ")
+                    take("syntax", "anchor_open", subject, "CAST(")
+                    take(
+                        "literal",
+                        tag,
+                        subject,
+                        "NULL"
+                        if value is None
+                        else parameters.scalar_token(tag, value, request.family),
+                    )
+                    take(
+                        "syntax",
+                        "anchor_close",
+                        subject,
+                        parameters.anchor_suffix(column.physical),
+                    )
+                take("syntax", "values_row_close", reference, ")")
+            if unit.final:
+                take("syntax", "values_close", reference, ") AS ")
+                take(
+                    "identifier",
+                    "values_alias",
+                    reference,
+                    unit.scope.name,
+                    identifier=True,
+                )
+                take("syntax", "values_columns_open", reference, " (")
+                for position, column in enumerate(unit.columns):
+                    if position:
+                        take("syntax", "separator", column.source.ref, ", ")
+                    take(
+                        "identifier",
+                        "values_column_alias",
+                        column.source.ref,
+                        f"c{position}",
+                        identifier=True,
+                    )
+                take("syntax", "values_columns_close", reference, ")")
+
         def join_relation(item):
             reference = item.original.ref
             producer = item.producer
@@ -5421,6 +5691,8 @@ def verify_row_bytes(query, rendered):
                     result_select(unit)
                 elif type(unit) is setting.SetBody:
                     set_select(unit)
+                elif type(unit) is valuing.ValuesBody:
+                    values_select(unit)
                 else:
                     select(unit)
                 take("syntax", "cte_body_close", reference, ")")
@@ -5429,6 +5701,8 @@ def verify_row_bytes(query, rendered):
             result_select(units[-1])
         elif type(units[-1]) is setting.SetBody:
             set_select(units[-1])
+        elif type(units[-1]) is valuing.ValuesBody:
+            values_select(units[-1])
         else:
             select(units[-1])
         if (
@@ -5630,6 +5904,7 @@ def verify_row_generated_requirements(request, query, generated):
             if type(unit.inputs[1].producer) in {
                 resulting.RowResultBody,
                 setting.SetBody,
+                valuing.ValuesBody,
             }:
                 expected.append(
                     (
@@ -5739,12 +6014,29 @@ def verify_row_generated_requirements(request, query, generated):
             expected.append(("set_row_equivalence", unit.body.ref, "R22", ()))
         expected.append(("read_only_select_bytes", unit, "R23", ()))
 
+    def values_expectations(unit):
+        """Independently list what one VALUES unit's own structures introduce."""
+        expected.append(("values_rows", unit.body.ref, "R04", naming))
+        for column in unit.columns:
+            expected.append(
+                (
+                    "values_column",
+                    column.source.ref,
+                    "R02",
+                    encoding if column.realization.tag == "Text" else (),
+                )
+            )
+        expected.append(("read_only_select_bytes", unit, "R23", ()))
+
     for unit in units:
         if type(unit) is joining.JoinBody:
             join_expectations(unit)
             continue
         if type(unit) is setting.SetBody:
             set_expectations(unit)
+            continue
+        if type(unit) is valuing.ValuesBody:
+            values_expectations(unit)
             continue
         if type(unit) is resulting.RowResultBody:
             result_expectations(unit)

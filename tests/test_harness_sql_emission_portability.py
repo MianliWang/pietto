@@ -147,7 +147,10 @@ def test_schema_mirrors_emission_runtime_classes_and_shared_constants():
         assert own <= names | schema.CUTOFF.get(kind, frozenset()), kind
         assert names <= own | derived, kind
         assert not (schema.CUTOFF.get(kind, frozenset()) & names), kind
-    assert schema.PLAN_KINDS == {kind.value for kind in ProjectSQLPlanRefKind}
+    assert schema.PLAN_KINDS | schema.PLAN_CUTOFF == {
+        kind.value for kind in ProjectSQLPlanRefKind
+    }
+    assert not schema.PLAN_KINDS & schema.PLAN_CUTOFF
     assert schema.FAMILIES == contract.RELEASES
     assert schema.PHYSICAL == parameters.PHYSICAL
     assert schema.ANCHOR_SUFFIX == {
@@ -306,9 +309,10 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
             )
             continue
         observed = portable.export_emission_observation(artifact, artifact.request)
-        if artifact.request.plan.parameters:
-            # The closed observation schema has no query parameter; a v2
-            # template stays outside it rather than being approximated.
+        if artifact.request.plan.parameters or artifact.request.plan.values_bodies:
+            # The closed observation schema has no query parameter and no typed
+            # VALUES body; such an artifact stays outside it rather than being
+            # approximated.
             assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
             continue
         if observed.status is not portable.ObservationStatus.OK:

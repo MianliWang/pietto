@@ -102,6 +102,10 @@ PLAN_KINDS = frozenset(
         "demand",
     }
 )
+# The plan reference kinds of a typed VALUES body. Its generated unit has no
+# record kind here, so an artifact that reads one stays outside this
+# observation rather than being approximated.
+PLAN_CUTOFF = frozenset({"values_body", "values_column"})
 
 _VALUE = "@sql_anchor|sql_unary|sql_null|sql_operation|sql_stage_reference"
 _UNIT = "row_body|row_result_body|join_body|set_body"

@@ -84,7 +84,7 @@ def test_only_an_explicit_module_project_admits_a_header(tmp_path: Path) -> None
         ("    union all:\n        from rows\n        from rows\n", [("PIE-S2346", 1)]),
         (
             "    values(id: Int not null):\n        1\n",
-            [("PIE-S2346", 1), ("PIE-S2347", 2)],
+            [("PIE-S2346", 1)],
         ),
         (
             "    from generate_series(1, 31, 1) as n\n    select:\n        n\n",
@@ -595,6 +595,62 @@ def test_a_header_name_never_shadows_a_completed_input_field(
         "        id\n"
     )
     assert _check(_project(tmp_path / "field", inputs + entry)) == (
+        1,
+        [(COLLISION, line, 9)],
+    )
+    distinct = entry.replace("extra", "other")
+    assert _check(_project(tmp_path / "distinct", inputs + distinct)) == (0, [])
+
+
+VALUES_QUERY = (
+    "query v:\n    values(id: Int not null, extra: Int nullable):\n        1, 2\n"
+)
+VALUES_FROM = (
+    "query q(extra: Int not null):\n"
+    "    from v\n"
+    "    where id > extra\n"
+    "    select:\n"
+    "        id\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("inputs", "entry", "line"),
+    (
+        (VALUES_QUERY, VALUES_FROM, 4),
+        (VALUES_QUERY.replace("query v", "table v"), VALUES_FROM, 4),
+        (
+            VALUES_QUERY,
+            "query q(extra: Int not null):\n"
+            "    from rows\n"
+            "    inner join v as w:\n"
+            "        from rows\n"
+            "        on rows.id == w.id\n"
+            "    where rows.id > extra\n"
+            "    select:\n"
+            "        id = rows.id\n",
+            4,
+        ),
+        (
+            "table v:\n"
+            "    let seed:\n"
+            "        values(id: Int not null, extra: Int nullable):\n"
+            "            1, 2\n"
+            "    from seed\n"
+            "    select:\n"
+            "        id\n"
+            "        extra\n",
+            VALUES_FROM,
+            9,
+        ),
+    ),
+    ids=("values_query", "values_table", "values_join", "values_let"),
+)
+def test_a_header_name_never_shadows_a_values_column(
+    tmp_path: Path, inputs: str, entry: str, line: int
+) -> None:
+    """A typed VALUES input names its columns like any completed input."""
+    assert _check(_project(tmp_path / "column", inputs + entry)) == (
         1,
         [(COLLISION, line, 9)],
     )

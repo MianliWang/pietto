@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, SetOperand
+from pietto.ast_nodes import SetRelationDef, SetOperand, ValuesRelationDef
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -95,7 +95,7 @@ _COLLISION_ISSUE_STATUSES = frozenset(
         ProjectModuleBindingIssueStatus.IMPORT_BINDING_COLLISION,
     }
 )
-_DefinitionT = SourceDef | TableDef | QueryDef | SetRelationDef
+_DefinitionT = SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
 _KeyT = TypeVar("_KeyT")
 _ObjectT = TypeVar("_ObjectT")
 _ValueT = TypeVar("_ValueT")
@@ -541,7 +541,13 @@ class ProjectModuleRelationResolutionEnvironment:
         row_facts: dict[_DefinitionT, list[ProjectModuleRelationRowFact]] = {}
         for fact in self.row_facts:
             definition = fact.owner.definition
-            if type(definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
+            if type(definition) not in {
+                SourceDef,
+                TableDef,
+                QueryDef,
+                SetRelationDef,
+                ValuesRelationDef,
+            }:
                 raise ValueError("Relation row fact requires a relation definition.")
             row_facts.setdefault(cast(_DefinitionT, definition), []).append(fact)
         if any(
@@ -631,7 +637,13 @@ class ProjectModuleRelationResolutionEnvironment:
     ) -> tuple[ProjectModuleRelationRowFact, ...]:
         """Return one exact row fact for a retained relation definition."""
 
-        if type(definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
+        if type(definition) not in {
+            SourceDef,
+            TableDef,
+            QueryDef,
+            SetRelationDef,
+            ValuesRelationDef,
+        }:
             raise TypeError("Row-fact lookup requires a relation definition.")
         return self._row_facts_by_definition.get(definition, ())
 
@@ -1581,7 +1593,7 @@ def _build_module_row_facts(
         )
 
     for occurrence in draft.catalog.relation_owners:
-        if type(occurrence.definition) is SetRelationDef:
+        if type(occurrence.definition) in {SetRelationDef, ValuesRelationDef}:
             draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
                 owner=occurrence,
                 state=_blocked_state(

@@ -56,7 +56,9 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
 
 
 # Families whose semantics exist only for EXPLICIT_MODULES projects.
-_EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset({LetRelationDef})
+_EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset(
+    {LetRelationDef, ValuesBody}
+)
 # D70.07: one table or query declares at most this many relation lets.
 _MAX_RELATION_LETS = 64
 

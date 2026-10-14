@@ -27,6 +27,7 @@ from pietto._project.project_sql_emission_aggregation import AggregateProjection
 from pietto._project.project_sql_emission_windows import WindowProjectionColumn
 from pietto._project.project_sql_emission_results import ResultColumn
 from pietto._project.project_sql_emission_sets import SetColumn
+from pietto._project.project_sql_emission_values import ValuesOutputColumn
 from pietto._project.project_sql_emission_rows import (
     Realization,
     field_realization,
@@ -199,6 +200,7 @@ def verify_output(output, artifact, contract, *, binding=None):
             WindowProjectionColumn,
             ResultColumn,
             SetColumn,
+            ValuesOutputColumn,
         ):
             expected = original.column.realization
             source = original.column.field
@@ -236,6 +238,7 @@ def source_read_columns(output):
     from pietto._project.project_sql_emission_windows import WindowColumn
     from pietto._project.project_sql_emission_joins import JoinBody
     from pietto._project.project_sql_emission_sets import SetBody
+    from pietto._project.project_sql_emission_values import ValuesBody
     from pietto._project.project_sql_emission_rows import (
         SQLStageReference,
         SQLOperation,
@@ -255,6 +258,8 @@ def source_read_columns(output):
                 if any(item.producer is source for source in sources):
                     needed[item.producer].update(c.name for c in item.columns)
             continue
+        elif type(unit) is ValuesBody:
+            continue  # VALUES reads no physical column.
         elif type(unit.scan) in (SQLScan, RowScan):
             scopes[unit.scan.symbol.name] = unit.scan.realization
         if not scopes:

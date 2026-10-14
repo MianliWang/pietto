@@ -2,6 +2,7 @@
 
 - The documented example project, relation and scripts and the documented
   server setup, read from docs/execution.md.
+- A one-source project over the SQL emission JOIN witness, for either target.
 - A protocol-level PostgreSQL stub on loopback: it answers an SSLRequest,
   reads the startup packet, asks for one authentication method and records
   whether the client sends anything back (a password, a hash or a token).
@@ -85,6 +86,24 @@ def write_example(directory, *, relation="items"):
     (Path(directory) / "consume_query.py").write_text(
         results_blocks()["python"], encoding="utf-8"
     )
+    return project
+
+
+def write_join_witness(directory, target, body):
+    """Write a project whose `body` follows the JOIN witness header and whose
+    contract publishes only its `lhs` source; returns the project root."""
+    import json
+
+    import _pietto_sql_emission as probe
+
+    item = probe.join_witness(target, body)
+    contract = json.loads(item["contract"])
+    contract["sources"] = contract["sources"][:1]
+    project = Path(directory)
+    project.mkdir(parents=True)
+    (project / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (project / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
     return project
 
 

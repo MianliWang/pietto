@@ -467,7 +467,9 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
         return False
     # A SET definition owns no stage block and one input use per operand; its
     # own admission belongs to the SET owner.
-    sets = {body.definition for body in plan.set_bodies}
+    sets = {body.definition for body in plan.set_bodies} | {
+        body.definition for body in plan.values_bodies
+    }
     named = tuple(
         item
         for item in plan.bindings.definitions

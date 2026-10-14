@@ -55,7 +55,12 @@ MEMBER_KINDS = {
     "outputs": frozenset({"output"}),
 }
 RELATIONS = frozenset(
-    {"source", "scan", "row", "join", "aggregate", "window", "result", "set"}
+    {"source", "scan", "row", "join", "aggregate", "window", "result", "set", "values"}
+)
+VALUES_LOGICAL = tuple(
+    (tag, nullability)
+    for tag in ("Int", "Bool", "Float", "Text")
+    for nullability in ("non_null", "nullable")
 )
 VALUES = frozenset(
     {
@@ -90,6 +95,15 @@ ROLES = frozenset(
         "unknown",
     }
 )
+
+
+def _physical_fields(fields):
+    """A premise's expression context reads physical source fields only; a
+    VALUES column has no source premise."""
+    return all(
+        type(f.get("source")) is Address and f.get("source").kind == "source"
+        for f in fields
+    )
 
 
 def need(condition, category):
@@ -306,14 +320,14 @@ def verify_description(value: Description) -> None:
             )
         elif kind == "expression_context":
             ref(get("owner"), {"declaration"})
-            refs(get("fields"), {"field"})
             need(
                 type(get("kind")) is str
                 and type(get("block_kind")) is str
                 and all(
                     type(get(n)) is int and get(n) >= 0
                     for n in ("position", "block_position")
-                ),
+                )
+                and _physical_fields(refs(get("fields"), {"field"})),
                 "EXPRESSION_CONTEXT",
             )
         elif kind == "premise":
@@ -337,11 +351,13 @@ def verify_description(value: Description) -> None:
                     need(len(scope) == 2, "PREMISE_SCOPE")
                     source = ref(scope[0], {"declaration"})
                     context = ref(scope[1], {"expression_context"})
+                    fields = refs(context.get("fields"), {"field"})
                     need(
-                        any(
-                            records[records[a].get("source")].get("declaration")
+                        _physical_fields(fields)
+                        and any(
+                            records[f.get("source")].get("declaration")
                             == source.address
-                            for a in context.get("fields")
+                            for f in fields
                         ),
                         "PREMISE_EXPRESSION_SOURCE",
                     )
@@ -370,7 +386,7 @@ def verify_description(value: Description) -> None:
                 "SOURCE_UNIQUE",
             )
         elif kind == "field":
-            ref(get("source"), {"source"})
+            holder = ref(get("source"), {"source", "values"})
             need(type(get("ordinal")) is int and get("ordinal") >= 0, "FIELD")
             need(type(get("label")) is str, "FIELD")
             physical_mapping = get("physical") is not None
@@ -412,6 +428,15 @@ def verify_description(value: Description) -> None:
                 "FIELD_MEANING",
             )
 
+            if holder.address.kind == "values":
+                # A VALUES column is no contract source field: its values record
+                # re-derives its whole representation from the fixed cells.
+                columns = holder.get("fields")
+                need(
+                    type(columns) is tuple and record.address in columns,
+                    "VALUES_COLUMNS",
+                )
+                continue
             if not physical_mapping:
                 continue
             physical = json_value(get("physical").encode("utf-8"))
@@ -771,6 +796,87 @@ def verify_description(value: Description) -> None:
         elif kind == "set_value":
             ref(get("owner"), {"set"})
             need(len(refs(get("inputs"), {"read"})) >= 2, "SET_INPUTS")
+        elif kind == "values":
+            ref(get("owner"), {"declaration"})
+            fields = refs(get("fields"), {"field"})
+            outputs = refs(get("outputs"), {"port"})
+            rows = get("rows")
+            need(
+                bool(fields)
+                and len(fields) == len(outputs) <= 64
+                and all(
+                    f.get("source") == record.address
+                    and f.get("ordinal") == i
+                    and f.get("column") == f"c{i}"
+                    and type(f.get("physical")) is str
+                    and f.get("decimal") is None
+                    and f.get("meaning") is None
+                    and f.get("logical") in VALUES_LOGICAL
+                    and p.get("owner") == record.address
+                    and p.get("ordinal") == i
+                    and p.get("source") == f.address
+                    and p.get("logical") == f.get("logical")
+                    for i, (f, p) in enumerate(zip(fields, outputs, strict=True))
+                ),
+                "VALUES_COLUMNS",
+            )
+            need(
+                type(rows) is tuple
+                and len(rows) <= 1000
+                and all(
+                    type(row) is tuple
+                    and len(row) == len(fields)
+                    and all(
+                        (cell is None and f.get("logical")[1] == "nullable")
+                        or (type(cell) is Scalar and cell.tag == f.get("logical")[0])
+                        for cell, f in zip(row, fields, strict=True)
+                    )
+                    for row in rows
+                ),
+                "VALUES_ROWS",
+            )
+            from pietto._project.project_sql_emission_contract import canonical
+            from pietto._project.project_sql_emission_verification import (
+                _values_column_realization,
+            )
+
+            # Each column's carrier, nullability and domain are what its cells
+            # give on this target, never the producer's claim.
+            for i, f in enumerate(fields):
+                tag, nullability = f.get("logical")
+                try:
+                    _, derived = _values_column_realization(
+                        tag,
+                        nullability == "nullable",
+                        tuple(None if row[i] is None else row[i].value for row in rows),
+                        family,
+                    )
+                except ValueError:
+                    derived = None
+                need(
+                    derived is not None
+                    and f.get("physical")
+                    == canonical(
+                        {
+                            "storage": derived.storage,
+                            "nullable": derived.nullable,
+                            "domain": derived.domain,
+                        }
+                    ).decode("utf-8"),
+                    "VALUES_REPRESENTATION",
+                )
+            layout = get("layout")
+            need(
+                type(layout) is tuple
+                and len(layout) == 5
+                and (layout[0] is None or type(layout[0]) is str)
+                and type(layout[1]) is tuple
+                and all(type(name) is str for name in layout[1])
+                and type(layout[2]) is str
+                and type(layout[3]) is bool
+                and type(layout[4]) is int,
+                "VALUES_LAYOUT",
+            )
         elif kind == "window":
             ref(get("owner"), {"declaration"})
             ref(get("input"), RELATIONS)
@@ -1519,6 +1625,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
     from pietto._project import project_sql_emission_aggregation as grouping
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project import project_sql_emission_sets as setting
+    from pietto._project import project_sql_emission_values as valuing
     from pietto._project import project_sql_emission_joins as joining
 
     view = inspect(artifact, guarded)
@@ -1831,6 +1938,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         r for r in records.values() if r.address.kind in RELATIONS - {"source"}
     )
     need(len(described_units) == len(units), "EXPORT_UNITS")
+    index_of = {id(unit): index for index, unit in enumerate(units)}
     for index, (record, unit) in enumerate(zip(described_units, units, strict=True)):
         need(record.get("layout")[-1] == index, "EXPORT_UNIT_ORDER")
         unit_map[id(unit)] = record.address
@@ -2153,6 +2261,62 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         producer,
                         address,
                     )
+            continue
+        if record.address.kind == "values":
+            from pietto._project.project_sql_emission_contract import canonical
+
+            fields = tuple(records[a] for a in record.get("fields"))
+            need(
+                type(unit) is valuing.ValuesBody
+                and len(fields) == len(unit.columns) == len(record.get("outputs"))
+                and not any(r.get("consumer") == record.address for r in grouped["use"])
+                and record.get("layout")
+                == (
+                    None if unit.symbol is None else unit.symbol.name,
+                    tuple(c.name for c in unit.cte_columns),
+                    unit.scope.name,
+                    unit.final,
+                    index_of[id(unit)],
+                )
+                and len(record.get("rows")) == len(unit.rows),
+                "EXPORT_VALUES",
+            )
+            for column, field, port_address in zip(
+                unit.columns, fields, record.get("outputs"), strict=True
+            ):
+                realization = column.realization
+                need(
+                    field.get("label") == column.source.source.name
+                    and field.get("logical")
+                    == (
+                        realization.tag,
+                        "nullable" if realization.nullable is True else "non_null",
+                    )
+                    and field.get("physical")
+                    == canonical(
+                        {
+                            "storage": realization.storage,
+                            "nullable": realization.nullable,
+                            "domain": realization.domain,
+                        }
+                    ).decode("utf-8")
+                    and records[port_address].get("label") == column.label,
+                    "EXPORT_VALUES_COLUMN",
+                )
+            for row, cells in zip(unit.rows, record.get("rows"), strict=True):
+                need(
+                    all(
+                        cell is None
+                        if value is None
+                        else type(cell) is Scalar
+                        and cell.tag == column.realization.tag
+                        and parameters.same_value(cell.value, value)
+                        for value, cell, column in zip(
+                            row, cells, unit.columns, strict=True
+                        )
+                    ),
+                    "EXPORT_VALUES_ROW",
+                )
             continue
         producer = expected_producer(unit.scan)
         producer_address = source_map.get(id(producer), unit_map.get(id(producer)))
@@ -3040,6 +3204,10 @@ def _verify_compiled_emission(artifact, request):
             )
             observed_bodies[record.address] = body
             continue
+        if record.address.kind == "values":
+            verify_compiled_values_unit(body, record, request)
+            observed_bodies[record.address] = body
+            continue
         if record.address.kind == "result":
             verify_compiled_result_unit(
                 body, record, request, observed_bodies, local_port, extra_by_key
@@ -3817,6 +3985,91 @@ def verify_compiled_set_unit(body, record, request, produced, sources, bindings)
             ),
             "SET_COLUMN_REALIZATION",
         )
+
+
+def verify_compiled_values_unit(body, record, request):
+    """A compiled VALUES unit renders exactly its record's typed fixed rows."""
+    from pietto._project import project_sql_emission_values as valuing
+
+    plan = request.plan
+    records, refs = plan.ir.completed.root.records, plan.references
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    name, labels, alias, final, index = record.get("layout")
+    rows_record = record.get("rows")
+    need(
+        type(body) is valuing.ValuesBody
+        and type(body.body) is valuing.CompiledValuesSubject
+        and body.body.ref is refs[record.address]
+        and body.index == index
+        and body.final is final
+        and (None if body.symbol is None else body.symbol.name) == name
+        and tuple(c.name for c in body.cte_columns) == labels
+        and body.scope.name == alias
+        and body.scope.binding is refs[record.address]
+        and len(body.rows) == len(rows_record)
+        and all(
+            len(actual) == len(expected)
+            and all(
+                (value is None and cell is None)
+                or (
+                    type(cell) is Scalar
+                    and value is not None
+                    and parameters_same(cell.value, value)
+                )
+                for value, cell in zip(actual, expected, strict=True)
+            )
+            for actual, expected in zip(body.rows, rows_record, strict=True)
+        )
+        and len(body.columns)
+        == len(record.get("outputs"))
+        == len(record.get("fields"))
+        == len(body.terminals),
+        "VALUES_UNIT",
+    )
+    for ordinal, (column, field, address, terminal) in enumerate(
+        zip(
+            body.columns,
+            record.get("fields"),
+            record.get("outputs"),
+            body.terminals,
+            strict=True,
+        )
+    ):
+        port = plan.ports[address]
+        fact = facts[address]
+        need(
+            type(column) is valuing.ValuesOutputColumn
+            and column.ordinal == ordinal
+            and column.source.ref is refs[field]
+            and column.source.name == records[field].get("label")
+            and column.export is port
+            and column.output is port
+            and terminal is port
+            and column.label == port.identity.name
+            and column.symbol.name == column.label
+            and column.symbol.binding is port.ref
+            and column.column.terminal is port.ref
+            and column.realization is column.column.realization is fact.realization
+            and column.physical
+            == {
+                ("postgres", "Bool"): "pg_bool",
+                ("postgres", "Int"): "pg_int8",
+                ("postgres", "Float"): "pg_float8",
+                ("postgres", "Text"): "pg_text",
+                ("mysql", "Bool"): "my_signed_bool",
+                ("mysql", "Int"): "my_signed_int",
+                ("mysql", "Float"): "my_double",
+                ("mysql", "Text"): "my_utf8mb4_text",
+            }.get((request.family, fact.realization.tag))
+            and column.physical == fact.realization.storage.get("kind"),
+            "VALUES_COLUMN",
+        )
+
+
+def parameters_same(left, right):
+    from pietto._project.project_sql_emission_parameters import same_value
+
+    return same_value(left, right)
 
 
 def verify_compiled_join_unit(body, record, request, produced, sources, bindings):

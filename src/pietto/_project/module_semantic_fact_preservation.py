@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pietto import ast_nodes as ast
-from pietto.ast_nodes import SetRelationDef
+from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
+from pietto._project.project_values import values_diagnostics
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -204,7 +205,9 @@ _KNOWN_EXPRESSIONS = frozenset(
 )
 
 _DerivedRelation = TableDef | QueryDef
-_RelationDefinition = SourceDef | TableDef | QueryDef | SetRelationDef
+_RelationDefinition = (
+    SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
+)
 _WindowAnalysis = WindowExpressionAnalysis | WindowExpressionUnsupported
 _NAMED_WINDOW_DIAGNOSTIC_CODES = frozenset(
     {"PIE-S2110", "PIE-S2111", "PIE-S2112", "PIE-S2113"}
@@ -1381,7 +1384,7 @@ class ProjectModuleRelationSemanticFacts:
                 "Non-concrete semantic facts cannot publish aggregate results."
             )
         definition = self.owner.definition
-        if type(definition) is SetRelationDef:
+        if type(definition) in {SetRelationDef, ValuesRelationDef}:
             if (
                 self.state is not self.base_row_fact.state
                 or self.state.schema is not None
@@ -1403,7 +1406,11 @@ class ProjectModuleRelationSemanticFacts:
                     )
                 )
                 or self.helper_diagnostics
-                != syntax_diagnostics(definition, allow_distinct=True)
+                != (
+                    values_diagnostics(definition)
+                    if isinstance(definition, ValuesRelationDef)
+                    else syntax_diagnostics(definition, allow_distinct=True)
+                )
             ):
                 raise ValueError(
                     "Set syntax cannot publish SELECT or concrete semantic facts."
@@ -1693,7 +1700,7 @@ class ProjectModuleSemanticFactEnvironment:
         for fact in self.relation_facts:
             definition = fact.owner.definition
             expected_resolution: ProjectResolvedModuleRelationReference | None
-            if type(definition) in {SourceDef, SetRelationDef}:
+            if type(definition) in {SourceDef, SetRelationDef, ValuesRelationDef}:
                 expected_resolution = None
             elif type(definition) in {TableDef, QueryDef}:
                 derived = cast(_DerivedRelation, definition)
@@ -1735,7 +1742,13 @@ class ProjectModuleSemanticFactEnvironment:
     ) -> tuple[ProjectModuleRelationSemanticFacts, ...]:
         """Return the complete exact AST-definition bucket."""
 
-        if type(definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
+        if type(definition) not in {
+            SourceDef,
+            TableDef,
+            QueryDef,
+            SetRelationDef,
+            ValuesRelationDef,
+        }:
             raise TypeError("Semantic fact lookup requires a relation definition.")
         return tuple(
             fact
@@ -2219,7 +2232,7 @@ def _validate_relation_window_fact_set_closure(
     pre_window_state: ProjectRelationRowSchemaState,
 ) -> None:
     definition = relation.owner.definition
-    if type(definition) is SetRelationDef:
+    if type(definition) in {SetRelationDef, ValuesRelationDef}:
         relation.__post_init__()
         if upstream is not None or relation.state is not pre_window_state:
             raise ValueError("Unavailable set body must retain its exact base state.")
@@ -2603,6 +2616,18 @@ def _build_project_module_semantic_fact_set(
                         ),
                     )
                     pre_window_state = base_row_fact.state
+                elif type(definition) is ValuesRelationDef:
+                    semantic_fact = ProjectModuleRelationSemanticFacts(
+                        owner=owner,
+                        base_row_fact=base_row_fact,
+                        resolution=None,
+                        input_state=None,
+                        base_result_state=None,
+                        state=base_row_fact.state,
+                        let_scope_facts=None,
+                        helper_diagnostics=values_diagnostics(definition),
+                    )
+                    pre_window_state = base_row_fact.state
                 elif type(definition) is SourceDef:
                     semantic_fact = ProjectModuleRelationSemanticFacts(
                         owner=owner,
@@ -2686,7 +2711,7 @@ def _build_project_module_semantic_fact_set(
             occurrence
             for occurrence in catalog.relation_owners
             if type(occurrence.definition)
-            in {SourceDef, TableDef, QueryDef, SetRelationDef}
+            in {SourceDef, TableDef, QueryDef, SetRelationDef, ValuesRelationDef}
         )
         ordered = tuple(
             next(fact for fact in built_for_module if fact.owner is owner)
@@ -2942,7 +2967,7 @@ def _build_derived_relation_facts(
         _RelationDefinition,
         resolution.target_symbol.target_occurrence.definition,
     )
-    if isinstance(upstream_definition, SetRelationDef):
+    if isinstance(upstream_definition, (SetRelationDef, ValuesRelationDef)):
         raise ValueError("Set input cannot supply a concrete semantic row.")
     upstream_symbol = _project_symbol_for_resolution(resolution)
     let_scope = build_project_relation_let_scope_facts(

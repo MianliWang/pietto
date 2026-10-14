@@ -302,9 +302,9 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 ## Relation blocks and relation references
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
-relation let and the header of an entry query whose FROM reads a relation and
-that declares no relation let are available, as described after the example;
-every other form is not available yet:
+relation let, a typed VALUES body and the header of an entry query whose FROM
+reads a relation and that declares no relation let are available, as described
+after the example; every other form is not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -395,9 +395,9 @@ outside the start of a let body, `query q():`, a one-part `scalar r` or
 `capture a, b`.
 
 In an EXPLICIT_MODULES project (`schema_version = 2`) a relation let whose body
-is a FROM-based or set operation body, without `capture`, is its own query
-block. It is not a module declaration: it cannot be exported or imported, read
-from another declaration, or selected by `emit-sql --project` or
+is a FROM-based, set operation or typed VALUES body, without `capture`, is its
+own query block. It is not a module declaration: it cannot be exported or
+imported, read from another declaration, or selected by `emit-sql --project` or
 `compile_query`, and project SQL emits it as one named CTE like a module-level
 table or query. A table or query declares at most 64 lets; each let after the
 64th is PIE-S2357 at the let, reported like the temporary diagnostics below. A
@@ -425,11 +425,52 @@ inside a let is a source of the query like any other: the emission contract
 describes it, and the compiled query, source qualification and R2 source
 requirements include it.
 
-In EXPLICIT_MODULES the `let NAME:` line itself is admitted, so a let there
-never receives the temporary PIE-S2345; a VALUES body, `capture` line or other
-form inside it still receives its own code. Every other occurrence of these
-forms receives its temporary ERROR diagnostic in every check mode before any
-semantic reader runs: PIE-S2345 relation let,
+In an EXPLICIT_MODULES project a typed VALUES body is also the body of a
+top-level table or query. It is its own zero-input relation, read by `from`, a
+JOIN target or a set operand within the same current limits as a set operation
+body (grouping over it, by a field or a computed key, with or without JOIN, is
+not available yet: PIE-S2333), and its row schema comes only from its header,
+never from a named relation or source. Each column is `name: Type not null` or
+`name: Type nullable` with Type one of `Bool`, `Int`, `Float` or `Text`
+(PIE-S2361 otherwise; a repeated name is PIE-S2001). Each row has one cell per
+column (PIE-S2362). A cell is a fixed literal, a signed number included; a
+name, parameter, call or other expression is PIE-S2363. A cell matches its
+column's declared type and nullability: an `Int` is within the signed 64-bit
+range, an integer literal is not a `Float`, and `null` appears only in a
+nullable column (PIE-S2364). A body has at most 1,000 rows and 64 columns
+(PIE-S2365). Rows keep their order and duplicates, and the header alone is a
+zero-row relation with its complete schema. A VALUES body has no key, no
+functional dependency and an unknown grain.
+
+Project SQL writes every VALUES column alias and every cell, `NULL` included,
+inside a CAST to its column's declared type, so no column name or type is left
+to the database; cells are never bound parameters. A VALUES table or let read by
+the statement is a CTE, a selected VALUES query is a SELECT over a derived
+VALUES table, and a zero-row body is a typed `SELECT CAST(NULL AS ...) ...
+WHERE FALSE`. A VALUES body joined or combined with a physical source is
+emitted and compiled for PostgreSQL and MySQL. A statement whose only inputs are
+VALUES bodies reads no physical relation: PostgreSQL runs it under a
+session-context qualification (see [Execution](execution.md)), and MySQL
+refuses it: `emit-sql` and `compile_query` report it BLOCKED with `PIE-B1003`,
+and the MySQL route also refuses any compiled query that reads no physical
+relation before connecting (`PIE-R1003`). R2 refuses a query with a VALUES body
+before connecting (`PIE-R1004`), because a fixed row has no recovery
+coordinate.
+
+PIE-S2365 bounds the source only; it does not promise that a body emits.
+Project SQL counts every cell, with its CAST and its source ranges, against the
+compiler's limits on generated structure and on the size of the public emission
+document, and a body over either limit is BLOCKED with PIE-B1007
+(`generated_structure_limit` or `public_artifact_byte_limit`). These limits bind
+long before PIE-S2365: a body of 1,000 rows and 64 columns is always BLOCKED,
+and 1,000 rows of short cells emit with only about a dozen columns.
+
+In EXPLICIT_MODULES the `let NAME:` line and a typed VALUES body are admitted,
+so a let there never receives the temporary PIE-S2345 and a VALUES body never
+receives PIE-S2347; a `capture` line or other form inside a let still receives
+its own code. Every other occurrence of these forms receives its temporary
+ERROR diagnostic in every check mode before any semantic reader runs: PIE-S2345
+relation let,
 PIE-S2346 query header parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read,
 PIE-S2349 EXISTS reference, PIE-S2350 IN reference, PIE-S2351 capture line and
 PIE-S2352 table-function FROM input. The one exception is a query header that
@@ -465,10 +506,11 @@ query orders_since(cutoff: Int not null, label: Text nullable):
 Each parameter names exactly `Bool`, `Int`, `Float` or `Text` and writes `not
 null` or `nullable`; a query declares at most 64 (PIE-S2353), and a repeated
 name is PIE-S2001. In that query's body a bare name equal to a parameter reads
-the parameter. A parameter name that is also an input field, a `let:` name, a
-relation name of the module, a JOIN binding, a SELECT output or a named window
-is an error (PIE-S2354), so a read never changes meaning; a SELECT item that
-only reads a parameter needs its own alias.
+the parameter. A parameter name that is also an input field (a typed VALUES
+column of a FROM or JOIN input included), a `let:` name, a relation name of the
+module, a JOIN binding, a SELECT output or a named window is an error
+(PIE-S2354), so a read never changes meaning; a SELECT item that only reads a
+parameter needs its own alias.
 
 A read, or a `let:` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,

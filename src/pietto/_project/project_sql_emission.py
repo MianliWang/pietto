@@ -42,6 +42,7 @@ from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
+from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_plan_expressions as row
@@ -469,11 +470,39 @@ def _set_columns(unit):
     return result
 
 
+def _values_columns(unit):
+    """Public description of a final VALUES unit's declared output columns."""
+    return [
+        {
+            "ordinal": column.ordinal,
+            "label": column.label,
+            "logical_type": {
+                "kind": "builtin",
+                "name": column.realization.tag,
+                "parameters": None,
+            },
+            "nullable": column.realization.nullable,
+            "representation": {
+                "storage": column.realization.storage,
+                "nullable": column.realization.nullable,
+                "domain": column.realization.domain,
+            },
+            "correspondence": {
+                "export": _ref(column.export.ref),
+                "sql_symbol": column.symbol.position,
+            },
+        }
+        for column in unit.columns
+    ]
+
+
 def _row_columns(query, slots):
     """Public output description for one stage pipeline's final SELECT columns."""
     body = getattr(query, "units", query.bodies)[-1]
     if type(body) is setting.SetBody:
         return _set_columns(body)
+    if type(body) is valuing.ValuesBody:
+        return _values_columns(body)
     if type(body) is resulting.RowResultBody:
         # The terminal is the result body; each column keeps the description of
         # the projection column it carries and adds its result-stage image.
@@ -858,6 +887,8 @@ def _document(outcome, artifact, request, columns, source_map, slots):
             evidence = resulting.requirement_evidence(artifact.ast, item)
         elif item.kind in {"set_operation", "set_row_equivalence", "set_column"}:
             evidence = setting.requirement_evidence(artifact.ast, item)
+        elif item.kind in {"values_rows", "values_column"}:
+            evidence = valuing.requirement_evidence(artifact.ast, item)
         requirements.append(
             {
                 "denominator": "generated",
@@ -915,6 +946,8 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "set_operand",
                     "set_column",
                     "set_row_equivalence",
+                    "values_rows",
+                    "values_column",
                 }
                 else {"kind": item.kind, "position": i},
                 "rule": item.rule,

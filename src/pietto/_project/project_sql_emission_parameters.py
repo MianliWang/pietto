@@ -310,8 +310,11 @@ def result_value(value):
 def literal_token(leaf, family):
     if type(leaf) is SQLNull:
         return "NULL"
-    value = leaf.value
-    tag = tag_of(leaf.original)
+    return scalar_token(tag_of(leaf.original), leaf.value, family)
+
+
+def scalar_token(tag, value, family):
+    """The one fixed spelling of a non-NULL builtin scalar inside its anchor."""
     if tag == "Bool":
         return "TRUE" if value else "FALSE"
     if tag == "Int":

@@ -136,6 +136,7 @@ from pietto._project.project_query_block_ir import (
     ProjectIRQueryBlockRowDomainOrigin,
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRCompletedSetOperationOutput,
+    ProjectIRCompletedValuesOutput,
     ProjectIRQueryBlockAggregateEvaluationContext,
     ProjectIRQueryBlockEffectEvidence,
     ProjectIRQueryBlockEntry,
@@ -434,7 +435,11 @@ def _active_output(
         return entry.active_output.occurrence
     if isinstance(
         entry,
-        (ProjectIRCompletedQueryBlockOutput, ProjectIRCompletedSetOperationOutput),
+        (
+            ProjectIRCompletedQueryBlockOutput,
+            ProjectIRCompletedSetOperationOutput,
+            ProjectIRCompletedValuesOutput,
+        ),
     ):
         return entry.active_output.occurrence
     return None
@@ -539,7 +544,10 @@ def _verify_active_roots(
                 )
                 == 1
             )
-        elif type(entry) is ProjectIRCompletedSetOperationOutput:
+        elif isinstance(
+            entry,
+            (ProjectIRCompletedSetOperationOutput, ProjectIRCompletedValuesOutput),
+        ):
             valid = (
                 entry.active_output.row_shape.operator is entry.operator
                 and entry.operator.evidence is entry.semantic_entry
@@ -573,6 +581,7 @@ def _verify_active_roots(
             ProjectIRReboundExistingOutput,
             ProjectIRCompletedQueryBlockOutput,
             ProjectIRCompletedSetOperationOutput,
+            ProjectIRCompletedValuesOutput,
         }:
             _record(
                 issues,
@@ -584,7 +593,8 @@ def _verify_active_roots(
             ProjectIRReusedEffectiveOutput
             | ProjectIRReboundExistingOutput
             | ProjectIRCompletedQueryBlockOutput
-            | ProjectIRCompletedSetOperationOutput,
+            | ProjectIRCompletedSetOperationOutput
+            | ProjectIRCompletedValuesOutput,
             upstream,
         )
         if (
@@ -669,6 +679,8 @@ def _new_entry_parts(
         )
     if isinstance(entry, ProjectIRCompletedSetOperationOutput):
         return entry.nodes, entry.output_occurrences, entry.input_slots, entry.uses
+    if isinstance(entry, ProjectIRCompletedValuesOutput):
+        return entry.nodes, entry.output_occurrences, (), ()
     return (), (), (), ()
 
 
@@ -733,7 +745,11 @@ def _verify_allocation(
             )
         elif isinstance(
             entry,
-            (ProjectIRCompletedQueryBlockOutput, ProjectIRCompletedSetOperationOutput),
+            (
+                ProjectIRCompletedQueryBlockOutput,
+                ProjectIRCompletedSetOperationOutput,
+                ProjectIRCompletedValuesOutput,
+            ),
         ):
             valid = valid and (
                 entry.starting_allocation.scope is start.scope
@@ -2548,6 +2564,7 @@ def verify_project_query_block_ir(
         _verify_join_reuse,
         _verify_composed_joins,
         _verify_set_operations,
+        _verify_values,
         _verify_single_match_retention,
         _verify_operator_sequence,
         _verify_semantic_evidence,
@@ -2574,6 +2591,7 @@ def verify_project_query_block_ir(
                     _verify_join_reuse: ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE,
                     _verify_composed_joins: ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE,
                     _verify_set_operations: ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
+                    _verify_values: ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
                     _verify_single_match_retention: ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
                     _verify_operator_sequence: (
                         ProjectIRQueryBlockVerificationIssueKind.OPERATOR_SEQUENCE
@@ -3197,6 +3215,53 @@ def _verify_composed_joins(
         )
         if not valid:
             _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+
+
+def _verify_values(
+    root: ProjectIRQueryBlockSnapshot,
+    issues: list[ProjectIRQueryBlockVerificationIssue],
+) -> None:
+    """A VALUES producer has no use, singleton classes and no key, FD or grain."""
+    for entry in root.entries:
+        if not isinstance(entry, ProjectIRCompletedValuesOutput):
+            continue
+        semantic = entry.semantic_entry
+        result = entry.active_properties.relational
+        valid = (
+            entry.operator.evidence is semantic
+            and entry.operator.kind is ProjectIRQueryBlockOperatorExtensionKind.VALUES
+            and len(entry.active_output.row_shape.fields) == len(semantic.fields)
+            and _property_shape_valid(result)
+            and _fd_index_valid(result)
+            and not result.keys
+            and not result.fds
+            and _class_signatures(result)
+            == tuple((i,) for i in range(len(result.fields)))
+            and result.grain.state is ProjectGrainBasisState.UNKNOWN
+            and not result.grain.factors
+            and not result.grain.dependencies
+            and result.grain.origin_set is root.grain_origins
+            and result.grain.witness is semantic.origin
+        )
+        for position, (actual, expected) in enumerate(
+            zip(entry.active_output.row_shape.fields, semantic.fields, strict=True)
+        ):
+            valid = (
+                valid
+                and actual.semantic_source is expected
+                and actual.evidence is expected.field
+                and actual.final_identity is expected.identity
+                and actual.field_position == position
+                and actual.effective_nullability is expected.field.nullability
+                and actual.introduction_use is None
+                and not actual.nulling_joins
+            )
+        if not valid:
+            _record(
+                issues,
+                ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
+                entry.active_output.occurrence,
+            )
 
 
 def _verify_set_operations(
@@ -4053,6 +4118,18 @@ def verify_compiled_property_laws(root):
         elif kind == "join":
             keys, fds = compiled_join_property_signatures(root, operator, built)
             verify_compiled_join_grain(root, operator, built)
+        elif kind == "values":
+            need(
+                operator.inputs == ()
+                and _class_signatures(actual)
+                == tuple((i,) for i in range(len(actual.fields)))
+                and actual.grain.state is ProjectGrainBasisState.UNKNOWN
+                and not actual.grain.factors
+                and not actual.grain.active
+                and not actual.grain.dependencies,
+                "PROPERTY_VALUES",
+            )
+            keys, fds = (), ()
         else:
             raise ValueError("COMPILED_PROPERTY_OPERATOR")
         need(
