@@ -36,33 +36,37 @@ tag、GitHub release 与 PyPI 上传只在 S19 按 D70.11 进行：S18 全绿后
 | --- | --- | --- | --- | --- |
 | S01 | **语法先行与前置准入门**：落地全部已批准写法（grammar 含 QUALIFY 重复语法、AST、builder，新词全为软关键字）；前置准入门位于 AST 构造之后、任何语义读者之前（现有 `syntax_diagnostics()` 在完整分析之后才收集，不能充当此门）：新建私有模块 `_syntax_admission.py`（纯函数、显式栈迭代、不缓存、按类查表），两个调用点为单文件 `analyze()`（`semantic/analyzer.py`）与项目 `_project/check.py`（同时覆盖 LEGACY_FLAT、EXPLICIT_MODULES、emit-sql 与 `compile_query`），不改 `_project/model.py`、`parser_api.py` 与 `_flat_relational_admission.py`；每个已批准家族一个新诊断码（S23xx 段当前最高为 `PIE-S2344`，新码自 `PIE-S2345` 起在该段连续分配，所有 check-mode 下都是 ERROR）；新 body/输入以显式和类型表示，每个家族是带自身 span 的独立 AST 类（查询头参数也建成节点），不冒充 `FromClause.source_name`；两种模式下每个新形态只得到该诊断、不抛异常的行为测试；`docs/language.md` 记"可解析但暂不可用"。本期门对单文件与 LEGACY_FLAT 保持拒绝，特性片只对 EXPLICIT_MODULES 解除 | — | A09, A10 | 中高 |
 | S02 | **读者闭包加固**：按 AST 类分派的清单中，36 个静默跳过未知节点的函数（含 `_flat_relational_admission.syntax_diagnostics`）与 3 个复判为存在静默路径的函数（`project_sql_plan._blockers`、`build_project_sql_plan`、`project_sql_plan_verification._result_structure`），共 39 个入口改为对**新类**失败关闭；用固定的已知类集合做精确类守卫，不用动态枚举子类，现有类的回退行为逐字节不变（含无限定 `DottedNameExpr`、metadata 的 `SetRelationDef → "unknown"`、各叶子与短路路径、两份独立 ORDER 比较）；写集约 21 个源码文件与 22 个**现有**测试 owner（与 S01 无共享文件），不新增测试文件、fixture 或导出；测试以测试内定义的未知节点类驱动，不枚举内部函数名，不加计数锁。直接读字段的读者（`.from_clause` 109 处、`.source_name` 73 处真实读取、JOIN 99 处、定义循环 46 处、单输入硬约束 18 处）不在此清单内，由解除对应准入的特性片在 Gate 1 核对 | — | A10 | 中 |
-| S03 | **闭合派生查询与局部关系**：局部/派生块成为一等块；把 `FromClause.source_name` 的三重身份（模块查找键、块内限定名、来源标签）拆开，局部名不进入模块符号表、元数据不按全局名任选定义；按块的来源集合（一般化三处"恰好一个来源"发射谓词与两处下游检查）；`from x:` 与局部 `query` 声明（单次使用、封闭作用域、同名报错）；跨数据库族来源沿用失败关闭；隐藏内层来源见证；失败相关表达式留在需求/失效闭包；project check/explain JSON 是否暴露局部关系或嵌套来源在本片 Gate 1 定（暴露即换新版本标记） | S01, S02 | A01, A09 | **高** |
+| S03 | **闭合派生查询与局部关系**：局部/派生块成为一等块；把 `FromClause.source_name` 的三重身份（模块查找键、块内限定名、来源标签）拆开，局部名不进入模块符号表、元数据不按全局名任选定义；按块的来源集合（一般化三处"恰好一个来源"发射谓词与两处下游检查）；`let 名字:` 局部关系（平级、不嵌套、封闭作用域、同名报错）与派生表（let 加 `from`）；跨数据库族来源沿用失败关闭；隐藏内层来源见证；失败相关表达式留在需求/失效闭包；project check/explain JSON 是否暴露局部关系或嵌套来源在本片 Gate 1 定（暴露即换新版本标记） | S01, S02 | A01, A09 | **高** |
 | S04 | **命名值参数**：头部声明与引用、单块内重复引用（PG `$n` 复用、MySQL 重复 `?`、guard/refinement 的 `server_index` 映射的首个真实生产者）、第三条状态轴与逐操作准入、绑定时重推与绑定期义务、typed NULL、`emit-sql` 与 `CompiledQuery` 的未绑定表示、一条路线的 `parameters=` | S01, S02 | A02, A09 | **高** |
+| S04r | 参数进入聚合之后与结果位置：参数及依赖参数的值可用于 SATISFYING 的比较、QUALIFY、经 let/select 建立的 ORDER BY 键（DISTINCT 下参数叶子视同常量；ORDER 树中的参数出现只作匹配、不分配原生占位符）、对依赖参数的 let 列做 count/avg（可空参数绑定为 NULL 时 avg 得 NULL）；只沿用 `int_range_representable` 与 `text_result_width` 两种绑定时义务；其余位置给确定诊断 | S04 | A02, A09 | 中 |
+| S04w | 窗口函数中的参数：值实参与 lag/lead 默认值；lag/lead 偏移量、ntile 分桶数、nth_value 位置用新的"结构计数区间"绑定时检查（非负、PG 不超过 int4、参数须 not null，可空性按"可能为空"）；先做两库原生实测，MySQL `NTH_VALUE(x, ?)` 实测前确定拒绝；窗口 PARTITION BY 与窗口内 ORDER BY 仍只接受直接字段 | S04 | A02, A09 | 中高 |
 | S05 | 局部关系的重复使用、前向引用、无环检查、diamond、嵌套上限、内层 LIMIT 与外层 WHERE | S03 | A01, A09 | 中 |
+| S05g | 计算分组键与 let 列聚合（项目模式，不带 JOIN）：let 计算出的值可作 GROUP BY 键（provenance 为 LET_DERIVED，计算键一律不贡献反向 grain 依赖），let 列可做 min/max；发射复用 let 阶段的列，GROUP BY 只引用限定列（不重复表达式，避开 MySQL 1055），补 MySQL CTE 形状的原生用例；依赖参数的分组键随之支持（与 S04 中后合入者负责组合用例）；单文件模式仍拒绝（semantic metadata v1 的 `group_keys` 不变） | S01, S02 | A12, A09 | 中高 |
+| S05j | 带 JOIN 输入的计算分组键：扇出保护与 grain linkage 记录计算键依赖的 JOIN 侧；occurrence-safe 规则沿用 | S05g | A12, A09 | 中高 |
 | S06 | typed VALUES 与零物理来源接缝（独立的 VALUES body 与行 schema，不进入命名关系降级，零外部输入的合法 IR 根；发射总写列别名；PG 非空洞资格（最低内容：会话上下文核验——版本 180006、`search_path=pg_catalog`、隔离级别与只读——premise 至少含 `pg_catalog`，资格记录写明"无关系根、未查目录"）、MySQL 纯零来源拒绝、VALUES 单元格只接受字面量；资源与终止规则：行数由表头与 D70.07 上限静态确定） | S03 | A03, A09 | 中 |
 | S07 | 闭合 scalar 子查询（`scalar r.c`；0/1/多行、空输入聚合区分；多行错误为 `PIE-R3003` 加 SQLSTATE 21000，D70.04） | S03（+ S08 接缝包） | A04, A09 | 中 |
 | S08 | 闭合 EXISTS / NOT EXISTS；**先行交付"表达式到块"共享接线包**（IR、plan、两套 verifier、compiled 各一处），合入后 S07/S09 消费其接口版本 | S03 | A05, A09 | 中 |
 | S09 | 闭合单列 IN / NOT IN（三值逻辑，与字面量列表 `in` 共存；闭合关系的内层 LIMIT 只以顶层 CTE 形状发射，MySQL 不支持的直接形状永不生成；两库 `NULL IN (空子查询)` 已实测一致） | S03（+ S08 接缝包） | A05, A09 | 低 |
-| S10 | 显式 capture 与首个相关 EXISTS：capture 写在局部关系里、独立的 capture 边、外层块/use/阶段/字段身份、新增 IR 阶段检查点；只可捕获外层 FROM/JOIN 行字段，且只能以限定名访问、不参与裸名查找；capture 绑定名与内层输入同名（自相关）时报错 | S03, S08 | A06, A09 | **高** |
+| S10 | 显式 capture 与首个相关 EXISTS：capture 写在 let 体开头、独立的 capture 边、外层块/use/阶段/字段身份、新增 IR 阶段检查点；只可捕获外层 FROM/JOIN 行字段，且只能以限定名访问、不参与裸名查找；capture 绑定名与内层输入同名（自相关）时报错 | S03, S08 | A06, A09 | **高** |
 | S11 | 参数跨块、未绑定模板的 bundle 传输、三路线与保存流程中的命名绑定（R1/R2 按 D70.02：新建执行与保存可用新值，R1 读取与 `recover` 须重述且逐个相等） | S04, S05 | A02, A09, A10 | **高** |
 | S12 | CROSS / INNER LATERAL（带 capture 的局部关系作 JOIN 右侧） | S10 | A06, A09 | 中 |
 | S13 | LEFT LATERAL 与 NULL 扩展 | S12 | A06, A09 | 低 |
 | S14 | 相关 scalar 与 IN 组合（外层重复行保持；带 capture 的相关关系含 LIMIT 并被 IN/NOT IN 读取时，MySQL 上确定拒绝、PG 原生执行——它放不进顶层 CTE，本期不做包装；Gate 1 可先实测一个不需要包装的相关形状，若要放开须回到所有者） | S07, S09, S10 | A04, A05, A06, A09 | 中 |
 | S15 | 首个有界原生表函数加最小 effects 证据：PG `generate_series(bigint,bigint,bigint)`，发射为 `pg_catalog` 限定并显式 `CAST(… AS pg_catalog.int8)`（开工 Gate 1 先在 `search_path=pg_catalog` 会话下按确切发射形状实测）；实参只接受静态字面量、非 NULL、行数上界；新的输入变体（调用、别名/绑定、行 schema、函数与 effects 权威分开保存，来源标签用函数出现身份）；放开 6 处"只允许 UNKNOWN"闸门中表函数准入所需的部分；运行时资格按 D70.05 不另做目录检查并写入文档 | S06 | A07, A08, A09 | 中高 |
-| S16 | 公共文档、诊断目录、inspection 与跨特性组合测试（不改发射核心与公开 facade 的运行时表示）；release notes 草稿 | S05, S06, S09, S11, S13, S14, S15 | A01–A10 | 中 |
-| S17 | 执行/bundle/保存/读取在同一冻结候选上的联合验收（只验证，不实现） | S05, S06, S11, S13, S14, S15 | A09, A10 | 中 |
+| S16 | 公共文档、诊断目录、inspection 与跨特性组合测试（不改发射核心与公开 facade 的运行时表示）；release notes 草稿 | S05, S06, S09, S11, S13, S14, S15, S04r, S04w, S05j | A01–A10, A12 | 中 |
+| S17 | 执行/bundle/保存/读取在同一冻结候选上的联合验收（只验证，不实现） | S05, S06, S11, S13, S14, S15, S04r, S04w, S05j | A09, A10 | 中 |
 | S18 | 获取整合、十个最慢节点 profile 复核、修复与最终候选验证 | S16, S17 | A09, A10 | 低 |
 | S19 | **发行 `0.1.3`**（沿用 Phase69 S20 先例，D70.11：S18 全绿后所有者对实际 HEAD 与已接受字节确认一次"发行"，与 PyPI 上传同时进行）：按登记的版本读者一次改齐版本号、release notes 与兼容说明（`0.1.2` 的 bundle/作业按代码身份拒绝、不迁移；VS Code 扩展 0.1.0 不兼容）；受影响验证；从已提交归档做一次正式构建并接受该 wheel/sdist；GitHub 自动源码归档与 Python sdist 分开审阅；回退政策（不覆盖已发字节、yank 由所有者执行、修复走 `0.1.4`）；多环境安装、三路线/R2、信任拒绝与 owned cleanup；GitHub draft 核对后发布 pre-release `v0.1.3`；PyPI 由所有者本人输入 token 上传，上传后核对字节一致；无 TestPyPI、签名、attestation、依赖升级或新功能 | S18 | A09, A10, A11 | 低 |
 | S20 | 仅审计：三层验收、回归、发行字节、复盘、Phase71 交接 | S19 | A01–A11 | 低 |
 
-结构：20 个节点、36 条硬依赖边、无环、最长路径 10（如 S02→S03→S08→S10→S12→S13→S17→S18→S19→S20）、ASAP 最大层宽 5；容量 22、余量 2。开局 S01 与 S02 并行；S03 完成后 S04–S09 共 6 个逻辑就绪，
+结构：24 个节点、47 条硬依赖边、无环、最长路径 10（如 S02→S03→S08→S10→S12→S13→S17→S18→S19→S20）、ASAP 最大层宽 8；容量 25、余量 1（2026-10-14 所有者扩容，见[决定记录](../../decisions.md)）。S04r、S04w、S05g、S05j 不在最长路径上；S05g 只依赖 S01、S02，可与 S03、S04 并行。开局 S01 与 S02 并行；S03 完成后 S04–S09 共 6 个逻辑就绪，
 但只是逻辑就绪，真实并发受共享写面限制，共享热点由单一接线 owner 串行接线。S07/S09 对 S08 的依赖是**包级**（只等接缝包），不是整片依赖。
 
-## 超过 22 片时的停止规则
+## 超过 25 片时的停止规则
 
 预列拆分线：S01（**按家族拆**，每片同时带 grammar、AST、门表项与行为测试；不能把 grammar/AST 与准入门拆成两片，否则中间提交会让新节点进入现有遍历器，main 历史上出现失败开放状态；两次 grammar 重生成须串行）、S03（块身份与来源集合到 emit-sql/目标执行一片，compiled 与公开路线一片）、S04（语义/计划/发射表示一片，compiled 模板/绑定/公开入口一片）、
-S10（capture 身份与阶段检查点一片，相关 EXISTS 纵向一片）、S11（跨块与 bundle 一片，三路线与保存流程一片）、S15（effects 证据与运行时资格一片，表函数纵向一片；开工 Gate 1 重估）。
-余量 2：两处拆分到 22，第三处超过容量。超过时停下，出一份只含下表取舍的小决策单交所有者；容量不自动增加；一个备用位置不能同时承接多处独立拆分（D70.09）。
+S10（capture 身份与阶段检查点一片，相关 EXISTS 纵向一片）、S11（跨块与 bundle 一片，三路线与保存流程一片）、S15（effects 证据与运行时资格一片，表函数纵向一片；开工 Gate 1 重估）、S04w（值实参与默认值一片，结构计数实参一片）、S05g（分组键事实与 IR 一片，计划与发射一片）。
+余量 1：一处拆分到 25，第二处超过容量。超过时停下，出一份只含下表取舍的小决策单交所有者；容量不自动增加；一个备用位置不能同时承接多处独立拆分（D70.09）。
 
 | 取舍 | 腾出 | 影响与风险 | 谁来定 |
 | --- | --- | --- | --- |

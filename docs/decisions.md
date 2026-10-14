@@ -288,3 +288,30 @@ S21 closes the earlier delegation of future owners and latest points without imp
 | D70.11 | 阶段末发行 `0.1.3`（所有者 2026-10-14 提出）：本决定只批准发行方案，沿用 Phase69 先例：S18 的最终候选通过权威验证且自然 CI 全绿后，集成者把实际 HEAD、已接受的 wheel/sdist 字节哈希与发行清单交给所有者，所有者回一句"发行"即授权 tag、GitHub pre-release 与 PyPI 上传，这一步与所有者输入 PyPI token 在同一时刻。内容：版本号与版本读者一次改齐；release notes 写明 `0.1.2` 的 bundle 与保存作业会被拒绝、不迁移；从已提交归档做一次正式构建并接受该 wheel/sdist；GitHub 自动生成的源码归档与 Python sdist 分开审阅；安装后核验按 D70.10 的 (3)；tag `v0.1.3`；GitHub pre-release 先建 draft 核对再发布。PyPI 由所有者本人用自己的 token 上传：集成者准备确切命令与核对清单，所有者在自己的终端运行上传并输入 token；token 不进入对话，不被代理读取或保存。回退：发行后发现缺陷时不覆盖已发字节，PyPI 的 yank 由所有者执行，GitHub pre-release 加说明，修复走 `0.1.4` 并另行授权；版本号用掉后不复用（同一字节上传失败可以重试，字节变了就换号）。不做 TestPyPI、签名、attestation，不顺带升级依赖或加功能。VS Code 扩展 0.1.0 只接受 `0.1.2` wheel 或基线 `9e74aa68` 的指纹，会拒绝 `0.1.3`：扩展跟进归扩展 owner，本期不提供稳定的编辑器 API，release notes 写明这一点。放弃：现在预先授权全部发行动作（到时不再确认）；版本号 `0.2.0`。 | S19 发行，S20 审计核对发行字节；最终字节或版本号变化、内容超出本条或出现新的信任或公开决定时回到所有者。 |
 
 本节不授权 S19 条件成立之前的任何 tag、GitHub release、PyPI 上传或版本变更，也不授权任何改写，不改变 Phase69 与 Phase69 之后插入的一期已发布的决定。
+
+## Phase70 local relations — owner decision (2026-10-14)
+
+所有者以「let 方案，用 let vip: 你的建议很不错」采纳局部关系的新写法，修订 D70.03 中的局部 `query` 声明与内联派生块 `from x:`：
+局部关系写作 `let 名字:`，只能写在 table 或 query 体的开头、`from` 之前；多个 let 平级排列，可以互相引用但不成环，不嵌套；
+let 的体是一段 FROM 关系体、类型化 VALUES 体或集合运算体；`capture` 只写在 let 体开头，一行一个。派生表一律先用 let 命名再 `from` 它，
+不再有内联块。行级 `let:` 子句（写在 `from` 之后、无名字、给出表达式）不变。所有者同日以「允许」同意 table 体中的 let、let 体为 VALUES 或集合运算、
+参数头与 VALUES 表头的末尾逗号。代价：本期无法写嵌套相关（一个 let 捕获另一个 let 的行），以后放开不破坏已写的程序。
+准入门的临时诊断码相应为 8 个：PIE-S2345 let 关系声明、PIE-S2346 查询头参数、PIE-S2347 VALUES 体、PIE-S2348 scalar 读取、PIE-S2349 EXISTS 引用、
+PIE-S2350 IN 引用、PIE-S2351 capture 行、PIE-S2352 表函数 FROM 输入。D70.07 的嵌套深度上限继续约束子查询与 capture 的层级。
+
+## Phase70 repair budget — owner decision (2026-10-14)
+
+所有者以「批准diagnostic额度翻倍，请继续」把 D70.10 的全期累计 diagnostic 上限从 30 提到 60；各片的 diagnostic 片上限相应翻倍。causal、focused 与 scope 上限不变。
+
+## Phase70 scope extension — owner decision (2026-10-14)
+
+所有者核对后续 Phase 没有明确 owner，以「如果没有的话就把slice数目调整为25一口气做了吧。依旧尽可能高并发一步步吧phase70做完」把容量从 22 调到 25，
+并把以下能力纳入本期（核查依据：表达式分组键在 Phase43 范围锁中"继续拒绝"、Phase52 写明"需另行授权"，Phase73 的 grouping extensions 不含计算键；
+let 列 min/max 与参数在聚合、窗口与结果位置的使用没有 owner）：
+- S04r：参数及依赖参数的值可用于 SATISFYING、QUALIFY、经 let/select 建立的 ORDER BY 键，以及对依赖参数的 let 列做 count/avg；
+- S04w：窗口函数中的参数，含 lag/lead 偏移量、ntile 分桶数与 nth_value 位置的"结构计数区间"绑定时检查；
+- S05g、S05j：let 计算分组键与 let 列 min/max（项目模式；S05j 含 JOIN 输入）。
+
+D70.01 的参数位置相应细化（U1）：LIMIT、窗口范围、要求固定值的函数实参与 VALUES 单元格仍不接受参数；参数头必须写明 `not null` 或 `nullable`（U2）；
+撞名集合包括入口查询的 SELECT 输出名与命名窗口名（U3）；参数类型只接受 Bool、Int、Float、Text 四个内建名（U4）。
+单文件模式不提供计算分组键，semantic metadata artifact v1 的 `group_keys` 不变。路线为 24 片、容量 25、余量 1（D70.09 修订）。
