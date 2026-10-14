@@ -8,12 +8,17 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import (
+    BlockRelationDef,
     CallExpr,
     DottedNameExpr,
     FromClause,
     IsNullExpr,
+    ModuleDeclarationKind,
     NameExpr,
+    Nullability,
     QueryDef,
+    QueryParameter,
+    SelectBody,
     SelectItem,
     ShapeDef,
     SourceDef,
@@ -305,12 +310,6 @@ def test_query_ast_does_not_expose_antlr_nodes() -> None:
             "    select:\n"
             "        alias =\n"
         ),
-        (
-            "query active_user_emails(parameter: Text):\n"
-            "    from active_users\n"
-            "    select:\n"
-            "        email\n"
-        ),
     ],
 )
 def test_malformed_queries_return_syntax_diagnostic(source: str) -> None:
@@ -318,6 +317,88 @@ def test_malformed_queries_return_syntax_diagnostic(source: str) -> None:
 
     assert result.ast is None
     assert _has_code(result, "PIE-P1000")
+
+
+def test_entry_query_header_parameters_are_located_nodes() -> None:
+    path = "examples/queries/parameters.pietto"
+    result = parse_source(
+        "query orders_since(cutoff: Int not null, label: Text nullable,):\n"
+        "    from orders\n"
+        "    where order_day >= cutoff\n"
+        "    select:\n"
+        "        id\n",
+        path=path,
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    (definition,) = result.ast.definitions
+    assert type(definition) is BlockRelationDef
+    assert (definition.kind, definition.name) == (
+        ModuleDeclarationKind.QUERY,
+        "orders_since",
+    )
+    assert definition.let_relations == ()
+    assert [type(item) for item in definition.parameters] == [QueryParameter] * 2
+    assert [
+        (item.name, item.type.name, item.type.nullability)
+        for item in definition.parameters
+    ] == [
+        ("cutoff", "Int", Nullability.NOT_NULL),
+        ("label", "Text", Nullability.NULLABLE),
+    ]
+    assert definition.parameters[0].span == Span(
+        path=path, line=1, column=20, end_line=1, end_column=40
+    )
+    assert definition.parameters[1].span == Span(
+        path=path, line=1, column=42, end_line=1, end_column=62
+    )
+    body = definition.body
+    assert type(body) is SelectBody and type(body.from_clause) is FromClause
+    assert body.from_clause.source_name == "orders"
+    assert body.span == Span(path=path, line=2, column=5, end_line=5, end_column=11)
+    _assert_no_antlr_nodes(definition)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "query q():\n    from rows\n    select:\n        id\n",
+        "table t(a: Int):\n    from rows\n    select:\n        id\n",
+        (
+            "query outer_query:\n"
+            "    let inner_query(a: Int):\n"
+            "        from rows\n"
+            "        select:\n"
+            "            id\n"
+            "    from inner_query\n"
+            "    select:\n"
+            "        id\n"
+        ),
+        "query q(a):\n    from rows\n    select:\n        id\n",
+    ],
+)
+def test_parameters_belong_only_to_a_nonempty_entry_query_header(source: str) -> None:
+    result = parse_source(source)
+
+    assert result.ast is None
+    assert _has_code(result, "PIE-P1000")
+
+
+@pytest.mark.parametrize(
+    "header", ["query active_user_emails", "table active_user_emails"]
+)
+def test_missing_header_colon_keeps_one_recovered_diagnostic(header: str) -> None:
+    result = parse_source(
+        f"{header}\n    from active_users\n    select:\n        email\n"
+    )
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 1, len(header) + 1)]
+    assert result.diagnostics[0].message.startswith("missing ':'")
 
 
 def test_query_rejects_nested_query_syntax() -> None:

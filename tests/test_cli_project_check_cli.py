@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -218,6 +218,39 @@ def test_project_check_json_root_and_config_errors_are_json_v2(
     assert cli_errors[0]["message"]
     assert cli_errors[0]["path"] == expected_path
     assert str(tmp_path) not in json.dumps(document)
+
+
+@pytest.mark.parametrize("schema", [1, 2], ids=["legacy_flat", "explicit_modules"])
+def test_project_check_json_reports_gate_diagnostics_beside_parse_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], schema: int
+) -> None:
+    root = _project_root(
+        tmp_path / "project",
+        config_text=f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(root, "a.pietto", "table broken\n")
+    _write(
+        root,
+        "b.pietto",
+        "query q(a: Int not null):\n    from rows\n    select:\n        id\n"
+        "query r:\n    from rows\n    where exists t\n    select:\n        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+
+    document = _read_json_document(capsys)
+    assert document["ok"] is False
+    diagnostics = cast(list[dict[str, Any]], document["diagnostics"])
+    paths = [item["location"]["path"] for item in diagnostics]
+    assert paths == sorted(paths) and set(paths) == {"a.pietto", "b.pietto"}
+    assert {item["code"] for item in diagnostics[: paths.count("a.pietto")]} == {
+        "PIE-P1000"
+    }
+    assert [
+        (item["code"], item["location"]["line"], item["location"]["column"])
+        for item in diagnostics
+        if item["location"]["path"] == "b.pietto"
+    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11)]
 
 
 def test_project_check_rejects_path_and_project_together(

@@ -299,6 +299,113 @@ rows, joined scalar lookup, null-extension evidence, final outputs and private
 Query-block IR. Legacy Script IR rejects authored JOIN with `PIE-I1000`;
 multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged.
 
+## Relation blocks and relation references
+
+The parser accepts the following forms, but none of them is available yet:
+
+```pietto
+query vip_report(cutoff: Int not null, label: Text nullable):
+    let vip:
+        from customers
+        where tier == "gold"
+        select:
+            id
+    let big_vip_orders:
+        from orders
+        where customer_id in vip and total > 1000
+        select:
+            id
+            order_day
+    from orders
+    where id in big_vip_orders and order_day >= cutoff
+    select:
+        id
+        latest_day = scalar big_vip_orders.order_day
+        note = coalesce(label, "none")
+
+query frequent_customers:
+    let counts:
+        from orders
+        group by:
+            customer_id
+        select:
+            customer_id
+            n = count()
+    from counts
+    where n > 10
+    select:
+        customer_id
+
+query customers_with_recent_orders:
+    let recent:
+        capture customers
+        from orders
+        where orders.customer_id == customers.id
+        select:
+            id
+    from customers
+    where exists recent
+    select:
+        id
+
+query all_codes:
+    let seed:
+        values(id: Int not null, label: Text nullable):
+            1, "new"
+            2, null
+    let codes:
+        union all:
+            from seed
+            from archived_codes
+    from codes
+    select:
+        id
+
+query empty_seed:
+    values(id: Int not null, label: Text nullable)
+
+query days:
+    from generate_series(1, 31, 1) as n
+    select:
+        n
+```
+
+Only an entry `query` header declares parameters. A relation let, `let NAME:`,
+starts a top-level table or query body, before its `from`, set operation or
+VALUES body; several lets sit side by side. Lets are one level only: a let body
+never contains another `let NAME:`. It may start with `capture` lines, one name
+per line, and then holds exactly one FROM-based, set operation or typed VALUES
+body. There is no inline `from x:` block: a derived table is a let read with
+`from x`, and `from` takes a relation name or a table function such as
+`generate_series(1, 31, 1) as n`. The row-level `let:` clause after `from` is
+unchanged. A typed VALUES body has one row per line; its header without `:` has
+zero rows. `in` and `not in` take a relation name, `exists` takes a relation
+name, and `scalar` reads exactly `relation.column`. A join right side may name
+a let, so LATERAL needs no new keyword. Parentheses still cannot span lines.
+
+`values`, `exists`, `capture` and `scalar` are contextual words: existing
+fields, relations and calls with these names keep parsing as before. `in
+(vip)` remains a one-item literal list and `exists(recent)` a call; an ORDER BY
+item `exists asc` still names a column. Other spellings are syntax errors, for
+example `from x:`, a nested `let NAME:`, `let NAME:` after `from`, `capture`
+outside the start of a let body, `query q():`, a one-part `scalar r` or
+`capture a, b`.
+
+Every occurrence of these forms receives its temporary ERROR diagnostic in
+every check mode before any semantic reader runs: PIE-S2345 relation let,
+PIE-S2346 query header parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read,
+PIE-S2349 EXISTS reference, PIE-S2350 IN reference, PIE-S2351 capture line and
+PIE-S2352 table-function FROM input. That run then reports no other semantic
+diagnostic. Single-file `check`, `explain` and `emit-sql` report them from
+semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks, project
+`emit-sql` and `compile_query` report them with the owning file's parse
+diagnostics, alongside other files' parse errors.
+Single-file/LEGACY_FLAT/PACKAGE_ROOT retain their existing availability
+boundaries: a later family becomes available only for EXPLICIT_MODULES.
+PACKAGE_ROOT `explain --project` does not read relation bodies, so a package
+module using these forms can be explained; that does not make its relations
+available.
+
 ## Expressions
 
 Expressions include literals, names and dotted names, calls, parentheses,

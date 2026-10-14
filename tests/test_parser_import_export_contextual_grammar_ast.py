@@ -843,3 +843,19 @@ def test_generated_inventory_rules_and_contextual_token_order_are_exact() -> Non
     visitor = _read("src/pietto/generated/PiettoVisitor.py")
     assert "def visitImportStatement" in visitor
     assert "def visitExportStatement" in visitor
+
+
+def test_module_items_may_name_new_contextual_words() -> None:
+    script = _parsed(
+        'import "other.pietto":\n'
+        "    query values as exists\n"
+        "export:\n"
+        "    query capture\n"
+        "    table scalar\n"
+    )
+    imported, exported = script.module_statements
+    assert type(imported) is ImportStatement and type(exported) is ExportStatement
+    assert [(item.exported_name, item.local_name) for item in imported.items] == [
+        ("values", "exists")
+    ]
+    assert [item.local_name for item in exported.items] == ["capture", "scalar"]

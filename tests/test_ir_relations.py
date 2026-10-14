@@ -356,3 +356,15 @@ def test_unknown_definition_has_missing_semantic_fact_failure() -> None:
     with pytest.raises(_MissingSemanticFact) as raised:
         _lower_definition(unknown, cast(Any, None))
     assert raised.value.node is unknown
+
+
+def test_relation_block_definition_fails_closed_in_public_build_ir() -> None:
+    parsed = parse_source("query seed:\n    values(id: Int not null):\n        1\n")
+    assert parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert [diagnostic.code for diagnostic in semantic.diagnostics] == ["PIE-S2347"]
+
+    result = build_ir(parsed.ast, semantic.model)
+
+    assert result.ir is None
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-I1000"]

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import pytest
+
 from pietto.ast_nodes import (
+    BinaryExpr,
     CallExpr,
     CastExpr,
     ComparisonExpr,
     ConditionalExpr,
+    DottedNameExpr,
     MembershipExpr,
     NameExpr,
+    QueryDef,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
+    Span,
     TableDef,
     TypeDef,
     UnaryExpr,
@@ -120,3 +129,97 @@ def test_qualify_uses_the_same_conditional_and_membership_ast_shapes() -> None:
     expression = definition.qualify_clause.expression
     assert isinstance(expression, ConditionalExpr)
     assert isinstance(expression.when_false, MembershipExpr)
+
+
+def test_relation_references_are_distinct_from_lists_calls_and_names() -> None:
+    expression = _ensure_expression("id not in vip and exists recent")
+
+    assert type(expression) is BinaryExpr
+    membership, exists = expression.left, expression.right
+    assert type(membership) is RelationMembershipExpr
+    assert (membership.relation_name, membership.negated) == ("vip", True)
+    assert type(membership.value) is NameExpr
+    assert membership.span == Span(
+        path="scalar.pietto", line=1, column=27, end_line=1, end_column=40
+    )
+    assert type(exists) is RelationExistsExpr
+    assert exists.relation_name == "recent"
+    assert exists.span == Span(
+        path="scalar.pietto", line=1, column=45, end_line=1, end_column=58
+    )
+
+    negated = _ensure_expression("not exists recent")
+    assert type(negated) is UnaryExpr
+    assert type(negated.operand) is RelationExistsExpr
+
+    listed = _ensure_expression("id in (vip)")
+    assert type(listed) is MembershipExpr
+    assert [type(option) for option in listed.options] == [NameExpr]
+    call = _ensure_expression("exists(recent)")
+    assert type(call) is CallExpr and type(call.callee) is NameExpr
+    assert call.callee.name == "exists"
+
+
+def test_scalar_reads_exactly_one_relation_column() -> None:
+    expression = _ensure_expression("total == scalar customer_top.top")
+
+    assert type(expression) is ComparisonExpr
+    read = expression.right
+    assert type(read) is RelationScalarExpr
+    assert (read.relation_name, read.column_name) == ("customer_top", "top")
+    assert read.span == Span(
+        path="scalar.pietto", line=1, column=36, end_line=1, end_column=59
+    )
+    call = _ensure_expression("scalar(total)")
+    assert type(call) is CallExpr and type(call.callee) is NameExpr
+    nested = _ensure_expression("scalar t.a in r")
+    assert type(nested) is RelationMembershipExpr
+    assert type(nested.value) is RelationScalarExpr
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "scalar last_day",
+        "scalar a.b.c",
+        "id in vip.id",
+        "exists a.b",
+        "id in f(1)",
+    ],
+)
+def test_unlisted_relation_reference_spellings_are_syntax_errors(text: str) -> None:
+    result = parse_source(f"type Result = Bool ensure {text}\n")
+
+    assert result.ast is None
+    assert any(item.code == "PIE-P1000" for item in result.diagnostics)
+
+
+def test_new_words_remain_ordinary_names_and_order_columns() -> None:
+    expression = _ensure_expression("values == exists and capture.scalar")
+
+    assert type(expression) is BinaryExpr
+    comparison = expression.left
+    assert type(comparison) is ComparisonExpr
+    assert [comparison.left, comparison.right] == [
+        NameExpr(span=comparison.left.span, name="values"),
+        NameExpr(span=comparison.right.span, name="exists"),
+    ]
+    assert type(expression.right) is DottedNameExpr
+    assert expression.right.parts == ("capture", "scalar")
+
+    result = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        values = count(value)\n"
+        "    order by:\n"
+        "        exists asc\n"
+        "        scalar desc\n"
+    )
+    assert result.diagnostics == () and result.ast is not None
+    query = result.ast.definitions[0]
+    assert type(query) is QueryDef and query.order_by_clause is not None
+    assert query.select_items[0].alias == "values"
+    assert [
+        (type(item.expression), item.direction) for item in query.order_by_clause.items
+    ] == [(NameExpr, "asc"), (NameExpr, "desc")]

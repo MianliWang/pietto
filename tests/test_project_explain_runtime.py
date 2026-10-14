@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import fields
 import inspect
+import json
 from pathlib import Path
 
 import pytest
 
 import pietto
+import pietto.cli as cli
 import pietto._project as project_package
 import pietto._project_explain as project_explain_package
 import pietto._project_explain.runtime_builder as runtime_builder
@@ -519,3 +521,42 @@ def test_spec_inventory_and_slice14_handoff_are_exact() -> None:
     smoke = (REPO_ROOT / "scripts/package_smoke.py").read_text(encoding="utf-8")
     assert 'f"{prefix}/_project_explain/runtime_builder.py"' in smoke
     assert "import pietto._project_explain.runtime_builder" in smoke
+
+
+# Every gated relation-block form; explain never reads relation bodies.
+RELATION_BLOCK_MODULE = (
+    "query q(a: Int not null,):\n"
+    "    let l:\n"
+    "        capture rows\n"
+    "        from generate_series(1, 2, 1) as n\n"
+    "        select:\n"
+    "            n\n"
+    "    let inner:\n"
+    "        values(id: Int not null)\n"
+    "    from rows\n"
+    "    where scalar l.n in l and exists inner\n"
+    "    select:\n"
+    "        id\n"
+)
+
+
+def test_package_root_explain_keeps_its_boundary_without_reading_bodies(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = (
+        "shape Row:\n    id: Int\n"
+        'source rows: Row is postgres.table("rows")\n'
+        + RELATION_BLOCK_MODULE
+        + "export:\n    query q\n"
+    )
+    root = _write_project(
+        tmp_path,
+        _schema3_extension_manifest(),
+        targets=True,
+        source=source.encode(),
+    )
+
+    assert cli.main(["explain", "--project", str(root), "--format", "json"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["ok"] is True
+    assert captured.err == ""

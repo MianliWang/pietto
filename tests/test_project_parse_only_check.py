@@ -61,6 +61,47 @@ def test_parse_only_project_check_aggregates_project_relative_parser_diagnostics
     )
 
 
+@pytest.mark.parametrize("schema", [1, 2], ids=["legacy_flat", "explicit_modules"])
+def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
+    tmp_path: Path, schema: int
+) -> None:
+    root = tmp_path / "project"
+    _write(
+        root,
+        "pietto.toml",
+        f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(root, "a.pietto", "table broken\n")
+    _write(
+        root,
+        "b.pietto",
+        "query q(a: Int not null):\n    from rows\n    select:\n        id\n"
+        "query r:\n    from rows\n    where exists t\n    select:\n        id\n",
+    )
+    _write(root, "c.pietto", "query valid:\n    from rows\n    select:\n        id\n")
+
+    result = check_project_parse_only(root)
+
+    assert not result.ok and result.errors == ()
+    assert result.inputs == (
+        ProjectInput(path="a.pietto", status="error"),
+        ProjectInput(path="b.pietto", status="parsed"),
+        ProjectInput(path="c.pietto", status="parsed"),
+    )
+    paths = [diagnostic.location.path or "" for diagnostic in result.diagnostics]
+    assert paths == sorted(paths) and set(paths) == {"a.pietto", "b.pietto"}
+    assert {
+        diagnostic.code
+        for diagnostic in result.diagnostics
+        if diagnostic.location.path == "a.pietto"
+    } == {"PIE-P1000"}
+    assert [
+        (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+        if diagnostic.location.path == "b.pietto"
+    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11)]
+
+
 def test_parse_only_project_check_reports_source_read_errors_and_continues(
     tmp_path: Path,
 ) -> None:

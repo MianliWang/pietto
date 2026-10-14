@@ -22,6 +22,8 @@ from pietto.ast_nodes import (
     AuthoredWindowNullTreatment,
     BetweenExpr,
     BinaryExpr,
+    BlockRelationDef,
+    CaptureClause,
     CastExpr,
     CallExpr,
     CheckDef,
@@ -50,6 +52,7 @@ from pietto.ast_nodes import (
     LetBinding,
     LetClause,
     LimitClause,
+    LetRelationDef,
     LiteralExpr,
     MembershipExpr,
     NameExpr,
@@ -62,10 +65,16 @@ from pietto.ast_nodes import (
     Parameter,
     QualifyClause,
     QueryDef,
+    QueryParameter,
+    RelationBody,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
     RelationshipEndpoint,
     RelationshipMatchClause,
     RelationshipMetadata,
     Script,
+    SelectBody,
     SetOperand,
     SetOperationBody,
     SetOperationKind,
@@ -78,11 +87,15 @@ from pietto.ast_nodes import (
     SelectItem,
     SatisfyingClause,
     TableDef,
+    TableFunctionFromClause,
     TypeArgument,
     TypeDef,
     TypeExpr,
     UnaryExpr,
     UniqueDef,
+    ValuesBody,
+    ValuesColumn,
+    ValuesRow,
     WhereClause,
     WindowExpr,
     WindowFrameBound,
@@ -240,6 +253,8 @@ class AstBuilder(PiettoVisitor):
         | SourceDef
         | TableDef
         | QueryDef
+        | SetRelationDef
+        | BlockRelationDef
     ):
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
@@ -475,46 +490,100 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.expression()),
         )
 
-    def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef | SetRelationDef:
+    def visitTableDefinition(
+        self, ctx: _AntlrContext
+    ) -> TableDef | QueryDef | SetRelationDef | BlockRelationDef:
         """Build a minimal table without resolving inputs or projection names."""
 
-        if ctx.setOperationBody() is not None:
-            return self._set_relation(ctx, ModuleDeclarationKind.TABLE)
-        (
-            from_clause,
-            join_clauses,
-            let_clause,
-            where_clause,
-            group_by_clause,
-            select_items,
-            named_windows,
-            satisfying_clause,
-            qualify_clause,
-            order_by_clause,
-            limit_clause,
-        ) = self._relation_body(ctx.tableBody())
-        return TableDef(
-            span=self._span(ctx),
-            name=ctx.identifier().getText(),
-            from_clause=from_clause,
-            join_clauses=join_clauses,
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            select_items=select_items,
-            order_by_clause=order_by_clause,
-            limit_clause=limit_clause,
-            satisfying_clause=satisfying_clause,
-            qualify_clause=qualify_clause,
-            let_clause=let_clause,
-            named_windows=named_windows,
-            distinct_clause=self._distinct_clause(ctx.tableBody()),
+        return self._relation_definition(
+            ctx, ModuleDeclarationKind.TABLE, ctx.identifier(), ()
         )
 
-    def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef | SetRelationDef:
+    def visitQueryDefinition(
+        self, ctx: _AntlrContext
+    ) -> TableDef | QueryDef | SetRelationDef | BlockRelationDef:
         """Build a minimal query without resolving or executing its input."""
 
+        header = ctx.queryHeader()
+        parameters: tuple[QueryParameter, ...] = ()
+        if header.parameterList() is not None:
+            parameters = tuple(
+                QueryParameter(
+                    span=self._span(item),
+                    name=item.identifier().getText(),
+                    type=self.visit(item.typeExpression()),
+                )
+                for item in header.parameterList().parameter()
+            )
+        return self._relation_definition(
+            ctx, ModuleDeclarationKind.QUERY, header.identifier(), parameters
+        )
+
+    def _relation_definition(
+        self,
+        ctx: _AntlrContext,
+        kind: ModuleDeclarationKind,
+        name_ctx: _AntlrContext,
+        parameters: tuple[QueryParameter, ...],
+    ) -> TableDef | QueryDef | SetRelationDef | BlockRelationDef:
+        """Keep existing classes for existing forms; any new form builds a block."""
+
+        name = name_ctx.getText()
+        let_relations = tuple(self.visit(item) for item in ctx.letRelationDefinition())
+        body = self._relation_body_node(ctx)
+        if not parameters and not let_relations:
+            if type(body) is SetOperationBody:
+                return SetRelationDef(
+                    span=self._span(ctx), name=name, kind=kind, body=body
+                )
+            if type(body) is SelectBody and type(body.from_clause) is FromClause:
+                relation = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
+                return relation(
+                    span=self._span(ctx),
+                    name=name,
+                    from_clause=body.from_clause,
+                    join_clauses=body.join_clauses,
+                    where_clause=body.where_clause,
+                    group_by_clause=body.group_by_clause,
+                    select_items=body.select_items,
+                    order_by_clause=body.order_by_clause,
+                    limit_clause=body.limit_clause,
+                    satisfying_clause=body.satisfying_clause,
+                    qualify_clause=body.qualify_clause,
+                    let_clause=body.let_clause,
+                    named_windows=body.named_windows,
+                    distinct_clause=body.distinct_clause,
+                )
+        return BlockRelationDef(
+            span=self._span(ctx),
+            name=name,
+            kind=kind,
+            parameters=parameters,
+            let_relations=let_relations,
+            body=body,
+        )
+
+    def visitLetRelationDefinition(self, ctx: _AntlrContext) -> LetRelationDef:
+        """Build one relation let without entering any namespace."""
+
+        return LetRelationDef(
+            span=self._span(ctx),
+            name=ctx.identifier().getText(),
+            captures=tuple(self.visit(item) for item in ctx.captureClause()),
+            body=self._relation_body_node(ctx),
+        )
+
+    def visitCaptureClause(self, ctx: _AntlrContext) -> CaptureClause:
+        return CaptureClause(span=self._span(ctx), name=ctx.identifier().getText())
+
+    def _relation_body_node(self, ctx: _AntlrContext) -> RelationBody:
+        """Build the one complete body owned by a declaration or relation let."""
+
         if ctx.setOperationBody() is not None:
-            return self._set_relation(ctx, ModuleDeclarationKind.QUERY)
+            return self.visit(ctx.setOperationBody())
+        if ctx.valuesBody() is not None:
+            return self.visit(ctx.valuesBody())
+        body = ctx.tableBody()
         (
             from_clause,
             join_clauses,
@@ -527,10 +596,9 @@ class AstBuilder(PiettoVisitor):
             qualify_clause,
             order_by_clause,
             limit_clause,
-        ) = self._relation_body(ctx.tableBody())
-        return QueryDef(
-            span=self._span(ctx),
-            name=ctx.identifier().getText(),
+        ) = self._relation_body(body)
+        return SelectBody(
+            span=self._span_between(body.fromClause(), body),
             from_clause=from_clause,
             join_clauses=join_clauses,
             where_clause=where_clause,
@@ -542,15 +610,53 @@ class AstBuilder(PiettoVisitor):
             qualify_clause=qualify_clause,
             let_clause=let_clause,
             named_windows=named_windows,
-            distinct_clause=self._distinct_clause(ctx.tableBody()),
+            distinct_clause=self._distinct_clause(body),
         )
 
-    def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
-        """Build a relation input reference without resolving it."""
+    def visitValuesBody(self, ctx: _AntlrContext) -> ValuesBody:
+        """Build a typed VALUES body without checking cells against the header."""
 
+        return ValuesBody(
+            span=self._span_from_token(ctx.VALUES().getSymbol(), ctx),
+            columns=tuple(
+                ValuesColumn(
+                    span=self._span(item),
+                    name=item.identifier().getText(),
+                    type=self.visit(item.typeExpression()),
+                )
+                for item in ctx.parameterList().parameter()
+            ),
+            rows=tuple(self.visit(item) for item in ctx.valuesRow()),
+        )
+
+    def visitValuesRow(self, ctx: _AntlrContext) -> ValuesRow:
+        return ValuesRow(
+            span=self._span(ctx),
+            values=tuple(self.visit(item) for item in ctx.expression()),
+        )
+
+    def visitFromClause(
+        self, ctx: _AntlrContext
+    ) -> FromClause | TableFunctionFromClause:
+        """Build one authored FROM input without resolving it."""
+
+        identifiers = ctx.identifier()
+        if ctx.callSuffix() is not None:
+            function = identifiers[0]
+            return TableFunctionFromClause(
+                span=self._span(ctx),
+                call=CallExpr(
+                    span=self._span_between(function, ctx.callSuffix()),
+                    callee=NameExpr(span=self._span(function), name=function.getText()),
+                    arguments=tuple(
+                        self.visit(item) for item in ctx.callSuffix().expression()
+                    ),
+                ),
+                binding_name=identifiers[1].getText(),
+            )
         return FromClause(
             span=self._span(ctx),
-            source_name=ctx.identifier().getText(),
+            source_name=identifiers[0].getText(),
         )
 
     def _distinct_clause(self, body: _AntlrContext) -> DistinctClause | None:
@@ -593,16 +699,6 @@ class AstBuilder(PiettoVisitor):
     def visitJoinOnClause(self, ctx: _AntlrContext) -> JoinOnClause:
         return JoinOnClause(
             span=self._span(ctx), expression=self.visit(ctx.expression())
-        )
-
-    def _set_relation(
-        self, ctx: _AntlrContext, kind: ModuleDeclarationKind
-    ) -> SetRelationDef:
-        return SetRelationDef(
-            span=self._span(ctx),
-            name=ctx.identifier().getText(),
-            kind=kind,
-            body=self.visit(ctx.setOperationBody()),
         )
 
     def visitSetOperationBody(self, ctx: _AntlrContext) -> SetOperationBody:
@@ -993,7 +1089,7 @@ class AstBuilder(PiettoVisitor):
     def _relation_body(
         self, ctx: _AntlrContext
     ) -> tuple[
-        FromClause,
+        FromClause | TableFunctionFromClause,
         tuple[JoinClause, ...],
         LetClause | None,
         WhereClause | None,
@@ -1164,6 +1260,13 @@ class AstBuilder(PiettoVisitor):
                 value=left,
                 negated=ctx.NOT() is not None,
             )
+        if ctx.IN() is not None and ctx.identifier() is not None:
+            return RelationMembershipExpr(
+                span=self._span(ctx),
+                value=left,
+                relation_name=ctx.identifier().getText(),
+                negated=ctx.NOT() is not None,
+            )
         if ctx.IN() is not None:
             return MembershipExpr(
                 span=self._span(ctx),
@@ -1214,6 +1317,9 @@ class AstBuilder(PiettoVisitor):
             )
         if ctx.expression() is not None:
             return self.visit(ctx.expression())
+        relation_read = self._relation_read(ctx)
+        if relation_read is not None:
+            return relation_read
 
         callee = self._dotted_name_expr(ctx.dottedName())
         if ctx.callSuffix() is None:
@@ -1233,6 +1339,9 @@ class AstBuilder(PiettoVisitor):
             )
         if ctx.qualifyExpression() is not None:
             return self.visit(ctx.qualifyExpression())
+        relation_read = self._relation_read(ctx)
+        if relation_read is not None:
+            return relation_read
 
         callee = self._dotted_name_expr(ctx.dottedName())
         if ctx.qualifyCallSuffix() is None:
@@ -1242,6 +1351,25 @@ class AstBuilder(PiettoVisitor):
             ctx.qualifyCallSuffix(),
             ctx.qualifyCallSuffix().qualifyExpression(),
         )
+
+    def _relation_read(
+        self, ctx: _AntlrContext
+    ) -> RelationExistsExpr | RelationScalarExpr | None:
+        """Build ``exists r`` or ``scalar r.c`` from either expression domain."""
+
+        if ctx.EXISTS() is not None:
+            (relation,) = ctx.identifier()
+            return RelationExistsExpr(
+                span=self._span(ctx), relation_name=relation.getText()
+            )
+        if ctx.SCALAR() is not None:
+            relation, column = ctx.identifier()
+            return RelationScalarExpr(
+                span=self._span(ctx),
+                relation_name=relation.getText(),
+                column_name=column.getText(),
+            )
+        return None
 
     def _call_expr(
         self,
@@ -1379,6 +1507,11 @@ class AstBuilder(PiettoVisitor):
 
         start = start_ctx.start
         assert start is not None
+        return self._span_from_token(start, end_ctx)
+
+    def _span_from_token(self, start: Token, end_ctx: ParserRuleContext) -> Span:
+        """Build a logical span from one token through another context."""
+
         stop = self._last_significant_token(end_ctx)
         assert stop is not None
         end_line, end_column = self._end_position(stop)

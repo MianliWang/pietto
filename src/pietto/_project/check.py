@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pietto.parser_api as parser_api
+from pietto._syntax_admission import unadmitted_syntax_diagnostics
 from pietto._project.config import load_project_config
 from pietto._project.module_carrier import (
     ProjectCompilationMode,
@@ -182,6 +183,13 @@ def _parse_selected_input(
             ),
             diagnostics,
         )
+    diagnostics = (
+        *diagnostics,
+        *(
+            _with_project_relative_path(diagnostic, selected_input.identity.path)
+            for diagnostic in unadmitted_syntax_diagnostics(parse_result.ast)
+        ),
+    )
     return (
         ProjectInput(path=selected_input.identity.path, status=_PARSED_STATUS),
         ProjectParsedInput(

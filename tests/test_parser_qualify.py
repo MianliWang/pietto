@@ -25,6 +25,10 @@ from pietto.ast_nodes import (
     NameExpr,
     QualifyClause,
     QueryDef,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
+    UnaryExpr,
     WindowExpr,
     WindowUseKind,
 )
@@ -509,6 +513,32 @@ def test_qualify_keyword_remains_identifier_compatible() -> None:
     assert type(query.qualify_clause.expression) is ComparisonExpr
     assert type(query.qualify_clause.expression.left) is NameExpr
     assert query.qualify_clause.expression.left.name == "qualify"
+
+
+def test_qualify_mirrors_relation_reference_expressions_and_names() -> None:
+    parsed = _parse(
+        MINIMAL_PREFIX + "query ranked:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        item\n"
+        "    qualify:\n"
+        "        item not in vip and not exists recent or scalar t.c > values\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = cast(QueryDef, parsed.ast.definitions[-1])
+    assert query.qualify_clause is not None
+    expression = query.qualify_clause.expression
+    assert type(expression) is BinaryExpr and expression.operator == "or"
+    left, right = expression.left, expression.right
+    assert type(left) is BinaryExpr and left.operator == "and"
+    assert type(left.left) is RelationMembershipExpr
+    assert (left.left.relation_name, left.left.negated) == ("vip", True)
+    assert type(left.right) is UnaryExpr
+    assert type(left.right.operand) is RelationExistsExpr
+    assert type(right) is ComparisonExpr
+    assert type(right.left) is RelationScalarExpr
+    assert (right.left.relation_name, right.left.column_name) == ("t", "c")
+    assert type(right.right) is NameExpr and right.right.name == "values"
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
+from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING
@@ -104,6 +105,11 @@ def analyze(
     mode = mode_override or CheckMode.CHECKED
     try:
         mode = mode_override or _mode_from_script(script)
+        unadmitted = unadmitted_syntax_diagnostics(script)
+        if unadmitted:
+            return SemanticResult(
+                model=SemanticModel(mode=mode), diagnostics=unadmitted
+            )
         return _analyze(script, mode=mode)
     except RecursionError:
         span = script.span

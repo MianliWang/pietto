@@ -249,22 +249,48 @@ sourceDefinition
     ;
 
 // Relations support from, optional where/group by, ordered select, optional
-// satisfying/qualify, ordered order items, and limit.
+// satisfying/qualify, ordered order items, and limit.  Relation lets may precede
+// a body; a body may also be a set operation or typed VALUES.
 tableDefinition
-    : TABLE identifier COLON NEWLINE NEWLINE* INDENT (tableBody | setOperationBody) DEDENT
+    : TABLE identifier COLON NEWLINE NEWLINE* INDENT (NEWLINE* letRelationDefinition)* (tableBody | setOperationBody | valuesBody) DEDENT
     ;
 
 // Phase 1 queries reuse the minimal table body without execution semantics.
 queryDefinition
-    : QUERY identifier COLON NEWLINE NEWLINE* INDENT (tableBody | setOperationBody) DEDENT
+    : QUERY queryHeader COLON NEWLINE NEWLINE* INDENT (NEWLINE* letRelationDefinition)* (tableBody | setOperationBody | valuesBody) DEDENT
+    ;
+
+// Only an entry query header declares parameters.  The optional list ends this
+// rule so a missing ':' keeps single-token recovery.
+queryHeader
+    : identifier (LPAREN parameterList RPAREN)?
+    ;
+
+// A relation let is one level deep; only its body may start with captures.
+letRelationDefinition
+    : LET identifier COLON NEWLINE NEWLINE* INDENT (NEWLINE* captureClause)* (tableBody | setOperationBody | valuesBody) DEDENT
+    ;
+
+captureClause
+    : CAPTURE identifier NEWLINE
+    ;
+
+// Typed VALUES rows are one per line; a header without ':' has zero rows.
+valuesBody
+    : NEWLINE* VALUES LPAREN parameterList RPAREN (COLON NEWLINE NEWLINE* INDENT valuesRow (valuesRow | NEWLINE)* DEDENT | NEWLINE) NEWLINE*
+    ;
+
+valuesRow
+    : expression (COMMA expression)* NEWLINE
     ;
 
 tableBody
     : NEWLINE* fromClause NEWLINE* (joinClause NEWLINE*)* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* qualifyClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
+// A FROM input is a relation name or a table function.
 fromClause
-    : FROM identifier NEWLINE
+    : FROM identifier (NEWLINE | callSuffix AS identifier NEWLINE)
     ;
 
 joinClause
@@ -432,7 +458,7 @@ qualifyComparisonExpression
         comparisonOperator qualifyAdditiveExpression
         | BETWEEN qualifyAdditiveExpression AND qualifyAdditiveExpression
         | IS NOT? NULL
-        | NOT? IN LPAREN (qualifyExpression (COMMA qualifyExpression)* COMMA?)? RPAREN
+        | NOT? IN (LPAREN (qualifyExpression (COMMA qualifyExpression)* COMMA?)? RPAREN | identifier)
     )?
     ;
 
@@ -455,6 +481,8 @@ qualifyPrimaryExpression
     | CAST LPAREN qualifyExpression AS typeExpression RPAREN
     | dottedName qualifyCallSuffix?
     | LPAREN qualifyExpression RPAREN
+    | EXISTS identifier
+    | SCALAR identifier DOT identifier
     ;
 
 qualifyWindowExpression
@@ -510,7 +538,7 @@ comparisonExpression
         comparisonOperator additiveExpression
         | BETWEEN additiveExpression AND additiveExpression
         | IS NOT? NULL
-        | NOT? IN LPAREN (expression (COMMA expression)* COMMA?)? RPAREN
+        | NOT? IN (LPAREN (expression (COMMA expression)* COMMA?)? RPAREN | identifier)
     )?
     ;
 
@@ -543,6 +571,8 @@ primaryExpression
     | CAST LPAREN expression AS typeExpression RPAREN
     | dottedName callSuffix?
     | LPAREN expression RPAREN
+    | EXISTS identifier
+    | SCALAR identifier DOT identifier
     ;
 
 dottedName
@@ -620,6 +650,7 @@ identifier
     | CROSS | RIGHT | FULL | SEMI | ANTI
     | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
     | IF | ELSE | IN | CAST
+    | VALUES | EXISTS | CAPTURE | SCALAR
     ;
 
 callSuffix
@@ -717,6 +748,10 @@ IF: 'if';
 ELSE: 'else';
 IN: 'in';
 CAST: 'cast';
+VALUES: 'values';
+EXISTS: 'exists';
+CAPTURE: 'capture';
+SCALAR: 'scalar';
 TRUE: 'true';
 FALSE: 'false';
 

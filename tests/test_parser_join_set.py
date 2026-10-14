@@ -8,6 +8,10 @@ from dataclasses import replace
 import json
 
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
+    BlockRelationDef,
+    JoinOnClause,
+    SelectBody,
     QueryDef,
     TableDef,
     SetRelationDef,
@@ -400,6 +404,10 @@ query valid:
         "except",
         "all",
         "distinct",
+        "values",
+        "exists",
+        "capture",
+        "scalar",
     ),
 )
 def test_new_words_remain_contextual_names(word: str) -> None:
@@ -423,6 +431,40 @@ query result:
     assert parsed.ast.definitions[0].fields[0].name == word
     assert isinstance(parsed.ast.module_statements[0], ImportStatement)
     assert parsed.ast.module_statements[0].items[0].exported_name == word
+
+
+@pytest.mark.parametrize(
+    ("kind", "tail"), (("left", "        on true\n"), ("cross", ""))
+)
+def test_lateral_uses_existing_join_syntax_over_a_local_relation(
+    kind: str, tail: str
+) -> None:
+    parsed = parse_source(
+        "query latest_order:\n"
+        "    let latest:\n"
+        "        capture customers\n"
+        "        from orders\n"
+        "        where orders.customer_id == customers.id\n"
+        "        select:\n"
+        "            id\n"
+        "        limit 1\n"
+        "    from customers\n"
+        f"    {kind} join latest as l:\n"
+        "        from customers\n"
+        f"{tail}"
+        "    select:\n"
+        "        customer_id = customers.id\n"
+        "        last_order = l.id\n"
+    )
+    assert parsed.ast is not None and not parsed.diagnostics
+    (definition,) = parsed.ast.definitions
+    assert type(definition) is BlockRelationDef
+    assert type(definition.body) is SelectBody
+    (join,) = definition.body.join_clauses
+    assert join.kind is AuthoredJoinKind(kind)
+    assert (join.target_relation_name, join.target_binding_name) == ("latest", "l")
+    assert join.source_binding_name == "customers"
+    assert (type(join.on_clause) is JoinOnClause) is bool(tail)
 
 
 @pytest.mark.parametrize("suffix", ("\n", ""))

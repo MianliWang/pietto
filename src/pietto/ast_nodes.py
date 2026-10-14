@@ -99,6 +99,30 @@ class MembershipExpr(Expression):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class RelationMembershipExpr(Expression):
+    """An ``in``/``not in`` test against a named relation, not a literal list."""
+
+    value: Expression
+    relation_name: str
+    negated: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RelationExistsExpr(Expression):
+    """An ``exists`` test against a named relation."""
+
+    relation_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RelationScalarExpr(Expression):
+    """A ``scalar`` read of one named column from a named relation."""
+
+    relation_name: str
+    column_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CastExpr(Expression):
     """An explicit source-level conversion to a parsed type expression."""
 
@@ -925,6 +949,97 @@ class SetRelationDef(Node):
             raise TypeError("set relation requires a name and exact set body")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class QueryParameter(Node):
+    """One entry-query header parameter and its declared type."""
+
+    name: str
+    type: TypeExpr
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CaptureClause(Node):
+    """One ``capture`` line naming an outer input of a local relation."""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValuesColumn(Node):
+    """One typed column of a VALUES header."""
+
+    name: str
+    type: TypeExpr
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValuesRow(Node):
+    """One source-ordered VALUES row written on its own line."""
+
+    values: tuple[Expression, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValuesBody(Node):
+    """A typed VALUES complete body; a header without rows has zero rows."""
+
+    columns: tuple[ValuesColumn, ...]
+    rows: tuple[ValuesRow, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TableFunctionFromClause(Node):
+    """A FROM input produced by a function call and bound to its own name."""
+
+    call: CallExpr
+    binding_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SelectBody(Node):
+    """A SELECT-form block body whose input may be any authored FROM form."""
+
+    from_clause: FromClause | TableFunctionFromClause
+    where_clause: WhereClause | None
+    group_by_clause: GroupByClause | None
+    select_items: tuple[SelectItem, ...]
+    order_by_clause: OrderByClause | None = None
+    limit_clause: LimitClause | None = None
+    satisfying_clause: SatisfyingClause | None = None
+    qualify_clause: QualifyClause | None = None
+    let_clause: LetClause | None = None
+    named_windows: tuple[NamedWindowDeclaration, ...] = ()
+    join_clauses: tuple[JoinClause, ...] = ()
+    distinct_clause: DistinctClause | None = None
+
+
+RelationBody = SelectBody | SetOperationBody | ValuesBody
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LetRelationDef(Node):
+    """A one-level ``let NAME:`` relation binding at the start of a body."""
+
+    name: str
+    captures: tuple[CaptureClause, ...]
+    body: RelationBody
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BlockRelationDef(Node):
+    """TABLE/QUERY declaration using parameters, relation lets or a block body.
+
+    Declarations without these forms keep their TableDef/QueryDef/SetRelationDef
+    representation.
+    """
+
+    name: str
+    kind: ModuleDeclarationKind
+    parameters: tuple[QueryParameter, ...]
+    let_relations: tuple[LetRelationDef, ...]
+    body: RelationBody
+
+
 Definition = (
     TypeDef
     | EnumDef
@@ -935,6 +1050,7 @@ Definition = (
     | TableDef
     | QueryDef
     | SetRelationDef
+    | BlockRelationDef
 )
 
 

@@ -274,6 +274,31 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#queryHeader.
+    def visitQueryHeader(self, ctx:PiettoParser.QueryHeaderContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#letRelationDefinition.
+    def visitLetRelationDefinition(self, ctx:PiettoParser.LetRelationDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#captureClause.
+    def visitCaptureClause(self, ctx:PiettoParser.CaptureClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#valuesBody.
+    def visitValuesBody(self, ctx:PiettoParser.ValuesBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#valuesRow.
+    def visitValuesRow(self, ctx:PiettoParser.ValuesRowContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#tableBody.
     def visitTableBody(self, ctx:PiettoParser.TableBodyContext):
         return self.visitChildren(ctx)

@@ -263,3 +263,56 @@ def test_project_emit_sql_rejects_check_mode(
         assert document["cli_errors"] == [
             {"kind": "usage", "message": message, "path": None}
         ]
+
+
+# Every gated relation-block form; the gate stops analysis before any mode rule.
+RELATION_BLOCKS = (
+    "query q(a: Int not null):\n"
+    "    let l:\n"
+    "        capture users\n"
+    "        from generate_series(1, 2, 1) as n\n"
+    "        select:\n"
+    "            n\n"
+    "    let inner:\n"
+    "        values(id: Int not null)\n"
+    "    from users\n"
+    "    where scalar l.n in l and exists inner\n"
+    "    select:\n"
+    "        id\n"
+    "    qualify:\n"
+    "        id not in l\n"
+)
+RELATION_BLOCK_CODES = [
+    "PIE-S2346",
+    "PIE-S2345",
+    "PIE-S2351",
+    "PIE-S2352",
+    "PIE-S2345",
+    "PIE-S2347",
+    "PIE-S2348",
+    "PIE-S2350",
+    "PIE-S2349",
+    "PIE-S2350",
+]
+
+
+@pytest.mark.parametrize(
+    "options", [(), ("--check-mode", "loose")], ids=["header", "loose"]
+)
+def test_relation_block_forms_stop_check_explain_and_emit_in_every_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], options: tuple[str, ...]
+) -> None:
+    path = tmp_path / "blocks.pietto"
+    path.write_text(BODY + RELATION_BLOCKS, encoding="utf-8")
+
+    assert cli.main(["check", str(path), "--format", "json", *options]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert [d["code"] for d in document["diagnostics"]] == RELATION_BLOCK_CODES
+    assert cli.main(["explain", str(path), "--format", "json", *options]) == 1
+    explained = json.loads(capsys.readouterr().out)
+    assert explained["ok"] is False
+    assert [d["code"] for d in explained["diagnostics"]] == RELATION_BLOCK_CODES
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres", *options]) == 1
+    captured = capsys.readouterr()
+    assert "SELECT" not in captured.out and RELATION_BLOCK_CODES[0] in captured.err
+    assert "Traceback" not in captured.err

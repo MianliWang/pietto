@@ -312,3 +312,96 @@ def _write_fake_repository(
     for name, content in tracked_files.items():
         (generated_root / name).write_bytes(content)
     return tracked_files
+
+
+APPROVED_BLOCK_FORMS = (
+    "query orders_since(cutoff: Int not null, label: Text nullable,):\n"
+    "    let vip:\n"
+    "        capture counts\n"
+    "        from customers\n"
+    "        where customers.id == counts.n\n"
+    "        select:\n"
+    "            id\n"
+    "    let seen:\n"
+    "        values(id: Int not null,):\n"
+    "            1\n"
+    "    let both:\n"
+    "        union all:\n"
+    "            from vip\n"
+    "            from seen\n"
+    "    from generate_series(1, 31, 1) as counts\n"
+    "    left join vip as v:\n"
+    "        from counts\n"
+    "        on true\n"
+    "    where n in vip and n not in vip and exists vip\n"
+    "    select:\n"
+    "        top = scalar vip.id\n"
+    "    qualify:\n"
+    "        not exists vip or n in vip or scalar vip.id > 1\n"
+    "query seed:\n"
+    "    values(id: Int not null, label: Text nullable):\n"
+    '        1, "new"\n'
+    "        2, null\n"
+    "query empty_seed:\n"
+    "    values(id: Int not null, label: Text nullable)\n"
+)
+
+
+# Mirrors the parser_api._parse_source token pipeline
+# (src/pietto/parser_api.py:108-118); keep the two in sync.
+def test_tracked_parser_reads_approved_block_forms_without_exact_ambiguity() -> None:
+    from antlr4 import CommonTokenStream, InputStream
+    from antlr4.ListTokenSource import ListTokenSource
+    from antlr4.atn.PredictionMode import PredictionMode
+    from antlr4.error.ErrorListener import ErrorListener
+
+    from pietto.generated.PiettoLexer import PiettoLexer
+    from pietto.generated.PiettoParser import PiettoParser
+    from pietto.indentation import inject_indentation
+
+    class Recorder(ErrorListener):
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
+            self.events.append(f"syntax {line}:{column} {msg}")
+
+        def reportAmbiguity(
+            self,
+            recognizer,
+            dfa,
+            startIndex,
+            stopIndex,
+            exact,
+            ambigAlts,
+            configs,
+        ):
+            if exact:
+                self.events.append(f"exact ambiguity at token {startIndex}")
+
+    lexer = PiettoLexer(InputStream(APPROVED_BLOCK_FORMS))
+    tokens = []
+    while True:
+        token = lexer.nextToken()
+        assert token is not None
+        tokens.append(token)
+        if token.type == -1:
+            break
+    indented = inject_indentation(
+        tokens,
+        newline_type=PiettoLexer.NEWLINE,
+        indent_type=PiettoParser.INDENT,
+        dedent_type=PiettoParser.DEDENT,
+        path=None,
+    )
+    parser = PiettoParser(
+        CommonTokenStream(cast(Any, ListTokenSource(list(indented.tokens))))
+    )
+    recorder = Recorder()
+    parser.removeErrorListeners()
+    parser.addErrorListener(recorder)
+    parser._interp.predictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION
+    parser.script()
+
+    assert indented.diagnostics == ()
+    assert recorder.events == []
