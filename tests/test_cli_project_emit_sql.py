@@ -422,6 +422,37 @@ def test_a_correlated_existence_read_emits_through_the_project_command(
     assert document["sql"].count(outer) == 2
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_lateral_join_emits_through_the_project_command(
+    tmp_path: Path, target: str
+) -> None:
+    # Phase70 S12: the let with a capture line is the JOIN's LATERAL derived
+    # relation, correlated to the JOIN's left input alias.
+    item = probe.join_witness(
+        target,
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key and rhs.id > 0\n        select:\n"
+        "            id\n    from lhs\n    cross join m as m1:\n        from lhs\n"
+        "    select:\n        a = lhs.id\n        b = m1.id\n",
+        policy="bind_safe_literals",
+    )
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    for file, content in probe.source_files(item["source"]).items():
+        (root / file).write_text(content, encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    expected = api_bytes(tmp_path, item)
+    arguments = argv(root, target, kind="query", literal_policy="bind-safe")
+    assert run(arguments) == (0, expected, "")
+    document = json.loads(expected)
+    quote = '"' if target == "postgres" else "`"
+    outer = f"= {quote}m0{quote}.{quote}key value{quote})"
+    assert document["status"] == "VERIFIED" and len(document["parameter_uses"]) == 1
+    assert document["sql"].count(" CROSS JOIN LATERAL (SELECT ") == 1
+    assert document["sql"].count(outer) == 1
+
+
 # --- contract read boundary ------------------------------------------------------
 
 

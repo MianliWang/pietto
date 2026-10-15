@@ -1064,6 +1064,17 @@ def test_retained_unselected_requests_rederive_without_execution_or_source(
         assert len(bound.arguments) == 1
 
 
+def test_a_retained_lateral_join_of_a_capturing_let_is_refused(tmp_path):
+    from pietto._project.project_compiled_schema import CompiledError
+
+    # An unselected request owner that joins a capturing let LATERAL has no
+    # retained compiled form yet: the build refuses it, never a lookup error.
+    source = proof_artifact(tmp_path / "retained-source", retained="lateral").artifact
+    assert source is not None
+    with pytest.raises(CompiledError, match="COMPILED_RETAINED_CAPTURE"):
+        build_compiled(source)
+
+
 @pytest.mark.parametrize("shared_reads", (False, True))
 def test_retained_unselected_relation_reads_export_and_verify(
     tmp_path, monkeypatch, shared_reads
@@ -1768,3 +1779,310 @@ def test_retained_unselected_request_does_not_require_execution_mapping(
             accepted_producer=built.producer,
             accepted_compatibility=built.compatibility,
         )
+
+
+# Phase70 S12: a JOIN reads a let with capture lines LATERAL; the let compiles
+# inline at that JOIN's right input and each capture_use record names that
+# right input's use, its capturing read.
+LATERAL_LET = """    let {name}:
+        capture lhs
+        from rhs
+        where rhs.{field} == lhs.{field}
+        select:
+            id
+{tail}    from lhs
+"""
+TWO_LATERAL = (
+    "table a:\n"
+    + LATERAL_LET.format(name="m", field="key", tail="")
+    + "    cross join m as m1:\n        from lhs\n"
+    + "    select:\n        id = lhs.id\n        t = m1.id\n"
+    + "table b:\n"
+    + LATERAL_LET.format(name="n", field="id", tail="")
+    + "    inner join n as n1:\n        from lhs\n        on true\n"
+    + "    select:\n        id = lhs.id\n        t = n1.id\n"
+    + "query result:\n    from a\n    cross join b as y:\n        from a\n"
+    + "    select:\n        x = a.t\n        z = y.t\n"
+)
+TOP_K_LATERAL = (
+    "query result:\n"
+    + LATERAL_LET.format(
+        name="m",
+        field="key",
+        tail="            v = rhs.key\n        order by:\n            key desc\n"
+        "            id\n        limit 2\n",
+    )
+    + "    {kind} join m as m1:\n        from lhs\n{on}"
+    + "    select:\n        a = lhs.id\n        b = m1.v\n"
+)
+
+
+def _compiled_lateral(directory, target, source):
+    """The verified source artifact, its compiled build and the loaded replay."""
+    from pietto._project.project_compiled_schema import encode
+
+    item = emission.join_witness(target, source, policy="bind_safe_literals")
+    checked, original = emission.build_case(
+        directory, item["source"], item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    artifact = original.artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert encode(loaded.description) == built.payload
+    candidate = emit_compiled(loaded, tuple(v.value for v in artifact.fixed_values))
+    assert candidate.rendered.sql == artifact.rendered.sql
+    return artifact, built, candidate
+
+
+def _replaced(description, targets):
+    """``description`` with the values of the records in ``targets`` replaced."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import Record
+
+    return replace(
+        description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    Record(r.address, targets[r.address]) if r.address in targets else r
+                    for r in records
+                ),
+            )
+            for name, records in description.members
+        ),
+    )
+
+
+def _load(raw, built):
+    from pietto._project.project_compiled_schema import content_pin
+
+    return load_compiled(
+        raw,
+        expected_pin=content_pin(raw),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+
+
+def _captured_references(query):
+    """Every captured reference of a lowered statement, by its scope alias."""
+    import dataclasses
+    from pietto._project import project_sql_emission_rows as rows
+
+    found, pending, seen = {}, list(query.bodies), set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if type(value) is rows.SQLCapturedReference:
+            found.setdefault(value.scope.name, []).append(value)
+        if type(value) is tuple:
+            pending.extend(value)
+        elif dataclasses.is_dataclass(value) and type(value).__module__.startswith(
+            "pietto._project.project_sql_emission"
+        ):
+            pending.extend(getattr(value, f.name) for f in dataclasses.fields(value))
+    return found
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_two_lateral_lets_capturing_one_source_replay_by_their_reads(tmp_path, target):
+    from pietto._project.project_compiled_schema import CompiledError, encode
+    from pietto._project.project_compiled_verification import (
+        verify_compiled_emission,
+        verify_description,
+    )
+
+    # Two tables each join their own let LATERAL over the same source lhs: the
+    # two capture records name the same source ports through distinct reads.
+    artifact, built, candidate = _compiled_lateral(tmp_path, target, TWO_LATERAL)
+    description = built.root.description
+    records = {r.address: r for r in description.records}
+    first, second = (r for r in description.records if r.address.kind == "capture_use")
+    assert first.get("ports") == second.get("ports")
+    assert first.get("read") != second.get("read")
+    for record in (first, second):
+        right = records[record.get("read")]
+        assert (right.address.kind, right.get("ordinal"), record.get("ordinal")) == (
+            "use",
+            1,
+            0,
+        )
+        assert records[right.get("consumer")].address.kind == "join"
+    # Each captured reference names the record of its own JOIN's read.
+    captured = _captured_references(candidate.ast)
+    assert {
+        alias: [r.capture.ref.position for r in found]
+        for alias, found in captured.items()
+    } == {"m0": [0], "m2": [1]}
+    # Swapped between the two reads, a valid record of the same port is refused
+    # by the compiled emission verifier.
+    (left,), (right,) = captured["m0"], captured["m2"]
+    original = left.capture, right.capture
+    object.__setattr__(left, "capture", original[1])
+    object.__setattr__(right, "capture", original[0])
+    try:
+        with pytest.raises(CompiledError, match="^COMPILED_EMISSION_CAPTURE$"):
+            verify_compiled_emission(candidate, candidate.request)
+    finally:
+        object.__setattr__(left, "capture", original[0])
+        object.__setattr__(right, "capture", original[1])
+    verify_compiled_emission(candidate, candidate.request)
+    # Both records naming one read leave the other read without its let.
+    with pytest.raises(CompiledError, match="^COMPILED_INLINE_INVENTORY$"):
+        verify_description(
+            _replaced(
+                description, {second.address: (first.get("read"), *second.values[1:])}
+            )
+        )
+    # The two records swapped whole are the same captures renumbered: each
+    # read still finds its own record, and the replay is the same statement.
+    swapped = _replaced(
+        description, {first.address: second.values, second.address: first.values}
+    )
+    verify_description(swapped)
+    replay = emit_compiled(
+        _load(encode(swapped), built), tuple(v.value for v in artifact.fixed_values)
+    )
+    assert replay.rendered.sql == artifact.rendered.sql
+    assert {
+        alias: [r.capture.ref.position for r in found]
+        for alias, found in _captured_references(replay.ast).items()
+    } == {"m0": [1], "m2": [0]}
+
+
+def test_a_lateral_lets_inline_units_name_no_input_of_its_join(tmp_path):
+    # Its correlated references name the JOIN's left input: no unit of the
+    # let, its ORDER BY and LIMIT included, takes a JOIN input's alias, and no
+    # two of its units share one. Another unit's scope may repeat an alias.
+    from pietto._project.project_compiled_schema import FIELDS, CompiledError, encode
+    from pietto._project.project_compiled_verification import verify_description
+
+    source = TOP_K_LATERAL.format(kind="cross", on="")
+    _, built, _ = _compiled_lateral(tmp_path, "postgres", source)
+    description = built.root.description
+    (join,) = (r for r in description.records if r.address.kind == "join")
+    inline = [
+        r
+        for r in description.records
+        if "layout" in FIELDS[r.address.kind] and r.get("layout")[-1] is None
+    ]
+    assert [r.address.kind for r in inline] == ["row", "row", "result"]
+    names = [r.get("layout")[2] for r in inline]
+    assert join.get("layout")[2] == ("m0", "m1")
+
+    def aliased(record, alias):
+        values = list(record.values)
+        at = FIELDS[record.address.kind].index("layout")
+        layout = values[at]
+        values[at] = (*layout[:2], alias, *layout[3:])
+        return _replaced(description, {record.address: tuple(values)})
+
+    forgeries = [aliased(unit, "m0") for unit in inline]
+    forgeries += [aliased(join, ("m0", name)) for name in names]
+    forgeries.append(aliased(inline[2], names[0]))
+    for forged in forgeries:
+        with pytest.raises(CompiledError, match="^COMPILED_ALIASES$"):
+            verify_description(forged)
+        with pytest.raises(CompiledError, match="^COMPILED_ALIASES$"):
+            _load(encode(forged), built)
+
+
+@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti"))
+def test_a_compiled_lateral_join_keeps_a_kind_that_extends_each_left_row(
+    tmp_path, kind
+):
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        encode,
+    )
+    from pietto._project.project_compiled_verification import verify_description
+
+    source = TOP_K_LATERAL.format(kind="inner", on="        on true\n")
+    _, built, _ = _compiled_lateral(tmp_path, "postgres", source)
+    description = built.root.description
+    (join,) = (r for r in description.records if r.address.kind == "join")
+    assert join.get("kind") == "inner"
+    # Otherwise valid: a SEMI or ANTI JOIN outputs only its left input.
+    names = FIELDS["join"]
+    values = list(join.values)
+    values[names.index("kind")] = kind
+    if kind in ("semi", "anti"):
+        left = next(
+            r for r in description.records if r.address == join.get("inputs")[0]
+        )
+        values[names.index("outputs")] = join.get("outputs")[: len(left.get("ports"))]
+    forged = _replaced(description, {join.address: tuple(values)})
+    with pytest.raises(CompiledError, match="^COMPILED_LATERAL_JOIN_KIND$"):
+        verify_description(forged)
+    with pytest.raises(CompiledError, match="^COMPILED_LATERAL_JOIN_KIND$"):
+        _load(encode(forged), built)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("kind", ("cross", "inner"))
+def test_a_lateral_top_k_replays_from_compiled_input(tmp_path, target, kind):
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Scalar,
+    )
+    from pietto._project.project_compiled_verification import (
+        verify_description,
+        verify_export,
+    )
+
+    on = {"cross": "", "inner": "        on true\n"}
+    artifact, built, candidate = _compiled_lateral(
+        tmp_path, target, TOP_K_LATERAL.format(kind=kind, on=on[kind])
+    )
+    assert b" LIMIT 2) AS " in candidate.rendered.sql
+    # The let's ORDER BY and LIMIT are one inline result unit, read by the
+    # JOIN's right input: no unit position, no CTE name, not final.
+    description = built.root.description
+    records = {r.address: r for r in description.records}
+    (capture,) = (r for r in description.records if r.address.kind == "capture_use")
+    result = records[records[capture.get("read")].get("producer")]
+    assert result.address.kind == "result"
+    assert result.get("layout") == (None, (), "t0", False, None)
+    assert (result.get("distinct"), result.get("limit")) == (False, 2)
+    assert [d for _, d in result.get("ordering")] == ["desc", "asc"]
+    projection = records[result.get("input")]
+    assert projection.address.kind == "row" and projection.get("layout")[-1] is None
+    names = FIELDS["result"]
+
+    def changed(**fields):
+        values = list(result.values)
+        for name, value in fields.items():
+            values[names.index(name)] = value
+        return _replaced(description, {result.address: tuple(values)})
+
+    layout = result.get("layout")
+    # Claiming a unit position or a CTE name makes it no inline unit.
+    with pytest.raises(CompiledError, match="^COMPILED_CAPTURE_USE$"):
+        verify_description(changed(layout=(*layout[:-1], 0)))
+    with pytest.raises(CompiledError, match="^COMPILED_INLINE_LAYOUT$"):
+        verify_description(changed(layout=("p9", *layout[1:])))
+    # Another valid LIMIT with its literal is a coherent description; the
+    # export verifier re-derives it from the live statement and refuses it.
+    literal = records[result.get("limit_literal")]
+    values = list(literal.values)
+    values[FIELDS["literal"].index("value")] = Scalar("Int", 3)
+    limit = list(result.values)
+    limit[names.index("limit")] = 3
+    forged = _replaced(
+        description, {result.address: tuple(limit), literal.address: tuple(values)}
+    )
+    verify_description(forged)
+    with pytest.raises(CompiledError, match="^COMPILED_EXPORT_STATIC_LITERAL$"):
+        verify_export(forged, artifact)

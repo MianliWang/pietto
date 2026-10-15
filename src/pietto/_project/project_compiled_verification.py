@@ -504,7 +504,7 @@ def verify_description(value: Description) -> None:
                 "EXPRESSION_BLOCK_USE",
             )
         elif kind == "capture_use":
-            block = ref(get("read"), {"expression_block_use"})
+            block = ref(get("read"), {"expression_block_use", "use"})
             ports = refs(get("ports"), {"port"})
             uses = tuple(
                 r
@@ -512,12 +512,28 @@ def verify_description(value: Description) -> None:
                 if r.address.kind == "use"
                 and r.get("consumer") == block.get("consumer")
             )
-            # Only an existence read executes a capturing let.
-            need(
-                ref(block.get("operation"), {"operation"}).get("operator")
-                == ("exists", "exists"),
-                "CAPTURE_USE",
-            )
+            if block.address.kind == "use":
+                # LATERAL: the JOIN's right input executes the let and its
+                # captured fields read the same JOIN's left input.
+                need(
+                    records[block.get("consumer")].address.kind == "join"
+                    and block.get("ordinal") == 1,
+                    "CAPTURE_USE",
+                )
+                # Only a CROSS or INNER JOIN reads a let LATERAL, as at the
+                # source (PIE-S2372): each pair extends a left row.
+                need(
+                    records[block.get("consumer")].get("kind") in ("cross", "inner"),
+                    "LATERAL_JOIN_KIND",
+                )
+                uses = tuple(u for u in uses if u.get("ordinal") == 0)
+            else:
+                # Only an existence read executes a capturing let.
+                need(
+                    ref(block.get("operation"), {"operation"}).get("operator")
+                    == ("exists", "exists"),
+                    "CAPTURE_USE",
+                )
             inner = records[block.get("producer")]
             need(
                 type(get("ordinal")) is int
@@ -525,7 +541,8 @@ def verify_description(value: Description) -> None:
                 and len(uses) == 1
                 and len({p.address for p in ports}) == len(ports)
                 and all(p.address in uses[0].get("ports") for p in ports)
-                and inner.address.kind == "row"
+                # The let's ORDER BY and LIMIT end it in a result unit.
+                and inner.address.kind in ("row", "result")
                 and unit_position(inner) is None,
                 "CAPTURE_USE",
             )
@@ -1392,12 +1409,17 @@ def verify_description(value: Description) -> None:
         r.get("read") for r in records.values() if r.address.kind == "capture_use"
     }:
         current = records[read].get("producer")
+        outermost = current
         while current in inline:
             need(current not in chained, "INLINE_CHAIN")
             chained.add(current)
             layout = records[current].get("layout")
             need(
-                current.kind == "row"
+                (
+                    current.kind == "row"
+                    # Only the outermost unit of a let is its result unit.
+                    or (current.kind == "result" and current == outermost)
+                )
                 and layout[:2] == (None, ())
                 and type(layout[2]) is str
                 and layout[3] is False,
@@ -1409,9 +1431,10 @@ def verify_description(value: Description) -> None:
     need(chained == inline, "INLINE_INVENTORY")
     # The records of one capturing read are its lines 0, 1, ... in record
     # order, each exactly the ports of one distinct row binding of the reading
-    # body's input. Every captured field read lies in the inline units of one
-    # capturing read and reads, through its reading body's use, a port of one
-    # of that read's records.
+    # body's input: the one input of an EXISTS read's row, or the left input of
+    # the JOIN whose right input reads the let LATERAL. Every captured field
+    # read lies in the inline units of one capturing read and reads, through
+    # that reading use, a port of one of that read's records.
     capture_records: dict[Address, list[Record]] = {}
     for record in records.values():
         if record.address.kind == "capture_use":
@@ -1419,12 +1442,18 @@ def verify_description(value: Description) -> None:
     reading_uses = {}
     for read, described in capture_records.items():
         consumer = records[read].get("consumer")
+        lateral = read.kind == "use"
         consumer_uses = tuple(
             r.address
             for r in records.values()
-            if r.address.kind == "use" and r.get("consumer") == consumer
+            if r.address.kind == "use"
+            and r.get("consumer") == consumer
+            and (not lateral or r.get("ordinal") == 0)
         )
-        need(consumer.kind == "row" and len(consumer_uses) == 1, "CAPTURE_SCOPE")
+        need(
+            consumer.kind == ("join" if lateral else "row") and len(consumer_uses) == 1,
+            "CAPTURE_SCOPE",
+        )
         bindings = row_bindings(records, consumer_uses[0])
         need(
             [r.get("ordinal") for r in described] == list(range(len(described))),
@@ -2204,16 +2233,13 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         need(len(found) == 1, "EXPORT_CAPTURE_PORT")
         return found[0]
 
-    def check_inline(block_use, actual, producer, use):
-        """A live inline let, unit by unit, and the capture records of its read."""
-        outer = current_units[-1]
-        chain = [actual.target.producer]
-        while type(chain[-1].scan) is sql.RowStageUse and sql.inline_body(
-            chain[-1].scan.body
-        ):
-            chain.append(chain[-1].scan.body)
-        chain.reverse()
-        addresses = [block_use.get("producer")]
+    def check_inline_units(first, terminal, context):
+        """A live inline let ending in ``terminal``, unit by unit from its
+        innermost body, whatever reads it: ``first`` is the unit its read names,
+        ``context`` the reading row (producer, use), and its ORDER BY and LIMIT
+        end it in a result unit."""
+        chain = sql.inline_chain(terminal)
+        addresses = [first]
         while True:
             uses = tuple(
                 r for r in grouped["use"] if r.get("consumer") == addresses[-1]
@@ -2224,19 +2250,19 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             addresses.append(uses[0].get("producer"))
         addresses.reverse()
         need(
-            type(outer) is sql.RowBody
-            and len(addresses) == len(chain)
+            len(addresses) == len(chain)
             and all(sql.inline_body(body) for body in chain),
             "EXPORT_INLINE",
         )
-        capture_context.append((producer, use))
+        capture_context.append(context)
         try:
             for address, body in zip(addresses, chain, strict=True):
                 record = records[address]
                 need(
                     address in inline_units
                     and address not in inline_seen
-                    and record.address.kind == "row"
+                    and record.address.kind
+                    == ("result" if type(body) is results.RowResultBody else "row")
                     and record.get("layout")
                     == (None, (), body.scan.symbol.name, False, None),
                     "EXPORT_INLINE_UNIT",
@@ -2249,6 +2275,14 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 check_unit(record, body)
         finally:
             capture_context.pop()
+
+    def check_inline(block_use, actual, producer, use):
+        """A live inline let, unit by unit, and the capture records of its read."""
+        outer = current_units[-1]
+        need(type(outer) is sql.RowBody, "EXPORT_INLINE")
+        check_inline_units(
+            block_use.get("producer"), actual.target.producer, (producer, use)
+        )
         captures = tuple(
             c for c in original.plan.captures if c.read is actual.original.ref
         )
@@ -2265,6 +2299,33 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 ports.append(port_address(column, producer))
             need(
                 record.values == (block_use.address, capture.use.ordinal, tuple(ports)),
+                "EXPORT_CAPTURE",
+            )
+            capture_seen.add(record.address)
+
+    def check_lateral(use_address, item, left, left_producer, left_use):
+        """A live LATERAL right input's inline let, unit by unit over the
+        JOIN's left input, and the capture records its use reads."""
+        check_inline_units(
+            records[use_address].get("producer"),
+            item.producer,
+            (left_producer, left_use),
+        )
+        captures = tuple(
+            c for c in original.plan.captures if c.read is item.original.ref
+        )
+        described = tuple(
+            r for r in grouped["capture_use"] if r.get("read") == use_address
+        )
+        need(len(described) == len(captures) > 0, "EXPORT_CAPTURES")
+        for record, capture in zip(described, captures, strict=True):
+            ports = []
+            for reference in capture.ports:
+                positions = tuple(i for i, p in enumerate(left.ports) if p is reference)
+                need(len(positions) == 1, "EXPORT_CAPTURE_PORT")
+                ports.append(port_address(left.columns[positions[0]], left_producer))
+            need(
+                record.values == (use_address, capture.use.ordinal, tuple(ports)),
                 "EXPORT_CAPTURE",
             )
             capture_seen.add(record.address)
@@ -2562,6 +2623,8 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             ):
                 use_record = records[a]
                 producer = item.producer
+                if position and sql.inline_body(producer):
+                    check_lateral(a, item, unit.inputs[0], *contexts[0][1:])
                 expected = source_map.get(id(producer), unit_map.get(id(producer)))
                 need(
                     use_record.get("producer") == expected
@@ -3461,9 +3524,12 @@ def _verify_compiled_emission(artifact, request):
                 "EMISSION_CAPTURE_STAGE",
             )
 
-    def check_inline(actual, block_use, use, producer):
-        """The inline let a read renders, unit by unit, over its read's row."""
-        addresses = [block_use.get("producer")]
+    def verify_inline_units(first, terminal, scope, category):
+        """An inline let ending in ``terminal``, unit by unit from its innermost
+        body, whatever reads it: ``first`` is the unit its read names and
+        ``scope`` the reading row; its ORDER BY and LIMIT end it in a result
+        unit."""
+        addresses = [first]
         while True:
             inputs = tuple(
                 r.get("producer")
@@ -3475,26 +3541,28 @@ def _verify_compiled_emission(artifact, request):
                 break
             addresses.append(inputs[0])
         addresses.reverse()
-        chain = [actual.target.producer]
-        while type(chain[-1].scan) is ast.RowStageUse and ast.inline_body(
-            chain[-1].scan.body
-        ):
-            chain.append(chain[-1].scan.body)
-        chain.reverse()
+        chain = ast.inline_chain(terminal)
         need(
             len(chain) == len(addresses)
             and all(ast.inline_body(body) for body in chain)
             and all(a not in observed_bodies for a in addresses),
-            "EMISSION_INLINE",
+            category,
         )
-        capture_scopes.append(
-            (use, producer, current_bodies[-1].scan.symbol, block_use.address)
-        )
+        capture_scopes.append(scope)
         try:
             for index, (address, body) in enumerate(zip(addresses, chain, strict=True)):
                 verify_unit(index, body, records[address], inline=True)
         finally:
             capture_scopes.pop()
+
+    def check_inline(actual, block_use, use, producer):
+        """The inline let a read renders, unit by unit, over its read's row."""
+        verify_inline_units(
+            block_use.get("producer"),
+            actual.target.producer,
+            (use, producer, current_bodies[-1].scan.symbol, block_use.address),
+            "EMISSION_INLINE",
+        )
 
     def scalar(actual, address, producer, use, join_contexts=None):
         record = records[address]
@@ -3714,8 +3782,31 @@ def _verify_compiled_emission(artifact, request):
         finally:
             current_bodies.pop()
 
+    def check_lateral(body, record):
+        """A LATERAL right input's inline let, unit by unit, over the JOIN's
+        left input row (alias and use)."""
+        from pietto._project import project_sql_emission_joins as joining
+
+        need(type(body) is joining.JoinBody, "JOIN_UNIT")
+        left_use, right_use = record.get("inputs")
+        producer = records[right_use].get("producer")
+        if producer not in inline_units:
+            return
+        verify_inline_units(
+            producer,
+            body.inputs[1].producer,
+            (
+                left_use,
+                records[left_use].get("producer"),
+                body.inputs[0].symbol,
+                right_use,
+            ),
+            "EMISSION_LATERAL",
+        )
+
     def verify_unit_body(index, body, record, inline):
         if record.address.kind == "join":
+            check_lateral(body, record)
             verify_compiled_join_unit(
                 body, record, request, observed_bodies, sources, bindings_by_ref
             )
@@ -3738,8 +3829,13 @@ def _verify_compiled_emission(artifact, request):
             observed_bodies[record.address] = body
             return
         if record.address.kind == "result":
+            need(
+                (record.get("layout")[-1] is None) is inline
+                and (inline or record.get("layout")[-1] == index),
+                "EMISSION_UNIT",
+            )
             verify_compiled_result_unit(
-                body, record, request, observed_bodies, local_port, extra_by_key
+                body, record, request, observed_bodies, local_port, extra_by_key, index
             )
             observed_bodies[record.address] = body
             return
@@ -4007,7 +4103,11 @@ def verify_compiled_emission(artifact, request):
     return ()
 
 
-def verify_compiled_result_unit(body, record, request, produced, local_port, extras):
+def verify_compiled_result_unit(
+    body, record, request, produced, local_port, extras, unit_index
+):
+    """One result unit at ``unit_index``: its unit position, or the block count
+    of the inline let whose unnamed projection it orders and limits."""
     from pietto._project.project_sql_emission_results import (
         RowResultBody,
         RowResultUse,
@@ -4029,9 +4129,17 @@ def verify_compiled_result_unit(body, record, request, produced, local_port, ext
         and body.scan.body is produced[producer],
         "RESULT_INPUT",
     )
-    name, names, alias, final, index = record.get("layout")
+    original = produced[producer]
+
+    def column_name(i):
+        # A CTE column is read by its generated name, an inline one by label.
+        if original.cte_columns:
+            return original.cte_columns[i].name
+        return original.columns[i].label
+
+    name, names, alias, final, _ = record.get("layout")
     need(
-        body.index == index
+        body.index == unit_index
         and body.final is final
         and body.scan.symbol.name == alias
         and (None if body.symbol is None else body.symbol.name) == name
@@ -4093,7 +4201,6 @@ def verify_compiled_result_unit(body, record, request, produced, local_port, ext
         port = records[address]
         read = records[port.get("source")]
         input_port = plan.ports[read.get("port")]
-        original = produced[producer]
         i = records[read.get("port")].get("ordinal")
         need(
             type(column) is ResultColumn
@@ -4102,7 +4209,7 @@ def verify_compiled_result_unit(body, record, request, produced, local_port, ext
             and column.projection_port is input_port
             and column.output is column.export
             and column.read.terminal is input_port.ref
-            and column.read.name == original.cte_columns[i].name
+            and column.read.name == column_name(i)
             and column.column.realization is facts[address].realization,
             "RESULT_COLUMN",
         )
@@ -4160,7 +4267,7 @@ def verify_compiled_result_unit(body, record, request, produced, local_port, ext
                 )
                 and item.port is port
                 and item.read.terminal is port.ref
-                and item.read.name == produced[producer].cte_columns[i].name
+                and item.read.name == column_name(i)
                 and item.direction == described[1]
                 and item.nulls is None,
                 "RESULT_ORDER_ITEM",
@@ -4669,8 +4776,11 @@ def verify_compiled_join_unit(body, record, request, produced, sources, bindings
                 )
             else:
                 expected = produced[producer].columns[i].column
+                # A LATERAL inline let publishes its columns by their labels.
+                named = produced[producer].cte_columns
                 need(
-                    column.name == produced[producer].cte_columns[i].name
+                    column.name
+                    == (named[i].name if named else produced[producer].columns[i].label)
                     and column.field is expected.field
                     and column.literal is expected.literal
                     and column.aggregate is expected.aggregate

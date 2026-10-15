@@ -21,6 +21,7 @@ import _pietto_sql_emission as probe
 from pietto import cli
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
+from pietto.semantic.model import ValueType
 
 TARGETS = ("postgres", "mysql")
 HEAD = """shape Row:
@@ -133,8 +134,8 @@ DIAGNOSTICS = {
             ),
             (
                 "PIE-S2370",
-                "Let a with capture lines can be read only once, by exists in the "
-                "body of q.",
+                "Let a with capture lines can be read only once, by exists or a "
+                "join in the body of q.",
                 12,
                 5,
             ),
@@ -633,7 +634,8 @@ CAPTURE = (
     "    from lhs\n    where exists m\n    select:\n        a = lhs.id\n"
 )
 READ_ONLY_BY_EXISTS = (
-    "Let m with capture lines can be read only once, by exists in the body of q."
+    "Let m with capture lines can be read only once, by exists or a join in the "
+    "body of q."
 )
 BODY_SHAPE = (
     "Let m with capture lines may use only FROM, WHERE and an ungrouped SELECT."
@@ -849,12 +851,14 @@ CAPTURE_DIAGNOSTICS = {
             ("PIE-S2370", READ_ONLY_BY_EXISTS, 13, 5),
         ],
     ),
+    # Phase70 S12: a JOIN of the declaration body reads the let LATERAL; the
+    # kinds and capture positions it takes are below (LATERAL_DIAGNOSTICS).
     "read_by_join": (
         CAPTURE.replace(
             "    where exists m\n",
             "    inner join m as x:\n        from lhs\n        on lhs.id == x.id\n",
         ),
-        [("PIE-S2370", READ_ONLY_BY_EXISTS, 14, 5)],
+        [],
     ),
     # Nested correlation: no let reads a let with capture lines.
     "read_by_another_let": (
@@ -1011,6 +1015,32 @@ CAPTURE_DIAGNOSTICS = {
                 "keyed are not known before completion.",
                 19,
                 26,
+            ),
+        ],
+    ),
+    "lateral_join_table_input": (
+        "table pairs:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
+        "        on lhs.id == r.id\n    select:\n        id = lhs.id\n"
+        "        key = r.key\n"
+        + CAPTURE.replace("lhs", "pairs").replace(
+            "    where exists m\n",
+            "    cross join m as x:\n        from pairs\n",
+        ),
+        [
+            (
+                "PIE-S2369",
+                "Captured field pairs.key is not yet available: the columns of "
+                "pairs are not known before completion.",
+                18,
+                26,
+            ),
+            # A JOIN of a let with an error leaves its body incomplete, as for
+            # any let JOIN input.
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: q",
+                14,
+                1,
             ),
         ],
     ),
@@ -1171,3 +1201,246 @@ def test_a_captured_field_keeps_the_outer_type_and_join_null_extension(
         (read.capture, read.field): value.nullability.value
         for read, value in _typed(facts.captured_value_types).items()
     } == {("lhs", "id"): "non_null", ("r", "id"): "non_null", ("r", "key"): "nullable"}
+
+
+# Phase70 S12: a JOIN of the declaration body that names a let with capture
+# lines reads it LATERAL (D70.03): each capture line names a row input to the
+# left of that JOIN and only kinds that keep every left row may take it.
+LATERAL = (
+    "query q:\n    let m:\n        capture lhs\n        from rhs\n"
+    "        where rhs.key == lhs.key\n        select:\n            id\n"
+    "    from lhs\n    {kind} join m as x:\n        from lhs\n{on}"
+    "    select:\n        a = lhs.id\n"
+)
+JOIN_KIND = "Let m with capture lines can be joined only by cross or inner join."
+
+
+def _lateral(kind: str, on: str = "        on true\n") -> str:
+    return LATERAL.format(kind=kind, on="" if kind == "cross" else on)
+
+
+LATERAL_BODY_SHAPE = (
+    "Let m with capture lines may use only FROM, WHERE, an ungrouped SELECT, "
+    "an ungrouped ORDER BY without captured fields and LIMIT."
+)
+
+
+def _top_k(
+    kind: str,
+    *,
+    on: str = "        on true\n",
+    order: str = "        order by:\n            id desc\n",
+    limit: str = "        limit 2\n",
+) -> str:
+    """The LATERAL let of ``_lateral`` ending in ORDER BY and LIMIT."""
+    return _lateral(kind, on).replace(
+        "            id\n    from lhs\n",
+        "            id\n" + order + limit + "    from lhs\n",
+    )
+
+
+LATERAL_DIAGNOSTICS = {
+    "cross": (_lateral("cross"), []),
+    "inner_on_true": (_lateral("inner"), []),
+    "inner_on_condition": (_lateral("inner", "        on x.id > lhs.id\n"), []),
+    "left": (_lateral("left"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
+    "right": (_lateral("right"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
+    "full": (_lateral("full"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
+    "semi": (_lateral("semi"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
+    "anti": (_lateral("anti"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
+    # The let's own JOIN binding and a later JOIN's binding are not left of it.
+    "own_binding": (
+        _lateral("cross")
+        .replace("capture lhs", "capture x")
+        .replace("lhs.key\n", "x.id\n"),
+        [
+            (
+                "PIE-S2371",
+                "Capture x of let m is not a row input to the left of its join in q.",
+                8,
+                9,
+            )
+        ],
+    ),
+    "later_binding": (
+        _lateral("cross")
+        .replace("capture lhs", "capture lhs\n        capture z")
+        .replace("lhs.key\n", "lhs.key and rhs.id == z.id\n")
+        .replace(
+            "    select:\n        a",
+            "    cross join rhs as z:\n        from lhs\n    select:\n        a",
+        ),
+        [
+            (
+                "PIE-S2371",
+                "Capture z of let m is not a row input to the left of its join in q.",
+                9,
+                9,
+            )
+        ],
+    ),
+    # Like an exists read, a JOIN is the let's one read (Phase70 S05 reuse
+    # does not apply): a later exists or JOIN of it is refused.
+    "joined_and_exists": (
+        _lateral("cross").replace(
+            "    select:\n        a", "    where exists m\n    select:\n        a"
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 16, 11)],
+    ),
+    "joined_twice": (
+        _lateral("cross").replace(
+            "    select:\n        a",
+            "    cross join m as y:\n        from lhs\n    select:\n        a",
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 16, 5)],
+    ),
+    # Header parameters stay unavailable beside relation lets (PIE-S2346).
+    "header_parameter": (
+        _lateral("cross")
+        .replace("query q:", "query q(cut: Int not null):")
+        .replace("rhs.key == lhs.key", "rhs.key == lhs.key and rhs.id > cut"),
+        [
+            (
+                "PIE-S2346",
+                "Query header parameter semantics are not implemented.",
+                6,
+                9,
+            )
+        ],
+    ),
+    # A JOIN written in another let is nested correlation.
+    "join_in_another_let": (
+        _lateral("cross").replace(
+            "    from lhs\n    cross join m as x:\n        from lhs\n",
+            "    let other:\n        from rhs\n        cross join m as y:\n"
+            "            from rhs\n        select:\n            id\n"
+            "    from lhs\n    cross join other as x:\n        from lhs\n",
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 15, 9)],
+    ),
+    # A let joined LATERAL may end in an ungrouped ORDER BY that reads no
+    # captured field, and LIMIT (a top-k per left row); LIMIT keeps its static
+    # rule and OFFSET stays outside the grammar.
+    "top_k_cross": (_top_k("cross"), []),
+    "top_k_inner": (_top_k("inner"), []),
+    "top_k_limit_only": (_top_k("cross", order=""), []),
+    "top_k_order_only": (_top_k("cross", limit=""), []),
+    "top_k_limit_maximum": (_top_k("cross", limit=f"        limit {2**63 - 1}\n"), []),
+    "top_k_limit_over_maximum": (
+        _top_k("cross", limit=f"        limit {2**63}\n"),
+        [
+            (
+                "PIE-S2307",
+                "Limit must be a static integer from 0 to 9223372036854775807",
+                15,
+                15,
+            ),
+            ("PIE-S2334", "CROSS JOIN semantics are not implemented.", 17, 5),
+            ("PIE-S2335", JOIN_ON, 17, 5),
+        ],
+    ),
+    "top_k_captured_order": (
+        _top_k("cross", order="        order by:\n            lhs.key\n"),
+        [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
+    ),
+    "top_k_aggregate_order": (
+        _top_k("cross", order="        order by:\n            count()\n"),
+        [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
+    ),
+    "top_k_right": (_top_k("right"), [("PIE-S2372", JOIN_KIND, 17, 5)]),
+    # Joined twice, the let keeps its LATERAL body rule; the second JOIN is
+    # refused like any later read.
+    "top_k_joined_twice": (
+        _top_k("cross").replace(
+            "    select:\n        a =",
+            "    cross join m as y:\n        from lhs\n    select:\n        a =",
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 19, 5)],
+    ),
+    "top_k_offset": (
+        _top_k("cross", limit="        limit 2\n        offset 1\n"),
+        [
+            ("PIE-P1000", "mismatched input 'offset' expecting DEDENT", 16, 9),
+            *(
+                (
+                    "PIE-P1000",
+                    f"extraneous input '{text}' expecting {{<EOF>, 'type', 'enum', "
+                    "'constraint', 'derive', 'shape', 'source', 'table', 'query', "
+                    "'relationship', 'import', 'export', NEWLINE}",
+                    line,
+                    column,
+                )
+                for text, line, column in (
+                    ("", 17, 5),
+                    ("cross", 18, 5),
+                    ("        ", 19, 9),
+                    ("", 20, 5),
+                    ("        ", 21, 9),
+                    ("", 22, 1),
+                )
+            ),
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(LATERAL_DIAGNOSTICS))
+def test_a_join_reads_a_capturing_let_lateral(tmp_path: Path, case: str) -> None:
+    body, expected = LATERAL_DIAGNOSTICS[case]
+    assert _check(tmp_path, body) == (1 if expected else 0, expected)
+
+
+@pytest.mark.parametrize("top_k", (False, True))
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_a_lateral_join_is_available_only_in_explicit_module_projects(
+    tmp_path: Path, schema_version: int, top_k: bool
+) -> None:
+    config = probe.CONFIG.replace(
+        "schema_version = 2", f"schema_version = {schema_version}"
+    )
+    body = _top_k("cross") if top_k else _lateral("cross")
+    code, diagnostics = _check(tmp_path, body, config=config)
+    gated = [
+        ("PIE-S2345", "Let relation declaration semantics are not implemented.", 7, 5),
+        ("PIE-S2351", "Capture line semantics are not implemented.", 8, 9),
+    ]
+    assert (code, diagnostics) == ((0, []) if schema_version == 2 else (1, gated))
+    path = tmp_path / "single.pietto"
+    path.write_text(HEAD + body, encoding="utf-8")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert cli.main(["check", str(path), "--format", "json"]) == 1
+    assert [
+        (d["code"], d["location"]["line"], d["location"]["column"])
+        for d in json.loads(out.getvalue())["diagnostics"]
+    ] == [("PIE-S2345", 7, 5), ("PIE-S2351", 8, 9)]
+
+
+def test_a_lateral_capture_types_only_the_joins_left_of_it(tmp_path: Path) -> None:
+    # The LEFT JOIN left of the lateral JOIN may null-extend r; the RIGHT JOIN
+    # after it never changes the row the let reads, unlike an EXISTS read.
+    let = (
+        "query q:\n    let m:\n        capture lhs\n        capture r\n"
+        "        from rhs\n        where rhs.id == lhs.id and rhs.id == r.id\n"
+        "        select:\n            id\n    from lhs\n"
+        "    left join rhs as r:\n        from lhs\n        on lhs.id == r.id\n"
+    )
+    tail = (
+        "    right join rhs as z:\n        from lhs\n        on z.id == lhs.id\n"
+        "{where}    select:\n        a = z.id\n"
+    )
+    lateral = let + "    cross join m as x:\n        from lhs\n" + tail.format(where="")
+    exists = let + tail.format(where="    where exists m\n")
+    types = {}
+    for name, body in (("lateral", lateral), ("exists", exists)):
+        assert _check(tmp_path / name, body) == (0, [])
+        facts = _capture_facts(tmp_path / f"{name}-facts", body)["m"]
+        types[name] = {
+            (read.capture, read.field): value.nullability.value
+            for read, value in facts.captured_value_types.items()
+            if isinstance(value, ValueType)
+        }
+    assert types == {
+        "lateral": {("lhs", "id"): "non_null", ("r", "id"): "nullable"},
+        "exists": {("lhs", "id"): "nullable", ("r", "id"): "nullable"},
+    }

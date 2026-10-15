@@ -1238,3 +1238,51 @@ def test_capture_records_and_captured_reads_cannot_be_forged(
         other = next(b.ref for b in plan.blocks if b.ref is not right.block)
         candidate = _graft(plan, captures=(_graft(right, block=other), left))
     assert not verify_project_sql_plan(candidate, *roots).verified, mutation
+
+
+# Phase70 S12: the JOIN's right input reads the let LATERAL; each capture record
+# names that input and the JOIN's own left input ports.
+LATERAL_SOURCE = CAPTURE_SOURCE.replace(
+    "    where exists matched\n",
+    "    cross join matched as m:\n        from rows\n",
+)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "deleted",
+        "swapped_ports",
+        "left_input_read",
+        "other_join",
+        "right_input_ports",
+    ),
+)
+def test_lateral_capture_records_cannot_be_forged(
+    tmp_path: Path, mutation: str
+) -> None:
+    roots, plan, _view = _product(tmp_path, LATERAL_SOURCE)
+    right, left = plan.captures
+    assert (right.use.clause.name, left.use.clause.name) == ("r", "rows")
+    lateral, first = plan.joins[1], plan.joins[0]
+    inputs = {i.ref: i for i in plan.join_inputs}
+    assert right.read is left.read is lateral.inputs[1]
+    assert right.block is left.block is lateral.ref
+    assert set(right.ports) | set(left.ports) == set(inputs[lateral.inputs[0]].ports)
+    if mutation == "deleted":
+        candidate = _graft(plan, captures=(left,))
+    elif mutation == "swapped_ports":
+        candidate = _graft(
+            plan,
+            captures=(_graft(right, ports=left.ports), _graft(left, ports=right.ports)),
+        )
+    elif mutation == "left_input_read":
+        candidate = _graft(plan, captures=(_graft(right, read=lateral.inputs[0]), left))
+    elif mutation == "other_join":
+        candidate = _graft(plan, captures=(_graft(right, block=first.ref), left))
+    else:
+        candidate = _graft(
+            plan,
+            captures=(_graft(right, ports=inputs[lateral.inputs[1]].ports[:2]), left),
+        )
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation

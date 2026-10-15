@@ -140,7 +140,12 @@ def refuse_block_reads(artifact):
     such a read, is checked first; the refusal precedes any connection.
     """
     from pietto._project import project_sql_emission_rows as rows
-    from pietto._project.project_sql_emission_ast import SQLSelect, row_value_roots
+    from pietto._project.project_sql_emission_ast import (
+        SQLSelect,
+        inline_body,
+        row_value_roots,
+    )
+    from pietto._project.project_sql_emission_joins import JoinBody
 
     if type(artifact.ast) is SQLSelect:
         return
@@ -150,6 +155,12 @@ def refuse_block_reads(artifact):
         for node in rows.value_nodes(root)
     ):
         raise ValueError("REFINEMENT_EXPRESSION_BLOCK_READ")
+    # A LATERAL JOIN input (a let with capture lines) has no row coordinates.
+    if any(
+        type(unit) is JoinBody and inline_body(unit.inputs[1].producer)
+        for unit in getattr(artifact.ast, "units", artifact.ast.bodies)
+    ):
+        raise ValueError("REFINEMENT_LATERAL_JOIN")
 
 
 def _live_root(template, binding, *, reanchor):

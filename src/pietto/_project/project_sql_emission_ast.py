@@ -1080,8 +1080,29 @@ class RowBody:
 
 
 def inline_body(unit) -> bool:
-    """A capturing let's stage body, rendered inside its EXISTS read."""
-    return type(unit) is RowBody and unit.symbol is None and not unit.final
+    """A capturing let's stage body, rendered inside the read of the let; its
+    ORDER BY and LIMIT, if it has them, are one more inline (result) body."""
+    return (
+        type(unit) in (RowBody, resulting.RowResultBody)
+        and unit.symbol is None
+        and not unit.final
+    )
+
+
+def inline_input(unit):
+    """The inline body one inline body reads, or None."""
+    scan = unit.scan
+    if type(scan) in (RowStageUse, resulting.RowResultUse) and inline_body(scan.body):
+        return scan.body
+    return None
+
+
+def inline_chain(unit) -> tuple[Any, ...]:
+    """An inline let's bodies read by ``unit``, innermost first."""
+    chain = [unit]
+    while (inner := inline_input(chain[-1])) is not None:
+        chain.append(inner)
+    return tuple(reversed(chain))
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1239,8 +1260,13 @@ def _join_input(
     join_ports,
     *,
     _guarded=None,
+    inline=None,
 ):
-    """One JOIN input relation and the exact pre-match column it publishes."""
+    """One JOIN input relation and the exact pre-match column it publishes.
+
+    ``inline`` is the realized body of a capturing let this input executes
+    LATERAL; it is never a CTE, so it replaces the named producer.
+    """
     original = join_inputs[reference]
     alias = SQLSymbol(0, original.ref, f"m{original.ref.position}")
     use = None
@@ -1294,7 +1320,9 @@ def _join_input(
                     )
                 )
         else:
-            producer = by_definition.get(use.original.producer)
+            producer = (
+                by_definition.get(use.original.producer) if inline is None else inline
+            )
             if producer is None:
                 return None, (
                     "PIE-B1001",
@@ -1448,10 +1476,20 @@ def _join_body(
     uses,
     *,
     _guarded=None,
+    lateral=None,
 ):
-    """Realize one JOIN occurrence as its own closed generated SELECT."""
+    """Realize one JOIN occurrence as its own closed generated SELECT.
+
+    ``lateral`` realizes a right input that executes a capturing let over the
+    realized left input (LATERAL); it returns (None, None) for any other input.
+    """
     inputs = []
     for reference in join.inputs:
+        inline = None
+        if lateral is not None and inputs:
+            inline, problem = lateral(reference, inputs[0])
+            if problem is not None:
+                return None, problem
         value, problem = _join_input(
             request,
             join,
@@ -1463,6 +1501,7 @@ def _join_body(
             join_inputs,
             join_ports,
             _guarded=_guarded,
+            inline=inline,
         )
         if value is None:
             return None, problem
@@ -1711,6 +1750,11 @@ def realize_rows(request, *, _guarded=None):
         if definition.original.ref in inline:
             continue
         for join in join_groups.get(definition.original.ref, ()):
+            # A LATERAL right input's inline let renders before the ON.
+            lateral = tuple(c for c in plan.captures if c.read is join.inputs[1])
+            if lateral:
+                parts = stage_roots(*blocks_by_definition[lateral[0].inner])
+                ordered.extend(nested_roots(parts, len(parts) - 1))
             if join.on is not None:
                 ordered.append(join.on)
         for columns, predicates in stage_roots(definition, blocks):
@@ -2193,12 +2237,30 @@ def realize_rows(request, *, _guarded=None):
             )
             previous = body
             if captures is not None:
-                if result_boundaries:
-                    add("PIE-B1003", "inline_result_body_not_admitted", block.ref)
-                    return None
                 # An inline body's own structure counts like any other body.
                 nodes += 3 + 2 * len(body.columns)
                 inline_bodies.append(body)
+                if kind == "projection" and result_boundaries:
+                    # The let's ORDER BY and LIMIT: one more inline body over
+                    # its projection, inside the same derived relation. Which
+                    # reads may take them is decided before semantics
+                    # (relation_captures.admitted_capture_body).
+                    result, problem = resulting.build_result_body(
+                        request,
+                        definition,
+                        result_boundaries,
+                        body,
+                        index=len(blocks),
+                        final=False,
+                        symbol=SQLSymbol,
+                        inline=True,
+                    )
+                    if result is None:
+                        assert problem is not None
+                        add(*problem)
+                        return None
+                    nodes += 3 + 2 * len(result.columns) + resulting.node_count(result)
+                    inline_bodies.append(result)
                 continue
             bodies.append(body)
             units.append(body)
@@ -2260,6 +2322,48 @@ def realize_rows(request, *, _guarded=None):
             SQLSymbol(0, block_use.ref, f"e{block_use.ref.position}"),
         )
 
+    def _lateral_input(reference, left):
+        """Realize a capturing let as the LATERAL right input of its JOIN.
+
+        Its captured fields read the JOIN's left input columns under the left
+        alias; (None, None) when the input executes no capturing let.
+        """
+        local = tuple(c for c in plan.captures if c.read is reference)
+        if not local:
+            return None, None
+        scopes = {}
+        for capture in local:
+            reads = []
+            for port in capture.ports:
+                positions = tuple(i for i, p in enumerate(left.ports) if p is port)
+                if capture.block is not left.original.join or len(positions) != 1:
+                    return None, (
+                        "PIE-B1001",
+                        "capture_outside_read_scope",
+                        capture.ref,
+                        None,
+                    )
+                reads.append(left.columns[positions[0]])
+            scopes[capture.ref] = rows.SQLCaptureScope(
+                capture, left.symbol, tuple(reads)
+            )
+        definition, blocks = blocks_by_definition[local[0].inner]
+        inner = realize_stages(definition, blocks, (), scopes)
+        if not inner:
+            # The JOIN's caller records the one problem this returns.
+            blocker = (
+                problems.pop()
+                if inner is None
+                else Blocker("PIE-B1001", "inline_let_without_body", reference, None)
+            )
+            return None, (
+                blocker.code,
+                blocker.detail,
+                blocker.subject,
+                blocker.location,
+            )
+        return inner[-1], None
+
     for definition, blocks in groups:
         if definition.original.ref in inline:
             continue
@@ -2319,6 +2423,7 @@ def realize_rows(request, *, _guarded=None):
                 equalities,
                 uses,
                 _guarded=_guarded,
+                lateral=_lateral_input,
             )
             if unit is None:
                 assert problem is not None
@@ -2526,10 +2631,23 @@ def _naming(request):
 def _inline_requirements(request, body):
     """An inline let's bodies, innermost first, each as its own derived table."""
     result = []
-    scan = body.scan
-    if type(scan) is RowStageUse and inline_body(scan.body):
-        result.extend(_inline_requirements(request, scan.body))
-    result.extend(_row_body_requirements(request, body, _naming(request)))
+    inner = inline_input(body)
+    if inner is not None:
+        result.extend(_inline_requirements(request, inner))
+    naming = _naming(request)
+    if type(body) is resulting.RowResultBody:
+        # The let's ORDER BY and LIMIT over its inline projection.
+        result.append(
+            GeneratedRequirement(
+                "inline_stage_use", body.scan.body.block.ref, "R11", naming
+            )
+        )
+        result.extend(
+            resulting.requirements(request, body, naming, GeneratedRequirement)
+        )
+        result.append(GeneratedRequirement("read_only_select_bytes", body, "R23", ()))
+        return result
+    result.extend(_row_body_requirements(request, body, naming))
     return result
 
 
@@ -2584,6 +2702,12 @@ def join_requirements(request, unit, naming):
                 )
                 for field in item.producer.fields
             )
+        elif inline_body(item.producer):
+            # A capturing let executed LATERAL keeps its own bodies' obligations.
+            result.append(
+                GeneratedRequirement("lateral_input", item.original.ref, "R11", naming)
+            )
+            result.extend(_inline_requirements(request, item.producer))
     for item in unit.equalities:
         result.append(
             GeneratedRequirement(
@@ -2889,11 +3013,23 @@ def inline_values(body):
     """An inline let body's value roots in rendering order: its own columns,
     its inline predecessor, then its own predicate."""
     values = [column.value for column in body.columns if type(column) is RowValueColumn]
-    scan = body.scan
-    if type(scan) is RowStageUse and inline_body(scan.body):
-        values.extend(inline_values(scan.body))
+    inner = inline_input(body)
+    if inner is not None:
+        values.extend(inline_values(inner))
     if body.predicate is not None:
         values.append(body.predicate.value)
+    return tuple(values)
+
+
+def join_values(unit):
+    """A JOIN unit's value roots in rendering order: a LATERAL right input's
+    inline let, then the JOIN predicate."""
+    values = []
+    right = unit.inputs[1].producer
+    if inline_body(right):
+        values.extend(inline_values(right))
+    if unit.predicate is not None:
+        values.append(unit.predicate)
     return tuple(values)
 
 
@@ -2914,7 +3050,7 @@ def row_parameter_leaves(query):
     result = []
     for body in getattr(query, "units", query.bodies):
         if type(body) is joining.JoinBody:
-            values = [] if body.predicate is None else [body.predicate]
+            values = list(join_values(body))
         else:
             values = []
             for column in body.columns:
@@ -2980,8 +3116,7 @@ def row_value_roots(query):
     result = []
     for body in getattr(query, "units", query.bodies):
         if type(body) is joining.JoinBody:
-            if body.predicate is not None:
-                result.append(body.predicate)
+            result.extend(join_values(body))
             continue
         if type(body) is not RowBody:
             continue

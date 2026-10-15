@@ -61,6 +61,17 @@ query result:
                 "        where rhs.id == lhs.id\n        select:\n            id"
                 + unused.replace("    select:\n", "    where exists m\n    select:\n")
             )
+        elif retained == "lateral":
+            # The unselected request owner joins a capturing let LATERAL.
+            unused = (
+                "\n    let m:\n        capture lhs\n        from rhs\n"
+                "        where rhs.id == lhs.id\n        select:\n            id"
+                + unused.replace(
+                    "    select:\n",
+                    "    inner join m as x:\n        from lhs\n"
+                    "        on x.id == lhs.id\n    select:\n",
+                )
+            )
         source += "query unused:" + unused
     if not proved:
         source = source.replace("    limit 1\n", "")

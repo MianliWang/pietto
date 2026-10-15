@@ -1945,6 +1945,8 @@ class ProjectIRCaptureStage(StrEnum):
 
     INPUT = "input"
     JOINED = "joined"
+    LATERAL = "lateral"
+    """The row of the bindings left of the outer JOIN that reads the let."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1958,7 +1960,9 @@ class ProjectIRCaptureCheckpoint:
     """
 
     outer: ProjectIRQueryBlockEntry = field(repr=False, compare=False, hash=False)
-    read: ProjectIRExpressionBlockUse = field(repr=False, compare=False, hash=False)
+    read: ProjectIRExpressionBlockUse | ProjectIRJoinInputCorrespondence = field(
+        repr=False, compare=False, hash=False
+    )
     stage: ProjectIRCaptureStage
     output: ProjectIRQueryBlockInputRowOutput = field(
         repr=False, compare=False, hash=False
@@ -1966,13 +1970,30 @@ class ProjectIRCaptureCheckpoint:
     bindings: tuple[tuple[int, tuple[int, ...]], ...]
 
     def __post_init__(self) -> None:
-        if (
-            type(self.stage) is not ProjectIRCaptureStage
-            or self.read.consumer is not self.outer
-            or capture_checkpoint_row(self.outer)
-            != (self.stage, self.output, self.bindings)
+        read = self.read
+        if isinstance(read, ProjectIRJoinInputCorrespondence):
+            # A LATERAL read is the right input of one of the outer's JOINs.
+            expected = lateral_checkpoint_row(self.outer, read)
+        else:
+            expected = (
+                None
+                if read.consumer is not self.outer
+                else capture_checkpoint_row(self.outer)
+            )
+        if type(self.stage) is not ProjectIRCaptureStage or expected != (
+            self.stage,
+            self.output,
+            self.bindings,
         ):
             raise ValueError("Capture checkpoint must image its exact outer row.")
+
+    @property
+    def producer(self) -> ProjectDeclarationOccurrence:
+        """The capturing let this checkpoint's read executes."""
+        read = self.read
+        if isinstance(read, ProjectIRJoinInputCorrespondence):
+            return cast(ProjectDeclarationOccurrence, read.producer)
+        return read.producer.owner
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1994,7 +2015,7 @@ class ProjectIRCaptureUse:
             or type(self.checkpoint) is not ProjectIRCaptureCheckpoint
             or self.inner.owner is not self.capture.inner
             or self.checkpoint.outer.owner is not self.capture.outer
-            or self.checkpoint.read.producer is not self.inner
+            or self.checkpoint.producer is not self.inner.owner
             or dict(self.checkpoint.bindings).get(
                 self.capture.dependency.dependency_ordinal
             )
@@ -2023,8 +2044,73 @@ class ProjectIRCapturedField:
             raise ValueError("Captured field must read its exact outer row field.")
 
 
+def _lateral_reads(
+    entry: ProjectIRQueryBlockEntry,
+) -> tuple[ProjectIRJoinInputCorrespondence, ...]:
+    if type(entry) is not ProjectIRCompletedQueryBlockOutput or not entry.join_prefix:
+        return ()
+    return tuple(join.inputs[1] for join in entry.join_prefix.joins)
+
+
 def _row_field_name(output: ProjectIRQueryBlockInputRowOutput, position: int) -> str:
     return output.row_shape.fields[position].evidence.name
+
+
+def lateral_read(
+    entry: ProjectIRQueryBlockEntry, use: ProjectCaptureUse
+) -> ProjectIRJoinInputCorrespondence | None:
+    """The right input of the outer JOIN that reads one capturing let LATERAL."""
+
+    if type(entry) is not ProjectIRCompletedQueryBlockOutput or not entry.join_prefix:
+        return None
+    reads = tuple(
+        join.inputs[1]
+        for join in entry.join_prefix.joins
+        if join.inputs[1].producer is use.inner
+    )
+    return reads[0] if len(reads) == 1 else None
+
+
+def lateral_checkpoint_row(
+    entry: ProjectIRQueryBlockEntry, read: ProjectIRJoinInputCorrespondence
+) -> (
+    tuple[
+        ProjectIRCaptureStage,
+        ProjectIRQueryBlockInputRowOutput,
+        tuple[tuple[int, tuple[int, ...]], ...],
+    ]
+    | None
+):
+    """The row a LATERAL JOIN's captured let reads: the JOIN's own output row
+    restricted to the bindings left of it (fields stay ordered left then
+    right, so their positions are those of the left input row)."""
+
+    if type(entry) is not ProjectIRCompletedQueryBlockOutput or not entry.join_prefix:
+        return None
+    joins = entry.join_prefix.joins
+    found = tuple(k for k, join in enumerate(joins) if join.inputs[1] is read)
+    if len(found) != 1:
+        return None
+    k = found[0]
+    # Binding 0 is introduced by the first JOIN's left use, binding j + 1 by
+    # JOIN j's right use; the let's own fields are not part of the row.
+    introductions = {id(joins[0].inputs[0].use): 0}
+    introductions.update(
+        (id(join.inputs[1].use), j + 1) for j, join in enumerate(joins[:k])
+    )
+    output = joins[k].output
+    bindings: dict[int, list[int]] = {}
+    for position, item in enumerate(output.row_shape.fields):
+        binding = introductions.get(id(item.introduction_use))
+        if binding is not None:
+            bindings.setdefault(binding, []).append(position)
+        elif item.introduction_use is not read.use:
+            return None
+    return (
+        ProjectIRCaptureStage.LATERAL,
+        output,
+        tuple((binding, tuple(positions)) for binding, positions in bindings.items()),
+    )
 
 
 def capture_checkpoint_row(
@@ -2226,7 +2312,11 @@ class ProjectIRQueryBlockSnapshot:
                 or edge.inner is not entries.get(id(edge.capture.inner))
                 or edge.checkpoint.outer is not entries.get(id(edge.capture.outer))
                 or not any(
-                    edge.checkpoint.read is read for read in self.expression_uses
+                    edge.checkpoint.read is read
+                    for read in (
+                        *self.expression_uses,
+                        *_lateral_reads(edge.checkpoint.outer),
+                    )
                 )
                 or not any(
                     edge.capture is use
@@ -4903,23 +4993,31 @@ def _build_capture_uses(
     uses: list[ProjectIRCaptureUse] = []
     for use in completed.completion.capture_uses:
         inner, outer = by_owner.get(id(use.inner)), by_owner.get(id(use.outer))
-        read = capture_read(expression_uses, use)
+        reader: (
+            ProjectIRExpressionBlockUse | ProjectIRJoinInputCorrespondence | None
+        ) = capture_read(expression_uses, use)
+        if reader is None and outer is not None:
+            reader = lateral_read(outer, use)
         if (
             inner is None
             or outer is None
-            or read is None
+            or reader is None
             or isinstance(inner, ProjectIRQueryBlockTerminal)
             or isinstance(outer, ProjectIRQueryBlockTerminal)
         ):
             continue
-        checkpoint = checkpoints.get(id(read))
+        checkpoint = checkpoints.get(id(reader))
         if checkpoint is None:
-            row = capture_checkpoint_row(outer)
+            row = (
+                lateral_checkpoint_row(outer, reader)
+                if isinstance(reader, ProjectIRJoinInputCorrespondence)
+                else capture_checkpoint_row(outer)
+            )
             if row is None:
                 continue
             stage, output, bindings = row
-            checkpoint = checkpoints[id(read)] = ProjectIRCaptureCheckpoint(
-                outer=outer, read=read, stage=stage, output=output, bindings=bindings
+            checkpoint = checkpoints[id(reader)] = ProjectIRCaptureCheckpoint(
+                outer=outer, read=reader, stage=stage, output=output, bindings=bindings
             )
         fields = dict(checkpoint.bindings).get(use.dependency.dependency_ordinal)
         if fields is None:

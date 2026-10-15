@@ -871,3 +871,113 @@ def test_r2_refusals_keep_their_order_closure_group_key_then_block_read(tmp_path
         proposal.prepare_live_refinement(query, binding, inputs[:1])
     with pytest.raises(ValueError, match="^PUBLIC_R2_COMPUTED_GROUP_KEY$"):
         proposal.prepare_live_refinement(query, binding, inputs)
+
+
+@pytest.mark.parametrize("top_k", (False, True))
+def test_live_refinement_refuses_a_lateral_join_after_its_source_closure(
+    tmp_path, monkeypatch, top_k
+):
+    # Phase70 S12: a JOIN that reads a let with capture lines LATERAL has no
+    # proven row coordinates; R2 refuses it once the complete source closure,
+    # including the source read only inside the let, has been checked. A let
+    # ending in ORDER BY and LIMIT (a top-k per left row) is refused alike.
+    import socket
+
+    import _pietto_execution_api as api
+    from pietto import execution
+    from pietto._project import project_execution_postgres as pg
+    from pietto._project import project_job_workspace as private_workspace
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-lateral")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        "table lateral_items:\n    let later:\n        capture items\n"
+        "        from tags\n        where tags.id > items.id\n"
+        "        select:\n            tag_id = id\n"
+        + ("        order by:\n            id desc\n        limit 2\n" if top_k else "")
+        + "    from items\n"
+        "    cross join later as t:\n        from items\n"
+        "    select:\n        id = items.id\n        tag_id = t.tag_id\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="lateral_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    binding = bind_values(query._template, ())
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in binding.artifact.request.sources
+    )
+    assert [i.name for i in inputs] == ["items", "tags"]
+    with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])
+    with pytest.raises(ValueError, match="REFINEMENT_LATERAL_JOIN"):
+        proposal.prepare_live_refinement(query, binding, inputs)
+    if not workspace_probe.qualified(tmp_path):
+        return
+    workspace = execution.create_workspace(
+        Path(tmp_path) / "workspace", budget_bytes=private_workspace.MIN_BUDGET
+    )
+    before = sorted(
+        (p.relative_to(workspace.root), p.stat().st_size)
+        for p in Path(workspace.root).rglob("*")
+    )
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the driver")
+
+    for owner, name in ((pg, "_connect"), (pg, "drivers"), (socket.socket, "connect")):
+        monkeypatch.setattr(owner, name, forbidden)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.save_recoverable(
+            workspace,
+            query,
+            source_requirements=inputs,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=execution.PostgresAccess(
+                "127.0.0.1", 5432, "app", "reader", "x" * 24, "disable"
+            ),
+            premise=execution.PostgresDeploymentPremise(
+                schemas=("fixture", "pg_catalog")
+            ),
+            limits=execution.ExecutionLimits(),
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "REFINEMENT_LATERAL_JOIN",
+    )
+    assert refused.value.attempt is None and refused.value.outcome is None
+    assert (
+        sorted(
+            (p.relative_to(workspace.root), p.stat().st_size)
+            for p in Path(workspace.root).rglob("*")
+        )
+        == before
+    )

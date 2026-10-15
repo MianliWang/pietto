@@ -2984,7 +2984,7 @@ def _capture_environment(
     block = cast(BlockRelationDef, declaration.authored_block)
     body = cast(_DerivedRelation, declaration.definition)
     positions = dict(outer_row_bindings(block))
-    nulled = null_extended_bindings(block)
+    nulled = null_extended_bindings(block, let)
     rows: dict[str, tuple[ProjectRowSchema | None, bool, bool]] = {}
     for clause in let.captures:
         position = positions[clause.name]

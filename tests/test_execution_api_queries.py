@@ -3273,6 +3273,14 @@ NARROWED_CAPTURES = {
         + INNER_ON
         + "    select:\n        a = lhs.id\n        e = exists matched\n"
     ),
+    "lateral": (
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.id == lhs.key\n        select:\n            id\n"
+        "            k = lhs.key\n    from lhs\n"
+        + INNER_ON
+        + "    cross join m as x:\n        from lhs\n    select:\n"
+        "        a = lhs.id\n        b = x.k\n"
+    ),
 }
 
 
@@ -3733,4 +3741,330 @@ def test_a_capturing_let_over_a_forward_let_chain_binds_slots_in_text_order(
     assert arguments == (1, 2, 3)
     assert sql.index(b"$1") < sql.index(b"EXISTS (SELECT 1 FROM (SELECT ")
     assert sql.index(b"$2") < sql.index(b'AS "e0"') < sql.index(b"$3")
+    assert bound(run(loaded, values=(4, 5, 6))) == (sql, (4, 5, 6))
+
+
+# Phase70 S12: a JOIN reads a let with capture lines LATERAL; the let compiles
+# inline at that JOIN's right input, correlated to the JOIN's own left input.
+LATERAL_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table lateral_items:
+    let later_tags:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > items.id
+        select:
+            tag_id = id
+    from items
+    cross join later_tags as t:
+        from items
+    select:
+        id = items.id
+        tag_id = t.tag_id
+"""
+LATERAL_SQL = (
+    b'WITH "p0" ("c0", "c1", "c2") AS (SELECT "m0"."item_id" AS "c0", '
+    b'"m0"."item_label" AS "c1", "m1"."c0" AS "c2" FROM "fixture"."items" AS "m0" '
+    b'CROSS JOIN LATERAL (SELECT "t1"."c0" AS "c0" FROM (SELECT "s0"."item_id" '
+    b'AS "c0", "s0"."item_label" AS "c1" FROM "fixture"."tags" AS "s0" WHERE '
+    b'(("s0"."item_label" = "m0"."item_label") AND ("s0"."item_id" > '
+    b'"m0"."item_id"))) AS "t1") AS "m1") SELECT "t0"."c0" AS "id", '
+    b'"t0"."c2" AS "tag_id" FROM "p0" AS "t0"'
+)
+
+
+def _lateral_items(directory):
+    return execution.compile_query(
+        let_example(directory, LATERAL_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="lateral_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+
+
+def _lateral_records(description, targets):
+    """`description` with record values replaced (or the record dropped: None)."""
+    return dataclasses.replace(
+        description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    Record(r.address, targets[r.address]) if r.address in targets else r
+                    for r in records
+                    if targets.get(r.address, ()) is not None
+                ),
+            )
+            for name, records in description.members
+        ),
+    )
+
+
+def test_a_compiled_lateral_capture_names_the_join_left_ports(tmp_path):
+    query = _lateral_items(tmp_path)
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    (capture,) = [r for r in description.records if r.address.kind == "capture_use"]
+    right = records[capture.get("read")]
+    join = records[right.get("consumer")]
+    assert (right.address.kind, right.get("ordinal"), join.address.kind) == (
+        "use",
+        1,
+        "join",
+    )
+    (left,) = [
+        r
+        for r in description.records
+        if r.address.kind == "use"
+        and r.get("consumer") == join.address
+        and r.get("ordinal") == 0
+    ]
+    # The captured ports are the JOIN's left input ports, in field order.
+    assert capture.get("ordinal") == 0
+    assert [left.get("ports").index(p) for p in capture.get("ports")] == [0, 1]
+    reads = [
+        r
+        for r in description.records
+        if r.address.kind == "read" and r.get("role") == "capture"
+    ]
+    assert len(reads) == 2 and {r.get("use") for r in reads} == {left.address}
+    inline = records[right.get("producer")]
+    assert inline.address.kind == "row" and inline.get("layout")[-1] is None
+    assert inline.get("layout")[:2] == (None, ()) and inline.get("layout")[3] is False
+    assert sorted(
+        r.get("name") for r in records.values() if r.address.kind == "source"
+    ) == ["items", "tags"]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert loaded._template.artifact.rendered.sql == LATERAL_SQL
+    assert query._template.artifact.rendered.sql == LATERAL_SQL
+
+    inline_port = next(
+        r.address
+        for r in description.records
+        if r.address.kind == "port" and r.get("owner") == inline.address
+    )
+    first = capture.values
+    for forged in (
+        # A port outside the left use, the left use as the read, a missing
+        # capture record and an inline unit that claims a unit position.
+        _lateral_records(description, {capture.address: (*first[:2], (inline_port,))}),
+        _lateral_records(description, {capture.address: (left.address, *first[1:])}),
+        _lateral_records(description, {capture.address: None}),
+        _lateral_records(
+            description,
+            {inline.address: (*inline.values[:-1], (*inline.get("layout")[:-1], 0))},
+        ),
+    ):
+        with pytest.raises(CompiledError):
+            verify_description(forged)
+    # The ports in the other order describe another consistent capture; the
+    # export verifier re-derives it from the live statement and refuses it.
+    outcome, _ = emit_project(
+        let_example(tmp_path / "live", LATERAL_TAGS),
+        "main.pietto",
+        "table",
+        "lateral_items",
+        "postgres",
+        "contract.json",
+        POLICIES["bind-safe"],
+    )
+    live = decode(build_compiled(outcome.artifact).payload)
+    verify_export(live, outcome.artifact)
+    (live_capture,) = [r for r in live.records if r.address.kind == "capture_use"]
+    ident, label = live_capture.get("ports")
+    # The ports in the other order are no row binding of the left input.
+    forged = _lateral_records(
+        live, {live_capture.address: (*live_capture.values[:2], (label, ident))}
+    )
+    with pytest.raises(CompiledError, match="CAPTURE_PORTS"):
+        verify_description(forged)
+    # The two captured reads swapped to each other's field are a coherent
+    # description; the export verifier re-derives them from the live statement.
+    first_read, second_read = [
+        r
+        for r in live.records
+        if r.address.kind == "read" and r.get("role") == "capture"
+    ]
+    forged = _lateral_records(
+        live,
+        {
+            first_read.address: (second_read.get("port"), *first_read.values[1:]),
+            second_read.address: (first_read.get("port"), *second_read.values[1:]),
+        },
+    )
+    verify_description(forged)
+    with pytest.raises(CompiledError):
+        verify_export(forged, outcome.artifact)
+
+
+@pytest.mark.parametrize("top_k", (False, True))
+def test_each_route_prepares_a_lateral_join_with_its_inner_source(
+    tmp_path, unconnected, top_k
+):
+    # A let ending in ORDER BY and LIMIT (a top-k per left row) prepares alike.
+    order = "        order by:\n            id desc\n        limit 2\n" if top_k else ""
+    query = execution.compile_query(
+        let_example(
+            tmp_path,
+            LATERAL_TAGS.replace(
+                "            tag_id = id\n", "            tag_id = id\n" + order
+            ),
+        ),
+        module="main.pietto",
+        kind="table",
+        name="lateral_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert (b" LIMIT 2) AS " in query._template.artifact.rendered.sql) is top_k
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+        assert [
+            s.name for s in handle._owner.request.binding.artifact.request.sources
+        ] == ["items", "tags"]
+    import _pietto_sql_emission as probe
+
+    item = probe.join_witness(
+        "mysql",
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        + order
+        + "    from lhs\n    inner join m as m1:\n        from lhs\n        on true\n"
+        "    select:\n        a = lhs.id\n        b = m1.id\n",
+    )
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    mysql_query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    exported = execution.export_bundle(mysql_query)
+    loaded = execution.load_bundle(
+        exported.payload,
+        expected_pin=exported.pin,
+        accepted_producer=exported.producer,
+        accepted_compatibility=exported.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == exported.payload
+    handle = execution.execute(
+        mysql_query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+    )
+    assert handle.route == "mysql_rows" and handle.outcome.end == "NOT_STARTED"
+    assert [s.name for s in handle._owner.request.artifact.request.sources] == [
+        "phase66 lhs é",
+        "phase66 rhs é",
+    ]
+
+
+# An entry query with header parameters may read a table that joins a let with
+# capture lines LATERAL and reads another by exists: the lateral let's literal
+# binds first, then the exists let's, then the one parameter read twice as $3.
+PARAMETER_OVER_LATERAL = """
+source tags: Item is postgres.table("fixture.tags")
+
+table later_tags:
+    let later:
+        capture items
+        from tags
+        where tags.id > items.id and tags.id > 6
+        select:
+            later_id = id
+    let same_label:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > 5
+        select:
+            tag_id = id
+    from items
+    cross join later as l:
+        from items
+    where exists same_label
+    select:
+        id = items.id
+        later_id = l.later_id
+
+query picked_later(cut: Int not null):
+    from later_tags
+    where id > cut and later_id != cut
+    select:
+        id
+"""
+
+
+def test_a_parameter_after_a_lateral_let_binds_in_text_order(tmp_path, unconnected):
+    query = execution.compile_query(
+        let_example(tmp_path, PARAMETER_OVER_LATERAL),
+        module="main.pietto",
+        kind="query",
+        name="picked_later",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+    assert query.parameters == (("cut", "Int", False),)
+    sql, arguments = bound(run(query, parameters={"cut": 7}))
+    assert arguments == (6, 5, 7)
+    assert sql.count(b"$3") == 2
+    assert sql.index(b"$1") < sql.index(b'AS "m1"') < sql.index(b"$2")
+    assert sql.index(b"$2") < sql.index(b'AS "e0"') < sql.index(b"$3")
+
+
+# Lets are reused and read forward (Phase70 S05): the LATERAL right input reads
+# a let written after it, which reads a third let the body also reads.
+LATERAL_CHAIN = CAPTURE_CHAIN.replace("chained_items", "lateral_chain").replace(
+    "    where exists same_label and exists base and items.id > 3\n",
+    "    cross join same_label as t:\n        from items\n"
+    "    where exists base and items.id > 3\n",
+)
+
+
+def test_a_lateral_let_over_a_forward_let_chain_binds_slots_in_text_order(
+    tmp_path, unconnected
+):
+    query = execution.compile_query(
+        let_example(tmp_path, LATERAL_CHAIN),
+        module="main.pietto",
+        kind="table",
+        name="lateral_chain",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+    bundle = execution.export_bundle(query)
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    sql, arguments = bound(run(query))
+    # $1 is the forward let's literal, $2 the lateral let's, $3 the body's own.
+    assert arguments == (1, 2, 3)
+    assert sql.index(b"$1") < sql.index(b"CROSS JOIN LATERAL (")
+    assert sql.index(b"$2") < sql.index(b'AS "m1"') < sql.index(b"$3")
     assert bound(run(loaded, values=(4, 5, 6))) == (sql, (4, 5, 6))

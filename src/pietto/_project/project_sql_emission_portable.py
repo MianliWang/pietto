@@ -514,6 +514,9 @@ class _Export:
         return getattr(entry, name)
 
     def fields(self, kind: str, obj: Any) -> dict[str, Any]:
+        if kind == "join_input" and sql_ast.inline_body(obj.producer):
+            # A LATERAL input (Phase70 S12) is outside this schema.
+            raise _Outside
         derived = schema.DERIVED.get(kind, frozenset())
         return {
             name: _encode(

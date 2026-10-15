@@ -303,10 +303,10 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
 relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
-`in`/`not in` read, a let with `capture` lines read by `exists` and the header
-of an entry query whose FROM reads a relation and that declares no relation let
-are available, as described after the example; every other form is not
-available yet:
+`in`/`not in` read, a let with `capture` lines read by `exists` or joined
+LATERAL by `cross join` or `inner join` and the header of an entry query whose
+FROM reads a relation and that declares no relation let are available, as
+described after the example; every other form is not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -560,9 +560,11 @@ FROM input of `customers_with_recent_orders`.
 Unlike other lets, a let with capture lines is read exactly once, by `exists
 name` or `not exists name` written in the WHERE, or in the SELECT of an
 ungrouped declaration body (the positions of any EXISTS read, PIE-S2349
-elsewhere), and every outer row, duplicates included, gets its own result.
-Its body is a FROM relation with an
-optional WHERE and an ungrouped, window-free SELECT. Project SQL emits it inside
+elsewhere) or as the target of a JOIN of that body (LATERAL, below), and every
+outer row, duplicates included, gets its own result. Its body is a FROM
+relation with an
+optional WHERE and an ungrouped, window-free SELECT; a let joined LATERAL may
+also end in ORDER BY and LIMIT (below). Project SQL emits it inside
 that read as nested derived tables, `EXISTS (SELECT 1 FROM (SELECT ... FROM
 (SELECT ... WHERE ...) AS t<n>) AS e<n>)`, whose correlated references name the
 reading SELECT's own relation alias and column; a correlated block is never a
@@ -581,15 +583,90 @@ read the renamed let, for example `let inner: from orders` and then
 - PIE-S2369 at a captured field the captured input does not have, and at each
   field read of a captured input whose columns are not known before completion;
 - PIE-S2370 at the let when its body has a JOIN, row `let:`, GROUP BY, an
-  aggregate in WHERE or SELECT, a window, QUALIFY, SATISFYING, ORDER BY, LIMIT
-  or DISTINCT or is a set operation or VALUES body, and at every read of the
-  let other than its first `exists` in its declaration body, in source order:
-  a later `exists`, a FROM, JOIN target or set operand, a scalar or IN read,
-  or any read written in another let.
+  aggregate in WHERE or SELECT, a window, QUALIFY, SATISFYING or DISTINCT, is
+  a set operation or VALUES body, or has ORDER BY or LIMIT without being joined
+  LATERAL or an ORDER BY that reads a captured field or an aggregate, and at
+  every read of the let other than its first `exists` or JOIN in its
+  declaration body, in source order: a later `exists` or JOIN, a FROM or set
+  operand, a scalar or IN read, or any read written in another let, a JOIN of
+  another let included;
+- PIE-S2371 at a capture line of a let joined LATERAL whose input is not left
+  of that JOIN: the let's own JOIN binding or a later JOIN's binding;
+- PIE-S2372 at a RIGHT, FULL, SEMI, ANTI or LEFT JOIN whose target is a let
+  with capture lines.
 
 All but PIE-S2369 are reported with the file's pre-admission diagnostics
 (below), in one (path, line, column, code) order with them and before the
 file's query header checks; semantic analysis then does not run.
+
+Joining a let with capture lines is LATERAL: no new keyword is needed. Its
+capture lines then name the FROM input or the binding of a JOIN written before
+the JOIN that reads the let, and every row of those bindings, duplicates
+included, gets its own rows of the let:
+
+```pietto
+query customers_with_their_orders:
+    let their_orders:
+        capture customers
+        from orders
+        where orders.customer_id == customers.id
+        select:
+            order_id = id
+    from customers
+    cross join their_orders as o:
+        from customers
+    select:
+        id
+        order_id = o.order_id
+```
+
+`cross join` pairs each left row with the let's rows for that row; `inner join
+... on <condition>` keeps only the pairs for which the condition is true, and a
+pure LATERAL INNER JOIN writes `on true`. The JOIN's output, its later
+JOINs and its tail are those of any other JOIN. A captured field of a let
+joined LATERAL reads the row those earlier inputs built, so it is nullable when
+its field is or when an earlier LEFT, RIGHT or FULL JOIN may null-extend its
+binding; a later JOIN never changes it. Project SQL emits the let as that
+JOIN's own derived relation, `CROSS JOIN LATERAL (SELECT ... FROM (SELECT ...
+WHERE ...) AS t<n>) AS m<n>` or `INNER JOIN LATERAL (...) AS m<n> ON ...`,
+whose correlated references name the JOIN's left input alias and column; the
+let is never a CTE. A LEFT, RIGHT, FULL, SEMI or ANTI JOIN of such a let is
+not available yet (PIE-S2372).
+
+The let body is limited as for an `exists` read, except that a let joined
+LATERAL may end in `order by` and `limit`, a top-k per left row:
+
+```pietto
+query customers_with_their_last_orders:
+    let last_orders:
+        capture customers
+        from orders
+        where orders.customer_id == customers.id
+        select:
+            order_id = id
+        order by:
+            order_day desc
+            id desc
+        limit 3
+    from customers
+    cross join last_orders as o:
+        from customers
+    select:
+        id
+        order_id = o.order_id
+```
+
+Each left row, duplicates included, gets at most that many of the let's rows
+for it, the first ones in that order. The ORDER BY and LIMIT follow the rules of
+any relation result: the limit is static, an ORDER BY key names a field of the
+let's input (a computed key is refused at emission with PIE-B1003
+`order_expression_requires_established_port`), and the database chooses which
+of several rows that tie on every key fill the last places. An ORDER BY that
+reads a captured field or an aggregate is PIE-S2370 at the let. Project SQL
+keeps both inside that JOIN's derived relation as one more derived table over
+the let's SELECT, which carries each ORDER BY key as an extra column:
+`LATERAL (SELECT ... FROM (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS
+t<n> ORDER BY ... LIMIT <n>) AS m<n>`.
 
 In EXPLICIT_MODULES the `let NAME:` line, a `capture` line, a typed VALUES
 body and an `exists`, `scalar` or `in` read inside a relation body are

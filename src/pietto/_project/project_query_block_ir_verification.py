@@ -1016,6 +1016,54 @@ def _capture_outer_row(entry):
     return ProjectIRCaptureStage.JOINED, output, bindings
 
 
+def _lateral_outer_row(entry, use):
+    """The LATERAL read and row of one capture, re-derived here.
+
+    The let is the right input of the outer JOIN written at the let's single
+    JOIN read; its row is that JOIN's output restricted to the bindings left
+    of it, positioned as the final joined namespace positions them.
+    """
+    if (
+        type(entry) is not ProjectIRCompletedQueryBlockOutput
+        or entry.join_prefix is None
+        or type(entry.semantic_entry.root) is not ProjectConcreteJoinedQualify
+    ):
+        return None
+    let = cast(LetRelationDef, use.inner.authored_block)
+    clauses = cast(SelectBody, cast(BlockRelationDef, use.outer.authored_block).body)
+    joins = entry.join_prefix.joins
+    found = tuple(
+        k
+        for k, join in enumerate(joins)
+        if join.inputs[1].producer is use.inner
+        and k < len(clauses.join_clauses)
+        and join.condition.use.clause is clauses.join_clauses[k]
+        and clauses.join_clauses[k].target_relation_name == let.name
+    )
+    if len(found) != 1:
+        return None
+    k = found[0]
+    output = joins[k].output
+    fields = output.row_shape.fields
+    root = entry.semantic_entry.root
+    environment = (
+        root.window_stage.input_aggregation.input_filter.joined_semantics
+    ).namespaces.binding_environment
+    bindings: dict[int, tuple[int, ...]] = {}
+    for visible in environment.bindings:
+        binding = visible.binding.identity.binding_position
+        if binding > k:
+            continue
+        positions = tuple(item.position for item in visible.fields)
+        if any(
+            not 0 <= i < len(fields) or fields[i].evidence is not item.evidence
+            for i, item in zip(positions, visible.fields, strict=True)
+        ):
+            return None
+        bindings[binding] = positions
+    return (joins[k].inputs[1],), (ProjectIRCaptureStage.LATERAL, output, bindings)
+
+
 def _verify_capture_uses(
     root: ProjectIRQueryBlockSnapshot,
     issues: list[ProjectIRQueryBlockVerificationIssue],
@@ -1074,14 +1122,18 @@ def _verify_capture_uses(
             for edge in root.expression_uses
             if edge.use.consumer is use.outer and edge.use.target is use.inner
         )
-        if (
+        lateral = None if reads else _lateral_outer_row(outer, use)
+        if lateral is not None:
+            reads, row = lateral
+        elif (
             len(reads) != 1
             or isinstance(inner, ProjectIRQueryBlockTerminal)
             or isinstance(outer, ProjectIRQueryBlockTerminal)
         ):
             continue
-        row = _capture_outer_row(outer)
-        if row is None:
+        else:
+            row = _capture_outer_row(outer)
+        if row is None or isinstance(inner, ProjectIRQueryBlockTerminal):
             continue
         stage, output, bindings = row
         fields = bindings.get(use.dependency.dependency_ordinal)
@@ -1097,7 +1149,9 @@ def _verify_capture_uses(
         checkpoint = edge.checkpoint
         shared = checkpoints.setdefault(id(read), checkpoint)
         outer_definition = cast(BlockRelationDef, outer.owner.authored_block)
-        nulled = null_extended_bindings(outer_definition)
+        nulled = null_extended_bindings(
+            outer_definition, cast(LetRelationDef, use.inner.authored_block)
+        )
         valid = valid and (
             edge.capture is use
             and edge.inner is inner
@@ -1105,8 +1159,11 @@ def _verify_capture_uses(
             and checkpoint.outer is outer
             and checkpoint.read is read
             and checkpoint.stage is stage
-            and (stage is ProjectIRCaptureStage.JOINED)
-            is bool(cast(SelectBody, outer_definition.body).join_clauses)
+            and (
+                stage is ProjectIRCaptureStage.LATERAL
+                or (stage is ProjectIRCaptureStage.JOINED)
+                is bool(cast(SelectBody, outer_definition.body).join_clauses)
+            )
             and checkpoint.output is output
             and dict(checkpoint.bindings) == bindings
             and edge.fields == fields
@@ -1114,7 +1171,7 @@ def _verify_capture_uses(
                 not output.row_shape.fields[i].nulling_joins
                 or use.dependency.dependency_ordinal in nulled
                 for i in fields
-                if stage is ProjectIRCaptureStage.JOINED
+                if stage is not ProjectIRCaptureStage.INPUT
             )
         )
         environment = facts[id(use.inner)].captured_value_types

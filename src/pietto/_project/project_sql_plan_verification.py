@@ -844,6 +844,7 @@ def _join_structure(plan) -> bool:
     }
     by_image = {}
     ports_by_ref = {p.ref: p for p in plan.join_ports}
+    lateral: list[object] = []
     joins_position = input_position = port_position = equality_position = (
         tail_position
     ) = 0
@@ -934,6 +935,23 @@ def _join_structure(plan) -> bool:
                     ):
                         return False
                 match_ports.extend(expected_ports)
+            # A right input executing a capturing let reads this JOIN's left
+            # input ports (LATERAL); its records are completed here only.
+            for capture in plan.captures:
+                if capture.edge.checkpoint.read is not image.inputs[1]:
+                    continue
+                if (
+                    capture.read is not local_inputs[1].ref
+                    or capture.block is not value.ref
+                    or capture.outer is not definition.ref
+                    or capture.ports
+                    != _lateral_capture_ports(
+                        capture.edge,
+                        tuple(ports_by_ref[p] for p in local_inputs[0].ports),
+                    )
+                ):
+                    return False
+                lateral.append(capture)
             matches = joining.base_matches(image)
             provided_matches = plan.relationship_matches[
                 equality_position : equality_position + len(matches)
@@ -1088,7 +1106,33 @@ def _join_structure(plan) -> bool:
         len(plan.join_tails),
     ):
         return False
+    if {id(c) for c in lateral} != {
+        id(c)
+        for c in plan.captures
+        if c.edge.checkpoint.stage is ProjectIRCaptureStage.LATERAL
+    } or len(lateral) != len({id(c) for c in lateral}):
+        return False
     return _single_matches(plan)
+
+
+def _lateral_capture_ports(edge, left) -> tuple | None:
+    """A LATERAL JOIN's own image of one capture's left input MATCH ports."""
+    if edge.checkpoint.stage is not ProjectIRCaptureStage.LATERAL:
+        return None
+    fields = edge.checkpoint.output.row_shape.fields
+    result = []
+    for position in edge.fields:
+        if not 0 <= position < len(left) or not 0 <= position < len(fields):
+            return None
+        port = left[position]
+        if (
+            port.kind is not joining.ProjectSQLJoinPortKind.MATCH
+            or port.position != position
+            or port.field.evidence is not fields[position].evidence
+        ):
+            return None
+        result.append(port.ref)
+    return tuple(result)
 
 
 def _single_matches(plan) -> bool:
@@ -3240,7 +3284,11 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         id(u) for u in read_uses
     } != {id(u) for u in plan.bindings.expression_block_uses}:
         return False
-    captures = getattr(plan, "captures", ())
+    captures = tuple(
+        c
+        for c in getattr(plan, "captures", ())
+        if c.edge.checkpoint.stage is not ProjectIRCaptureStage.LATERAL
+    )
     if len(read_captures) != len(captures) or {id(c) for c in read_captures} != {
         id(c) for c in captures
     }:

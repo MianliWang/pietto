@@ -523,8 +523,14 @@ def build_result_body(
     index,
     final,
     symbol,
+    inline=False,
 ):
-    """Realize one definition's result boundaries as its terminal SELECT."""
+    """Realize one definition's result boundaries as its terminal SELECT.
+
+    ``inline``: the definition is a let with capture lines; its projection and
+    this body are unnamed derived relations inside the read of the let, never
+    CTEs.
+    """
     from pietto._project.project_sql_emission_ast import RowValueColumn
 
     plan = request.plan
@@ -553,7 +559,7 @@ def build_result_body(
         for column, port in zip(projection.columns, carried, strict=True)
     ):
         return problem("PIE-B1001", "result_projection_port_drift", first.ref)
-    if projection.final or projection.symbol is None:
+    if projection.final or (projection.symbol is None) is not inline:
         return problem("PIE-B1001", "result_projection_not_a_closed_stage", first.ref)
     origin: dict[Any, Any] = {}
     for port, column in zip(carried, projection.columns, strict=True):
@@ -821,9 +827,9 @@ def build_result_body(
         order,
         limit,
         final,
-        None if final else symbol(index, first.ref, f"p{index}"),
+        None if final or inline else symbol(index, first.ref, f"p{index}"),
         ()
-        if final
+        if final or inline
         else tuple(symbol(i, port.ref, f"c{i}") for i, port in enumerate(carried)),
     )
     return body, None
@@ -934,6 +940,7 @@ def build_compiled_result_body(
     request,
     definition,
     record,
+    unit_index,
     producer,
     columns,
     scan_symbol,
@@ -941,7 +948,8 @@ def build_compiled_result_body(
     cte_columns,
     order_reads,
 ):
-    """Use the original result carriers after resolved compiled admission."""
+    """Use the original result carriers after resolved compiled admission;
+    ``unit_index`` is the unit position, or the let's block count when inline."""
     from pietto._project.project_compiled_schema import CompiledError, MAX_RECORDS
     from pietto._project.project_query_block_ir import CompiledIRReference
     from pietto.semantic.relation_limits import valid_resolved_limit
@@ -1064,7 +1072,7 @@ def build_compiled_result_body(
     body = RowResultBody(
         definition,
         tuple(boundaries),
-        record.get("layout")[-1],
+        unit_index,
         scan,
         tuple(converted),
         tuple(c.column for c in converted),

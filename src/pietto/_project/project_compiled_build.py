@@ -454,15 +454,11 @@ class _Export:
         if outer is None or type(outer) is not sql.RowBody:
             raise CompiledError("COMPILED_EXPORT_CAPTURE")
         producer = self.producer(outer.scan)
-        chain = [value.target.producer]
-        while type(chain[-1].scan) is sql.RowStageUse and sql.inline_body(
-            chain[-1].scan.body
-        ):
-            chain.append(chain[-1].scan.body)
         previous = self.capture_context
         self.capture_context = (producer, use)
         try:
-            for body in reversed(chain):
+            # Innermost first; ORDER BY and LIMIT end it in its result body.
+            for body in sql.inline_chain(value.target.producer):
                 self.ordinary_unit(body, {}, None)
                 self.requirement_unit_anchors(body)
         finally:
@@ -483,6 +479,43 @@ class _Export:
             self.anchor(
                 capture.ref,
                 self.add("capture_use", block_use, capture.use.ordinal, tuple(ports)),
+            )
+
+    def lateral_let(self, unit, item, uses):
+        """A capturing let a JOIN's right input executes LATERAL: its bodies
+        are exported before that input's use, over the JOIN's left input."""
+        left = unit.inputs[0]
+        if item.ordinal != 1 or len(uses) != 1:
+            raise CompiledError("COMPILED_EXPORT_CAPTURE")
+        previous = self.capture_context
+        self.capture_context = (left.producer, uses[0])
+        try:
+            # Innermost first; ORDER BY and LIMIT end it in its result body.
+            for body in sql.inline_chain(item.producer):
+                self.ordinary_unit(body, {}, None)
+                self.requirement_unit_anchors(body)
+        finally:
+            self.capture_context = previous
+
+    def lateral_captures(self, unit, uses):
+        """One ``capture_use`` per capture line, read by the right input's use;
+        its ports are the left input producer's ports of the captured fields."""
+        left, right = unit.inputs
+        captures = tuple(
+            c for c in self.request.plan.captures if c.read is right.original.ref
+        )
+        if not captures:
+            raise CompiledError("COMPILED_EXPORT_CAPTURE")
+        for capture in captures:
+            ports = []
+            for reference in capture.ports:
+                positions = tuple(i for i, p in enumerate(left.ports) if p is reference)
+                if len(positions) != 1:
+                    raise CompiledError("COMPILED_EXPORT_CAPTURE")
+                ports.append(self.port_of(left.columns[positions[0]], left.producer))
+            self.anchor(
+                capture.ref,
+                self.add("capture_use", uses[1], capture.use.ordinal, tuple(ports)),
             )
 
     def scalar_value(self, value, producer, use, join_inputs=None):
@@ -735,6 +768,11 @@ class _Export:
         uses, aliases, contexts = [], [], []
         for item in unit.inputs:
             producer = item.producer
+            if sql.inline_body(producer):
+                self.lateral_let(unit, item, uses)
+                # The JOIN record follows the inline let it reads, so every
+                # relation record follows its producers.
+                self.records[address] = self.records.pop(address)
             use = self.add(
                 "use",
                 address,
@@ -746,6 +784,8 @@ class _Export:
             self.input_refs[id(item.original.ref)] = use
             aliases.append(item.symbol.name)
             contexts.append((item.symbol, producer, use))
+        if sql.inline_body(unit.inputs[1].producer):
+            self.lateral_captures(unit, uses)
         equalities = []
         for item in unit.equalities:
             left = self.read(item.left, unit.inputs[0].producer, uses[0])
@@ -1865,9 +1905,12 @@ class _LogicalExport(_Export):
         producers = tuple(
             self.references[i.predecessor]
             if i.predecessor is not None
-            else self.terminals[i.producer]
+            else self.terminals.get(i.producer)
             for i in original_inputs
         )
+        if None in producers:
+            # A capturing let read LATERAL is not a retained input yet.
+            raise CompiledError("COMPILED_RETAINED_CAPTURE")
         uses = self.inputs(address, producers)
         for original, use in zip(original_inputs, uses, strict=True):
             self.input_refs[id(original.ref)] = use

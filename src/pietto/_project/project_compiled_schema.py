@@ -611,7 +611,8 @@ def unit_position(record):
 
 
 def inline_units(records, block_use):
-    """The inline let units one expression block use renders, outermost first."""
+    """The inline let units one capturing read renders, outermost first: an
+    expression block use, or the use of a JOIN's right input read LATERAL."""
     chain, current = [], records[block_use].get("producer")
     while "layout" in FIELDS[current.kind] and unit_position(records[current]) is None:
         producers = tuple(

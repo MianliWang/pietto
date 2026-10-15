@@ -1299,6 +1299,32 @@ def capture_stage_ports(
     return tuple(found)
 
 
+def lateral_capture_ports(
+    edge: ProjectIRCaptureUse, left: tuple[joining.ProjectSQLJoinPort, ...]
+) -> tuple[ProjectSQLPlanRef, ...] | None:
+    """A LATERAL JOIN's left input MATCH ports of one capture's fields.
+
+    The checkpoint row is the JOIN's own output, whose left fields keep the
+    left input's positions.
+    """
+    fields = edge.checkpoint.output.row_shape.fields
+    if edge.checkpoint.stage is not ProjectIRCaptureStage.LATERAL:
+        return None
+    found: list[ProjectSQLPlanRef] = []
+    for position in edge.fields:
+        if not 0 <= position < len(left):
+            return None
+        port = left[position]
+        if (
+            port.kind is not joining.ProjectSQLJoinPortKind.MATCH
+            or port.position != position
+            or port.field.evidence is not fields[position].evidence
+        ):
+            return None
+        found.append(port.ref)
+    return tuple(found)
+
+
 class ProjectSQLSymbolNamespace(StrEnum):
     RELATION_USE = "relation_use"
     FIELD_PORT = "field_port"
@@ -2871,6 +2897,27 @@ def build_project_sql_plan(
                 )
                 join_inputs.append(value)
                 input_values.append(value)
+            # A right input that executes a capturing let completes its capture
+            # records with this JOIN's left input ports (LATERAL).
+            for edge in capture_edges:
+                if edge.checkpoint.read is not image.inputs[1]:
+                    continue
+                found = lateral_capture_ports(
+                    edge, tuple(join_ports_by_ref[p] for p in input_values[0].ports)
+                )
+                if found is None:
+                    raise ValueError("LATERAL capture lacks its left input ports.")
+                captures.append(
+                    ProjectSQLCapture(
+                        ref=capture_refs[id(edge)],
+                        inner=definitions_by_owner[id(edge.capture.inner)].ref,
+                        outer=definitions_by_owner[id(edge.capture.outer)].ref,
+                        read=input_values[1].ref,
+                        block=join_ref,
+                        ports=found,
+                        edge=edge,
+                    )
+                )
             context = joining.ProjectSQLMatchContext(
                 join=join_ref,
                 ports=tuple(matching_ports),

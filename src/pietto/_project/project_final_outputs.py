@@ -200,6 +200,7 @@ from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
+    CapturedFieldExpr,
     DistinctClause,
     SetRelationDef,
     ValuesRelationDef,
@@ -3371,6 +3372,7 @@ def _analyze_no_join_scalar(
     let_scope: ProjectRelationLetScopeFacts,
     expression: Expression,
     read_types: Mapping[Expression, ValueType] | None = None,
+    captures: Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None = None,
 ) -> ProjectNoJoinScalarExpression:
     definition = _derived_definition(owner)
     value_types = scalar_read_types_within(expression, read_types)
@@ -3385,6 +3387,7 @@ def _analyze_no_join_scalar(
         bare_value_types=let_scope.value_types,
         bare_value_expressions=let_scope.binding_expressions,
         relation_columns=read_types,
+        captured_value_types=captures,
     )
     retained_diagnostics = tuple(diagnostics)
     status = (
@@ -3411,6 +3414,7 @@ def _no_join_where(
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
     read_types: Mapping[Expression, ValueType] | None = None,
+    captures: Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None = None,
 ) -> ProjectConcreteNoJoinWhere | ProjectNoJoinScalarExpression:
     definition = _derived_definition(owner)
     clause = definition.where_clause
@@ -3425,6 +3429,7 @@ def _no_join_where(
         let_scope=let_scope,
         expression=clause.expression,
         read_types=read_types,
+        captures=captures,
     )
     diagnostics = list(analysis.diagnostics)
     if contains_semantic_aggregate(clause.expression):
@@ -4257,6 +4262,7 @@ def _no_join_final_fields(
                 let_scope=let_scope,
                 expression=item.expression,
                 read_types=_semantic_facts(completion, owner).scalar_read_types,
+                captures=_semantic_facts(completion, owner).captured_value_types,
             )
             if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
                 return None, analysis, analysis.diagnostics
@@ -5303,6 +5309,7 @@ def _complete_no_join_output(
         input_schema=input_schema,
         let_scope=let_scope,
         read_types=semantic.scalar_read_types,
+        captures=semantic.captured_value_types,
     )
     if type(where) is ProjectNoJoinScalarExpression:
         return _no_join_terminal(
@@ -5332,6 +5339,7 @@ def _complete_no_join_output(
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
             read_types=semantic.scalar_read_types,
+            captured_value_types=semantic.captured_value_types,
         )
         base_state = _project_relation_row_schema_state_from_result(
             schema_result,

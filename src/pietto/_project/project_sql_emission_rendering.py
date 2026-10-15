@@ -382,7 +382,7 @@ class _Writer:
             # A capturing let is the derived relation of its own read.
             producer = target.producer.block.ref
             self.emit("(", "syntax", "inline_open", producer)
-            _row_select(self, target.producer)
+            _unit_select(self, target.producer)
             self.emit(")", "syntax", "inline_close", producer)
         else:
             producer = target.producer.block.ref
@@ -1024,8 +1024,15 @@ def _result_select(w: _Writer, body) -> None:
         w.identifier(column.read.name, "result_carry_column", column.read.terminal)
         w.emit(" AS ", "syntax", "alias", column.export.ref)
         w.identifier(column.label, "label", column.export.ref)
-    w.emit(" FROM ", "syntax", "from", scan.body.block.ref)
-    w.identifier(scan.body.symbol.name, "stage_reference", scan.body.block.ref)
+    reference = scan.body.block.ref
+    w.emit(" FROM ", "syntax", "from", reference)
+    if inline_body(scan.body):
+        # A capturing let's projection is the derived relation it orders.
+        w.emit("(", "syntax", "inline_open", reference)
+        _row_select(w, scan.body)
+        w.emit(")", "syntax", "inline_close", reference)
+    else:
+        w.identifier(scan.body.symbol.name, "stage_reference", reference)
     w.emit(" AS ", "syntax", "alias", scan.boundary.ref)
     w.identifier(alias, "result_scope", scan.boundary.ref)
     order = body.order
@@ -1217,7 +1224,8 @@ def render_row_sql(query: SQLRowQuery | CompiledSQLQuery) -> RenderedSQL:
 
 
 def _join_relation(w: _Writer, item) -> None:
-    """One JOIN input relation reference, then its generated capture-free alias."""
+    """One JOIN input relation reference, then its generated capture-free alias;
+    a capturing let is its own LATERAL derived relation."""
     reference = item.original.ref
     producer = item.producer
     if type(producer) is BoundSource:
@@ -1225,6 +1233,10 @@ def _join_relation(w: _Writer, item) -> None:
         w.identifier(producer.namespace, "join_namespace", relation)
         w.emit(".", "syntax", "join_qualifier", relation)
         w.identifier(producer.name, "join_relation", relation)
+    elif inline_body(producer):
+        w.emit("LATERAL (", "syntax", "lateral_open", reference)
+        _unit_select(w, producer)
+        w.emit(")", "syntax", "lateral_close", reference)
     else:
         w.identifier(producer.symbol.name, "join_reference", reference)
     w.emit(" AS ", "syntax", "join_alias", reference)

@@ -404,17 +404,41 @@ def emit_compiled(root, values, named=None):
         and r.address in active
         and r.get("layout")[-1] is not None
     )
-    # An inline let's units have no unit position; they are built at their read.
+    # An inline let's units have no unit position; they are built at their read
+    # (the let's ORDER BY and LIMIT end it in its result unit).
     inline_units = {
         r.address
         for r in records.values()
-        if r.address.kind == "row" and r.get("layout")[-1] is None
+        if r.address.kind in ("row", "result") and r.get("layout")[-1] is None
     }
     # The reading body (use, producer, scan alias) of each body being built;
     # an inline let's captured reads name the innermost one outside it.
     scopes: list[tuple] = []
     captures: list[tuple] = []
     inline_bodies: dict = {}
+
+    def lateral(producer_address, scope):
+        """Build a LATERAL right input's inline let, innermost first."""
+        chain = [producer_address]
+        while True:
+            inputs = tuple(
+                r.get("producer")
+                for r in records.values()
+                if r.address.kind == "use" and r.get("consumer") == chain[-1]
+            )
+            if len(inputs) != 1:
+                raise CompiledError("COMPILED_INLINE_USE")
+            if inputs[0] not in inline_units:
+                break
+            chain.append(inputs[0])
+        captures.append(scope)
+        try:
+            for position, unit_address in enumerate(reversed(chain)):
+                if unit_address in inline_bodies:
+                    raise CompiledError("COMPILED_INLINE_REUSE")
+                build(position, records[unit_address], inline=True)
+        finally:
+            captures.pop()
 
     def build(index, record, inline=False):
         if record.address.kind == "join":
@@ -428,13 +452,25 @@ def emit_compiled(root, values, named=None):
                 symbol = ast.SQLSymbol(
                     ordinal, refs[use_address], record.get("layout")[2][ordinal]
                 )
+                if producer_address in inline_units:
+                    # A capturing let executed LATERAL by the right input reads
+                    # the left input's row under the left alias; its capture
+                    # records are read by this right input's use.
+                    left = record.get("inputs")[0]
+                    if ordinal != 1 or left not in contexts:
+                        raise CompiledError("COMPILED_LATERAL_INPUT")
+                    lateral(producer_address, (left, *contexts[left][:2], use_address))
                 reads = tuple(
                     replace(c, scope=symbol) for c in columns_by_ref[producer_address]
                 )
                 source = source_by_ref.get(producer_address)
                 images.append(
                     (
-                        source if source is not None else bodies[producer_address],
+                        source
+                        if source is not None
+                        else inline_bodies[producer_address]
+                        if producer_address in inline_units
+                        else bodies[producer_address],
                         refs[producer_address] if source is not None else None,
                         symbol,
                         reads,
@@ -679,7 +715,8 @@ def emit_compiled(root, values, named=None):
                 build_compiled_result_body,
             )
 
-            if producer not in bodies:
+            produced = inline_bodies if inline else bodies
+            if producer not in produced:
                 raise CompiledError("COMPILED_RESULT_PRODUCER")
             order_reads = tuple(
                 read_column(a, use, producer, alias) for a, _ in record.get("ordering")
@@ -688,7 +725,8 @@ def emit_compiled(root, values, named=None):
                 request=request,
                 definition=definition,
                 record=record,
-                producer=bodies[producer],
+                unit_index=index,
+                producer=produced[producer],
                 columns=tuple(columns),
                 scan_symbol=scan_symbol,
                 symbol=symbol,

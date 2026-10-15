@@ -2426,8 +2426,26 @@ class _BlockScope:
 
 
 def _inline_body(unit) -> bool:
-    """An inline let body: a stage body with no unit name that is not final."""
-    return type(unit) is RowBody and unit.symbol is None and not unit.final
+    """An inline let body: a stage or result body with no unit name that is
+    not final (a capturing let's ORDER BY and LIMIT are its result body)."""
+    return (
+        type(unit) in (RowBody, resulting.RowResultBody)
+        and unit.symbol is None
+        and not unit.final
+    )
+
+
+def _captured_lets(plan) -> frozenset[Any]:
+    """The lets with capture lines, inline at their one read, whatever it is."""
+    return frozenset(c.inner for c in plan.captures)
+
+
+def _inline_reads(unit):
+    """The inline body one inline body scans, or None."""
+    scan = unit.scan
+    if type(scan) in (RowStageUse, resulting.RowResultUse) and _inline_body(scan.body):
+        return scan.body
+    return None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -2759,8 +2777,10 @@ def _join_reads(
     ports,
     *,
     guarded=None,
+    inline=None,
 ):
-    """Independently rebuild one JOIN input's pre-match columns and alias."""
+    """Independently rebuild one JOIN input's pre-match columns and alias;
+    ``inline`` is the verified capturing let a LATERAL right input executes."""
     alias = ast.SQLSymbol(0, original.ref, f"m{original.ref.position}")
     reads = []
     producer: Any = None
@@ -2803,7 +2823,7 @@ def _join_reads(
                     )
                 )
         else:
-            producer = produced.get(use.original.producer)
+            producer = produced.get(use.original.producer) if inline is None else inline
             if producer is None:
                 raise ValueError("join input producer")
             for position, reference in enumerate(original.ports):
@@ -2966,6 +2986,11 @@ def _verify_join_unit(request, unit, join, index, context, state, *, guarded=Non
             )
         ):
             raise ValueError("join input identity")
+        inline = (
+            context["lateral"](original, unit.inputs[0], item.producer)
+            if ordinal and "lateral" in context
+            else None
+        )
         alias, producer, use, columns, source_ref = _join_reads(
             request,
             original,
@@ -2975,6 +3000,7 @@ def _verify_join_unit(request, unit, join, index, context, state, *, guarded=Non
             context["by_join"],
             ports,
             guarded=guarded,
+            inline=inline,
         )
         if (
             item.symbol.name != alias.name
@@ -3264,13 +3290,24 @@ def _computed_order_inputs_visible(root, expressions, previous, plan) -> bool:
 
 
 def _verify_result_body(
-    request, body, definition, boundaries, position, previous, last, state
+    request,
+    body,
+    definition,
+    boundaries,
+    position,
+    previous,
+    last,
+    state,
+    *,
+    inline=False,
 ):
     """Independent result-boundary correspondence from the retained plan alone.
 
     The visible tuple, the DISTINCT quotient, every ORDER key's exact port and
     direction, the static LIMIT and the terminal image are re-derived here from
-    the plan collections; the builder's own walk is never reused.
+    the plan collections; the builder's own walk is never reused. ``inline``:
+    a capturing let's ORDER BY and LIMIT, an unnamed body over its unnamed
+    projection inside its read, at ``position`` = the let's block count.
     """
     plan = request.plan
     family = request.family
@@ -3290,7 +3327,8 @@ def _verify_result_body(
         or previous.definition is not definition
         or previous.block.kind.value != "projection"
         or previous.final
-        or previous.symbol is None
+        or (previous.symbol is None) is not inline
+        or (inline and (last or definition.original.ref not in _captured_lets(plan)))
     ):
         raise ValueError("result body placement")
     scan = body.scan
@@ -3579,7 +3617,10 @@ def _verify_result_body(
         ):
             raise ValueError("result column")
         state["symbols"].append(column.symbol)
-    _verify_body_scope(body, position, state)
+    if inline:
+        # An inline body's own structure counts like any other body.
+        state["nodes"] += 3 + 2 * len(body.columns)
+    _verify_body_scope(body, position, state, inline=inline)
 
 
 def _set_column_realization(kind, quantifier, column, reads, evidence):
@@ -4047,7 +4088,7 @@ def verify_row_query(request, query, *, _guarded=None):
         source_refs = {source.ref: source for source in plan.sources}
         join_groups = joining.joined_definitions(plan) if joined else {}
         tails = {tail.definition: tail for tail in plan.join_tails}
-        join_context = {
+        join_context: dict[str, Any] = {
             "inputs": {item.ref: item for item in plan.join_inputs},
             "ports": {port.ref: port for port in plan.join_ports},
             "equalities": {item.ref: item for item in plan.relationship_matches},
@@ -4131,20 +4172,27 @@ def verify_row_query(request, query, *, _guarded=None):
             if len(reads) != 1:
                 return False
             terminal = reads[0].target.producer
+            if not verify_inline_chain(block_use.producer, terminal, images):
+                return False
+            return _BlockScope(block_use, terminal, None)
+
+        def verify_inline_chain(let, terminal, images) -> bool:
+            """A capturing let's inline bodies ending in ``terminal``, whatever
+            reads it: its stage bodies, innermost first, then the result body of
+            its ORDER BY and LIMIT, if it has them, over its projection."""
             chain = [terminal]
-            while (
-                _inline_body(chain[-1])
-                and type(chain[-1].scan) is RowStageUse
-                and _inline_body(chain[-1].scan.body)
-            ):
+            while _inline_body(chain[-1]) and _inline_reads(chain[-1]) is not None:
                 chain.append(chain[-1].scan.body)
             chain.reverse()
-            definition, blocks = inline_blocks[block_use.producer]
-            if len(chain) != len(blocks) or not all(map(_inline_body, chain)):
+            definition, blocks = inline_blocks[let]
+            boundaries = result_groups.get(definition.original.ref, ())
+            if len(chain) != len(blocks) + bool(boundaries) or not all(
+                map(_inline_body, chain)
+            ):
                 return False
             previous = None
             for index, (inner_block, inner_body) in enumerate(
-                zip(blocks, chain, strict=True)
+                zip(blocks, chain[: len(blocks)], strict=True)
             ):
                 if not verify_stage(
                     definition,
@@ -4158,7 +4206,48 @@ def verify_row_query(request, query, *, _guarded=None):
                 ):
                     return False
                 previous = inner_body
-            return _BlockScope(block_use, terminal, None)
+            if boundaries:
+                _verify_result_body(
+                    request,
+                    chain[-1],
+                    definition,
+                    boundaries,
+                    len(blocks),
+                    previous,
+                    False,
+                    state,
+                    inline=True,
+                )
+            return True
+
+        def verify_lateral(original, left, terminal):
+            """The capturing let a JOIN's right input executes LATERAL, verified
+            over that JOIN's verified left input; None for any other input."""
+            local = tuple(c for c in plan.captures if c.read is original.ref)
+            if not local:
+                return None
+            if (
+                original.ordinal != 1
+                or local[0].inner not in inline_blocks
+                or any(c.block is not original.join for c in local)
+            ):
+                raise ValueError("lateral capture")
+            images = {}
+            for capture in local:
+                reads = []
+                for port in capture.ports:
+                    positions = tuple(
+                        i for i, item in enumerate(left.ports) if item is port
+                    )
+                    if len(positions) != 1:
+                        raise ValueError("lateral capture port")
+                    reads.append(left.columns[positions[0]])
+                images[capture.ref] = _CaptureImage(capture, left.symbol, tuple(reads))
+            if not verify_inline_chain(local[0].inner, terminal, images):
+                raise ValueError("lateral inline chain")
+            return terminal
+
+        join_context["lateral"] = verify_lateral
 
         def verify_stage(
             definition, block, index, body, position, predecessor, final, captures
@@ -4953,7 +5042,10 @@ def verify_row_bytes(query, rendered):
                 elif _inline_body(target.producer):
                     producer = target.producer.block.ref
                     take("syntax", "inline_open", producer, "(")
-                    select(target.producer)
+                    if type(target.producer) is resulting.RowResultBody:
+                        result_select(target.producer)
+                    else:
+                        select(target.producer)
                     take("syntax", "inline_close", producer, ")")
                 else:
                     take(
@@ -5776,13 +5868,18 @@ def verify_row_bytes(query, rendered):
                     identifier=True,
                 )
             take("syntax", "from", scan.body.block.ref, " FROM ")
-            take(
-                "identifier",
-                "stage_reference",
-                scan.body.block.ref,
-                scan.body.symbol.name,
-                identifier=True,
-            )
+            if _inline_body(scan.body):
+                take("syntax", "inline_open", scan.body.block.ref, "(")
+                select(scan.body)
+                take("syntax", "inline_close", scan.body.block.ref, ")")
+            else:
+                take(
+                    "identifier",
+                    "stage_reference",
+                    scan.body.block.ref,
+                    scan.body.symbol.name,
+                    identifier=True,
+                )
             take("syntax", "alias", scan.boundary.ref, " AS ")
             take(
                 "identifier", "result_scope", scan.boundary.ref, alias, identifier=True
@@ -6034,6 +6131,13 @@ def verify_row_bytes(query, rendered):
                     producer.name,
                     identifier=True,
                 )
+            elif _inline_body(producer):
+                take("syntax", "lateral_open", reference, "LATERAL (")
+                if type(producer) is resulting.RowResultBody:
+                    result_select(producer)
+                else:
+                    select(producer)
+                take("syntax", "lateral_close", reference, ")")
             else:
                 take(
                     "identifier",
@@ -6431,6 +6535,9 @@ def verify_row_generated_requirements(request, query, generated):
                             applicable_premises(request, item.producer.owner, field),
                         )
                     )
+            elif _inline_body(item.producer):
+                expected.append(("lateral_input", item.original.ref, "R11", naming))
+                inline_expectations(item.producer)
         for item in unit.equalities:
             expected.append(("relationship_equality", item.original.ref, "R07", naming))
         if unit.predicate is not None:
@@ -6623,10 +6730,13 @@ def verify_row_generated_requirements(request, query, generated):
 
     def inline_expectations(body):
         """An inline let's bodies, innermost first."""
-        scan = body.scan
-        if type(scan) is RowStageUse and _inline_body(scan.body):
-            inline_expectations(scan.body)
-        body_expectations(body)
+        inner = _inline_reads(body)
+        if inner is not None:
+            inline_expectations(inner)
+        if type(body) is resulting.RowResultBody:
+            result_expectations(body)
+        else:
+            body_expectations(body)
 
     for unit in units[:-1]:
         is_join = type(unit) is joining.JoinBody
@@ -6648,7 +6758,13 @@ def verify_row_generated_requirements(request, query, generated):
 
     def result_expectations(unit):
         """Independently list what one result body's own structures introduce."""
-        expected.append(("stage_use", unit.scan.body.block.ref, "R03", naming))
+        if _inline_body(unit.scan.body):
+            # A capturing let's ORDER BY and LIMIT over its inline projection.
+            expected.append(
+                ("inline_stage_use", unit.scan.body.block.ref, "R11", naming)
+            )
+        else:
+            expected.append(("stage_use", unit.scan.body.block.ref, "R03", naming))
         for symbol in unit.scan.body.cte_columns:
             expected.append(("stage_terminal", symbol.binding, "R03", naming))
         if unit.distinct is not None:

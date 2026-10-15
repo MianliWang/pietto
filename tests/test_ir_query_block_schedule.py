@@ -650,7 +650,10 @@ def test_capture_edges_carry_outer_rows_without_ordering_blocks(tmp_path) -> Non
 
 
 def test_a_capture_of_an_unjoined_body_reads_its_input_row(tmp_path) -> None:
-    from pietto._project.project_query_block_ir import ProjectIRCaptureStage
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCaptureStage,
+        ProjectIRExpressionBlockUse,
+    )
     from pietto._project.project_query_block_ir_verification import (
         verify_project_query_block_ir,
     )
@@ -659,7 +662,9 @@ def test_a_capture_of_an_unjoined_body_reads_its_input_row(tmp_path) -> None:
     assert verify_project_query_block_ir(snapshot).verified
     (use,) = snapshot.capture_uses
     assert use.checkpoint.stage is ProjectIRCaptureStage.INPUT
-    assert use.checkpoint.read.use.evidence.read.position.value == "select"
+    read = use.checkpoint.read
+    assert isinstance(read, ProjectIRExpressionBlockUse)
+    assert read.use.evidence.read.position.value == "select"
     assert use.fields == (0, 1)
     (captured,) = snapshot.captured_fields
     assert (captured.expression.field, captured.position) == ("key", 1)
@@ -712,6 +717,120 @@ def test_the_ir_rejects_forged_or_swapped_capture_edges(tmp_path) -> None:
     )
     for changes in forged:
         issues = verify_project_query_block_ir(graft(snapshot, **changes)).issues
+        assert ProjectIRQueryBlockVerificationIssueKind.CAPTURE_USE in {
+            issue.kind for issue in issues
+        }, changes
+
+
+# Phase70 S12: a JOIN reads the let LATERAL; its capture lines read the row of
+# the bindings left of that JOIN (the LEFT JOIN's null-extended r included),
+# never the final joined row, and the JOIN orders the let first.
+CAPTURE_LATERAL = """query result:
+    let matched:
+        capture r
+        capture lhs
+        from rhs
+        where rhs.key == r.key and rhs.id == lhs.id
+        select:
+            id
+    from lhs
+    left join rhs as r:
+        from lhs
+        on lhs.id == r.id
+    cross join matched as m:
+        from lhs
+    inner join rhs as z:
+        from lhs
+        on z.id == m.id
+    select:
+        a = lhs.id
+"""
+
+
+def test_a_lateral_capture_reads_the_row_left_of_its_join(tmp_path) -> None:
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCaptureCheckpoint,
+        ProjectIRCaptureStage,
+        ProjectIRCompletedQueryBlockOutput,
+    )
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+
+    completed, snapshot = _capture_snapshot(tmp_path, CAPTURE_LATERAL)
+    assert verify_project_query_block_ir(snapshot).verified
+    right, left = snapshot.capture_uses
+    checkpoint = right.checkpoint
+    assert checkpoint is left.checkpoint
+    assert checkpoint.stage is ProjectIRCaptureStage.LATERAL
+    outer = checkpoint.outer
+    assert type(outer) is ProjectIRCompletedQueryBlockOutput
+    assert outer.join_prefix is not None
+    joins = outer.join_prefix.joins
+    assert checkpoint.read is joins[1].inputs[1]
+    assert checkpoint.output is joins[1].output
+    assert checkpoint.producer is right.inner.owner
+    assert checkpoint.bindings == ((0, (0, 1)), (1, (2, 3)))
+    assert (right.fields, left.fields) == ((2, 3), (0, 1))
+    assert joins[1].output.row_shape.fields[3].nulling_joins
+    positions = {id(owner): i for i, owner in enumerate(completed.completion.schedule)}
+    assert positions[id(right.inner.owner)] < positions[id(checkpoint.outer.owner)]
+    # Another JOIN's right input is not this let's read.
+    try:
+        ProjectIRCaptureCheckpoint(
+            outer=checkpoint.outer,
+            read=joins[2].inputs[1],
+            stage=checkpoint.stage,
+            output=checkpoint.output,
+            bindings=checkpoint.bindings,
+        )
+    except ValueError as error:
+        assert "exact outer row" in str(error)
+    else:
+        raise AssertionError("a foreign JOIN input imaged this let's read")
+
+
+def test_the_ir_rejects_forged_lateral_capture_checkpoints(tmp_path) -> None:
+    from copy import copy
+
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCaptureStage,
+        ProjectIRCompletedQueryBlockOutput,
+    )
+    from pietto._project.project_query_block_ir_verification import (
+        ProjectIRQueryBlockVerificationIssueKind,
+        verify_project_query_block_ir,
+    )
+
+    def graft(value, **changes):
+        changed = copy(value)
+        for name, item in changes.items():
+            object.__setattr__(changed, name, item)
+        return changed
+
+    _, snapshot = _capture_snapshot(tmp_path, CAPTURE_LATERAL)
+    right, left = snapshot.capture_uses
+    checkpoint = right.checkpoint
+    outer = checkpoint.outer
+    assert type(outer) is ProjectIRCompletedQueryBlockOutput
+    assert outer.join_prefix is not None
+    joins = outer.join_prefix.joins
+    for changes in (
+        {"read": joins[2].inputs[1]},
+        {"read": joins[1].inputs[0]},
+        {"output": joins[2].output},
+        {"stage": ProjectIRCaptureStage.JOINED},
+        {"bindings": checkpoint.bindings + ((2, (4,)),)},
+    ):
+        forged = graft(checkpoint, **changes)
+        candidate = graft(
+            snapshot,
+            capture_uses=(
+                graft(right, checkpoint=forged),
+                graft(left, checkpoint=forged),
+            ),
+        )
+        issues = verify_project_query_block_ir(candidate).issues
         assert ProjectIRQueryBlockVerificationIssueKind.CAPTURE_USE in {
             issue.kind for issue in issues
         }, changes
