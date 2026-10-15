@@ -2,22 +2,31 @@
 cases run against the checkout and satisfy the independent checker, the
 checker accepts the facts a passing family records and refuses each damaged
 fact, and the PostgreSQL fixture and the bundle oracles are the documented
-setup and output. No database, Docker, network or installation."""
+setup and output. The Phase70 joint acceptance runs its database-free facts
+against the checkout and its native steps against a stand-in owner, and its
+checker refuses each damaged fact. No database, Docker, network or
+installation."""
 
 from __future__ import annotations
 
 import ast
 import copy
+from dataclasses import replace
+import inspect
 import json
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
 import _pietto_execution_api as api
 import _pietto_execution_api_check as check
 import _pietto_execution_api_probe as probe
+import _pietto_execution_joint_acceptance as joint
+import _pietto_execution_joint_acceptance_check as joint_check
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -134,6 +143,8 @@ def test_importing_the_witness_modules_acquires_nothing(tmp_path):
     code = (
         "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]];"
         "import _pietto_execution_api_probe, _pietto_execution_api_check;"
+        "import _pietto_execution_joint_acceptance;"
+        "import _pietto_execution_joint_acceptance_check;"
         "print(sorted({m.split('.')[0] for m in sys.modules}"
         " & {'psycopg', 'pyarrow', 'pietto', 'docker'}))"
     )
@@ -1660,3 +1671,679 @@ def test_the_reader_password_is_set_as_the_documented_password_command():
         'ALTER USER "pietto_reader" PASSWORD'
         " 'SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy'",
     ]
+
+
+# The Phase70 joint acceptance (S17): the database-free facts of every shape on
+# every route from the checkout, the runner's native steps through a stand-in
+# owner, and the independent checker's laws.
+
+
+class _JointBatch:
+    """A stand-in result batch; the stand-in `pyarrow.record_batch` returns it."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return None
+
+    def to_pylist(self):
+        return [dict(enumerate(row)) for row in self.rows]
+
+
+class _JointResults(_JointBatch):
+    """A stand-in result handle or verified export of one batch."""
+
+    outcome = SimpleNamespace(end="COMPLETE", transaction="COMMIT_ACK", primary=None)
+
+    def __iter__(self):
+        return iter((_JointBatch(self.rows),))
+
+
+class _JointFailed(_JointResults):
+    """A stand-in result handle whose first read is the server's error."""
+
+    def __init__(self, error):
+        self.error = error
+
+    def __iter__(self):
+        raise self.error
+
+
+class _JointReader:
+    def __init__(self, rows, end):
+        self.items = [SimpleNamespace(batch=_JointBatch(rows)), end]
+
+    def next(self, rows, *, operation):
+        return self.items.pop(0)
+
+    def ack(self, item, *, operation):
+        return None
+
+    def close(self):
+        return None
+
+
+def _joint_stand_in():
+    """The public module, with each call the runner's native steps make bound
+    to its real signature (kept visible for `parameters=`) and answered from
+    the checker's oracle of the shape in `module.shape` by a stand-in owner of
+    one generation per workspace."""
+    import pietto.execution as real
+    from pietto.execution._errors import failure
+
+    module = SimpleNamespace(**{name: getattr(real, name) for name in real.__all__})
+
+    def answers(name):
+        signature = inspect.signature(getattr(real, name))
+
+        def decorate(body):
+            def call(*args, **keywords):
+                return body(**signature.bind(*args, **keywords).arguments)
+
+            call.__signature__ = signature  # type: ignore[attr-defined]
+            setattr(module, name, call)
+            return body
+
+        return decorate
+
+    def oracle():
+        return joint_check.ORACLES[module.shape.name]
+
+    def rows(parameters):
+        return oracle()["rows"][module.shape.bindings.index(parameters)]
+
+    def failed(route):
+        """The server's error and the attempt it ends on `route`, as
+        documented."""
+        code, state = oracle()["failure"]
+        end, transaction, cleanup, failures = {
+            "postgres_rows": ("FAILED", "UNKNOWN", "FAILED", ("PIE-R5001",)),
+            "postgres_adbc": (
+                "FAILED",
+                "UNKNOWN",
+                "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+                (),
+            ),
+            "mysql_rows": ("FAILED", "ROLLBACK_ACK", "CLOSED", ()),
+        }[route]
+        outcome = SimpleNamespace(
+            end=end,
+            transaction=transaction,
+            cleanup=cleanup,
+            cleanup_failures=tuple(
+                failure(item, phase="transaction") for item in failures
+            ),
+        )
+        return real.AttemptFailed(failure(code, sqlstate=state), outcome=outcome)  # type: ignore[arg-type]
+
+    def saved(workspace, values, parameters):
+        """The saved binding, typed, as a restatement must repeat it."""
+        workspace.binding = typed(values, parameters)
+
+    def typed(values, parameters):
+        named = sorted((parameters or {}).items())
+        return [(type(v), v) for v in values], [(k, type(v), v) for k, v in named]
+
+    def restating(workspace, values, parameters):
+        if typed(values, parameters) != workspace.binding:
+            raise real.RequestRejected(failure("PIE-R1009", "BINDING_VECTOR"))
+
+    def generation(workspace, rows, closings, frontier=None):
+        workspace.rows = rows
+        workspace.current = SimpleNamespace(
+            identity="gen-1",
+            checkpoint="ckp-1",
+            frontier=len(rows) if frontier is None else frontier,
+            holes=(),
+            observed_end=len(rows) if frontier is None else None,
+            closings=tuple("close-" + str(i) for i in range(closings)),
+        )
+
+    def reply(terminal):
+        return SimpleNamespace(
+            job="job-1",
+            generation="gen-1",
+            terminal=terminal,
+            settlement="RELEASED",
+            cleanup=None,
+        )
+
+    @answers("execute")
+    def _execute(query, route, parameters=None, **rest):
+        if "failure" in oracle():
+            return _JointFailed(failed(route))
+        return _JointResults(rows(parameters))
+
+    @answers("create_workspace")
+    def _create(root, budget_bytes):
+        return SimpleNamespace(root=str(root), released=set())
+
+    @answers("inspect_job")
+    def _inspect(workspace, job):
+        return SimpleNamespace(generations=(workspace.current,))
+
+    @answers("save")
+    def _save(workspace, query, values, parameters=None, **rest):
+        if "failure" in oracle():
+            return reply("FAILED")
+        saved(workspace, values, parameters)
+        generation(workspace, rows(parameters), 1)
+        return reply("COMPLETED")
+
+    @answers("open_saved_read")
+    def _open(workspace, consumer, values, parameters=None, **rest):
+        restating(workspace, values, parameters)
+        if consumer in workspace.released:
+            raise real.RequestRejected(failure("PIE-R1009", "CONSUMER_RELEASED"))
+        n = len(workspace.rows)
+        end = real.SavedReadEnd("SAVED_SCOPE_EXHAUSTED", "gen-1", "ckp-1", n, n)
+        return _JointReader(workspace.rows, end)
+
+    @answers("verified_export")
+    def _export(workspace, **rest):
+        return _JointResults(workspace.rows)
+
+    @answers("publish_saved_generation")
+    def _publish(workspace, **rest):
+        return SimpleNamespace(terminal="PUBLISHED", extent=len(workspace.rows))
+
+    @answers("release_saved_read")
+    def _release(workspace, consumer, **rest):
+        workspace.released.add(consumer)
+        return SimpleNamespace(kind="release_retention")
+
+    @answers("save_recoverable")
+    def _prefix(workspace, query, values, parameters=None, **rest):
+        saved(workspace, values, parameters)
+        generation(workspace, rows(parameters), 1, frontier=8)
+        return reply("FAILED")
+
+    @answers("recover")
+    def _recover(workspace, values, parameters=None, **rest):
+        restating(workspace, values, parameters)
+        generation(workspace, workspace.rows, 2)
+        return reply("COMPLETED")
+
+    @answers("create_reference_sink")
+    def _sink(root, namespace, epoch, retention_seconds, **rest):
+        return SimpleNamespace(
+            root=str(root),
+            identity="sink-1",
+            namespace=namespace,
+            epoch=epoch,
+            retention="r",
+            budget_bytes=1,
+            busy_seconds=5.0,
+        )
+
+    @answers("relay_live")
+    def _relay(workspace, query, parameters=None, **rest):
+        if "failure" in oracle():
+            return reply("FAILED")
+        generation(workspace, rows(parameters), 1)
+        return reply("COMPLETED")
+
+    return module
+
+
+@pytest.fixture(scope="module")
+def joint_shape(tmp_path_factory):
+    """`joint_shape(name)`: a copy of one shape's database-free facts on every
+    route from the checkout, with the runner's native steps through the
+    stand-in owner. Each shape compiles once per target and module, when a
+    test first needs it."""
+    stand_in = _joint_stand_in()
+    work = tmp_path_factory.mktemp("joint")
+    arrow = ModuleType("pyarrow")
+    setattr(arrow, "record_batch", lambda batch: batch)
+    found: dict[str, Any] = {}
+
+    def native(case, probes):
+        stand_in.shape = case.shape
+        access, schemas = joint.probe_inputs(case.target, work / "ca.pem")
+        inputs = {"access": access, "schemas": schemas, "providers": ()}
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setitem(sys.modules, "pyarrow", arrow)
+            return joint._native(replace(case, execution=stand_in), probes, inputs)
+
+    def facts(name):
+        if name not in found:
+            table = tuple(shape for shape in joint.SHAPES if shape.name == name)
+            report = joint.offline_report(work / name, native, table)
+            found[name] = report["shapes"][name]
+        return copy.deepcopy(found[name])
+
+    return facts
+
+
+def _offline(record):
+    """One shape's facts without the native steps, as `offline_report`."""
+    for facts in record["routes"].values():
+        del facts["native"]
+    return record
+
+
+@pytest.mark.parametrize("name", list(joint_check.ORACLES))
+def test_offline_joint_facts_match_the_literal_oracles(joint_shape, name):
+    """Compile, bundle, the pre-connect probe of every operation and the
+    parameter negatives match the checker's literal oracle on every route; no
+    probe connected or reached a workspace it was refused before."""
+    joint_check.check_shape(
+        name, _offline(joint_shape(name)), "offline", list(joint_check.ROUTES)
+    )
+
+
+def _sql(dialect, change):
+    def damage(record):
+        fact = record["dialects"][dialect]["compile"]
+        fact["sql"] = change(fact["sql"])
+
+    return damage
+
+
+def _probe_fact(route, operation, **changes):
+    return lambda record: record["routes"][route]["probe"][operation].update(changes)
+
+
+OFFLINE_DAMAGES = {
+    "COMPILE_let_chain_postgres": (
+        "let_chain",
+        lambda r: r["dialects"]["postgres"]["compile"].update(slots=[]),
+    ),
+    "SQL_let_chain_postgres": ("let_chain", _sql("postgres", lambda s: s + " $2")),
+    "SQL_param_where_mysql": ("param_where", _sql("mysql", lambda s: s + " ?")),
+    "BUNDLE_let_chain_mysql": (
+        "let_chain",
+        lambda r: r["dialects"]["mysql"]["bundle"]["reexported"].__setitem__(1, False),
+    ),
+    # A loaded parameterized query keeps its declared parameters.
+    "BUNDLE_param_where_postgres": (
+        "param_where",
+        lambda r: r["dialects"]["postgres"]["bundle"]["query"].__setitem__(7, []),
+    ),
+    "PROBE_let_chain_postgres_rows_execute": (
+        "let_chain",
+        _probe_fact("postgres_rows", "execute", connected=True),
+    ),
+    "PROBE_let_chain_mysql_rows_save": (
+        "let_chain",
+        _probe_fact("mysql_rows", "save", workspace=True),
+    ),
+    "PROBE_let_chain_postgres_adbc_recover": (
+        "let_chain",
+        _probe_fact("postgres_adbc", "recover", detail="WORKSPACE_IDENTITY"),
+    ),
+    "PROBE_let_chain_postgres_rows_relay_live": (
+        "let_chain",
+        _probe_fact("postgres_rows", "relay_live", code="PIE-R1009"),
+    ),
+    # Every route runs a query that declares parameters.
+    "PROBE_param_where_postgres_adbc_execute": (
+        "param_where",
+        _probe_fact(
+            "postgres_adbc",
+            "execute",
+            outcome="refused",
+            code="PIE-R1003",
+            detail="PUBLIC_PARAMETERS_ROUTE",
+        ),
+    ),
+    "PROBE_param_where_mysql_rows_save_recoverable": (
+        "param_where",
+        _probe_fact("mysql_rows", "save_recoverable", connected=True),
+    ),
+    "NEGATIVE_param_where_postgres_rows_obligation": (
+        "param_where",
+        lambda r: r["routes"]["postgres_rows"]["negatives"]["obligation"].update(
+            code="PIE-R1006"
+        ),
+    ),
+    "NEGATIVE_param_where_mysql_rows": (
+        "param_where",
+        lambda r: r["routes"]["mysql_rows"]["negatives"].pop("missing"),
+    ),
+    "NATIVE_let_chain_postgres_rows": (
+        "let_chain",
+        lambda r: r["routes"]["postgres_rows"].update(native={}),
+    ),
+    "DIALECTS_let_chain": ("let_chain", lambda r: r["dialects"].pop("mysql")),
+    "ROUTES_let_chain": ("let_chain", lambda r: r["routes"].pop("postgres_adbc")),
+    # An R2 refusal must be its shape's own word, before any workspace.
+    "PROBE_computed_key_join_postgres_adbc_save_recoverable": (
+        "computed_key_join",
+        _probe_fact(
+            "postgres_adbc",
+            "save_recoverable",
+            code="PIE-R1009",
+            detail="WORKSPACE_OBJECT",
+        ),
+    ),
+    "PROBE_values_join_mysql_rows_recover": (
+        "values_join",
+        _probe_fact("mysql_rows", "recover", detail="REFINEMENT_EXPRESSION_BLOCK_READ"),
+    ),
+    "PROBE_in_closed_postgres_rows_save_recoverable": (
+        "in_closed",
+        _probe_fact(
+            "postgres_rows",
+            "save_recoverable",
+            detail="PUBLIC_R2_VALUES_COORDINATE_BASIS",
+        ),
+    ),
+    # MySQL BLOCKS VALUES alone with its word and compiles no query.
+    "COMPILE_values_only_mysql": (
+        "values_only",
+        lambda r: r["dialects"]["mysql"]["compile"].update(
+            details=["expression_evidence_unavailable"]
+        ),
+    ),
+    "BUNDLE_values_only_mysql": (
+        "values_only",
+        lambda r: r["dialects"]["mysql"].update(
+            bundle=r["dialects"]["postgres"]["bundle"]
+        ),
+    ),
+    "ROUTES_values_only": (
+        "values_only",
+        lambda r: r["routes"].update(mysql_rows=r["routes"]["postgres_rows"]),
+    ),
+    # MySQL BLOCKS each ordered correlated read, in source order.
+    "COMPILE_in_limit_mysql": (
+        "in_limit",
+        lambda r: r["dialects"]["mysql"]["compile"]["details"].pop(),
+    ),
+    "PROBE_lateral_left_mysql_rows_recover": (
+        "lateral_left",
+        _probe_fact("mysql_rows", "recover", detail="REFINEMENT_EXPRESSION_BLOCK_READ"),
+    ),
+    "PROBE_series_join_postgres_rows_save_recoverable": (
+        "series_join",
+        _probe_fact(
+            "postgres_rows",
+            "save_recoverable",
+            detail="PUBLIC_R2_VALUES_COORDINATE_BASIS",
+        ),
+    ),
+    "SQL_param_capture_mysql": ("param_capture", _sql("mysql", lambda s: s + " ?")),
+}
+
+
+@pytest.mark.parametrize("reason", sorted(OFFLINE_DAMAGES))
+def test_the_joint_checker_refuses_each_damaged_offline_fact(joint_shape, reason):
+    name, damage = OFFLINE_DAMAGES[reason]
+    record = _offline(joint_shape(name))
+    damage(record)
+    with pytest.raises(joint_check.Rejected, match="^" + reason + "$"):
+        joint_check.check_shape(name, record, "offline", list(joint_check.ROUTES))
+
+
+@pytest.mark.parametrize(
+    ("damage", "reason"),
+    (
+        (lambda r: r.update(format="pietto.execution-joint-acceptance.v0"), "FORMAT"),
+        (lambda r: r.update(mode="installed"), "MODE"),
+        (lambda r: r["shapes"].pop("let_chain"), "SHAPES"),
+    ),
+)
+def test_the_joint_checker_refuses_a_damaged_envelope(
+    joint_shape, monkeypatch, damage, reason
+):
+    oracles = {"let_chain": joint_check.ORACLES["let_chain"]}
+    monkeypatch.setattr(joint_check, "ORACLES", oracles)
+    report = {
+        "format": joint_check.FORMAT,
+        "mode": "offline",
+        "shapes": {"let_chain": _offline(joint_shape("let_chain"))},
+    }
+    damage(report)
+    with pytest.raises(joint_check.Rejected, match="^" + reason + "$"):
+        joint_check.check(report)
+
+
+@pytest.mark.parametrize("name", list(joint_check.ORACLES))
+def test_the_runner_native_steps_bind_the_public_signatures(joint_shape, name):
+    """Every native step binds the real public signature and records what the
+    checker reads: exactly the operations whose probes passed, on every
+    route, with the oracle's rows or the server's failure."""
+    joint_check.check_shape(name, joint_shape(name), "native", list(joint_check.ROUTES))
+
+
+def _native_of(route, *path):
+    def damage(record, change):
+        value = record["routes"][route]["native"]
+        for key in path:
+            value = value[key]
+        change(value)
+
+    return damage
+
+
+NATIVE_DAMAGES = {
+    "EXECUTE_let_chain_postgres_rows": (
+        _native_of("postgres_rows", "execute", 0, "live", "rows"),
+        lambda rows: rows.pop(),
+    ),
+    "LOADED_let_chain_mysql_rows": (
+        _native_of("mysql_rows", "execute", 0, "loaded"),
+        lambda fact: fact.update(end="FAILED"),
+    ),
+    "SAVE_let_chain_postgres_adbc": (
+        _native_of("postgres_adbc", "save"),
+        lambda fact: fact.update(closings=2),
+    ),
+    "R1_let_chain_postgres_rows": (
+        _native_of("postgres_rows", "save", "r1"),
+        lambda fact: fact["end"].__setitem__(3, 0),
+    ),
+    "R1_EXPORT_let_chain_postgres_rows": (
+        _native_of("postgres_rows", "save", "r1", "export"),
+        lambda rows: rows.append([1, None]),
+    ),
+    "R1_PUBLICATION_let_chain_mysql_rows": (
+        _native_of("mysql_rows", "save", "r1"),
+        lambda fact: fact.update(publication=["FAILED", 16]),
+    ),
+    "R1_VECTOR_let_chain_postgres_rows": (
+        _native_of("postgres_rows", "save", "r1", "vectors"),
+        lambda fact: fact.update(bool_for_int={"outcome": "opened"}),
+    ),
+    "R1_RELEASE_let_chain_postgres_adbc": (
+        _native_of("postgres_adbc", "save", "r1"),
+        lambda fact: fact.update(released_reopen={"outcome": "opened"}),
+    ),
+    "R2_let_chain_postgres_rows": (
+        _native_of("postgres_rows", "r2"),
+        lambda fact: fact.update(prefix=["COMPLETED", False]),
+    ),
+    "RELAY_let_chain_mysql_rows": (
+        _native_of("mysql_rows", "relay_live"),
+        lambda fact: fact.update(extent=15),
+    ),
+    # R2 of a shape of fewer than nine rows runs its probes only.
+    "NATIVE_param_where_postgres_adbc": (
+        _native_of("postgres_adbc"),
+        lambda fact: fact.update(r2={}),
+    ),
+    "R1_RESTATED_param_where_mysql_rows": (
+        _native_of("mysql_rows", "save", "r1", "restated"),
+        lambda fact: fact.update(empty_for_null={"outcome": "opened"}),
+    ),
+    "R1_RESTATED_param_r2_postgres_rows": (
+        _native_of("postgres_rows", "save", "r1", "restated"),
+        lambda fact: fact.pop("missing"),
+    ),
+    "R2_RESTATED_param_r2_postgres_adbc": (
+        _native_of("postgres_adbc", "r2", "restated"),
+        lambda fact: fact.update(bool_for_int={"outcome": "recovered"}),
+    ),
+    "R2_param_r2_mysql_rows": (
+        _native_of("mysql_rows", "r2", "rows"),
+        lambda rows: rows.remove([1, 1]),
+    ),
+    "RELAY_param_capture_postgres_rows": (
+        _native_of("postgres_rows", "relay_live"),
+        lambda fact: fact.update(extent=6),
+    ),
+    # LEFT keeps a left row whose every pair the ON rejects, once, as NULL.
+    "EXECUTE_lateral_left_postgres_adbc": (
+        _native_of("postgres_adbc", "execute", 0, "live", "rows"),
+        lambda rows: rows.remove([1, None]),
+    ),
+    # A LIMIT taken before the correlation would make `b` FALSE for BIG.
+    "LOADED_in_limit_postgres_rows": (
+        _native_of("postgres_rows", "execute", 0, "loaded", "rows"),
+        lambda rows: next(row for row in rows if row[0] != 0).__setitem__(2, False),
+    ),
+    "EXECUTE_param_where_postgres_rows": (
+        _native_of("postgres_rows", "execute"),
+        lambda runs: runs.pop(),
+    ),
+    "LOADED_param_where_postgres_rows": (
+        _native_of("postgres_rows", "execute", 1),
+        lambda run: run.update(loaded={}),
+    ),
+    "R2_let_reuse_mysql_rows": (
+        _native_of("mysql_rows", "r2", "rows"),
+        lambda rows: rows.remove([0, 1]),
+    ),
+    "EXECUTE_values_only_postgres_adbc": (
+        _native_of("postgres_adbc", "execute", 0, "live", "rows"),
+        lambda rows: rows.remove([2, None, None, None]),
+    ),
+    # NULL NOT IN an empty relation is TRUE, not NULL.
+    "EXECUTE_in_closed_mysql_rows": (
+        _native_of("mysql_rows", "execute", 0, "live", "rows"),
+        lambda rows: next(row for row in rows if row[1] is None).__setitem__(4, None),
+    ),
+    "EXECUTE_scalar_many_postgres_rows": (
+        _native_of("postgres_rows", "execute", 0, "live"),
+        lambda fact: fact.update(sqlstate="42501"),
+    ),
+    "LOADED_scalar_many_postgres_adbc": (
+        _native_of("postgres_adbc", "execute", 0, "loaded"),
+        lambda fact: fact.update(attempt=["FAILED", "ROLLBACK_ACK", "CLOSED", []]),
+    ),
+    # postgres_adbc closes locally: no PIE-R5001 cleanup failure.
+    "EXECUTE_scalar_many_postgres_adbc": (
+        _native_of("postgres_adbc", "execute", 0, "live"),
+        lambda fact: fact.update(
+            attempt=["FAILED", "UNKNOWN", "FAILED", [["PIE-R5001", "transaction"]]]
+        ),
+    ),
+    "LOADED_scalar_many_mysql_rows": (
+        _native_of("mysql_rows", "execute", 0, "loaded"),
+        lambda fact: fact["attempt"].__setitem__(1, "UNKNOWN"),
+    ),
+    "EXECUTE_scalar_many_mysql_rows": (
+        _native_of("mysql_rows", "execute", 0, "live"),
+        lambda fact: fact.update(attempt=["COMPLETE", "COMMIT_ACK", "CLOSED", []]),
+    ),
+    "SAVE_scalar_many_postgres_rows": (
+        _native_of("postgres_rows", "save"),
+        lambda fact: fact.update(extent=0),
+    ),
+    "RELAY_scalar_many_mysql_rows": (
+        _native_of("mysql_rows", "relay_live"),
+        lambda fact: fact.update(terminal="COMPLETED"),
+    ),
+}
+
+
+@pytest.mark.parametrize("reason", sorted(NATIVE_DAMAGES))
+def test_the_joint_checker_refuses_each_damaged_native_fact(joint_shape, reason):
+    name = max((n for n in joint_check.ORACLES if "_" + n + "_" in reason), key=len)
+    locate, change = NATIVE_DAMAGES[reason]
+    record = joint_shape(name)
+    locate(record, change)
+    with pytest.raises(joint_check.Rejected, match="^" + reason + "$"):
+        joint_check.check_shape(name, record, "native", list(joint_check.ROUTES))
+
+
+def _joint_native_report(joint_shape, names: tuple[str, ...]) -> dict[str, Any]:
+    targets = ["postgres", "mysql"]
+    return {
+        "format": joint_check.FORMAT,
+        "mode": "native",
+        "context": {
+            "probe": "1" * 64,
+            "check": "2" * 64,
+            "docs": "3" * 64,
+            "wheel": "pietto-0.1.2-py3-none-any.whl",
+            "wheel_sha256": "4" * 64,
+        },
+        "install": _install("routes"),
+        "targets": targets,
+        "workers": {t: {"returncode": 0, "origin": "installed"} for t in targets},
+        "cleanup": {t: "success" for t in targets},
+        "shapes": {name: joint_shape(name) for name in names},
+    }
+
+
+def test_only_a_native_report_of_both_targets_is_accepted(joint_shape, monkeypatch):
+    oracles = {"let_chain": joint_check.ORACLES["let_chain"]}
+    monkeypatch.setattr(joint_check, "ORACLES", oracles)
+    report = _joint_native_report(joint_shape, ("let_chain",))
+    accepted = {
+        "family": "joint-acceptance",
+        "mode": "native",
+        "verdict": "ACCEPTED",
+        "pending": [],
+    }
+    assert joint_check.check(report) == accepted
+    # One target leaves the other target's routes pending; the campaigns of
+    # both targets, judged together, are accepted.
+    postgres, mysql = copy.deepcopy(report), copy.deepcopy(report)
+    for part, target, other in (
+        (postgres, "postgres", "mysql"),
+        (mysql, "mysql", "postgres"),
+    ):
+        part.update(targets=[target])
+        for key in ("workers", "cleanup"):
+            part[key].pop(other)
+        part["shapes"]["let_chain"]["dialects"].pop(other)
+        for route, owner in joint_check.ROUTES.items():
+            if owner == other:
+                part["shapes"]["let_chain"]["routes"].pop(route)
+    verdict = joint_check.check(postgres)
+    assert (verdict["verdict"], verdict["pending"]) == ("MATCHED", ["route:mysql_rows"])
+    assert joint_check.check(joint_check.combined([postgres, mysql])) == accepted
+    with pytest.raises(joint_check.Rejected, match="^TARGETS$"):
+        joint_check.combined([postgres, postgres])
+    mysql["context"]["wheel_sha256"] = "5" * 64
+    with pytest.raises(joint_check.Rejected, match="^CONTEXT$"):
+        joint_check.combined([postgres, mysql])
+    # Database-free facts alone are never an acceptance.
+    offline = {
+        "format": joint_check.FORMAT,
+        "mode": "offline",
+        "shapes": {"let_chain": _offline(joint_shape("let_chain"))},
+    }
+    assert joint_check.check(offline)["pending"] == ["offline"]
+
+
+@pytest.mark.parametrize(
+    ("damage", "reason"),
+    (
+        (lambda r: r["context"].update(wheel_sha256="0"), "CONTEXT"),
+        (
+            lambda r: r["install"]["routes"].update(
+                python=["CPython", "3.12.14", "Linux", "x86_64"]
+            ),
+            "INSTALL",
+        ),
+        (lambda r: r.update(targets=["postgres", "postgres"]), "TARGETS"),
+        (lambda r: r["workers"]["mysql"].update(origin="checkout"), "WORKER"),
+        (lambda r: r["cleanup"].update(postgres="failed"), "CLEANUP"),
+    ),
+)
+def test_the_joint_checker_refuses_a_damaged_native_envelope(
+    joint_shape, damage, reason
+):
+    report = _joint_native_report(joint_shape, ("let_chain",))
+    damage(report)
+    with pytest.raises(joint_check.Rejected, match="^" + reason + "$"):
+        joint_check.check(report)

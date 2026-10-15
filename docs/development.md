@@ -1139,3 +1139,37 @@ the shared request and environment checks in `project_execution` (including
 `report.json` records the probe, docs and wheel digests and is archived with
 the checker's verdict. Production edits change the semantic build identity, so
 installed witnesses use the final code.
+
+The Phase70 joint acceptance (S17) runs explicitly through
+`tests/_pietto_execution_joint_acceptance.py run --directory NEW --wheel WHEEL
+--interpreter CPYTHON --house DIR [--target postgres|mysql|all]` (row 4: Docker
+with both pinned images, nothing pulled) and `... check --report REPORT
+[--report REPORT]`. One prefix of the candidate wheel with the three route extras serves both targets;
+each target then gets one owned container with the public R2 witnesses'
+retained-source fixture, and a fresh `-I -B` worker in the prefix runs every
+shape of the module's table on each route: compile, bundle export and load, a
+pre-connect probe of each operation (a loopback port that only counts
+connections, a workspace and a sink that do not exist), the parameter
+negatives, then for real each operation whose probe passed: execute, save, the
+four R1 entries, save_recoverable then recover (only for a shape of more than
+eight rows, so that the prefix fails), and relay_live, with the saved binding's
+parameters restated wrongly to R1 and R2 as well. The independent checker
+`_pietto_execution_joint_acceptance_check` judges the raw facts against
+literal oracles (codes, words, row bags with NULL, and for a `scalar` read of
+several rows the server's failure, SQLSTATE 21000, with each route's terminal
+facts); it answers ACCEPTED only for the native facts of both targets, from
+one campaign or from two single-target campaigns of the same probe, checker,
+docs and wheel judged together, and MATCHED otherwise. The table holds one shape per admitted family: relation lets
+(chain, hidden source, reuse and forward reads), named parameters with their
+S04r and S04w positions, computed group keys without and with JOIN, typed VALUES
+beside a source and alone (MySQL BLOCKED), closed `exists`, `scalar` (no row,
+one row, several rows) and `in`/`not in` reads, correlated `exists`, `scalar`
+and `in`/`not in` reads, CROSS, INNER and LEFT LATERAL joins (with a top-1 let),
+`in` over correlated ORDER BY/LIMIT lets (MySQL BLOCKED at each read),
+`generate_series` alone and joined with a source (MySQL BLOCKED), header
+parameters read inside lets with capture lines, and one parameterized query
+that R2 recovers. `tests/test_harness_execution_api.py` runs each shape's
+database-free facts against the checkout and the native steps against a
+stand-in owner bound to the real public signatures. Each target's worker stops
+after 3,600 seconds; on the batch-3 table, one campaign per target, run side by
+side, took about 19 minutes for PostgreSQL (both routes) and 13 for MySQL.
