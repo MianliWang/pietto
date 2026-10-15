@@ -752,8 +752,8 @@ DERIVED: dict[str, frozenset[str]] = {
 # transported: verification invocation roots, private caches and upstream
 # semantic evidence whose consumed facts are carried by derived fields.
 # Header-parameter facts (a use's parameter owner, a realization's binding
-# obligation) exist only beside a parameter read, whose emission stays outside
-# this observation.
+# obligation) exist only in a parameterized template, which the export and the
+# correspondence check refuse as a whole.
 CUTOFF: dict[str, frozenset[str]] = {
     "realization": frozenset({"proven_int_range", "binding", "obligation"}),
     "request": frozenset(
@@ -771,8 +771,8 @@ CUTOFF: dict[str, frozenset[str]] = {
         {"field", "resolution", "decimal_expression", "scalar_meaning"}
     ),
     "native_use": frozenset({"parameter"}),
-    # A window parameter read never reaches an observation: its native use has
-    # no slot, which keeps the whole artifact outside the closed schema.
+    # A window parameter read belongs to a parameterized template, which never
+    # reaches an observation.
     "window_argument": frozenset({"parameter"}),
 }
 

@@ -221,6 +221,10 @@ def _check_context(context, verification, assessment):
             ).verified
         ):
             raise TransportError(RuntimeIssue.INVALID_REQUEST)
+    # The closed schema has no header parameter: a parameterized plan stays
+    # outside it whether or not a parameter is read, never approximated.
+    if verification.plan.parameters:
+        raise TransportError(RuntimeIssue.UNSUPPORTED_VALUE)
 
 
 def build_project_sql_plan_portable(

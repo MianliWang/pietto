@@ -523,6 +523,57 @@ def test_deadline_after_commit_ack_preserves_commit_but_refuses_completion(
     assert owner.deadline_expired and owner.outcome.cancel_requested
 
 
+def test_a_statement_error_keeps_the_transaction_and_is_rolled_back(
+    tmp_path, monkeypatch
+):
+    """MySQL does not end the transaction on a statement error such as 1242,
+    and the connector clears `unread_result` when it raises one: finalization
+    checks the original transaction and sends ROLLBACK (PostgreSQL instead
+    leaves an aborted transaction UNKNOWN)."""
+    import time
+    from types import SimpleNamespace
+
+    import mysql.connector.errors as mysql_errors
+
+    from pietto._project import project_execution_mysql as product
+    from pietto._project.project_execution_mysql_context import EPOCH_SQL
+
+    artifact = refined(tmp_path, "mysql", "G_emission_table_bag", "bag").original
+    owner = MySQLExecution(prepare_execution(artifact, access()))
+    owner._started = time.monotonic()
+    owner._transaction = "OPEN"
+    connection = SimpleNamespace(
+        unread_result=False, in_transaction=True, shutdown=lambda: None
+    )
+    control = SimpleNamespace()
+    owner._connection = owner._owned_connection = connection
+    owner._control_connection = owner._owned_control_connection = control
+    owner._transport = owner._control_transport = ("fixture-transport",)
+    owner._epoch = owner._initial_epoch = (1, 2, "ACTIVE", "READ ONLY")
+    owner._connections.append(connection)
+    monkeypatch.setattr(product, "transport_state", lambda c: ("fixture-transport",))
+    sent = []
+
+    def control_statement(_, sql, arguments=(), **options):
+        sent.append(sql)
+        return (), ((owner._initial_epoch,) if sql == EPOCH_SQL else ())
+
+    monkeypatch.setattr(product, "read_control", control_statement)
+    error = mysql_errors.get_mysql_exception(
+        1242, "Subquery returns more than 1 row", "21000"
+    )
+    owner._failed(error, "query")
+    assert sent == [EPOCH_SQL, "ROLLBACK"]
+    outcome = owner.outcome
+    assert (outcome.transaction, outcome.delivery, outcome.cleanup_failures) == (
+        "ROLLBACK_ACK",
+        "FAILED",
+        (),
+    )
+    assert outcome.primary is not None
+    assert (outcome.primary.phase, outcome.primary.sqlstate) == ("query", "21000")
+
+
 def test_catalog_persistent_table_does_not_qualify_temporary_shadow(
     tmp_path, monkeypatch
 ):

@@ -679,6 +679,12 @@ that connection, so `cleanup` is `LOCAL_CLOSED_REMOTE_UNOBSERVED` with no
 cleanup failure; the error keeps its `sqlstate` whether it arrives when the
 statement runs or while its result is read.
 
+On `mysql_rows` a statement error, such as error 1242 of a `scalar` read of
+more than one row, does not end the transaction: finalization checks that it is
+still the transaction the attempt opened and sends `ROLLBACK`, so `transaction`
+is `ROLLBACK_ACK` once the server acknowledges it, with no cleanup failure for
+it.
+
 A cleanup step that fails at the end is reported by where it happened. If the
 result was read to the end and the server acknowledged `COMMIT`, but a cleanup
 step then failed (closing the connection, for example), the attempt ends

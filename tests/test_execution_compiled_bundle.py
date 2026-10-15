@@ -946,3 +946,83 @@ def test_obligations_inside_capturing_lets_are_checked_for_each_binding(
                 literals,
                 tuple(zip(template.parameters, (cut, "x"), strict=True)),
             )
+
+
+# Phase70 S16: header reads in capture-free lets that a JOIN reads and that
+# `exists`, `in` and `scalar` read, beside a read in the entry WHERE.
+HEADER_LETS_READS_JOIN = """query result(low: Int not null, hi: Int nullable):
+    let near:
+        from rhs
+        where id > low
+        select:
+            id
+            key
+    let keys:
+        from rhs
+        where key < hi
+        select:
+            key
+    let top:
+        from rhs
+        where id > low
+        select:
+            n = count()
+    from lhs
+    inner join near as r:
+        from lhs
+        on lhs.id == r.id
+    where exists keys and lhs.key in keys and lhs.id <= scalar top.n and lhs.id < hi
+    select:
+        id = lhs.id
+        k = r.key
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_header_reads_in_joined_and_read_lets_round_trip_and_bind(tmp_path, target):
+    """The v2 root carries the reads of the JOIN target's let, the read lets
+    and the entry body; it decodes byte for byte and binds them in the
+    template's placeholder order (PostgreSQL reuses `$1` and `$2`)."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    item = probe.join_witness(
+        target, HEADER_LETS_READS_JOIN, policy="bind_safe_literals"
+    )
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    # The JOIN reads the CTE of `near`; `exists` and `in` read that of `keys`.
+    assert sql.count(b" INNER JOIN ") == sql.count(b"EXISTS (SELECT 1 FROM ") == 1
+    assert sql.count(b" IN (SELECT ") == 1
+    built = build_compiled(outcome.artifact)
+    assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
+    assert wire.encode(wire.decode(built.payload)) == built.payload
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == sql
+    assert [(p.name, p.nullable) for p in template.parameters] == [
+        ("low", False),
+        ("hi", True),
+    ]
+    for values in ((2, 9), (-1, None)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, values, strict=True))
+        )
+        assert bound.artifact.rendered.sql == sql
+        # `near`, `keys`, `top`, then the entry WHERE.
+        assert bound.arguments == (values if target == "postgres" else values * 2)

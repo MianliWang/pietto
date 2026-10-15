@@ -1,6 +1,8 @@
 """Real semantic products retained in one independently verified combined IR."""
 
+from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -13,6 +15,7 @@ from pietto._project.project_query_block_ir import (
 from pietto._project.project_query_block_ir_inspection import (
     build_project_query_block_ir_inspection,
 )
+from pietto._project import project_query_block_ir_pure_boundary as pure
 from pietto._project.project_query_block_ir_pure_boundary import (
     PROJECT_FLAT_RELATIONAL_IR_INSPECTION_FORMAT,
     ProjectQueryBlockIRPureStatus,
@@ -23,6 +26,7 @@ from pietto._project.project_query_block_ir_verification import (
     verify_project_query_block_ir,
 )
 from _pietto_project_join import (
+    BASE,
     _completed,
     _source,
 )
@@ -502,3 +506,141 @@ def test_invalid_request_blocks_owner_and_all_set_membership_dependencies(
         build_project_query_block_ir_analysis_bundle(verification)
     )
     assert b"PIE-S2338" in product.canonical_bytes
+
+
+LET_SET = (
+    BASE
+    + """query result:
+    let left_rows:
+        from lhs
+        select:
+            id
+            key
+    let right_rows:
+        from rhs
+        select:
+            id
+            key
+    union distinct:
+        from left_rows
+        from right_rows
+"""
+)
+
+
+def _let_document(tmp_path: Path):
+    completed = _completed(tmp_path, LET_SET)
+    assert completed.ok, completed.diagnostics
+    verification = verify_project_query_block_ir(
+        build_project_query_block_ir(completed)
+    )
+    assert verification.verified, verification.issues
+    return build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verification)
+    )
+
+
+def _value(record, key):
+    (value,) = (field.value for field in record.fields if field.key == key)
+    return value
+
+
+def test_a_relation_let_owner_keeps_its_let_coordinate(tmp_path: Path) -> None:
+    import json
+
+    product = _let_document(tmp_path)
+    records = product.document.records
+    owners = {
+        _value(record, "ref").ref: _value(record, "declared_name").text
+        for record in records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.OWNER_ENTRY
+    }
+    lets = [
+        (owners[_value(record, "owner").ref], _value(record, "let_position").integer)
+        for record in records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.OWNER_LET
+    ]
+    assert lets == [("left_rows", 0), ("right_rows", 1)]
+    selected = [
+        json.loads(cast(str, _value(record, "capability").text))["selected"]["owner"]
+        for record in records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.TYPE_EQUIVALENCE
+    ]
+    # Each let field names its let; the declaration `result` has the same names.
+    assert {
+        (owner["identity"]["declared_name"], owner.get("let_position"))
+        for owner in selected
+    } == {("left_rows", 0), ("right_rows", 1)}
+    outcome = pure.evaluate_project_query_block_ir_document(product.document)
+    assert outcome.status is ProjectQueryBlockIRPureStatus.OK
+    assert outcome.canonical_bytes == product.canonical_bytes
+    assert b"owner_let\towner=" in product.canonical_bytes
+
+
+def _moved_lets(document, positions):
+    """Rewrite the let records as (owner ref position, let position) pairs."""
+
+    kind = pure.ProjectQueryBlockIRRecordKind.OWNER_LET
+    first = next(i for i, r in enumerate(document.records) if r.kind is kind)
+    rest = tuple(r for r in document.records if r.kind is not kind)
+    moved = tuple(
+        pure.ProjectQueryBlockIRPureRecord(
+            kind=kind,
+            fields=(
+                pure.ProjectQueryBlockIRPureField(
+                    key="owner",
+                    value=pure.project_query_block_ir_pure_ref(
+                        pure.ProjectQueryBlockIRPortableRef(
+                            domain=pure.ProjectQueryBlockIRPortableRefDomain.OWNER_ENTRY,
+                            position=owner,
+                        )
+                    ),
+                ),
+                pure.ProjectQueryBlockIRPureField(
+                    key="let_position",
+                    value=pure.project_query_block_ir_pure_integer(position),
+                ),
+            ),
+        )
+        for owner, position in positions
+    )
+    return replace(document, records=rest[:first] + moved + rest[first:])
+
+
+@pytest.mark.parametrize(
+    ("mutation", "status"),
+    (
+        ("dropped", "INVALID_ENTRY"),
+        ("onto_declaration", "INVALID_REF"),
+        ("renumbered", "INVALID_REF"),
+        ("swapped", "INVALID_REF"),
+        ("unordered", "INVALID_REF"),
+    ),
+)
+def test_a_let_coordinate_is_never_dropped_moved_or_swapped(
+    tmp_path: Path, mutation: str, status: str
+) -> None:
+    product = _let_document(tmp_path)
+    document = product.document
+    owners = {
+        _value(record, "declared_name").text: cast(
+            pure.ProjectQueryBlockIRPortableRef, _value(record, "ref").ref
+        ).position
+        for record in document.records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.OWNER_ENTRY
+    }
+    left, right, result = owners["left_rows"], owners["right_rows"], owners["result"]
+    assert left < right
+    pairs = {
+        "dropped": (),
+        # The declaration takes the let coordinate its own let lost.
+        "onto_declaration": tuple(sorted(((result, 0), (right, 1)))),
+        "renumbered": ((left, 2), (right, 1)),
+        "swapped": ((left, 1), (right, 0)),
+        "unordered": ((right, 1), (left, 0)),
+    }[mutation]
+    outcome = pure.evaluate_project_query_block_ir_document(
+        _moved_lets(document, pairs)
+    )
+    assert outcome.status is ProjectQueryBlockIRPureStatus[status]
+    assert outcome.canonical_bytes is None

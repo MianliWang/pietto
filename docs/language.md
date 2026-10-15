@@ -155,7 +155,15 @@ EXPLICIT_MODULES through available named results and the existing SELECT-body
 tail. Inputs may be exact completed joined, grouped/global, window/QUALIFY and
 ORDER/LIMIT results. Changed inputs rebuild their conditions; repeated bindings
 remain distinct. Condition analysis accepts the existing row-scalar Bool domain, including
-nullable Bool with TRUE-only matching. It uses exact pre-match fields and prior
+nullable Bool with TRUE-only matching. Project SQL emission does not yet realize
+an INNER JOIN whose ON has a nullable `Bool` field as an AND conjunct of its own
+(`on o.flag`, `on lhs.id == o.id and o.flag`): `check --project` accepts it, and
+`emit-sql --project` and `compile_query` report it BLOCKED with `PIE-B1002`
+(`join_output_nullability_drift`) on both targets. Comparing the field with a
+literal does not help (`o.flag == true` is `PIE-B1003`
+`comparison_type_pair_not_admitted`); write the test in WHERE instead (`on
+lhs.id == o.id` with `where o.flag`), which keeps the same rows when no later
+RIGHT or FULL JOIN null-extends that side. It uses exact pre-match fields and prior
 JOIN nullability, without current-block LET/projection/window capture. Generic
 ON does not discover relationships. Exactly one VIA plus ON retains the base
 condition and adds a JOIN-local refinement; its upper bound may survive but
@@ -321,13 +329,12 @@ query vip_report(cutoff: Int not null, label: Text nullable):
         from orders
         where customer_id in vip and total > 1000
         select:
-            id
-            order_day
+            latest = max(order_day)
     from orders
-    where id in big_vip_orders and order_day >= cutoff
+    where customer_id in vip and order_day >= cutoff
     select:
         id
-        latest_day = scalar big_vip_orders.order_day
+        latest_day = scalar big_vip_orders.latest
         note = coalesce(label, "none")
 
 query frequent_customers:
@@ -376,6 +383,11 @@ query days:
     select:
         n
 ```
+
+In an EXPLICIT_MODULES project whose sources have these fields, with
+`archived_codes` matching the columns of `seed`, every query above checks as
+written; `days` emits and compiles for PostgreSQL only (see below). Single-file
+analysis and LEGACY_FLAT projects refuse these forms (see below).
 
 Only an entry `query` header declares parameters. A relation let, `let NAME:`,
 starts a top-level table or query body, before its `from`, set operation or
@@ -686,7 +698,10 @@ any relation result: the limit is static, an ORDER BY key names a field of the
 let's input (a computed key is refused at emission with PIE-B1003
 `order_expression_requires_established_port`), and the database chooses which
 of several rows that tie on every key fill the last places. An ORDER BY that
-reads a captured field or an aggregate is PIE-S2370 at the let. Project SQL
+reads a captured field or an aggregate is PIE-S2370 at the let. A key that is
+not a field of the let's input, such as one of the let's own SELECT outputs or
+an unknown name, is not available either; this alpha reports it only as
+PIE-S2333 at the declaration, with no diagnostic at the key. Project SQL
 keeps both inside that JOIN's derived relation as one more derived table over
 the let's SELECT, which carries each ORDER BY key as an extra column:
 `LATERAL (SELECT ... FROM (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS
@@ -801,7 +816,10 @@ query orders_since(cutoff: Int not null, label: Text nullable):
 
 Each parameter names exactly `Bool`, `Int`, `Float` or `Text` and writes `not
 null` or `nullable`; a query declares at most 64 (PIE-S2353), and a repeated
-name is PIE-S2001. In that query's body a bare name equal to a parameter reads
+name is PIE-S2001. These declaration checks, the position checks below and the
+alias check of an unaliased read run before semantic analysis: each file
+reports them after its temporary diagnostics, and semantic analysis then does
+not run. In that query's body a bare name equal to a parameter reads
 the parameter. A parameter name that is also an input field (a typed VALUES
 column of a FROM or JOIN input included), a `let:` name, a relation name of the
 module, a JOIN binding, a SELECT output or a named window is an error

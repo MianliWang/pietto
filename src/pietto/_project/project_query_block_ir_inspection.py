@@ -1104,6 +1104,25 @@ def _entry_records(
             ("blocker_entry", blocker_entry),
             ("blocker_uses", blocker_uses),
         )
+    for position, entry in enumerate(inspection.entries):
+        if entry.owner.let_position is not None:
+            _record(
+                records,
+                ProjectQueryBlockIRRecordKind.OWNER_LET,
+                (
+                    "owner",
+                    project_query_block_ir_pure_ref(
+                        _portable_ref(
+                            ProjectQueryBlockIRPortableRefDomain.OWNER_ENTRY,
+                            position,
+                        )
+                    ),
+                ),
+                (
+                    "let_position",
+                    project_query_block_ir_pure_integer(entry.owner.let_position),
+                ),
+            )
 
 
 def _dependency_records(

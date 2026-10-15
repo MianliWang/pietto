@@ -763,8 +763,22 @@ def values_expectation(target, variant):
     NULLs keep their declared types. `let_join` matches the published ids 0 and
     1 with the VALUES rows 0 and 1, 1 (BIG has no partner); `zero_left_join`
     keeps every published id, BIG twice, with no partner in the zero-row let.
+    `reads` keeps the three `let_join` rows, since `picked` holds rid 1 and
+    the empty table `spare` has no row; `hit` tests each label against "y",
+    `miss` each id against 1 and NULL, `kept` each text against no Text
+    row, and `low` reads the one-row 0.
     """
     integer, text = (20, 25) if target == "postgres" else (8, 253)
+    if variant == "reads":
+        boolean = 16 if target == "postgres" else 8
+        yes, no, zero = _bool(target, True), _bool(target, False), _int("0")
+        rows = [
+            [_int("0"), {"kind": "text", "value": "z"}, no, NULL, yes, zero],
+            [_int("1"), NULL, NULL, no, yes, zero],
+            [_int("1"), {"kind": "text", "value": "y"}, yes, no, yes, zero],
+        ]
+        types = [integer, text, boolean, boolean, boolean, integer]
+        return rows, emission.VALUES_LABELS[variant], types
     if variant == "let_join":
         rows = [
             [_int("0"), {"kind": "text", "value": "z"}],

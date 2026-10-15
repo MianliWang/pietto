@@ -40,8 +40,9 @@ VARIANTS = {
     # Phase70 S06: typed VALUES; a statement without a physical source is
     # PostgreSQL only, and a rejected VALUES body never reaches SQL. A VALUES
     # let joined with the published relation, with rows or with none, runs on
-    # both targets.
-    "Q_values_rows": ("top", "rejected", "let_join", "zero_left_join"),
+    # both targets. S16: `reads` feeds forward and reused VALUES lets to every
+    # closed read kind beside that JOIN.
+    "Q_values_rows": ("top", "rejected", "let_join", "zero_left_join", "reads"),
     # Phase70 S08: closed EXISTS / NOT EXISTS reads in WHERE; S10: lets with
     # capture lines read by them.
     "L_relation_exists": ("kept", "correlated"),
@@ -2113,19 +2114,79 @@ VALUES_BODIES = {
         a = rows.id
         b = s.n
 """,
+    # `seed` is read before it is written, by `picked`, and again as the JOIN
+    # target; `spare` (the published empty table) is read only through `not
+    # exists gone`; `hit` is true, false and NULL across the three rows, and
+    # `kept` tests a 64-character Text against a zero-row Text column.
+    "reads": """query result:
+    let picked:
+        from seed
+        where label == "y"
+        select:
+            rid
+    let gone:
+        from spare
+        select:
+            id
+    let seed:
+        values(rid: Int not null, label: Text nullable):
+            0, "z"
+            1, null
+            1, "y"
+    let labels:
+        values(t: Text not null):
+            "y"
+    let nulls:
+        values(k: Int nullable):
+            1
+            null
+    let none:
+        values(t: Text nullable)
+    let top:
+        values(n: Int not null):
+            0
+    from rows
+    inner join seed as s:
+        from rows
+        on rows.id == s.rid
+    where exists picked and not exists gone
+    select:
+        a = rows.id
+        b = s.label
+        hit = s.label in labels
+        miss = rows.id not in nulls
+        kept = rows.text not in none
+        low = scalar top.n
+""",
 }
 VALUES_LABELS = {
     "top": ("id", "label", "ratio", "flag"),
     "let_join": ("a", "b"),
     "zero_left_join": ("a", "b"),
+    "reads": ("a", "b", "hit", "miss", "kept", "low"),
 }
 
 
 def values_fixture(target, variant):
-    """Typed VALUES beside the published source, which the statement never reads."""
+    """Typed VALUES beside the published source, which the statement never reads.
+
+    `reads` also declares `spare` over the published empty table.
+    """
     item = join_fixture(target, "W_join_shapes", "inner")
     header = item["source"].split("query result:", 1)[0]
-    return {**item, "source": header + VALUES_BODIES[variant]}
+    if variant != "reads":
+        return {**item, "source": header + VALUES_BODIES[variant]}
+    contract = json.loads(item["contract"])
+    spare = deepcopy(contract["sources"][0])
+    spare["selector"]["name"] = "spare"
+    spare["relation"]["name"] = "phase66 empty é"
+    contract["sources"].append(spare)
+    spare_source = f'source spare: Row is {target}.table("opaque.spare.locator")\n'
+    return {
+        **item,
+        "source": header + spare_source + VALUES_BODIES[variant],
+        "contract": encoded(contract).decode(),
+    }
 
 
 def exists_fixture(target, variant):
@@ -6526,8 +6587,38 @@ def _decode_fixed_public(document, limits):
                 node["operands"][0], incoming, alias, owner, scopes, context
             )
             column = node["column"]
-            # A finite carrier rule of its own: one tag; Int ranges, Bool 0/1
-            # values or one identical carrier otherwise.
+
+            def text_carrier(item):
+                # The family's one admitted Text profile at any width its
+                # storage holds: the widths of the two sides may differ.
+                domain, storage = item["domain"], item["storage"]
+                width = domain.get("max_characters")
+                return (
+                    set(domain)
+                    == {"kind", "max_characters", "encoding", "collation", "padding"}
+                    and domain["kind"] == "text"
+                    and type(width) is int
+                    and 0 <= width
+                    and (family == "postgres" or width <= 16383)
+                    and (domain["encoding"], domain["collation"], domain["padding"])
+                    == (
+                        ("UTF8", "C", "NO PAD")
+                        if family == "postgres"
+                        else ("utf8mb4", "utf8mb4_0900_bin", "NO PAD")
+                    )
+                    and (
+                        storage == {"kind": "pg_text"}
+                        if family == "postgres"
+                        else storage == {"kind": "my_utf8mb4_text"}
+                        or storage.get("kind") == "my_varchar"
+                        and type(storage.get("length")) is int
+                        and width <= storage["length"] <= 16383
+                    )
+                )
+
+            # The product's carrier rule (`_membership_carrier_matches`): one
+            # tag; Int ranges, Bool 0/1 values, one Text profile, or one
+            # identical carrier otherwise.
             _need(
                 left["tag"] == column["tag"]
                 and (
@@ -6540,7 +6631,11 @@ def _decode_fixed_public(document, limits):
                     == "int_range"
                     or left["tag"] == "Bool"
                     and left["domain"] == column["domain"] == {"kind": "bool01"}
-                    or left["storage"] == column["storage"]
+                    or left["tag"] == "Text"
+                    and text_carrier(left)
+                    and text_carrier(column)
+                    or left["tag"] != "Text"
+                    and left["storage"] == column["storage"]
                     and left["domain"] == column["domain"]
                 ),
                 "membership read carrier",
@@ -9864,9 +9959,10 @@ def _decode_fixed_public(document, limits):
                 _need(final, "only a selected VALUES statement labels its table")
                 take("syntax", "values_open", " FROM (", block)
         else:
-            width = 0
-            while encoded(ref("values_column", base + width)) in values_evidence:
-                width += 1
+            # A VALUES CTE is as wide as its own column list; the columns of a
+            # later VALUES body of the statement follow its columns directly.
+            _need(cte_terminals is not None, "VALUES CTE column list")
+            width = len(cast(list, cte_terminals))
             columns_seen = [
                 dict(
                     zip(

@@ -1109,3 +1109,100 @@ def test_a_membership_read_let_reads_the_entry_query_header(
         3,
         7,
     )
+
+
+# Phase70 S16: an `in` read of a let capturing a JOIN binding and a `scalar`
+# read of a let capturing the FROM input, both ending in ORDER BY and LIMIT,
+# over that JOIN's output. PostgreSQL wraps each let in its read's own derived
+# table, correlated to the reading CTE's `t0` (the reused inner `t0` alias is
+# a FROM item the let cannot see); MySQL refuses each read at its own position.
+ORDERED_OVER_JOIN = """query result:
+    let tops:
+        capture r
+        from rhs
+        where rhs.key == r.key
+        select:
+            id
+        order by:
+            id desc
+        limit 2
+    let best:
+        capture lhs
+        from rhs
+        where rhs.id > lhs.id
+        select:
+            key
+        order by:
+            id
+        limit 1
+    from lhs
+    inner join rhs as r:
+        from lhs
+        on lhs.id == r.id
+    where lhs.id in tops
+    select:
+        a = lhs.id
+        k = scalar best.key
+"""
+ORDERED_OVER_JOIN_SQL = (
+    'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."order.id" AS "c0", '
+    '"m0"."key value" AS "c1", "m1"."order.id" AS "c2", "m1"."key value" AS "c3" '
+    'FROM "public"."phase66 lhs é" AS "m0" INNER JOIN "public"."phase66 rhs é" '
+    'AS "m1" ON ("m0"."order.id" = "m1"."order.id")), '
+    '"p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS '
+    '"c1", "t0"."c2" AS "c2", "t0"."c3" AS "c3" FROM "p0" AS "t0" WHERE '
+    '("t0"."c0" IN (SELECT "e0"."c0" FROM (SELECT "t0"."c0" AS "c0" FROM '
+    '(SELECT "t1"."c0" AS "c0", "t1"."c0" AS "c1" FROM (SELECT "s0"."order.id" '
+    'AS "c0", "s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0" '
+    'WHERE ("s0"."key value" = "t0"."c3")) AS "t1") AS "t0" ORDER BY '
+    '"t0"."c1" DESC LIMIT 2) AS "e0"))) SELECT "t5"."c0" AS "a", (SELECT '
+    '"e1"."c0" FROM (SELECT "t2"."c0" AS "c0" FROM (SELECT "t3"."c1" AS "c0", '
+    '"t3"."c0" AS "c1" FROM (SELECT "s1"."order.id" AS "c0", "s1"."key value" '
+    'AS "c1" FROM "public"."phase66 rhs é" AS "s1" WHERE ("s1"."order.id" > '
+    '"t5"."c0")) AS "t3") AS "t2" ORDER BY "t2"."c1" ASC LIMIT 1) AS "e1") '
+    'AS "k" FROM "p1" AS "t5"'
+)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_ordered_reads_of_lets_capturing_join_inputs_wrap_on_postgres_only(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, ORDERED_OVER_JOIN)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        lines = item["source"].splitlines()
+        assert (document["status"], document["diagnostics"]) == ("BLOCKED", [])
+        assert outcome.artifact is None and "sql" not in document
+        assert [
+            (
+                b["code"],
+                b["subject"]["detail"],
+                b["subject"]["reference"],
+                b["location"]["line"],
+                b["location"]["column"],
+            )
+            for b in document["blockers"]
+        ] == [
+            (
+                "PIE-B1003",
+                "mysql_correlated_order_or_limit_read_not_admitted",
+                {"kind": "expression_block_use", "position": position},
+                lines.index(line) + 1,
+                column,
+            )
+            for position, line, column in (
+                (0, "    where lhs.id in tops", 11),
+                (1, "        k = scalar best.key", 13),
+            )
+        ]
+        return
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == ORDERED_OVER_JOIN_SQL
+    assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
+        ("a", False),
+        ("k", True),
+    ]

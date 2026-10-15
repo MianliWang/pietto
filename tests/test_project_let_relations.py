@@ -1699,6 +1699,19 @@ LATERAL_DIAGNOSTICS = {
         _top_k("cross", order="        order by:\n            count()\n"),
         [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
     ),
+    # A known limitation: a key that is no field of the let's input, its own
+    # output or an unknown name, is only the declaration's PIE-S2333.
+    "top_k_output_order": (
+        _top_k("cross", order="        order by:\n            out desc\n").replace(
+            "            id\n        order by:",
+            "            out = id\n        order by:",
+        ),
+        [UNAVAILABLE],
+    ),
+    "top_k_unknown_order": (
+        _top_k("cross", order="        order by:\n            nope desc\n"),
+        [UNAVAILABLE],
+    ),
     "top_k_right": (_top_k("right"), [("PIE-S2372", JOIN_KIND, 17, 5)]),
     # Joined twice, the let keeps its LATERAL body rule; the second JOIN is
     # refused like any later read.
@@ -1821,3 +1834,51 @@ def test_a_capture_of_a_left_lateral_binding_is_null_extended(tmp_path: Path) ->
             for read, value in facts[name].captured_value_types.items()
             if isinstance(value, ValueType)
         } == {("x", "id"): "nullable"}, name
+
+
+# VALUES lets, a forward let read and refused relation reads in one query: a
+# let read only by a refused read is still read (`flags`, `seed`), and each
+# refusal is reported once, in checking order, with no cascade.
+REFUSED_READS = (
+    "query p(c: Int not null):\n    from lhs\n    where id > c\n    select:\n"
+    "        id\n"
+    "query result:\n"
+    "    let over:\n        from seed\n        select:\n            rid\n"
+    "    let seed:\n        values(rid: Int not null):\n            1\n"
+    "            2\n"
+    "    let flags:\n        values(f: Bool nullable):\n            true\n"
+    "            null\n"
+    "    let spare:\n        values(rid: Int not null)\n"
+    "    from lhs\n    inner join rhs as r:\n        from lhs\n"
+    "        on lhs.id == r.id and exists flags\n"
+    "    where lhs.id <= scalar over.rid and lhs.id in p\n"
+    "    select:\n        a = lhs.id\n"
+    "        n = row_number() window:\n            order by:\n"
+    "                lhs.id\n"
+    "    qualify:\n        n in seed\n"
+)
+POSITION = "relation reference is available only in WHERE and in the SELECT of an "
+
+
+def test_refused_reads_of_values_lets_report_one_ordered_list(tmp_path: Path) -> None:
+    assert _check(tmp_path, REFUSED_READS) == (
+        1,
+        [
+            ("PIE-S2359", "Let relation spare is never read.", 24, 5),
+            ("PIE-S2349", f"EXISTS {POSITION}ungrouped query, not in JOIN ON.", 29, 31),
+            ("PIE-S2350", f"IN {POSITION}ungrouped query, not in QUALIFY.", 37, 9),
+            (
+                "PIE-S2348",
+                "Scalar relation read over.rid is not yet available: the columns "
+                "of over are not known before completion.",
+                30,
+                21,
+            ),
+            (
+                "PIE-S2356",
+                "A query with parameters cannot be the input of another relation.",
+                30,
+                41,
+            ),
+        ],
+    )

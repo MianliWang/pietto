@@ -161,6 +161,31 @@ def test_at_most_sixty_four_parameters(tmp_path: Path) -> None:
     body += "    select:\n        id\n"
     column = len("query q(") + len(allowed) + len(", ") + 1
     assert _check(_project(tmp_path, body)) == (1, [(DECLARATION, 1, column)])
+    exact = f"query q({allowed}):\n    from rows\n    select:\n        id\n"
+    assert _check(_project(tmp_path / "exact", exact)) == (0, [])
+    # Each fault of one parameter is its own diagnostic at that parameter,
+    # sorted by code: a repeated name, the limit, the type and nullability.
+    extra = "p0: UUID, t: Decimal(3, 1) nullable"
+    stacked = f"query q({allowed}, {extra}):\n    from rows\n    select:\n        id\n"
+    second = column + len("p0: UUID, ")
+    limit = "A query declares at most 64 parameters."
+    kind = "Query parameter type must be Bool, Int, Float or Text."
+    assert _check(_project(tmp_path / "stacked", stacked), messages=True) == (
+        1,
+        [
+            ("PIE-S2001", "Duplicate parameter name in query q: p0", 1, column),
+            (DECLARATION, limit, 1, column),
+            (DECLARATION, kind, 1, column),
+            (
+                DECLARATION,
+                "Query parameter must declare not null or nullable.",
+                1,
+                column,
+            ),
+            (DECLARATION, limit, 1, second),
+            (DECLARATION, kind, 1, second),
+        ],
+    )
 
 
 HEADER_QUERY = "query q(cutoff: Int not null, word: Text nullable):\n    from rows\n"
@@ -926,3 +951,61 @@ def test_a_query_whose_lets_read_its_header_is_never_an_input(
         "        id\n"
     )
     assert _check(_project(tmp_path, body)) == (1, [(INPUT, 12, 9)])
+
+
+def test_a_grouped_window_never_reads_a_parameter_or_a_computed_key(
+    tmp_path: Path,
+) -> None:
+    """A computed parameter key admits grouping, but a window over the grouped
+    output reads neither the parameter nor the key that depends on it."""
+    body = (
+        "query q(step: Int not null):\n"
+        "    from rows\n"
+        "    let:\n"
+        "        k = id * step\n"
+        "    group by:\n"
+        "        k\n"
+        "    select:\n"
+        "        k\n"
+        "        n = count()\n"
+        "        a = lag(n, step) window:\n"
+        "            order by:\n"
+        "                k\n"
+    )
+    assert _check(_project(tmp_path, body), messages=True) == (
+        1,
+        [(POSITION, POSITION_MESSAGE, 10, 20), (POSITION, POSITION_MESSAGE, 12, 17)],
+    )
+
+
+def test_gate_diagnostics_precede_header_diagnostics_in_each_file(
+    tmp_path: Path,
+) -> None:
+    """Per file the pre-admission gate reports first, in source order, then the
+    header checks in theirs; the two lists are not interleaved by location, and
+    semantic analysis (the unknown field of `d`) does not run."""
+    lets = "".join(
+        f"    let l{i}:\n        from {'rows' if i == 0 else f'l{i - 1}'}\n"
+        "        select:\n            id\n"
+        for i in range(65)
+    )
+    body = (
+        "query a(cutoff: Int):\n    from rows\n    select:\n        id\n"
+        f"query b:\n{lets}    from l64\n    select:\n        id\n"
+        "query c(n: Int not null, n: Bool nullable):\n    from rows\n"
+        "    select:\n        id\n"
+        "query d:\n    from rows\n    select:\n        nothere\n"
+    )
+    assert _check(_project(tmp_path, body), messages=True) == (
+        1,
+        [
+            (
+                "PIE-S2357",
+                "A table or query declares at most 64 relation lets.",
+                6 + 4 * 64,
+                5,
+            ),
+            (DECLARATION, "Query parameter must declare not null or nullable.", 1, 9),
+            ("PIE-S2001", "Duplicate parameter name in query c: n", 6 + 4 * 65 + 3, 26),
+        ],
+    )

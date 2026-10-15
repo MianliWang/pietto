@@ -241,6 +241,39 @@ def test_unread_parameters_still_emit_the_v2_template(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_an_unread_parameter_keeps_the_template_outside_the_observation(
+    tmp_path: Path, target: str
+) -> None:
+    """The private observation has no parameter; it never drops an unread one."""
+    from pietto._project import project_sql_emission_portable as portable
+
+    clauses = "    from rows\n    select:\n        record_id = id\n"
+    template = _case(
+        tmp_path / "template", target, "query result(low: Int not null):\n" + clauses
+    )[1].artifact
+    twin = _case(tmp_path / "twin", target, "query result:\n" + clauses)[1].artifact
+    assert template is not None and twin is not None
+    assert template.request.plan.parameters and not twin.request.plan.parameters
+    assert template.rendered.sql == twin.rendered.sql
+    observed = portable.export_emission_observation(template, template.request)
+    assert observed == portable.EmissionObservation(
+        portable.ObservationStatus.OUTSIDE_SCHEMA
+    )
+    # The parameter-free twin's coherent document never stands in for it.
+    document = portable.export_emission_observation(twin, twin.request)
+    assert document.status is portable.ObservationStatus.OK
+    assert (
+        portable.verify_emission_observation(
+            document.canonical_bytes, twin, twin.request
+        ).issues
+        == ()
+    )
+    assert portable.verify_emission_observation(
+        document.canonical_bytes, template, template.request
+    ).issues == ("outside_schema",)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_text_parameters_compare_and_project_with_unbound_widths(
     tmp_path: Path, target: str
 ) -> None:
@@ -1349,3 +1382,103 @@ def test_lets_read_by_exists_scalar_and_in_carry_the_header(
     assert probe.decoded_arguments(probe.decode_public(raw), {"low": 1, "high": 5}) == (
         (1, 5) if target == "postgres" else (1, 5, 1, 5)
     )
+
+
+# Cross-feature templates: a computed parameter key under a window over the
+# grouped output and a QUALIFY, and one parameter read as a LET value, a window
+# count and a QUALIFY operand under an ORDER key through a LET and a LIMIT.
+CROSS = {
+    "grouped_window": """query result(low: Int not null):
+    from rows
+    let:
+        k = id * low
+    group by:
+        k
+    select:
+        k
+        n = count()
+        r = row_number() window:
+            order by:
+                n desc
+    qualify:
+        r <= low
+""",
+    "window_count_qualify": """query result(step: Int not null, fill: Int nullable):
+    from rows
+    let:
+        s = id * step
+    select:
+        id
+        a = lag(id, step, fill) window:
+            order by:
+                id
+    qualify:
+        a > step
+    order by:
+        s desc
+    limit 3
+""",
+}
+CROSS_SQL = {
+    ("grouped_window", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."order.id" AS "c0", "s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", "s0"."ratio value" AS "c4", ("s0"."order.id" * CAST($1 AS pg_catalog.int8)) AS "c5" FROM "public"."phase66 source é" AS "s0"), '
+        '"p1" ("c0", "c1") AS (SELECT "t1"."c5" AS "c0", COUNT(*) AS "c1" FROM "p0" AS "t1" GROUP BY "t1"."c5"), '
+        '"p2" ("c0", "c1", "c2") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", ROW_NUMBER() OVER (ORDER BY "t2"."c1" DESC) AS "c2" FROM "p1" AS "t2"), '
+        '"p3" ("c0", "c1", "c2") AS (SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1", "t3"."c2" AS "c2" FROM "p2" AS "t3" WHERE ("t3"."c2" <= CAST($1 AS pg_catalog.int8))) '
+        'SELECT "t4"."c0" AS "k", "t4"."c1" AS "n", "t4"."c2" AS "r" FROM "p3" AS "t4"'
+    ),
+    ("grouped_window", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, (`s0`.`order.id` * CAST(? AS SIGNED)) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`), '
+        "`p1` (`c0`, `c1`) AS (SELECT `t1`.`c5` AS `c0`, COUNT(*) AS `c1` FROM `p0` AS `t1` GROUP BY `t1`.`c5`), "
+        "`p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, ROW_NUMBER() OVER (ORDER BY `t2`.`c1` DESC) AS `c2` FROM `p1` AS `t2`), "
+        "`p3` (`c0`, `c1`, `c2`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS `c1`, `t3`.`c2` AS `c2` FROM `p2` AS `t3` WHERE (`t3`.`c2` <= CAST(? AS SIGNED))) "
+        "SELECT `t4`.`c0` AS `k`, `t4`.`c1` AS `n`, `t4`.`c2` AS `r` FROM `p3` AS `t4`"
+    ),
+    ("window_count_qualify", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."order.id" AS "c0", "s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", "s0"."ratio value" AS "c4", ("s0"."order.id" * CAST($1 AS pg_catalog.int8)) AS "c5" FROM "public"."phase66 source é" AS "s0"), '
+        '"p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", "t1"."c5" AS "c5", LAG("t1"."c0", CAST(CAST($1 AS pg_catalog.int8) AS pg_catalog.int4), CAST($2 AS pg_catalog.int8)) OVER (ORDER BY "t1"."c0" ASC) AS "c6" FROM "p0" AS "t1"), '
+        '"p2" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2", "t2"."c3" AS "c3", "t2"."c4" AS "c4", "t2"."c5" AS "c5", "t2"."c6" AS "c6" FROM "p1" AS "t2" WHERE ("t2"."c6" > CAST($1 AS pg_catalog.int8))), '
+        '"p3" ("c0", "c1", "c2") AS (SELECT "t3"."c0" AS "c0", "t3"."c6" AS "c1", "t3"."c5" AS "c2" FROM "p2" AS "t3") '
+        'SELECT "t0"."c0" AS "id", "t0"."c1" AS "a" FROM "p3" AS "t0" ORDER BY "t0"."c2" DESC LIMIT 3'
+    ),
+    ("window_count_qualify", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, (`s0`.`order.id` * CAST(? AS SIGNED)) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`), '
+        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5`, LAG(`t1`.`c0`, ?, CAST(? AS SIGNED)) OVER (ORDER BY `t1`.`c0` ASC) AS `c6` FROM `p0` AS `t1`), "
+        "`p2` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, `t2`.`c4` AS `c4`, `t2`.`c5` AS `c5`, `t2`.`c6` AS `c6` FROM `p1` AS `t2` WHERE (`t2`.`c6` > CAST(? AS SIGNED))), "
+        "`p3` (`c0`, `c1`, `c2`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c6` AS `c1`, `t3`.`c5` AS `c2` FROM `p2` AS `t3`) "
+        "SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `a` FROM `p3` AS `t0` ORDER BY `t0`.`c2` DESC LIMIT 3"
+    ),
+}
+# (owner parameter per native use, obligations as (kind, parameters)).
+CROSS_USES = {
+    "grouped_window": ([0, 0], [("int_range_representable", [0])]),
+    "window_count_qualify": (
+        [0, 0, 1, 0],
+        [("int_range_representable", [0]), ("structural_count_interval", [0])],
+    ),
+}
+
+
+@pytest.mark.parametrize("name", tuple(CROSS))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_cross_feature_templates_emit_exact_sql(
+    tmp_path: Path, target: str, name: str
+) -> None:
+    _, outcome = _case(tmp_path, target, CROSS[name], "preserve_literals")
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    assert document["sql"] == "".join(CROSS_SQL[name, target])
+    owners, obligations = CROSS_USES[name]
+    uses = document["parameter_uses"]
+    assert [u["owner"] for u in uses] == [
+        {"kind": "parameter", "parameter": owner} for owner in owners
+    ]
+    first: dict[int, int] = {}
+    assert [u["server_index"] for u in uses] == (
+        list(range(1, len(owners) + 1))
+        if target == "mysql"
+        else [first.setdefault(owner, len(first) + 1) for owner in owners]
+    )
+    assert [
+        (o["kind"], o["parameters"]) for o in document["binding_obligations"]
+    ] == obligations

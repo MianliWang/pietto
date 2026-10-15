@@ -643,7 +643,9 @@ def test_the_qualify_obligation_alone_refuses_its_overflowing_binding(tmp_path, 
 # The S04r positions the conformance witnesses leave out, each compiled and
 # bound through the product binder: the closed builtin value arguments, a
 # DISTINCT ORDER key's constant leaf, MIN over a dependent LET and SATISFYING
-# over a JOIN.
+# over a JOIN; then two cross-feature templates: a computed parameter key with
+# a window and QUALIFY over the grouped output, and one parameter as a LET
+# value, a window count and a QUALIFY operand under a LET ORDER key and LIMIT.
 COMPILED_POSITIONS = {
     "builtins_distinct": (
         """query result(low: Int not null, label: Text nullable):
@@ -692,6 +694,42 @@ COMPILED_POSITIONS = {
         n > low
 """,
         {"low": 1},
+    ),
+    "grouped_window": (
+        """query result(low: Int not null):
+    from rows
+    let:
+        k = id * low
+    group by:
+        k
+    select:
+        k
+        n = count()
+        r = row_number() window:
+            order by:
+                n desc
+    qualify:
+        r <= low
+""",
+        {"low": 0},
+    ),
+    "window_count_qualify": (
+        """query result(step: Int not null, fill: Int nullable):
+    from rows
+    let:
+        s = id * step
+    select:
+        id
+        a = lag(id, step, fill) window:
+            order by:
+                id
+    qualify:
+        a > step
+    order by:
+        s desc
+    limit 3
+""",
+        {"step": 1, "fill": None},
     ),
 }
 

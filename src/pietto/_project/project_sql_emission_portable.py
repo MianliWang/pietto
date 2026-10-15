@@ -607,6 +607,10 @@ def export_emission_observation(artifact, request) -> EmissionObservation:
         return EmissionObservation(ObservationStatus.INVALID_ROOT)
     if not verify_project_sql_emission(artifact, request).verified:
         return EmissionObservation(ObservationStatus.UNVERIFIED)
+    if request.plan.parameters:
+        # The closed schema has no header parameter: a template stays outside
+        # it whether or not a parameter is read, never approximated without it.
+        return EmissionObservation(ObservationStatus.OUTSIDE_SCHEMA)
     try:
         return EmissionObservation(
             ObservationStatus.OK, _Export(artifact, request).run()
@@ -1028,6 +1032,8 @@ def verify_emission_observation(
         return ObservationCorrespondence(("invalid_runtime_root",))
     if not verify_project_sql_emission(artifact, request).verified:
         return ObservationCorrespondence(("unverified_artifact",))
+    if request.plan.parameters:
+        return ObservationCorrespondence(("outside_schema",))
     outcome = pure.parse_emission_observation(document)
     if outcome.status is not pure.Status.OK or outcome.view is None:
         return ObservationCorrespondence(("document_" + outcome.status.value,))

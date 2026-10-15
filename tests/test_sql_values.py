@@ -289,6 +289,101 @@ def test_a_reused_forward_values_let_is_one_cte(tmp_path: Path, target: str) -> 
     probe.decode_public(serialize_project_sql_emission(outcome))
 
 
+# The native Q_values_rows/reads witness: `seed` is read before it is written
+# and again as the JOIN target, every closed read kind reads a VALUES let or a
+# let over one, and `spare` is read only through `not exists gone`.
+READS_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (VALUES (CAST(0 AS pg_catalog.int8), CAST(E\'\\172\' AS pg_catalog.text) COLLATE "C"), (CAST(1 AS pg_catalog.int8), CAST(NULL AS pg_catalog.text) COLLATE "C"), (CAST(1 AS pg_catalog.int8), CAST(E\'\\171\' AS pg_catalog.text) COLLATE "C")), '
+        '"p1" ("c0") AS (VALUES (CAST(E\'\\171\' AS pg_catalog.text) COLLATE "C")), '
+        '"p2" ("c0") AS (VALUES (CAST(1 AS pg_catalog.int8)), (CAST(NULL AS pg_catalog.int8))), '
+        '"p3" ("c0") AS (SELECT CAST(NULL AS pg_catalog.text) COLLATE "C" AS "c0" WHERE FALSE), '
+        '"p4" ("c0") AS (VALUES (CAST(0 AS pg_catalog.int8))), '
+        '"p5" ("c0") AS (SELECT "s0"."order.id" AS "c0" FROM "public"."phase66 empty é" AS "s0"), '
+        '"p6" ("c0", "c1") AS (SELECT "s1"."c0" AS "c0", "s1"."c1" AS "c1" FROM "p0" AS "s1" WHERE ("s1"."c1" = CAST(E\'\\171\' AS pg_catalog.text) COLLATE "C")), '
+        '"p7" ("c0") AS (SELECT "t2"."c0" AS "c0" FROM "p6" AS "t2"), '
+        '"p8" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "m0"."order.id" AS "c0", "m0"."flag value" AS "c1", "m0"."text `""é" AS "c2", "m0"."amount value" AS "c3", "m0"."ratio value" AS "c4", "m1"."c0" AS "c5", "m1"."c1" AS "c6" FROM "public"."phase66 source é" AS "m0" INNER JOIN "p0" AS "m1" ON ("m0"."order.id" = "m1"."c0")), '
+        '"p9" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", "t0"."c3" AS "c3", "t0"."c4" AS "c4", "t0"."c5" AS "c5", "t0"."c6" AS "c6" FROM "p8" AS "t0" WHERE (EXISTS (SELECT 1 FROM "p7" AS "e0") AND (NOT EXISTS (SELECT 1 FROM "p5" AS "e1")))) '
+        'SELECT "t4"."c0" AS "a", "t4"."c6" AS "b", ("t4"."c6" IN (SELECT "e2"."c0" FROM "p1" AS "e2")) AS "hit", ("t4"."c0" NOT IN (SELECT "e3"."c0" FROM "p2" AS "e3")) AS "miss", ("t4"."c2" NOT IN (SELECT "e4"."c0" FROM "p3" AS "e4")) AS "kept", (SELECT "e5"."c0" FROM "p4" AS "e5") AS "low" FROM "p9" AS "t4"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (VALUES ROW(CAST(0 AS SIGNED), CAST(X'7a' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin), ROW(CAST(1 AS SIGNED), CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin), ROW(CAST(1 AS SIGNED), CAST(X'79' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)), "
+        "`p1` (`c0`) AS (VALUES ROW(CAST(X'79' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)), "
+        "`p2` (`c0`) AS (VALUES ROW(CAST(1 AS SIGNED)), ROW(CAST(NULL AS SIGNED))), "
+        "`p3` (`c0`) AS (SELECT CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin AS `c0` WHERE FALSE), "
+        "`p4` (`c0`) AS (VALUES ROW(CAST(0 AS SIGNED))), "
+        "`p5` (`c0`) AS (SELECT `s0`.`order.id` AS `c0` FROM `phase66`.`phase66 empty é` AS `s0`), "
+        "`p6` (`c0`, `c1`) AS (SELECT `s1`.`c0` AS `c0`, `s1`.`c1` AS `c1` FROM `p0` AS `s1` WHERE (`s1`.`c1` = CAST(X'79' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)), "
+        "`p7` (`c0`) AS (SELECT `t2`.`c0` AS `c0` FROM `p6` AS `t2`), "
+        '`p8` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `m0`.`order.id` AS `c0`, `m0`.`flag value` AS `c1`, `m0`.`text ``"é` AS `c2`, `m0`.`amount value` AS `c3`, `m0`.`ratio value` AS `c4`, `m1`.`c0` AS `c5`, `m1`.`c1` AS `c6` FROM `phase66`.`phase66 source é` AS `m0` INNER JOIN `p0` AS `m1` ON (`m0`.`order.id` = `m1`.`c0`)), '
+        "`p9` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, `t0`.`c3` AS `c3`, `t0`.`c4` AS `c4`, `t0`.`c5` AS `c5`, `t0`.`c6` AS `c6` FROM `p8` AS `t0` WHERE (EXISTS (SELECT 1 FROM `p7` AS `e0`) AND (NOT EXISTS (SELECT 1 FROM `p5` AS `e1`)))) "
+        "SELECT `t4`.`c0` AS `a`, `t4`.`c6` AS `b`, (`t4`.`c6` IN (SELECT `e2`.`c0` FROM `p1` AS `e2`)) AS `hit`, (`t4`.`c0` NOT IN (SELECT `e3`.`c0` FROM `p2` AS `e3`)) AS `miss`, (`t4`.`c2` NOT IN (SELECT `e4`.`c0` FROM `p3` AS `e4`)) AS `kept`, (SELECT `e5`.`c0` FROM `p4` AS `e5`) AS `low` FROM `p9` AS `t4`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_values_lets_feed_every_read_kind_beside_a_join(
+    tmp_path: Path, target: str
+) -> None:
+    from pietto._project.project_postgres_source_assurance import (
+        qualification_roots,
+    )
+    from pietto._project.project_sql_plan import ProjectSQLPlan
+
+    item = probe.fixture(target, "Q_values_rows", "reads")
+    checked, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == "".join(READS_SQL[target])
+    # `in`/`not in` stay three-valued and nullable; `scalar` is nullable.
+    assert [
+        (c["label"], c["logical_type"]["name"], c["nullable"])
+        for c in document["columns"]
+    ] == [
+        ("a", "Int", False),
+        ("b", "Text", True),
+        ("hit", "Bool", True),
+        ("miss", "Bool", True),
+        ("kept", "Bool", True),
+        ("low", "Int", True),
+    ]
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    assert [s.declaration.name for s in plan.sources] == ["rows", "spare"]
+    assert outcome.artifact is not None
+    request = outcome.artifact.request
+    assert [s.name for s in request.sources] == [
+        "phase66 source é",
+        "phase66 empty é",
+    ]
+    assert qualification_roots(request.sources, ()) == tuple(
+        (s.namespace, s.name) for s in request.sources
+    )
+    probe.decode_public(serialize_project_sql_emission(outcome))
+    # Without its contract mapping the source read only by `exists` blocks.
+    contract = json.loads(item["contract"])
+    contract["sources"] = contract["sources"][:1]
+    _, missing = probe.build_case(
+        tmp_path / "missing", item["source"], json.dumps(contract), item["policy"]
+    )
+    blocked = json.loads(serialize_project_sql_emission(missing))
+    assert blocked["status"] == "BLOCKED" and "sql" not in blocked
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            None if b["location"] is None else b["location"]["line"],
+        )
+        for b in blocked["blockers"]
+    ] == [
+        ("PIE-B1001", "source_mapping_missing", None),
+        ("PIE-B1001", "source_mapping_missing", 8),
+    ]
+
+
 def test_every_declared_type_null_duplicate_and_bound_cell_is_written(
     tmp_path: Path,
 ) -> None:

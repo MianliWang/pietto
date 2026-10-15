@@ -633,3 +633,56 @@ def test_mysql_refuses_ordered_reads_beside_a_refused_series(
         if shape == "series_first"
         else [("PIE-B1003", series, 17), ("PIE-B1003", ordered, 24)]
     )
+
+
+# Phase70 S16: a series let LEFT JOINed with a VALUES let reads no physical
+# relation, so it is emitted against a contract without sources (compile_query
+# refuses an unread contract source): PostgreSQL emits both as CTEs and keeps
+# the series arguments and VALUES cells fixed; MySQL blocks the one
+# table-function input.
+SERIES_VALUES_JOIN = (
+    "query result:\n    let s:\n        from generate_series(1, 3, 1) as n\n"
+    "        select:\n            n\n"
+    "    let seed:\n        values(id: Int not null, label: Text nullable):\n"
+    '            1, "a"\n            3, null\n'
+    "    from s\n    left join seed as v:\n        from s\n        on s.n == v.id\n"
+    "    select:\n        n\n        label = v.label\n"
+)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_series_let_joins_a_values_let_without_a_physical_source(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, SERIES_VALUES_JOIN)
+    contract = json.loads(item["contract"])
+    contract["sources"] = []
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], probe.encoded(contract).decode(), item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        assert document["status"] == "BLOCKED" and "sql" not in document
+        assert [
+            (b["code"], b["subject"]["detail"], b["location"]["line"])
+            for b in document["blockers"]
+        ] == [("PIE-B1003", "table_function_not_admitted_on_target", 8)]
+        return
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == (
+        f'WITH "p0" ("c0") AS (SELECT "n"."n" FROM {_series(1, 3, 1)}), '
+        '"p1" ("c0", "c1") AS (VALUES (CAST(1 AS pg_catalog.int8), '
+        "CAST(E'\\141' AS pg_catalog.text) COLLATE \"C\"), (CAST(3 AS "
+        'pg_catalog.int8), CAST(NULL AS pg_catalog.text) COLLATE "C")), '
+        '"p2" ("c0") AS (SELECT "s0"."c0" AS "c0" FROM "p0" AS "s0"), '
+        '"p3" ("c0", "c1", "c2") AS (SELECT "m0"."c0" AS "c0", "m1"."c0" AS '
+        '"c1", "m1"."c1" AS "c2" FROM "p2" AS "m0" LEFT JOIN "p1" AS "m1" ON '
+        '("m0"."c0" = "m1"."c0")) SELECT "t0"."c0" AS "n", "t0"."c2" AS "label" '
+        'FROM "p3" AS "t0"'
+    )
+    assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
+        ("n", False),
+        ("label", True),
+    ]
+    assert outcome.artifact is not None and outcome.artifact.request.sources == ()
+    probe.decode_public(serialize_project_sql_emission(outcome))

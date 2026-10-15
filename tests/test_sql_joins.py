@@ -801,3 +801,37 @@ def test_repr_changes_no_field_verification_or_published_byte(tmp_path, target):
     after = serialize_project_sql_emission(outcome)
     assert after == before
     assert probe.decode_public(after) == document
+
+
+# A current limitation (docs/language.md): an INNER JOIN whose ON has a nullable
+# Bool field as an AND conjunct of its own is BLOCKED at emission on both
+# targets; the same test in WHERE emits.
+NULLABLE_BOOL_ON = (
+    "query result:\n    from rows\n    inner join rows as o:\n        from rows\n"
+    "        on rows.id == o.id{on}\n{where}    select:\n        a = rows.id\n"
+)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("place", ("on", "where"))
+def test_a_nullable_bool_on_conjunct_is_blocked_and_its_where_form_emits(
+    tmp_path, target, place
+):
+    item = probe.join_fixture(target, "W_join_shapes", "inner")
+    header = item["source"].split("query result:", 1)[0]
+    body = NULLABLE_BOOL_ON.format(
+        on=" and o.flag" if place == "on" else "",
+        where="    where o.flag\n" if place == "where" else "",
+    )
+    _, outcome = probe.build_case(
+        tmp_path, header + body, item["contract"], item["policy"]
+    )
+    published = json.loads(serialize_project_sql_emission(outcome))
+    if place == "where":
+        assert published["status"] == "VERIFIED", published
+        return
+    assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"])
+        for b in published["blockers"]
+    ] == [("PIE-B1002", "join_output_nullability_drift", None)]

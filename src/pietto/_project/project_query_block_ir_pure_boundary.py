@@ -58,6 +58,7 @@ class ProjectQueryBlockIRPureTag(StrEnum):
 class ProjectQueryBlockIRRecordKind(StrEnum):
     HEADER = "header"
     OWNER_ENTRY = "owner_entry"
+    OWNER_LET = "owner_let"
     DEPENDENCY = "dependency"
     NODE = "node"
     OUTPUT = "output"
@@ -541,6 +542,12 @@ _SCHEMAS: dict[ProjectQueryBlockIRRecordKind, tuple[_FieldSpec, ...]] = {
         _spec("blocker_entry", _R, _D.OWNER_ENTRY, optional=True),
         _spec("blocker_uses", _RS, _D.USE, optional=True),
     ),
+    # A relation let shares its declaration's module and declaration
+    # positions; this record carries the let coordinate of one let owner.
+    _K.OWNER_LET: (
+        _spec("owner", _R, _D.OWNER_ENTRY),
+        _spec("let_position", _I),
+    ),
     _K.DEPENDENCY: (
         _spec("consumer", _R, _D.OWNER_ENTRY),
         _spec("target", _R, _D.OWNER_ENTRY),
@@ -924,6 +931,15 @@ def _records(
     return tuple(record for record in document.records if record.kind is kind)
 
 
+def _let_positions(
+    document: ProjectQueryBlockIRPureDocument,
+) -> dict[ProjectQueryBlockIRPortableRef, int]:
+    return {
+        _ref(record, "owner"): _integer(record, "let_position")
+        for record in _records(document, _K.OWNER_LET)
+    }
+
+
 def _declared_refs(
     document: ProjectQueryBlockIRPureDocument,
 ) -> tuple[
@@ -1024,6 +1040,29 @@ def _validate_entries(
 ) -> ProjectQueryBlockIRPureOutcome | None:
     owners = _records(document, _K.OWNER_ENTRY)
     owner_refs = tuple(_ref(record, "ref") for record in owners)
+    let_owners = tuple(
+        _ref(record, "owner") for record in _records(document, _K.OWNER_LET)
+    )
+    if any(
+        later.position <= earlier.position
+        for earlier, later in zip(let_owners, let_owners[1:])
+    ):
+        return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
+    # A relation let shares its declaration's positions; only the let
+    # coordinate tells the two owners apart.
+    lets = _let_positions(document)
+    if len(
+        {
+            (
+                _text(record, "module_path"),
+                _integer(record, "module_position"),
+                _integer(record, "declaration_position"),
+                lets.get(_ref(record, "ref")),
+            )
+            for record in owners
+        }
+    ) != len(owners):
+        return _reject(ProjectQueryBlockIRPureStatus.INVALID_ENTRY)
     schedule = _refs(document.records[0], "schedule")
     dependencies = _records(document, _K.DEPENDENCY)
     remaining = set(owner_refs)
@@ -2197,6 +2236,7 @@ def _validate_distincts(
     )
     records = _records(document, _K.DISTINCT)
     types = _records(document, _K.TYPE_EQUIVALENCE)
+    lets = _let_positions(document)
     if document.format_marker != PROJECT_FLAT_RELATIONAL_IR_INSPECTION_FORMAT:
         return (
             _reject(ProjectQueryBlockIRPureStatus.INVALID_RECORD_KIND)
@@ -2278,7 +2318,7 @@ def _validate_distincts(
                 return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
             data = json.loads(_text(evidence, "capability"))
             _type_capability_key(evidence, declared, True)
-            if not _capability_field_matches(data, field_ref, declared):
+            if not _capability_field_matches(data, field_ref, declared, lets):
                 return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
         if type(json.loads(_text(record, "clause"))) is not dict:
             return _reject(ProjectQueryBlockIRPureStatus.INVALID_VALUE)
@@ -2433,7 +2473,8 @@ def _field_identity_valid(value: object) -> bool:
     }:
         return False
     owner = value["owner"]
-    if type(owner) is not dict or set(owner) != {
+    # Only a relation let's owner carries a let coordinate.
+    if type(owner) is not dict or set(owner) - {"let_position"} != {
         "identity",
         "module_position",
         "declaration_position",
@@ -2453,7 +2494,8 @@ def _field_identity_valid(value: object) -> bool:
         and "\\" not in identity["module_path"]
         and all(
             type(owner[key]) is int and owner[key] >= 0
-            for key in ("module_position", "declaration_position")
+            for key in owner
+            if key != "identity"
         )
         and type(value["field_position"]) is int
         and value["field_position"] >= 0
@@ -2463,28 +2505,31 @@ def _field_identity_valid(value: object) -> bool:
     )
 
 
-def _capability_field_matches(data, field_ref, declared) -> bool:
+def _capability_field_matches(data, field_ref, declared, lets) -> bool:
     field_record = declared[field_ref]
     owner_ref = _field(field_record, "final_owner").ref
     if owner_ref is None:
         return False
     owner = declared[owner_ref]
-    expected = {
-        "owner": {
-            "identity": {
-                key: _text(owner, key)
-                if key in {"module_path", "declared_name"}
-                else _enumeration(owner, key)
-                for key in (
-                    "module_path",
-                    "namespace",
-                    "declaration_kind",
-                    "declared_name",
-                )
-            },
-            "module_position": _integer(owner, "module_position"),
-            "declaration_position": _integer(owner, "declaration_position"),
+    expected_owner: dict[str, object] = {
+        "identity": {
+            key: _text(owner, key)
+            if key in {"module_path", "declared_name"}
+            else _enumeration(owner, key)
+            for key in (
+                "module_path",
+                "namespace",
+                "declaration_kind",
+                "declared_name",
+            )
         },
+        "module_position": _integer(owner, "module_position"),
+        "declaration_position": _integer(owner, "declaration_position"),
+    }
+    if owner_ref in lets:
+        expected_owner["let_position"] = lets[owner_ref]
+    expected = {
+        "owner": expected_owner,
         "kind": _enumeration(field_record, "final_kind"),
         "field_position": _integer(field_record, "final_position"),
         "name": _text(field_record, "final_name"),
@@ -2601,6 +2646,7 @@ def _source_site_valid(value: object) -> bool:
 
 def _validate_type_evidence(document, declared, roots):
     types = _records(document, _K.TYPE_EQUIVALENCE)
+    lets = _let_positions(document)
     sources = _records(document, _K.TYPE_PARAMETER_SOURCE)
     refs = tuple(_ref(record, "ref") for record in types)
     parents = tuple(ref for record in types for ref in _refs(record, "parents"))
@@ -2613,7 +2659,7 @@ def _validate_type_evidence(document, declared, roots):
             return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
         data = json.loads(_text(record, "capability"))
         _type_capability_key(record, declared, False)
-        if not _capability_field_matches(data, _ref(record, "field"), declared):
+        if not _capability_field_matches(data, _ref(record, "field"), declared, lets):
             return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
         source_ref = _field(record, "parameter_source").ref
         has_parents = bool(_refs(record, "parents"))
@@ -2704,6 +2750,7 @@ def _validate_sets(
     sets = _records(document, _K.SET)
     operands = _records(document, _K.SET_OPERAND)
     mappings = _records(document, _K.SET_FIELD_MAP)
+    lets = _let_positions(document)
     if document.format_marker != PROJECT_FLAT_RELATIONAL_IR_INSPECTION_FORMAT:
         return (
             _reject(ProjectQueryBlockIRPureStatus.INVALID_RECORD_KIND)
@@ -2798,7 +2845,7 @@ def _validate_sets(
                 ):
                     return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
                 data = json.loads(_text(evidence, "capability"))
-                if not _capability_field_matches(data, field, declared):
+                if not _capability_field_matches(data, field, declared, lets):
                     return _reject(ProjectQueryBlockIRPureStatus.INVALID_REF)
                 keys.append(_type_capability_key(evidence, declared, requires))
             type_keys.append(tuple(keys))

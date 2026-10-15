@@ -927,6 +927,50 @@ query result:
         id
 """,
     ),
+    # A window with QUALIFY inside the let, read under a filter, a selected
+    # window output, ORDER BY and LIMIT.
+    "window_let": (
+        """query result:
+    let ranked:
+        from lhs
+        select:
+            id
+            key
+            r = row_number() window:
+                order by:
+                    id desc
+        qualify:
+            r <= 3
+    from ranked
+    where key is not null
+    select:
+        id
+        r
+    order by:
+        r
+    limit 2
+""",
+        """query ranked:
+    from lhs
+    select:
+        id
+        key
+        r = row_number() window:
+            order by:
+                id desc
+    qualify:
+        r <= 3
+query result:
+    from ranked
+    where key is not null
+    select:
+        id
+        r
+    order by:
+        r
+    limit 2
+""",
+    ),
 }
 
 
@@ -1001,6 +1045,45 @@ def test_let_shapes_emit_their_module_level_equivalent(
     assert outcome.artifact is not None and module_outcome.artifact is not None
     assert [(s.namespace, s.name) for s in outcome.artifact.request.sources] == [
         (s.namespace, s.name) for s in module_outcome.artifact.request.sources
+    ]
+
+
+SLOT_ORDER = """query result:
+    let low:
+        from lhs
+        where id < 50
+        select:
+            id
+    let high:
+        from lhs
+        where id > 10
+        select:
+            id
+    let both:
+        union all:
+            from high
+            from low
+    from both
+    where id != 7
+    select:
+        id
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_let_literal_slots_follow_the_let_schedule(tmp_path: Path, target: str) -> None:
+    """Lets come before their declaration in source order, never in the order
+    a set operation names them."""
+    item = probe.join_witness(target, SLOT_ORDER, policy="bind_safe_literals")
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], "bind_safe_literals"
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert [(v["tag"], v["value"]) for v in document["fixed_values"]] == [
+        ("Int", "50"),
+        ("Int", "10"),
+        ("Int", "7"),
     ]
 
 

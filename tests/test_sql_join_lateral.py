@@ -1238,3 +1238,66 @@ def test_a_lateral_let_reads_the_entry_query_header(
             ("left_on", "mysql"): (7, 3, 100, 3),
         }[shape, target]
     )
+
+
+# Phase70 S16: the body that joins a capturing let LEFT LATERAL groups by the
+# let's null-extended column: every left row without a later row joins the one
+# NULL group, and the let stays that JOIN's derived relation, never a CTE.
+GROUPED_LEFT = """query result:
+    let later:
+        capture lhs
+        from rhs
+        where rhs.id > lhs.id
+        select:
+            later_id = id
+    from lhs
+    left join later as l:
+        from lhs
+        on true
+    group by:
+        l.later_id
+    select:
+        later_id = l.later_id
+        n = count()
+"""
+GROUPED_LEFT_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "m0"."order.id" AS "c0", '
+        '"m0"."key value" AS "c1", "m1"."c0" AS "c2" FROM "public"."phase66 lhs é" '
+        'AS "m0" LEFT JOIN LATERAL (SELECT "t1"."c0" AS "c0" FROM (SELECT '
+        '"s0"."order.id" AS "c0", "s0"."key value" AS "c1" FROM '
+        '"public"."phase66 rhs é" AS "s0" WHERE ("s0"."order.id" > '
+        '"m0"."order.id")) AS "t1") AS "m1" ON CAST(TRUE AS pg_catalog.bool)), '
+        '"p1" ("c0", "c1") AS (SELECT "t0"."c2" AS "c0", COUNT(*) AS "c1" FROM '
+        '"p0" AS "t0" GROUP BY "t0"."c2") SELECT "t3"."c0" AS "later_id", '
+        '"t3"."c1" AS "n" FROM "p1" AS "t3"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `m0`.`order.id` AS `c0`, "
+        "`m0`.`key value` AS `c1`, `m1`.`c0` AS `c2` FROM `phase66`.`phase66 lhs é` "
+        "AS `m0` LEFT JOIN LATERAL (SELECT `t1`.`c0` AS `c0` FROM (SELECT "
+        "`s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` FROM "
+        "`phase66`.`phase66 rhs é` AS `s0` WHERE (`s0`.`order.id` > "
+        "`m0`.`order.id`)) AS `t1`) AS `m1` ON CAST(TRUE AS SIGNED)), "
+        "`p1` (`c0`, `c1`) AS (SELECT `t0`.`c2` AS `c0`, COUNT(*) AS `c1` FROM "
+        "`p0` AS `t0` GROUP BY `t0`.`c2`) SELECT `t3`.`c0` AS `later_id`, "
+        "`t3`.`c1` AS `n` FROM `p1` AS `t3`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_the_outer_body_groups_by_a_null_extended_lateral_column(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, GROUPED_LEFT)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == GROUPED_LEFT_SQL[target]
+    assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
+        ("later_id", True),
+        ("n", False),
+    ]

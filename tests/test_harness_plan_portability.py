@@ -773,6 +773,22 @@ def test_a_relation_let_keeps_an_identity_apart_from_its_declaration(tmp_path):
         )
 
 
+@pytest.mark.parametrize("where", ("", "    where id > low\n"), ids=("unread", "read"))
+def test_a_parameterized_plan_stays_outside_the_closed_schema(tmp_path, where):
+    """The schema has no header parameter; an unread one is never dropped."""
+    from _pietto_plan_windows import _planned
+
+    source = LET_ORDER.split("query result:")[0] + (
+        f"query result(low: Int not null):\n    from lhs\n{where}"
+        "    select:\n        id\n"
+    )
+    _, plan, verified, _ = _planned(tmp_path, source)
+    assert [parameter.declaration.name for parameter in plan.parameters] == ["low"]
+    with pytest.raises(portable.TransportError) as refused:
+        portable.build_project_sql_plan_portable(verified)
+    assert refused.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
+
+
 def test_coherent_document_is_not_runtime_authentication(tmp_path):
     verified = construction(tmp_path / "source", CORPUS[0][1], CORPUS[0][2])
     product = portable.build_project_sql_plan_portable(verified)
