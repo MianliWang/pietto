@@ -134,6 +134,42 @@ def test_internal_columns_charge_the_existing_resource_limit(tmp_path):
     assert outcome.artifact.rendered.sql is original
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_the_largest_page_charges_the_parameter_limit(tmp_path, target):
+    """D70.07: a continuation page binds one value per coordinate wherever its
+    predicate reads it and its row count, beside the statement's own; R2
+    preparation refuses a statement whose largest page exceeds `parameters`,
+    before any page is requested."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_refinement_verification import page_syntax
+
+    body = "query result:\n    from rows\n    where id > 5 and id < 9\n    select:\n"
+    body += "        id\n"
+
+    def prepared(directory, limits=None):
+        item = probe.parameterized_fixture(
+            target, body, "bind_safe_literals", limits=limits
+        )
+        _, outcome = probe.build_case(
+            directory, item["source"], item["contract"], item["policy"]
+        )
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        return prepare_refinement(
+            outcome.artifact, capabilities(outcome.artifact), policy=TieRefinement()
+        )
+
+    query = prepared(tmp_path / "open")
+    unit = query.units[-1]
+    frontier = (0,) * (len(unit.order_coordinates) + len(unit.coordinates))
+    statement, controls = page_syntax(query, frontier, 2)
+    largest = len(render(statement, query.original, controls).uses)
+    first, controls = page_syntax(query, None, 2)
+    assert len(render(first, query.original, controls).uses) == 3 < largest == 12
+    prepared(tmp_path / "fits", {"parameters": largest})
+    with pytest.raises(ValueError, match="^REFINEMENT_RESOURCE_LIMIT$"):
+        prepared(tmp_path / "exceeds", {"parameters": largest - 1})
+
+
 def test_mysql_nullable_join_input_retains_bijective_materialization(tmp_path):
     query = refined(tmp_path, "mysql", "W_join_values", "left_marker")
     positions = [i for i, c in enumerate(query.statement.ctes) if "nullable" in c.name]

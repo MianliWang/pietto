@@ -81,6 +81,43 @@ def _export(case, **changes):
     return execution.verified_export(case.reference, **cast(Any, arguments))
 
 
+def test_verified_export_checks_the_parameters_type_before_workspace_open(
+    monkeypatch,
+):
+    from pietto._project import project_job_workspace as workspace
+
+    monkeypatch.setattr(
+        workspace,
+        "open_workspace",
+        lambda *arguments, **keywords: pytest.fail("opened private workspace"),
+    )
+    reference = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(reference, "root", "/not-opened")
+    object.__setattr__(reference, "identity", "ws-" + "0" * 32)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.verified_export(
+            reference,
+            job="job-" + "0" * 32,
+            generation="gen-" + "0" * 32,
+            checkpoint="ckp-" + "0" * 32,
+            scope="committed_prefix",
+            extent=0,
+            purpose="verified-export",
+            route="postgres_rows",
+            values=(),
+            expected_pin="0" * 64,
+            accepted_producer="0" * 64,
+            accepted_compatibility="0" * 64,
+            seconds=60,
+            batch_rows=2,
+            parameters=cast(Any, {1: 5}),
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1002",
+        "PUBLIC_PARAMETERS_TYPE",
+    )
+
+
 def test_verified_export_reads_one_fixed_real_snapshot_without_writes(
     tmp_path, monkeypatch
 ):

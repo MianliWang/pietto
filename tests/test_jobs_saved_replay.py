@@ -19,7 +19,11 @@ import pytest
 
 import _pietto_execution_capture_probe as s12
 import _pietto_execution_saved_read_probe as probe
-from _pietto_execution_jobs_probe import compiled_template, qualified
+from _pietto_execution_jobs_probe import (
+    compiled_template,
+    parameter_source,
+    qualified,
+)
 from pietto._project import project_job_capture as c
 from pietto._project import project_job_replay as r
 from pietto._project import project_job_store as s
@@ -464,6 +468,7 @@ def test_fresh_acceptance_rejects_every_wrong_correspondence(setup, monkeypatch)
         ({"values": (1.0,)}, "BINDING_VECTOR"),
         ({"values": ()}, "BINDING_VECTOR"),
         ({"values": None}, "BINDING_VECTOR"),
+        ({"parameters": {"low": 1}}, "BINDING_VECTOR"),
         ({"seconds": 0}, "ACCEPTANCE_BOUND"),
         ({"seconds": r.MAX_ACCEPTANCE_SECONDS + 1}, "ACCEPTANCE_BOUND"),
         ({"batch_rows": 4097}, "ACCEPTANCE_BOUND"),
@@ -514,6 +519,55 @@ def test_fresh_acceptance_rejects_every_wrong_correspondence(setup, monkeypatch)
     state = r.consumer_state(x.workspace, acceptance.consumer)
     assert (state.sessions, state.issued, state.position) == ((), (), 0)
     assert verify_store(x.workspace)["consumers"] == 1
+
+
+SAVED = {"low": 1, "scale": -0.0, "note": None, "flag": True}
+
+
+def test_r1_restates_saved_parameters_one_by_one_with_the_same_type(
+    tmp_path, monkeypatch
+):
+    """D70.02: a saved binding that names parameters is read back only when
+    every parameter is restated by name with an equal value of the same type
+    (True is not 1, -0.0 is not 0.0, a typed NULL is not a value)."""
+    if not qualified(tmp_path):
+        return
+    probe.arrow_free(monkeypatch)
+    template, compiled = compiled_template(
+        tmp_path / "compiled", source=parameter_source(), entry="bundle"
+    )
+    workspace, job, publisher, binding, _record, generation = probe.store(
+        tmp_path / "workspace", template, (), parameters=SAVED
+    )
+    try:
+        probe.capture(workspace, publisher, generation, binding, (2,))
+        stated = {"values": (), "parameters": dict(SAVED)}
+        acceptance = probe.accept(workspace, job, generation, compiled, **stated)
+        assert acceptance.job == job
+        for parameters in (
+            {**SAVED, "low": 2},
+            {**SAVED, "low": True},
+            {**SAVED, "scale": 0.0},
+            {**SAVED, "note": ""},
+            {**SAVED, "flag": 1},
+            {**SAVED, "flag": None},
+            {k: v for k, v in SAVED.items() if k != "note"},
+            {**SAVED, "extra": 1},
+            None,
+        ):
+            with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+                probe.accept(
+                    workspace,
+                    job,
+                    generation,
+                    compiled,
+                    values=(),
+                    parameters=parameters,
+                )
+        verify_store(workspace)
+    finally:
+        publisher.close()
+        workspace.close()
 
 
 def test_validity_is_bounded_by_wall_and_monotonic_clocks(setup, monkeypatch):

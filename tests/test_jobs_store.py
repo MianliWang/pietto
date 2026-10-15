@@ -11,6 +11,7 @@ from _pietto_execution_jobs_probe import (
     SENTINEL,
     compiled_template,
     owner_outcome,
+    parameter_source,
     qualified,
     root_of,
     trust,
@@ -23,6 +24,7 @@ from pietto._project.project_execution_template import (
     BindingError,
     bind_values,
     describe_compiled_binding,
+    named_values,
 )
 from pietto._project.project_job_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
@@ -856,3 +858,201 @@ def test_record_and_size_bounds_fail_closed(built, workspace, monkeypatch):
     with pytest.raises(JobStoreError, match="WORKSPACE_BUDGET"):
         s.register_job(workspace, template, operation=op())
     assert s.job_record(workspace, job) == before
+
+
+SAVED = {"low": 1, "scale": -0.0, "note": None, "flag": True}
+
+
+@pytest.fixture(scope="module")
+def header(tmp_path_factory):
+    """A loaded template whose entry query declares Int, Float, Text, Bool."""
+    root = tmp_path_factory.mktemp("s11-parameters") / "header"
+    return compiled_template(root, source=parameter_source(), entry="bundle")
+
+
+def parameterized_generation(workspace, template, parameters=SAVED, job=None):
+    if job is None:
+        job = s.register_job(workspace, template, operation=op()).get("job")
+    publisher = s.claim_publisher(workspace, job, operation=op())
+    binding = bind_values(template, (), named_values(template, parameters))
+    record = s.register_binding(publisher, binding, operation=op()).get("binding")
+    generation = s.register_generation(
+        publisher,
+        record,
+        binding,
+        route="postgres_rows",
+        isolation="stable",
+        operation=op(),
+    ).get("generation")
+    publisher.close()
+    return job, binding, record, generation
+
+
+def test_a_binding_with_parameters_stores_typed_values_and_their_description(
+    header, workspace
+):
+    """v2 binding vector and the "parameter" description interface; NULL keeps
+    its declared tag and a new binding of the same job may name new values."""
+    if workspace is None:
+        return
+    template, built = header
+    job, binding, record, generation = parameterized_generation(workspace, template)
+    vector = (
+        workspace.use()
+        .execute("SELECT vector FROM binding WHERE identity = ?", (record,))
+        .fetchone()[0]
+    )
+    assert vector == (
+        '{"format":"pietto.binding-vector.v2","parameters":[["Int","1"],'
+        '["Float","-0x0.0p+0"],["Text",null],["Bool",true]],"slots":[]}'
+    )
+    description = describe_compiled_binding(binding, route="postgres_rows")
+    assert description.interfaces[-1] == ("parameter", 1)
+    assert [(p[1], p[2], p[3], p[4]) for p in description.parameters] == [
+        ("low", "Int", False, ((0, 1),)),
+        ("scale", "Float", True, ((1, 2),)),
+        ("note", "Text", True, ((2, 3),)),
+        ("flag", "Bool", True, ((3, 4),)),
+    ]
+    stored = json.loads(
+        workspace.use()
+        .execute("SELECT description FROM generation WHERE identity = ?", (generation,))
+        .fetchone()[0]
+    )
+    assert [name for name, _ in stored][-1] == "parameters"
+    rebound = s.bind_record(workspace, job, template, record)
+    assert tuple(atom(v) for v in rebound.parameters) == tuple(
+        atom(v) for v in SAVED.values()
+    )
+    # A new binding of the same job may use new values; each keeps its own.
+    changed = {**SAVED, "scale": 0.0, "note": "x"}
+    _job, other, other_record, _generation = parameterized_generation(
+        workspace, template, changed, job
+    )
+    assert s.bind_record(workspace, job, template, other_record).parameters == (
+        1,
+        0.0,
+        "x",
+        True,
+    )
+    with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+        s.restated(template, rebound, (), changed)
+    s.restated(template, rebound, (), dict(SAVED))
+    verify_store(workspace)
+
+
+def _v2(parameters):
+    return (
+        '{"format":"pietto.binding-vector.v2","parameters":'
+        + parameters
+        + ',"slots":[]}'
+    )
+
+
+@pytest.mark.parametrize(
+    "damaged",
+    (
+        # The v1 list shape for a job whose bundle declares parameters.
+        "[]",
+        _v2('[["Int","1"],["Float","0x0.0p+0"],["Text",null],["Int","1"]]'),
+        _v2('[["Int",null],["Float","-0x0.0p+0"],["Text",null],["Bool",true]]'),
+        _v2('[["Int","1"],["Float","-0x0.0p+0"],["Bool",null],["Bool",true]]'),
+        _v2('[["Int","1"],["Float","-0x0.0p+0"],["Text",null]]'),
+        _v2('[["Int","1"],["Float","-0x0.0p+0"],["Text",null],["Bool",true]]').replace(
+            "v2", "v3"
+        ),
+    ),
+    ids=("v1_shape", "bool_as_int", "null_not_null", "null_other_tag", "short", "v3"),
+)
+def test_a_damaged_parameter_vector_is_a_typed_refusal(tmp_path, header, damaged):
+    """Valid-looking stored values that do not match the bundle's own header
+    are refused by the rebinding and by the independent checker."""
+    if not qualified(tmp_path):
+        return
+    template, _ = header
+    root = str(tmp_path / "workspace")
+    workspace = w.create_workspace(root)
+    identity = workspace.identity
+    job, _binding, record, _generation = parameterized_generation(workspace, template)
+    workspace.close()
+    tamper(
+        root, ("UPDATE binding SET vector = ? WHERE identity = ?", (damaged, record))
+    )
+    reopened = w.open_workspace(root, expected_identity=identity)
+    try:
+        with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+            s.bind_record(reopened, job, template, record)
+        with pytest.raises(
+            JobStoreError, match="STORE_INVARIANT_(BINDING_VECTOR|BINDING_HISTORY)"
+        ):
+            verify_store(reopened)
+    finally:
+        reopened.close()
+
+
+FULL = '[["output",1],["meaning",1],["guard",1],["occurrence",1],["parameter",1]]'
+
+
+@pytest.mark.parametrize(
+    "table,column,old,new,category",
+    (
+        # A NUL is a valid scalar but no PostgreSQL Text value.
+        ("binding", "vector", '["Text",null]', '["Text","\\u0000"]', "BINDING_VECTOR"),
+        (
+            "generation",
+            "description",
+            '["interfaces",' + FULL + "]",
+            '["interfaces",[["parameter",1]]]',
+            "GENERATION_DESCRIPTION",
+        ),
+        (
+            "generation",
+            "description",
+            '["interfaces",' + FULL + "]",
+            '["interfaces",' + FULL + '],["interfaces",' + FULL + "]",
+            "GENERATION_DESCRIPTION",
+        ),
+    ),
+    ids=("postgres_text_nul", "interfaces_cut", "member_twice"),
+)
+def test_a_consistent_rewrite_of_a_parameterized_binding_is_refused(
+    tmp_path, header, table, column, old, new, category
+):
+    """A stored value or description rewritten together with the request
+    that recorded it keeps the history consistent; the checker still derives
+    the value domain and the whole description shape from the job's bundle."""
+    if not qualified(tmp_path):
+        return
+    template, _ = header
+    root = str(tmp_path / "workspace")
+    workspace = w.create_workspace(root)
+    identity = workspace.identity
+    job, _binding, record, generation = parameterized_generation(workspace, template)
+    entity = record if table == "binding" else generation
+    stored = (
+        workspace.use()
+        .execute(f"SELECT {column} FROM {table} WHERE identity = ?", (entity,))
+        .fetchone()[0]
+    )
+    assert stored.count(old) == 1
+    workspace.close()
+    tamper(
+        root,
+        (
+            f"UPDATE {table} SET {column} = ? WHERE identity = ?",
+            (stored.replace(old, new), entity),
+        ),
+        (
+            "UPDATE operation SET request = replace(request, ?, ?)",
+            (json.dumps(old)[1:-1], json.dumps(new)[1:-1]),
+        ),
+    )
+    reopened = w.open_workspace(root, expected_identity=identity)
+    try:
+        with pytest.raises(JobStoreError, match=f"^STORE_INVARIANT_{category}$"):
+            verify_store(reopened)
+        if table == "binding":
+            with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+                s.bind_record(reopened, job, template, record)
+    finally:
+        reopened.close()

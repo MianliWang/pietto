@@ -245,10 +245,11 @@ def export_bundle(query: CompiledQuery) -> QueryBundle:
     It works for a compiled and a loaded query alike, reads no file and makes
     no connection. The same query of the same project files, contract and
     literal policy, compiled by the same installed code, gives the same
-    bundle wherever the project directory is. Raises RequestRejected for a
-    query that is None (PIE-R1001) or not a CompiledQuery (PIE-R1002), and
-    for a query that declares parameters (PIE-R1004), whose bundle format is
-    not published yet.
+    bundle wherever the project directory is. A query that declares
+    parameters exports its unbound template as a
+    ``pietto.compiled-execution.v2`` bundle; every load binds it afresh.
+    Raises RequestRejected for a query that is None (PIE-R1001) or not a
+    CompiledQuery (PIE-R1002).
     """
     if query is None:
         raise RequestRejected(failure("PIE-R1001", "PUBLIC_QUERY_REQUIRED"))

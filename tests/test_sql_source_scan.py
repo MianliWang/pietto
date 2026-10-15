@@ -550,7 +550,7 @@ def test_resource_hard_limits_cannot_be_raised(built):
         "sql_bytes": 8 * 1024 * 1024,
         "artifact_bytes": 16 * 1024 * 1024,
         "nodes": 32768,
-        "parameters": 32768,
+        "parameters": 65535,
         "columns": 1664,
     }
     assert (

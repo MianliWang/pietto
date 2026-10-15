@@ -28,6 +28,7 @@ from pietto.ast_nodes import (
     LetRelationDef,
     ModuleDeclarationKind,
     QueryDef,
+    QueryParameter,
     RelationBody,
     RelationExistsExpr,
     RelationMembershipExpr,
@@ -97,23 +98,37 @@ _SELECT_FIELDS = (
 
 
 def _relation_block_view(
-    *, span: Span, name: str, kind: ModuleDeclarationKind, body: RelationBody
+    *,
+    span: Span,
+    name: str,
+    kind: ModuleDeclarationKind,
+    body: RelationBody,
+    parameters: tuple[QueryParameter, ...] = (),
 ) -> TableDef | QueryDef | SetRelationDef | ValuesRelationDef:
     """Present one authored block body in the existing relation-definition shape.
 
     The view owns no clause of its own: every clause is the authored node, so
-    spans and AST identities are those of the source.
+    spans and AST identities are those of the source. An entry query keeps its
+    authored header, which only a FROM-based query body carries.
     """
 
-    if type(body) is SetOperationBody:
+    if type(body) is SetOperationBody and not parameters:
         return SetRelationDef(span=span, name=name, kind=kind, body=body)
-    if type(body) is ValuesBody:
+    if type(body) is ValuesBody and not parameters:
         return ValuesRelationDef(span=span, name=name, kind=kind, body=body)
     if type(body) is SelectBody and type(body.from_clause) is FromClause:
-        relation = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
-        return relation(
+        if kind is ModuleDeclarationKind.TABLE:
+            if parameters:
+                raise ValueError("Only an entry query declares parameters.")
+            return TableDef(
+                span=span,
+                name=name,
+                **{item: getattr(body, item) for item in _SELECT_FIELDS},
+            )
+        return QueryDef(
             span=span,
             name=name,
+            parameters=parameters,
             **{item: getattr(body, item) for item in _SELECT_FIELDS},
         )
     raise ValueError(f"Unadmitted relation block body: {type(body).__name__}")
@@ -126,20 +141,30 @@ def _is_relation_block_view(
     name: str,
     kind: ModuleDeclarationKind,
     body: RelationBody,
+    parameters: tuple[QueryParameter, ...] = (),
 ) -> bool:
     if view.span != span or view.name != name:
         return False
     if type(body) is SetOperationBody:
-        return type(view) is SetRelationDef and view.kind is kind and view.body is body
+        return (
+            not parameters
+            and type(view) is SetRelationDef
+            and view.kind is kind
+            and view.body is body
+        )
     if type(body) is ValuesBody:
         return (
-            type(view) is ValuesRelationDef and view.kind is kind and view.body is body
+            not parameters
+            and type(view) is ValuesRelationDef
+            and view.kind is kind
+            and view.body is body
         )
     expected = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
     return (
         type(body) is SelectBody
         and type(view) is expected
         and all(getattr(view, item) is getattr(body, item) for item in _SELECT_FIELDS)
+        and getattr(view, "parameters", ()) is parameters
     )
 
 
@@ -159,6 +184,7 @@ def _block_view_of(
         name=authored.name,
         kind=_block_kind(authored),
         body=authored.body,
+        parameters=_block_parameters(authored),
     )
 
 
@@ -253,6 +279,14 @@ def _read_ordered(
     return tuple(lets[i] for i in ordered)
 
 
+def _block_parameters(
+    authored: BlockRelationDef | LetRelationDef,
+) -> tuple[QueryParameter, ...]:
+    """The authored header of an entry query; a relation let has none."""
+
+    return authored.parameters if type(authored) is BlockRelationDef else ()
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectDeclarationOccurrence:
     """One source-ordered AST occurrence of a nominal declaration identity.
@@ -327,6 +361,7 @@ class ProjectDeclarationOccurrence:
                 name=block.name,
                 kind=_block_kind(block),
                 body=block.body,
+                parameters=_block_parameters(block),
             )
         ):
             raise ValueError("Block occurrence must present its authored body.")

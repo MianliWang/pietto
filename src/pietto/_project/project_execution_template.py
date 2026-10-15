@@ -274,6 +274,17 @@ def _specialize(template, values):
     return outcome.artifact
 
 
+def named_values(template, parameters):
+    """The header's (parameter, value) pairs from a caller's dict of exact
+    names (None: no names); any other name set is BINDING_PARAMETERS."""
+    supplied = {} if parameters is None else parameters
+    if type(supplied) is not dict or set(supplied) != {
+        p.name for p in template.parameters
+    }:
+        raise BindingError("BINDING_PARAMETERS")
+    return tuple((p, supplied[p.name]) for p in template.parameters)
+
+
 def parameter_values(template, named):
     """Check a complete ordered sequence of (exact parameter, value) pairs."""
     family = template.artifact.request.family
@@ -384,6 +395,10 @@ class CompiledBindingDescription:
     sources: tuple
     refinement: str | None
     provider_requirements: tuple
+    # Header parameters (interface "parameter" 1): address, label, tag,
+    # nullable and each read's (native occurrence, server index); empty, and
+    # left out of the stored description, for a root without a header.
+    parameters: tuple = ()
 
 
 @entry
@@ -433,6 +448,13 @@ def describe_compiled_binding(binding, *, route):
         raise BindingError("COMPILED_DESCRIPTION_MEANING")
 
     active = selected_relations(records, entry)
+    header = tuple(r for r in records.values() if r.address.kind == "parameter")
+    placeholders = {}
+    for r in records.values():
+        if r.address.kind == "native_use" and r.get("slot").kind == "parameter_read":
+            placeholders.setdefault(records[r.get("slot")].get("parameter"), []).append(
+                (r.get("ordinal"), r.get("index"))
+            )
     return CompiledBindingDescription(
         root.expected_pin,
         root.accepted_producer,
@@ -440,7 +462,8 @@ def describe_compiled_binding(binding, *, route):
         (root.description.query, entry.get("declaration"), entry.get("terminal")),
         binding.instance_reference,
         (request.family, request.release, route, target.get("profile")),
-        (("output", 1), ("meaning", 1), ("guard", 1), ("occurrence", 1)),
+        (("output", 1), ("meaning", 1), ("guard", 1), ("occurrence", 1))
+        + ((("parameter", 1),) if header else ()),
         tuple(
             (r.address, r.get("tag"), r.get("site"), r.get("literal"))
             for r in records.values()
@@ -472,6 +495,16 @@ def describe_compiled_binding(binding, *, route):
         ),
         policy.get("refinement"),
         tuple(records[a].values for a in policy.get("sources")),
+        tuple(
+            (
+                r.address,
+                r.get("label"),
+                r.get("tag"),
+                r.get("nullable"),
+                tuple(placeholders.get(r.address, ())),
+            )
+            for r in header
+        ),
     )
 
 
@@ -484,8 +517,8 @@ def compatible_compiled_values(left, right, *, route):
     b = describe_compiled_binding(right, route=route)
     return replace(a, binding_reference="") == replace(
         b, binding_reference=""
-    ) and tuple(atom(value) for value in left.values) == tuple(
-        atom(value) for value in right.values
+    ) and tuple(atom(value) for value in (*left.values, *left.parameters)) == tuple(
+        atom(value) for value in (*right.values, *right.parameters)
     )
 
 

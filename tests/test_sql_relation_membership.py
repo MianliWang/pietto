@@ -1046,3 +1046,66 @@ def test_a_forged_ordered_membership_fails_the_verifiers(
         for node, name, value in originals:
             object.__setattr__(node, name, value)
     assert verify_project_sql_emission(artifact, request).verified
+
+
+# Phase70 S11 x S14: a let read by a correlated IN reads the entry query's
+# header like any other let of it; its literal slot and reads take their
+# placeholders in rendering order.
+HEADER_IN_MEMBERSHIP = """query result(cut: Int not null, hi: Int nullable):
+    let m:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id != 100 and rhs.id > cut
+        select:
+            id
+    from lhs
+    where lhs.id in m and lhs.id < hi
+    select:
+        a = lhs.id
+"""
+HEADER_IN_MEMBERSHIP_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", "s1"."key '
+        'value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" WHERE '
+        '(("s1"."order.id" IN (SELECT "e0"."c0" FROM (SELECT "t1"."c0" AS "c0" '
+        'FROM (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" FROM '
+        '"public"."phase66 rhs é" AS "s0" WHERE ((("s0"."key value" = "s1"."key '
+        'value") AND ("s0"."order.id" <> CAST($1 AS pg_catalog.int8))) AND '
+        '("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0")) AND '
+        '("s1"."order.id" < CAST($3 AS pg_catalog.int8)))) SELECT "t3"."c0" AS '
+        '"a" FROM "p0" AS "t3"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, `s1`.`key "
+        "value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1` WHERE "
+        "((`s1`.`order.id` IN (SELECT `e0`.`c0` FROM (SELECT `t1`.`c0` AS `c0` "
+        "FROM (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` FROM "
+        "`phase66`.`phase66 rhs é` AS `s0` WHERE (((`s0`.`key value` = `s1`.`key "
+        "value`) AND (`s0`.`order.id` <> CAST(? AS SIGNED))) AND (`s0`.`order.id` "
+        "> CAST(? AS SIGNED)))) AS `t1`) AS `e0`)) AND (`s1`.`order.id` < CAST(? "
+        "AS SIGNED)))) SELECT `t3`.`c0` AS `a` FROM `p0` AS `t3`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_membership_read_let_reads_the_entry_query_header(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, HEADER_IN_MEMBERSHIP, policy="bind_safe_literals")
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == HEADER_IN_MEMBERSHIP_SQL[target]
+    assert [
+        (u["owner"]["kind"], u["owner"][u["owner"]["kind"]], u["server_index"])
+        for u in document["parameter_uses"]
+    ] == [("slot", 0, 1), ("parameter", 0, 2), ("parameter", 1, 3)]
+    assert probe.decoded_arguments(probe.decode_public(raw), {"cut": 3, "hi": 7}) == (
+        100,
+        3,
+        7,
+    )

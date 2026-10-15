@@ -1001,6 +1001,8 @@ def test_acceptances_reject_every_wrong_correspondence(setup, monkeypatch):
         ({"route": "postgres_adbc"}, "ACCEPTANCE_ROUTE"),
         ({"values": (2,)}, "BINDING_VECTOR"),
         ({"values": (True,)}, "BINDING_VECTOR"),
+        # The saved binding names no parameter, so any restated name differs.
+        ({"parameters": {"low": 1}}, "BINDING_VECTOR"),
         ({"batch_rows": 0}, "ACCEPTANCE_BOUND"),
         ({"purpose": "line\n"}, "ACCEPTANCE_PURPOSE"),
         ({"checkpoint": "ckp-1"}, "CHECKPOINT_UNKNOWN"),

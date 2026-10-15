@@ -40,7 +40,7 @@ from pietto._project.project_job_store import (
     _identity_request,
     _json,
     _operate,
-    _vector,
+    restated,
     new_operation,
 )
 from pietto._project.project_job_workspace import (
@@ -334,11 +334,10 @@ def accept_publication(
     accepted_producer: str,
     accepted_compatibility: tuple,
     seconds: int,
+    parameters=None,
 ) -> PublicationAcceptance:
     """Fresh trust, exact typed values, route/isolation, output/scheme and (R2)
     the extraction specification; no source, guard or database credential."""
-    from pietto._project.project_execution_template import bind_values
-
     _publishing(workspace)
     if not valid_identity(checkpoint, "ckp"):
         raise JobStoreError("CHECKPOINT_UNKNOWN")
@@ -364,13 +363,7 @@ def accept_publication(
     )
     if route != stored_route:
         raise JobStoreError("ACCEPTANCE_ROUTE")
-    try:
-        stated = bind_values(template, tuple(zip(template.slots, values, strict=True)))
-    except (ValueError, TypeError):
-        raise JobStoreError("BINDING_VECTOR") from None
-    # The typed wire keeps True != 1, -0.0 != 0.0 and exact Text distinct.
-    if _vector(stated) != _vector(binding):
-        raise JobStoreError("BINDING_VECTOR")
+    restated(template, binding, values, parameters)
     output = verified_stored_output(workspace, job, generation, binding, route)
 
     def body(c):

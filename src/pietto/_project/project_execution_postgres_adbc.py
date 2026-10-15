@@ -19,6 +19,7 @@ from pietto._project.project_execution import (
     verify_execution_request,
     execution_arguments,
 )
+from pietto._project.project_execution_binding_verification import use_tag
 from pietto._project.project_execution_postgres_adbc_native import (
     connect,
     read_control,
@@ -369,7 +370,7 @@ class PostgresADBCExecution:
             kinds = {}
             for use in native.uses:
                 kinds[use.index] = (
-                    use.owner.tag.value
+                    use_tag(use.original)
                     if use.domain == "original"
                     else "Int"
                     if page.frontier is None or use.owner == len(coordinates)
@@ -380,12 +381,13 @@ class PostgresADBCExecution:
             kinds = {}
             for use in native.uses:
                 kinds[use.index] = (
-                    use.owner.tag.value if use.domain == "original" else "Int"
+                    use_tag(use.original) if use.domain == "original" else "Int"
                 )
         else:
             artifact = self.request.artifact
             arguments = execution_arguments(self.request)
-            kinds = {u.server_index: u.slot.tag.value for u in artifact.parameter_uses}
+            # A bind-safe slot or a header parameter owns each occurrence.
+            kinds = {u.server_index: use_tag(u) for u in artifact.parameter_uses}
             return (
                 artifact.rendered.sql,
                 arguments,

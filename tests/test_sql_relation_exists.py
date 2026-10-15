@@ -26,6 +26,8 @@ from pietto._project.project_sql_emission_verification import (
 from pietto._project.project_postgres_source_assurance import qualification_roots
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_plan import ProjectSQLPlan
+from pietto._project.project_sql_plan_expressions import ProjectSQLParameterRead
+from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 
 TARGETS = ("postgres", "mysql")
 HIDDEN = """query result:
@@ -988,8 +990,8 @@ def test_a_capturing_let_reads_a_relation_known_after_completion(
     assert document["sql"].count("EXISTS (SELECT 1 FROM (SELECT ") == 1
 
 
-# Header parameters stay unavailable beside relation lets (PIE-S2346), but an
-# entry query with parameters may read a table whose let has capture lines. The
+# An entry query with parameters may also read a table whose let has capture
+# lines (its own lets read the header too: see below). The
 # inline let's own literal renders in that table's CTE before the parameter,
 # which PostgreSQL reuses ($2) and MySQL repeats (?).
 PARAMETER_OVER_CAPTURE = """table t:
@@ -1059,3 +1061,92 @@ def test_an_entry_query_with_parameters_reads_a_table_with_a_capturing_let(
     ] == (
         [(0, 1), (1, 2), (2, 2)] if target == "postgres" else [(0, 1), (1, 2), (2, 3)]
     )
+
+
+# Phase70 S11 x S10: a let with capture lines reads the entry query's header
+# like any other let of it. The read renders inside the EXISTS subquery and
+# takes its placeholder in rendering order with the bind-safe slots:
+# PostgreSQL reuses `$1` for `cut`, MySQL writes one `?` per read.
+HEADER_IN_CAPTURE = """query result(cut: Int not null, hi: Int nullable):
+    let m:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > cut and rhs.id != 100
+        select:
+            id
+    from lhs
+    where exists m and lhs.id < hi and lhs.id != 200
+    select:
+        a = lhs.id
+        b = cut
+"""
+HEADER_IN_CAPTURE_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", "s1"."key '
+        'value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" WHERE ((EXISTS '
+        '(SELECT 1 FROM (SELECT "t1"."c0" AS "c0" FROM (SELECT "s0"."order.id" AS '
+        '"c0", "s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE ((("s0"."key value" = "s1"."key value") AND ("s0"."order.id" > '
+        'CAST($1 AS pg_catalog.int8))) AND ("s0"."order.id" <> CAST($2 AS '
+        'pg_catalog.int8)))) AS "t1") AS "e0") AND ("s1"."order.id" < CAST($3 AS '
+        'pg_catalog.int8))) AND ("s1"."order.id" <> CAST($4 AS '
+        'pg_catalog.int8)))) SELECT "t3"."c0" AS "a", CAST($1 AS pg_catalog.int8) '
+        'AS "b" FROM "p0" AS "t3"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, `s1`.`key "
+        "value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1` WHERE ((EXISTS "
+        "(SELECT 1 FROM (SELECT `t1`.`c0` AS `c0` FROM (SELECT `s0`.`order.id` AS "
+        "`c0`, `s0`.`key value` AS `c1` FROM `phase66`.`phase66 rhs é` AS `s0` "
+        "WHERE (((`s0`.`key value` = `s1`.`key value`) AND (`s0`.`order.id` > "
+        "CAST(? AS SIGNED))) AND (`s0`.`order.id` <> CAST(? AS SIGNED)))) AS "
+        "`t1`) AS `e0`) AND (`s1`.`order.id` < CAST(? AS SIGNED))) AND "
+        "(`s1`.`order.id` <> CAST(? AS SIGNED)))) SELECT `t3`.`c0` AS `a`, CAST(? "
+        "AS SIGNED) AS `b` FROM `p0` AS `t3`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_capturing_let_reads_the_entry_query_header(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, HEADER_IN_CAPTURE, policy="bind_safe_literals")
+    checked, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == HEADER_IN_CAPTURE_SQL[target]
+    assert [
+        (u["owner"]["kind"], u["owner"][u["owner"]["kind"]], u["server_index"])
+        for u in document["parameter_uses"]
+    ] == [
+        ("parameter", 0, 1),
+        ("slot", 0, 2),
+        ("parameter", 1, 3),
+        ("slot", 1, 4),
+        ("parameter", 0, 1 if target == "postgres" else 5),
+    ]
+    assert probe.decoded_arguments(probe.decode_public(raw), {"cut": 3, "hi": 7}) == (
+        (3, 100, 7, 200) if target == "postgres" else (3, 100, 7, 200, 3)
+    )
+    # The let's read belongs to the plan: a well-formed swap of it to the
+    # other header entry is refused by the plan verifier.
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    (read,) = [
+        e
+        for e in plan.expressions
+        if type(e) is ProjectSQLParameterRead
+        and e.site.owner is not checked.selected_owner
+    ]
+    object.__setattr__(read, "parameter", plan.parameters[1])
+    assert not verify_project_sql_plan(
+        plan,
+        checked.completed,
+        checked.analysis_bundle,
+        checked.selected_owner,
+        literal_policy=checked.literal_policy,
+    ).verified

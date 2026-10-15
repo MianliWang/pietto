@@ -789,3 +789,125 @@ def test_the_verifier_refuses_a_mysql_ordered_scalar_read_on_its_own(
     assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
         ("PIE-B1008", "plan_ast_correspondence")
     ]
+
+
+# Phase70 S11 x S14: a let read by a correlated scalar reads the entry query's
+# header like any other let of it. On PostgreSQL a let ending in ORDER BY and
+# LIMIT keeps them in the wrapper around its read; MySQL refuses that read as
+# it does without parameters.
+HEADER_IN_SCALAR = """query result(cut: Int not null, hi: Int nullable):
+    let m:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > cut and rhs.id != 100
+        select:
+            id
+            key
+    from lhs
+    where lhs.id > hi
+    select:
+        a = lhs.id
+        k = scalar m.key
+"""
+HEADER_IN_SCALAR_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", "s1"."key '
+        'value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" WHERE '
+        '("s1"."order.id" > CAST($1 AS pg_catalog.int8))) SELECT "t3"."c0" AS '
+        '"a", (SELECT "e0"."c1" FROM (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1" '
+        'FROM (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" FROM '
+        '"public"."phase66 rhs é" AS "s0" WHERE ((("s0"."key value" = "t3"."c1") '
+        'AND ("s0"."order.id" > CAST($2 AS pg_catalog.int8))) AND '
+        '("s0"."order.id" <> CAST($3 AS pg_catalog.int8)))) AS "t1") AS "e0") AS '
+        '"k" FROM "p0" AS "t3"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, `s1`.`key "
+        "value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1` WHERE "
+        "(`s1`.`order.id` > CAST(? AS SIGNED))) SELECT `t3`.`c0` AS `a`, (SELECT "
+        "`e0`.`c1` FROM (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM (SELECT "
+        "`s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` FROM "
+        "`phase66`.`phase66 rhs é` AS `s0` WHERE (((`s0`.`key value` = `t3`.`c1`) "
+        "AND (`s0`.`order.id` > CAST(? AS SIGNED))) AND (`s0`.`order.id` <> "
+        "CAST(? AS SIGNED)))) AS `t1`) AS `e0`) AS `k` FROM `p0` AS `t3`"
+    ),
+}
+HEADER_IN_ORDERED_SCALAR = """query result(cut: Int not null, hi: Int nullable):
+    let m:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > cut
+        select:
+            id
+            key
+        order by:
+            id desc
+        limit 1
+    from lhs
+    where lhs.id < hi
+    select:
+        a = lhs.id
+        k = scalar m.key
+"""
+HEADER_IN_ORDERED_SCALAR_SQL = (
+    'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", "s1"."key '
+    'value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" WHERE '
+    '("s1"."order.id" < CAST($1 AS pg_catalog.int8))) SELECT "t3"."c0" AS '
+    '"a", (SELECT "e0"."c1" FROM (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1" '
+    'FROM (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c0" AS "c2" '
+    'FROM (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" FROM '
+    '"public"."phase66 rhs é" AS "s0" WHERE (("s0"."key value" = "t3"."c1") '
+    'AND ("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "t0" '
+    'ORDER BY "t0"."c2" DESC LIMIT 1) AS "e0") AS "k" FROM "p0" AS "t3"'
+)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_scalar_read_let_reads_the_entry_query_header(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, HEADER_IN_SCALAR, policy="bind_safe_literals")
+    _, outcome = probe.build_case(
+        tmp_path / "plain", item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == HEADER_IN_SCALAR_SQL[target]
+    # `hi` renders first (the outer WHERE stage), then the let's `cut`, then
+    # the let's own literal slot.
+    assert [
+        (u["owner"]["kind"], u["owner"][u["owner"]["kind"]], u["server_index"])
+        for u in document["parameter_uses"]
+    ] == [("parameter", 1, 1), ("parameter", 0, 2), ("slot", 0, 3)]
+    assert probe.decoded_arguments(probe.decode_public(raw), {"cut": 3, "hi": 7}) == (
+        7,
+        3,
+        100,
+    )
+    item = probe.join_witness(
+        target, HEADER_IN_ORDERED_SCALAR, policy="bind_safe_literals"
+    )
+    _, outcome = probe.build_case(
+        tmp_path / "ordered", item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    if target == "mysql":
+        assert (document["status"], outcome.artifact) == ("BLOCKED", None)
+        assert [
+            (
+                b["code"],
+                b["reason"],
+                b["subject"]["detail"],
+                b["location"]["line"],
+                b["location"]["column"],
+            )
+            for b in document["blockers"]
+        ] == [(*MYSQL_ORDERED_READ, 21, 13)]
+        return
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == HEADER_IN_ORDERED_SCALAR_SQL
+    assert probe.decoded_arguments(
+        probe.decode_public(raw), {"cut": 3, "hi": None}
+    ) == (None, 3)

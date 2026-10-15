@@ -52,23 +52,19 @@ def test_save_refuses_wrong_values_before_any_workspace_control_write(
     assert (refused.value.code, refused.value.detail) == ("PIE-R1006", "BINDING_SLOTS")
 
 
-@pytest.mark.parametrize(
-    "operation", ("save", "save_recoverable", "recover", "relay_live")
+SINCE = (
+    "\nquery since(low: Int not null, note: Text nullable):\n    from items\n"
+    "    where id > low and (note is null or label != note)\n    select:\n"
+    "        id\n        next = low + 1\n"
 )
-def test_saved_operations_refuse_a_parameterized_query_before_the_workspace(
-    tmp_path, monkeypatch, operation
-):
-    """A saved job records no parameter values, so a query that declares
-    parameters runs only through execute()."""
-    project = api.write_example(tmp_path)
+
+
+@pytest.fixture(scope="module")
+def since(tmp_path_factory):
+    project = api.write_example(tmp_path_factory.mktemp("execution-save-parameters"))
     main = project / "main.pietto"
-    main.write_text(
-        main.read_text(encoding="utf-8")
-        + "\nquery since(low: Int not null):\n    from items\n"
-        "    where id > low\n    select:\n        id\n",
-        encoding="utf-8",
-    )
-    query = execution.compile_query(
+    main.write_text(main.read_text(encoding="utf-8") + SINCE, encoding="utf-8")
+    return execution.compile_query(
         project,
         module="main.pietto",
         kind="query",
@@ -76,6 +72,29 @@ def test_saved_operations_refuse_a_parameterized_query_before_the_workspace(
         dialect="postgres",
         emission_contract="contract.json",
     )
+
+
+@pytest.mark.parametrize(
+    "parameters,code,detail",
+    (
+        ([("low", 5)], "PIE-R1002", "PUBLIC_PARAMETERS_TYPE"),
+        (None, "PIE-R1006", "BINDING_PARAMETERS"),
+        ({"low": 5}, "PIE-R1006", "BINDING_PARAMETERS"),
+        ({"low": True, "note": None}, "PIE-R1006", "BINDING_PARAMETER:0:Int"),
+        ({"low": None, "note": None}, "PIE-R1006", "BINDING_PARAMETER:0:Int"),
+        ({"low": 5, "note": 5}, "PIE-R1006", "BINDING_PARAMETER:1:Text"),
+        ({"low": 2**63 - 1, "note": None}, "PIE-R1004", "BINDING_INVALID"),
+    ),
+    ids=("pairs", "missing", "absent", "bool", "null", "int_text", "overflow"),
+)
+@pytest.mark.parametrize("operation", ("save", "save_recoverable", "relay_live"))
+def test_saved_operations_bind_parameters_before_the_workspace(
+    since, monkeypatch, operation, parameters, code, detail
+):
+    """Every entry that starts a generation binds the caller's parameters like
+    execute() and refuses a missing, extra, mistyped, illegal NULL or
+    out-of-range value before it opens the workspace or connects (recover
+    restates a saved binding instead: tests/test_execution_recovery.py)."""
     workspace = object.__new__(execution.WorkspaceRef)
     object.__setattr__(workspace, "root", "/not-opened")
     object.__setattr__(workspace, "identity", "ws-" + "3" * 32)
@@ -89,23 +108,10 @@ def test_saved_operations_refuse_a_parameterized_query_before_the_workspace(
         route="postgres_rows",
         access=execution.PostgresAccess("127.0.0.1", 5432, "db", "u", "pw"),
         premise=execution.PostgresDeploymentPremise(("fixture", "pg_catalog")),
+        parameters=parameters,
     )
     if operation == "save_recoverable":
         arguments.update(source_requirements=(), limits=execution.ExecutionLimits())
-    if operation == "recover":
-        arguments.update(
-            job="job-" + "0" * 32,
-            generation="gen-" + "0" * 32,
-            checkpoint=None,
-            query=query,
-            source_requirements=(),
-            limits=execution.ExecutionLimits(),
-            expected_pin="0" * 64,
-            accepted_producer="0" * 64,
-            accepted_compatibility="0" * 64,
-            purpose="parameters",
-            seconds=1,
-        )
     if operation == "relay_live":
         arguments.update(
             sink_root="/not-opened",
@@ -116,14 +122,8 @@ def test_saved_operations_refuse_a_parameterized_query_before_the_workspace(
             sink_budget_bytes=1,
         )
     with pytest.raises(execution.RequestRejected) as refused:
-        if operation == "recover":
-            execution.recover(workspace, **arguments)
-        else:
-            getattr(execution, operation)(workspace, query, **arguments)
-    assert (refused.value.code, refused.value.detail) == (
-        "PIE-R1003",
-        "PUBLIC_PARAMETERS_ROUTE",
-    )
+        getattr(execution, operation)(workspace, since, **arguments)
+    assert (refused.value.code, refused.value.detail) == (code, detail)
 
 
 def test_save_checks_isolation_before_opening_workspace(query, monkeypatch):
@@ -549,6 +549,104 @@ def values_query(directory, case):
         dialect="mysql" if case == "mysql_join" else "postgres",
         emission_contract="contract.json",
     )
+
+
+HEADER_SINCE = """
+query since(low: Int not null):
+    from items
+    where id > low and id < low + low
+    select:
+        id
+"""
+
+
+@pytest.mark.parametrize("limit", (12, 13))
+def test_recoverable_pages_charge_the_parameter_limit_before_any_workspace(
+    tmp_path, monkeypatch, limit
+):
+    """D70.07: the statement reads `low` three times, and its largest R2 page
+    binds nine more values (one per coordinate where its predicate reads it,
+    and its row count): a `parameters` limit of 12 refuses save_recoverable
+    and recover before any workspace is opened; 13 reaches the workspace."""
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + HEADER_SINCE, encoding="utf-8")
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    contract["environment"].append(
+        {"key": "resource_limits", "scope": "statement", "value": {"parameters": limit}}
+    )
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="since",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "4" * 32)
+
+    class Opened(Exception):
+        pass
+
+    def opened(*arguments, **keywords):
+        raise Opened
+
+    monkeypatch.setattr(private_workspace, "open_workspace", opened)
+    monkeypatch.setattr(store, "register_job", opened)
+    r2: dict[str, Any] = dict(
+        query=query,
+        source_requirements=tuple(
+            execution.R2SourceInput(
+                source.namespace,
+                source.name,
+                "provider",
+                "v1",
+                "r1",
+                source.namespace,
+                "registry",
+                "SELECT 1",
+                ("id",),
+                "pietto_query",
+                "retained",
+            )
+            for source in query._template.artifact.request.sources
+        ),
+        operation=execution.new_operation(),
+        route="postgres_rows",
+        access=execution.PostgresAccess("127.0.0.1", 5432, "db", "u", "pw"),
+        premise=execution.PostgresDeploymentPremise(("fixture", "pg_catalog")),
+        limits=execution.ExecutionLimits(),
+        parameters={"low": 5},
+    )
+    for call in (
+        lambda: execution.save_recoverable(workspace, **r2),
+        lambda: execution.recover(
+            workspace,
+            job="job-" + "5" * 32,
+            generation="gen-" + "6" * 32,
+            checkpoint=None,
+            expected_pin=bundle.pin,
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+            purpose="parameter budget",
+            seconds=1,
+            **r2,
+        ),
+    ):
+        with pytest.raises(execution.RequestRejected) as refused:
+            call()
+        if limit == 12:
+            assert (refused.value.code, refused.value.detail) == (
+                "PIE-R1004",
+                "REFINEMENT_RESOURCE_LIMIT",
+            )
+        else:
+            assert refused.value.code == "PIE-R1009"
+            assert "cause=Opened" in str(refused.value)
 
 
 @pytest.mark.parametrize("case", ("postgres_join", "postgres_only", "mysql_join"))

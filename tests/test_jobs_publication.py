@@ -999,6 +999,8 @@ def test_acceptance_and_prepared_bounds(setup, monkeypatch):
     for overrides, code in (
         ({"values": (2,)}, "BINDING_VECTOR"),
         ({"values": (True,)}, "BINDING_VECTOR"),
+        # The saved binding names no parameter, so any restated name differs.
+        ({"parameters": {"low": 1}}, "BINDING_VECTOR"),
         ({"route": "mysql_rows"}, "ACCEPTANCE_ROUTE"),
         ({"isolation": "serializable"}, "ACCEPTANCE_ISOLATION"),
         ({"expected_pin": "0" * 64}, "JOB_TRUST_INPUT"),

@@ -11,6 +11,7 @@ from pietto._project import project_job_store as store
 from pietto._project import project_job_workspace as job_workspace
 from pietto._project.project_compiled_schema import VERSIONS
 from pietto.execution._errors import RequestRejected, failure, workspace_failure
+from pietto.execution._saved import _parameters
 from pietto.execution._workspace import OperationReply, WorkspaceRef, _reply
 
 __all__ = ["PublicationReply", "publish_saved_generation"]
@@ -111,11 +112,14 @@ def publish_saved_generation(
     accepted_compatibility: str,
     seconds: int,
     operation: str,
+    parameters: dict[str, object] | None = None,
 ) -> PublicationReply:
     """Publish one fully captured local generation.
 
     The caller operation records preparation.  Repeating it reports that exact
     step as partial instead of guessing whether the later visibility write ran.
+    ``values`` and ``parameters`` restate the saved binding as for
+    open_saved_read().
     """
     _checked(
         workspace,
@@ -133,6 +137,7 @@ def publish_saved_generation(
         seconds,
         operation,
     )
+    named = _parameters(parameters)
     refusal = None
     try:
         opened = job_workspace.open_workspace(
@@ -150,6 +155,7 @@ def publish_saved_generation(
                 route=route,
                 isolation=isolation,
                 values=values,
+                parameters=named,
                 expected_pin=expected_pin,
                 accepted_producer=accepted_producer,
                 accepted_compatibility=(*VERSIONS, accepted_compatibility),

@@ -98,6 +98,7 @@ def test_mysql_route_dispatches_one_private_owner_with_fixed_profile(
         "limits": ex.ExecutionLimits(),
         "isolation": "stable",
         "values": (7,),
+        "parameters": None,
     }
 
 
@@ -190,33 +191,104 @@ def parameterized(tmp_path_factory):
     )
 
 
-def test_mysql_route_refuses_parameters_before_the_bridge(
-    query, parameterized, monkeypatch
-):
-    monkeypatch.setattr(
-        composition,
-        "prepare_mysql_attempt",
-        lambda *args, **kwargs: pytest.fail("refused parameters reached MySQL bridge"),
-    )
+class Submitted(Exception):
+    """Stops a statement at the driver's execute call."""
+
+
+def test_mysql_route_binds_parameters_with_one_marker_per_read(parameterized):
+    """MySQL sends one `?` per read: `low` twice, `label` once, in rendering
+    order, with the template's exact SQL for every binding, and the reader
+    prepares that SQL and executes it with those values (a NULL included)
+    up to the driver."""
     assert parameterized.dialect == "mysql"
     assert parameterized.parameters == (("low", "Int", False), ("label", "Text", True))
-    for target, parameters in (
-        (parameterized, {"low": 1, "label": None}),
-        (parameterized, None),
-        (query, {}),
+    template = parameterized._template.artifact.rendered.sql
+    submitted = []
+
+    class Connection:
+        unread_result = False
+
+        def cmd_stmt_prepare(self, sql, **options):
+            submitted.append(sql)
+            return {
+                "statement_id": 1,
+                "warning_count": 0,
+                "num_params": 3,
+                "parameters": [(None,) * 9] * 3,
+                "num_columns": 0,
+                "columns": [],
+            }
+
+        def cmd_stmt_execute(self, statement_id, *, data, **options):
+            submitted.append(data)
+            raise Submitted
+
+    for parameters, arguments in (
+        ({"low": 10, "label": "x"}, (10, "x", 10)),
+        ({"label": None, "low": -5}, (-5, None, -5)),
     ):
-        with pytest.raises(execution.RequestRejected) as refused:
-            execution.execute(
-                target,
-                route="mysql_rows",
-                access=ACCESS,
-                premise=PREMISE,
-                parameters=parameters,
-            )
-        assert (refused.value.code, refused.value.detail) == (
-            "PIE-R1003",
-            "PUBLIC_PARAMETERS_ROUTE",
+        owner = composition.prepare_mysql_attempt(
+            parameterized._template,
+            ex.MySQLAccess(
+                "mysql.example.test",
+                3306,
+                "app",
+                "reader",
+                PASSWORD,
+                "/ca.pem",
+                "reader",
+                verify_identity=True,
+                loopback_tls_exception=False,
+            ),
+            schemas=("phase66",),
+            limits=ex.ExecutionLimits(),
+            isolation="stable",
+            parameters=parameters,
         )
+        assert owner.request.binding.arguments == arguments
+        assert owner.request.artifact.rendered.sql == template
+        # One native occurrence per read (the fixture's identifiers hold `?`).
+        assert len(owner.request.artifact.parameter_uses) == len(arguments)
+        # Only the open session is stood in for; submission is the reader's.
+        owner._connection = owner._owned_connection = Connection()
+        owner._verify_lifetime = lambda: None
+        with pytest.raises(Submitted):
+            owner._submit(template, ex.execution_arguments(owner.request), "query")
+        assert submitted == [template, arguments]
+        submitted.clear()
+
+
+@pytest.mark.parametrize(
+    "parameters,code,detail",
+    (
+        (None, "PIE-R1006", "BINDING_PARAMETERS"),
+        ({"low": 1}, "PIE-R1006", "BINDING_PARAMETERS"),
+        ({"low": True, "label": None}, "PIE-R1006", "BINDING_PARAMETER:0:Int"),
+        ({"low": None, "label": None}, "PIE-R1006", "BINDING_PARAMETER:0:Int"),
+        ({"low": 1, "label": 1}, "PIE-R1006", "BINDING_PARAMETER:1:Text"),
+        ({"low": 2**63 - 1, "label": None}, "PIE-R1004", "BINDING_INVALID"),
+        ({1: 1, "label": None}, "PIE-R1002", "PUBLIC_PARAMETERS_TYPE"),
+    ),
+    ids=("missing", "absent", "bool", "null", "int_text", "overflow", "key"),
+)
+def test_mysql_route_refuses_each_parameter_input_before_the_owner(
+    parameterized, monkeypatch, parameters, code, detail
+):
+    from pietto._project import project_execution_mysql as mysql
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the MySQL owner")
+
+    monkeypatch.setattr(mysql.MySQLExecution, "__init__", forbidden)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            parameterized,
+            route="mysql_rows",
+            access=ACCESS,
+            premise=PREMISE,
+            parameters=parameters,
+        )
+    assert (refused.value.code, refused.value.detail) == (code, detail)
 
 
 def test_mysql_refuses_a_zero_source_values_query_before_connect(tmp_path):

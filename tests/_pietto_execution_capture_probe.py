@@ -227,18 +227,23 @@ def op():
     return s.new_operation()
 
 
-def store(root, template, values=(), *, format=None, **options):
-    """A v2 (default) workspace with one job, publisher, binding and generation."""
+def store(root, template, values=(), *, format=None, parameters=None, **options):
+    """A v2 (default) workspace with one job, publisher, binding and generation;
+    `parameters` names the header values of a template that declares them."""
     from pietto._project import project_job_store as s
     from pietto._project import project_job_workspace as w
-    from pietto._project.project_execution_template import bind_values
+    from pietto._project.project_execution_template import bind_values, named_values
 
     workspace = w.create_workspace(
         str(root), format=w.FORMAT_V2 if format is None else format, **options
     )
     job = s.register_job(workspace, template, operation=op()).get("job")
     publisher = s.claim_publisher(workspace, job, operation=op())
-    binding = bind_values(template, tuple(zip(template.slots, values, strict=True)))
+    binding = bind_values(
+        template,
+        tuple(zip(template.slots, values, strict=True)),
+        named_values(template, parameters),
+    )
     record = s.register_binding(publisher, binding, operation=op()).get("binding")
     generation = s.register_generation(
         publisher,

@@ -393,22 +393,7 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
             raise ExecutionError("COMPILED_FRESH_PROFILE_REQUIRED")
         if request.binding is None or request.output is None:
             raise ExecutionError("COMPILED_BINDING_REQUIRED")
-        if family == "postgres":
-            if request.route == "postgres_adbc":
-                verify_postgres_adbc_deployment(request)
-            else:
-                verify_postgres_deployment(request)
-        else:
-            if (
-                request.postgres_deployment is not None
-                or request.postgres_adbc_deployment is not None
-            ):
-                raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_SCOPE")
-            if not request.artifact.request.sources:
-                # D70.05: a statement reading no physical relation has no
-                # non-vacuous MySQL source qualification in this phase.
-                raise ExecutionError("MYSQL_ZERO_SOURCE_ROUTE")
-            verify_deployment(request, required=True)
+        _verify_compiled_premise(request)
     else:
         if (
             request.postgres_deployment is not None
@@ -461,6 +446,31 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         # literal uses currently require an unsupported producer shape, not SQL
         # interpolation or a speculative S04 rebinding implementation.
         raise ExecutionError("EXECUTION_PRODUCER_NOT_DELIVERED")
+    _verify_caller_inputs(request)
+    verify_requirement(request.source_requirement, view.request.sources, family=family)
+
+
+def _verify_compiled_premise(request):
+    """The route's own deployment premise of a compiled request."""
+    if type(request.access) is MySQLAccess:
+        if (
+            request.postgres_deployment is not None
+            or request.postgres_adbc_deployment is not None
+        ):
+            raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_SCOPE")
+        if not request.artifact.request.sources:
+            # D70.05: a statement reading no physical relation has no
+            # non-vacuous MySQL source qualification in this phase.
+            raise ExecutionError("MYSQL_ZERO_SOURCE_ROUTE")
+        verify_deployment(request, required=True)
+    elif request.route == "postgres_adbc":
+        verify_postgres_adbc_deployment(request)
+    else:
+        verify_postgres_deployment(request)
+
+
+def _verify_caller_inputs(request):
+    """Access, isolation and limits: the request's caller-given values."""
     a = request.access
     if (
         any(
@@ -499,7 +509,6 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         raise ExecutionError("EXECUTION_ISOLATION")
     verify_deployment(request)
     verify_execution_limits(request.limits)
-    verify_requirement(request.source_requirement, view.request.sources, family=family)
 
 
 def verify_execution_limits(limits):
@@ -720,6 +729,35 @@ def prepare_compiled_execution(
         return refined
     verify_execution_request(request)
     return request
+
+
+def verify_unbound_request(
+    template,
+    access,
+    *,
+    route,
+    limits,
+    isolation,
+    postgres_deployment=None,
+    postgres_adbc_deployment=None,
+    mysql_deployment=None,
+):
+    """The checks of `prepare_compiled_execution` that read no bound value
+    (premise, access, isolation, limits), in its order, for a compiled
+    template whose restated values have no binding yet (recover)."""
+    request = ExecutionRequest(
+        template.artifact,
+        None,
+        access,
+        limits,
+        isolation,
+        mysql_deployment=mysql_deployment,
+        route=route,
+        postgres_adbc_deployment=postgres_adbc_deployment,
+        postgres_deployment=postgres_deployment,
+    )
+    _verify_compiled_premise(request)
+    _verify_caller_inputs(request)
 
 
 @entry

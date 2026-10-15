@@ -41,6 +41,41 @@ def _publish(saved, *, operation=None, **overrides):
     return execution.publish_saved_generation(saved.reference, **arguments)
 
 
+def test_publication_checks_the_parameters_type_before_workspace_open(monkeypatch):
+    from pietto._project import project_job_workspace as job_workspace
+
+    monkeypatch.setattr(
+        job_workspace,
+        "open_workspace",
+        lambda *arguments, **keywords: pytest.fail("opened private workspace"),
+    )
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.publish_saved_generation(
+            workspace,
+            job="job-" + "0" * 32,
+            generation="gen-" + "0" * 32,
+            checkpoint="ckp-" + "0" * 32,
+            closing="att-" + "0" * 32,
+            purpose="public-local-publication",
+            route="postgres_rows",
+            isolation="stable",
+            values=(),
+            expected_pin="0" * 64,
+            accepted_producer="0" * 64,
+            accepted_compatibility="0" * 64,
+            seconds=600,
+            operation=execution.new_operation(),
+            parameters=[("low", 5)],  # type: ignore[arg-type]
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1002",
+        "PUBLIC_PARAMETERS_TYPE",
+    )
+
+
 def test_publication_preserves_real_members_and_source_free_saved_read(
     tmp_path, monkeypatch
 ):

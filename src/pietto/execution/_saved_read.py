@@ -11,6 +11,7 @@ from pietto._project import project_job_workspace as private_workspace
 from pietto._project.project_compiled_schema import VERSIONS
 from pietto.execution._errors import RequestRejected, failure, workspace_failure
 from pietto.execution._handle import ResultBatch, _batch
+from pietto.execution._saved import _parameters
 from pietto.execution._workspace import OperationReply, WorkspaceRef, _reply
 
 __all__ = [
@@ -43,6 +44,7 @@ def _require(
     register,
     opening,
     *,
+    parameters=None,
     distinct=True,
 ):
     if type(workspace) is not WorkspaceRef:
@@ -66,6 +68,7 @@ def _require(
         raise RequestRejected(failure("PIE-R1010", "PUBLIC_OPERATION_IDENTITY"))
     if distinct and register is not None and register == opening:
         raise RequestRejected(failure("PIE-R1010", "PUBLIC_OPERATION_DISTINCT"))
+    return _parameters(parameters)
 
 
 def _accept(
@@ -80,6 +83,7 @@ def _accept(
     purpose,
     route,
     values,
+    parameters,
     expected_pin,
     accepted_producer,
     accepted_compatibility,
@@ -97,6 +101,7 @@ def _accept(
         purpose=purpose,
         route=route,
         values=values,
+        parameters=parameters,
         expected_pin=expected_pin,
         accepted_producer=accepted_producer,
         accepted_compatibility=_compatibility(accepted_compatibility),
@@ -212,9 +217,14 @@ def open_saved_read(
     route: str,
     batch_rows: int,
     seconds: int,
+    parameters: dict[str, object] | None = None,
 ) -> SavedRead:
-    """Open one source-free R1 reader with caller-held durable operations."""
-    _require(
+    """Open one source-free R1 reader with caller-held durable operations.
+
+    ``values`` and ``parameters`` restate the saved generation's binding:
+    each must equal the saved value with the same type (BINDING_VECTOR); a
+    binding that names parameters requires ``parameters``."""
+    named = _require(
         workspace,
         job,
         generation,
@@ -222,6 +232,7 @@ def open_saved_read(
         consumer,
         register_operation,
         open_operation,
+        parameters=parameters,
     )
     opened = publisher = None
     refusal = None
@@ -241,6 +252,7 @@ def open_saved_read(
             purpose=purpose,
             route=route,
             values=values,
+            parameters=named,
             expected_pin=expected_pin,
             accepted_producer=accepted_producer,
             accepted_compatibility=accepted_compatibility,
@@ -284,9 +296,12 @@ def release_saved_read(
     route: str,
     batch_rows: int,
     seconds: int,
+    parameters: dict[str, object] | None = None,
 ) -> OperationReply:
-    """Release one registered reader retention after fresh trust acceptance."""
-    _require(
+    """Release one registered reader retention after fresh trust acceptance;
+    ``values`` and ``parameters`` restate the saved binding as for
+    open_saved_read()."""
+    named = _require(
         workspace,
         job,
         generation,
@@ -294,6 +309,7 @@ def release_saved_read(
         consumer,
         operation,
         operation,
+        parameters=parameters,
         distinct=False,
     )
     opened = publisher = None
@@ -313,6 +329,7 @@ def release_saved_read(
             purpose=purpose,
             route=route,
             values=values,
+            parameters=named,
             expected_pin=expected_pin,
             accepted_producer=accepted_producer,
             accepted_compatibility=accepted_compatibility,

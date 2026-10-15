@@ -632,6 +632,7 @@ def _discharged(template, artifact, named):
     from pietto._project.project_sql_emission_ast import (
         row_binding_obligations,
         row_value_roots,
+        spliced_value_nodes,
     )
 
     from pietto._project.project_sql_emission_windows import WindowArgument
@@ -639,13 +640,15 @@ def _discharged(template, artifact, named):
     def nodes(source):
         # A window argument stands for its own placeholder leaf: the count
         # check needs its role, so a count obligation images the argument.
+        # A capturing let's own nodes follow the read that renders it, as
+        # the obligations themselves are collected.
         return tuple(
             node
             for value in row_value_roots(source.ast)
             for node in (
                 (value,)
                 if type(value) is WindowArgument
-                else rows.rendered_value_nodes(value)
+                else spliced_value_nodes((value,))
             )
         )
 

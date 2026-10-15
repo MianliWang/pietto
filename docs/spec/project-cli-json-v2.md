@@ -286,8 +286,11 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
   9223372036854775807 on MySQL). `subject` is an expression ref for an
   operation and a window argument ref (`{"kind": "window_argument",
   "position": i}`) for a count; `parameters` lists every parameter the subject
-  depends on, directly or through `let:` bindings. It may name a parameter
-  whose value cannot change the check, never omit one that can.
+  depends on, directly or through `let:` bindings, and, for an operation of a
+  query with relation lets, every parameter that a let reads (a let column
+  reaches its readers without its reads); a count names only the parameter it
+  reads. It may name a parameter whose value cannot change the check, never
+  omit one that can.
 - A generated requirement of kind `query_parameter` (rule R04, evidence
   `[{"parameter": j}]`) describes each rendered read.
 - A read inside an ORDER BY key, including a constant leaf under `select

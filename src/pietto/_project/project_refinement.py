@@ -226,16 +226,11 @@ def _computed_group_key(artifact):
     return False
 
 
-def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=False):
-    """Create the sole non-policy compiled refinement authority.
-
-    ``template`` is retained by the public live entry.  Recovery may bind the
-    stored copy only after its current caller template and trust records have
-    already been checked, so it uses the narrow re-anchor case.
-    """
+def _live_shape(artifact, requirements):
+    """The R2 checks of the template's own structure, which read no value;
+    a policy refinement's complete requirements, or None."""
     from pietto._project.project_compiled_schema import Address
 
-    artifact = _live_root(template, binding, reanchor=reanchor)
     records = artifact.request.verification.completed.root.records
     if _computed_group_key(artifact):
         raise ValueError("PUBLIC_R2_COMPUTED_GROUP_KEY")
@@ -250,11 +245,39 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
             requirement_state(r) for r in expected
         ):
             raise ValueError("COMPILED_REFINEMENT_REQUIREMENTS")
-        output = None
-        if binding.guarded is not None:
-            from pietto._project.project_guard_preparation import prepare_guarded_output
+        return expected
+    verify_sources(
+        requirements, artifact.request.sources, family=artifact.request.family
+    )
+    return None
 
-            output = prepare_guarded_output(binding.guarded, binding=binding)
+
+def check_live_r2_refinement(template, requirements):
+    """`prepare_live_r2_refinement`'s checks for a template without a binding,
+    its shape refusals included; none reads a value."""
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    if type(template.artifact.request) is not CompiledPreparedEmission:
+        raise ValueError("PUBLIC_R2_COMPILED_ROOT")
+    _live_shape(template.artifact, requirements)
+    refuse_block_reads(template.artifact)
+
+
+def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=False):
+    """Create the sole non-policy compiled refinement authority.
+
+    ``template`` is retained by the public live entry.  Recovery may bind the
+    stored copy only after its current caller template and trust records have
+    already been checked, so it uses the narrow re-anchor case.
+    """
+    artifact = _live_root(template, binding, reanchor=reanchor)
+    expected = _live_shape(artifact, requirements)
+    output = None
+    if binding.guarded is not None:
+        from pietto._project.project_guard_preparation import prepare_guarded_output
+
+        output = prepare_guarded_output(binding.guarded, binding=binding)
+    if expected is not None:
         return (
             prepare_refinement(
                 artifact,
@@ -265,14 +288,6 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
             ),
             None,
         )
-    verify_sources(
-        requirements, artifact.request.sources, family=artifact.request.family
-    )
-    output = None
-    if binding.guarded is not None:
-        from pietto._project.project_guard_preparation import prepare_guarded_output
-
-        output = prepare_guarded_output(binding.guarded, binding=binding)
     value = _prepare_refinement(
         artifact,
         requirements,

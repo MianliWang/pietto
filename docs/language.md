@@ -305,9 +305,9 @@ The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
 relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
 `in`/`not in` read, a let with `capture` lines read by `exists`, `scalar` or
 `in`/`not in` or joined LATERAL by `cross join`, `inner join` or `left join` and
-the header of an entry query whose FROM reads a relation and that declares no
-relation let are available, as described after the example; every other form is
-not available yet:
+the header of an entry query whose own body reads a relation with `from` are
+available, as described after the example; every other form is not available
+yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -729,9 +729,9 @@ available.
 
 ### Query header parameters in explicit-module projects
 
-An EXPLICIT_MODULES project admits the header of an entry query whose body
-reads a relation with `from` (not a table function) and declares no relation
-let:
+An EXPLICIT_MODULES project admits the header of an entry query whose own body
+reads a relation with `from` (not a table function), with or without relation
+lets:
 
 ```pietto
 query orders_since(cutoff: Int not null, label: Text nullable):
@@ -809,8 +809,8 @@ the input field it may shadow. A position that a literal cannot use either keeps
 the literal's diagnostic. A query with parameters is never the input of another
 relation, a relation let or the body of a declaration with lets included, nor
 read by `exists`, `scalar` or `in` (PIE-S2356). Headers stay PIE-S2346 in
-single-file analysis, in LEGACY_FLAT projects and beside relation lets, VALUES,
-set-operation or table-function FROM bodies.
+single-file analysis, in LEGACY_FLAT projects and on a VALUES, set-operation or
+table-function FROM body.
 
 In a window call that is a SELECT item of a query without GROUP BY, SATISFYING
 or aggregates, a bare read is also available as a window argument: the value
@@ -841,20 +841,60 @@ offset, even if the binding is 0. Any other window argument, window PARTITION BY
 keys, frame offsets and a read nested in an operator inside a window argument
 stay refused (PIE-S2355).
 
+The relation lets of an admitted entry query read its header as its own body does:
+
+```pietto
+query recent_orders(cutoff: Int not null, label: Text nullable):
+    let recent:
+        from orders
+        let:
+            next_day = cutoff + 1
+        where order_day >= next_day
+        select:
+            id
+            day_after = order_day + 1
+    from recent
+    where id > cutoff
+    select:
+        id
+        day_after
+```
+
+A bare name equal to a parameter reads it in every FROM-based let of the
+query, under the same position rules, and a let's own `let:` bindings and
+outputs that read it are refused where the query's would be (PIE-S2355). The
+name must also differ from every let name of the query and from every name
+visible in each let's body: its input fields, `let:` names, JOIN bindings,
+outputs and named windows (PIE-S2354, at the parameter); a let's unaliased
+SELECT item that only reads a parameter is PIE-S2354 at the read. A let column
+computed from a parameter is an ordinary column for its readers. A let with
+`capture` lines is such a let too: its reads render where the let renders,
+inside the `exists`, `scalar` or `in` subquery that reads it (on PostgreSQL
+also inside the ORDER BY/LIMIT wrapper of a `scalar` or `in` read) or inside
+the LATERAL derived table of its CROSS, INNER or LEFT join, ORDER BY and LIMIT
+included, and a read in that join's ON renders there. No other declaration
+reads the header.
+
 `emit-sql --project` renders every read outside an ORDER BY key as a typed
 placeholder under both literal policies (`CAST($n AS pg_catalog.int8)`,
 `CAST(? AS SIGNED)`, with the Text collation): PostgreSQL reuses one `$n` for
-every read of a parameter, MySQL writes one `?` per read, and bind-safe literal
-slots share the same numbering in rendering order. The SQL never depends on a
-value. The unbound template keeps each parameter's declared carrier; a check
-that needs the value, such as the range of `cutoff + 1` or of a later
-`next_day + 1`, is listed as a binding obligation naming every parameter it
-depends on and runs at every binding. A query whose parameters are all unread
-still emits this template; like any statement that renders no placeholder, it
-needs no `parameter_protocol` premise. `compile_query` keeps the unbound template, and
-`execute(..., parameters=...)` binds it on the `postgres_rows` route only; the
-other routes, saving, relaying, recovery and bundle export refuse such a query
-(see [Parameters](execution.md#parameters)).
+every read of a parameter, also across the CTE stages of its lets and inside
+the subqueries and LATERAL derived tables of its lets with `capture` lines,
+MySQL writes one `?` per read in rendering order, and bind-safe literal slots
+share the same numbering. One statement renders at most 65,535 placeholders, every
+read and every slot use counted, also under a larger declared
+`resource_limits` value; more is refused (`PIE-B1007`,
+`parameter_occurrence_limit`). The SQL never depends on a value. The unbound
+template keeps each parameter's declared carrier; a check that needs the value,
+such as the range of `cutoff + 1` or of a later `next_day + 1`, is listed as a
+binding obligation naming every parameter it depends on (for a query with
+relation lets, also every parameter that a let reads) and runs at every
+binding. A query whose parameters are all unread still emits this template;
+like any statement that renders no placeholder, it needs no `parameter_protocol`
+premise. `compile_query` and `export_bundle` keep the unbound template, and
+`execute(..., parameters=...)` binds it on every route; saving, relaying,
+recovery and saved reads take the same `parameters` (see
+[Parameters](execution.md#parameters)).
 
 The result and post-aggregation positions add no other check: their
 obligations are `int_range_representable` (the range of `cutoff + 1`) or

@@ -143,7 +143,9 @@ def test_public_recovery_refuses_preflight_before_runtime(monkeypatch):
     opened = SimpleNamespace(close=lambda: None)
     called = []
     monkeypatch.setattr(
-        public_r2, "_checked_request", lambda *args, **kwargs: (None,) * 5
+        public_r2,
+        "_checked_request",
+        lambda *args, **kwargs: (object(), None, None, None, None, None),
     )
     monkeypatch.setattr(
         public_r2.proposal, "prepare_live_refinement", lambda *args: None
@@ -220,7 +222,7 @@ def test_public_recovery_replays_before_current_predecessor_acceptance(monkeypat
     monkeypatch.setattr(
         public_r2,
         "_checked_request",
-        lambda *args, **kwargs: (None, (), None, None, ()),
+        lambda *args, **kwargs: (object(), (), None, None, (), None),
     )
     monkeypatch.setattr(
         public_r2.proposal, "prepare_live_refinement", lambda *args: object()
@@ -362,3 +364,315 @@ def test_pending_close_refuses_an_unresolved_single_retry():
     with pytest.raises(JobStoreError, match="RUNTIME_CLOSE_UNJOINED"):
         jobs.PendingClose(opened, "admission").close()
     assert (opened.resumes, opened.closes) == (1, 0)
+
+
+SINCE = (
+    "\nquery since(low: Int not null, note: Text nullable):\n    from items\n"
+    "    where id > low and (note is null or label != note)\n    select:\n"
+    "        id\n        next = low + 1\n"
+)
+# An R2 shape that is refused (D70.05): it groups by a key its let computes.
+GROUPED = (
+    "\nquery grouped(low: Int not null):\n    from items\n    let:\n"
+    "        big = id > 5\n    group by:\n        big\n"
+    "    select:\n        flag = big\n        total = count()\n"
+)
+SAVED = {"low": 5, "note": None}
+
+
+def _queries(directory):
+    """The `since` and `grouped` queries of one example project."""
+    import _pietto_execution_api as api
+    import pietto.execution as execution
+
+    project = api.write_example(directory)
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8") + SINCE + GROUPED, encoding="utf-8"
+    )
+    return tuple(
+        execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name=name,
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+        for name in ("since", "grouped")
+    )
+
+
+# R2 shapes that are refused (D70.05) whose lets with capture lines read the
+# header: an EXISTS read and a LATERAL join.
+CAPTURING = """
+source tags: Item is postgres.table("fixture.tags")
+
+query exists_since(low: Int not null, note: Text nullable):
+    let same:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > low
+        select:
+            id
+    from items
+    where exists same and (note is null or label != note)
+    select:
+        id
+
+query lateral_since(low: Int not null, note: Text nullable):
+    let later:
+        capture items
+        from tags
+        where tags.id > items.id and tags.id > low
+        select:
+            tag_id = id
+    from items
+    cross join later as t:
+        from items
+    where note is null or items.label != note
+    select:
+        id = items.id
+        tag_id = t.tag_id
+"""
+
+
+def _capturing(directory):
+    """`exists_since` and `lateral_since` of one example project with `tags`."""
+    import json
+
+    import _pietto_execution_api as api
+    import pietto.execution as execution
+
+    project = api.write_example(directory)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + CAPTURING, encoding="utf-8")
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return tuple(
+        execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name=name,
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+        for name in ("exists_since", "lateral_since")
+    )
+
+
+def _recover(workspace, query, parameters, **overrides):
+    """recover's refusal (code, detail) for one restatement of `parameters`,
+    with the R2 declarations and trust records of `query` itself."""
+    import pietto.execution as execution
+
+    root = query._template.artifact.request.verification.completed.root
+    sources = tuple(
+        execution.R2SourceInput(
+            source.namespace,
+            source.name,
+            "provider",
+            "v1",
+            "r1",
+            source.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for source in query._template.artifact.request.sources
+    )
+    arguments: dict[str, Any] = dict(
+        job="job-" + "0" * 32,
+        generation="gen-" + "0" * 32,
+        checkpoint=None,
+        query=query,
+        source_requirements=sources,
+        operation=execution.new_operation(),
+        route="postgres_rows",
+        access=execution.PostgresAccess("127.0.0.1", 5432, "db", "u", "pw"),
+        premise=execution.PostgresDeploymentPremise(("fixture", "pg_catalog")),
+        limits=execution.ExecutionLimits(),
+        expected_pin=root.expected_pin,
+        accepted_producer=root.accepted_producer,
+        accepted_compatibility=root.accepted_compatibility[-1],
+        purpose="restatement",
+        seconds=60,
+        parameters=parameters,
+    )
+    with pytest.raises(RequestRejected) as refused:
+        public_r2.recover(workspace, **(arguments | overrides))
+    return refused.value.code, refused.value.detail
+
+
+def test_recover_judges_restated_parameters_by_the_saved_binding(tmp_path, monkeypatch):
+    """D70.02: recover restates the saved parameters. A missing, extra,
+    mistyped, illegal NULL, out-of-range or other value is BINDING_VECTOR
+    from the saved binding, after the workspace's own checks and before any
+    source; only the type of ``parameters`` is refused before the workspace."""
+    from _pietto_execution_jobs_probe import qualified
+    from pietto._project import project_job_workspace as private_workspace
+    from pietto._project.project_execution_template import bind_values, named_values
+
+    if not qualified(tmp_path):
+        return
+    query, _ = _queries(tmp_path / "project")
+    template = query._template
+    opened = private_workspace.create_workspace(
+        str(tmp_path / "workspace"), format=private_workspace.FORMAT_V7
+    )
+    try:
+        job = store.register_job(opened, template, operation=store.new_operation()).get(
+            "job"
+        )
+        publisher = store.claim_publisher(opened, job, operation=store.new_operation())
+        binding = bind_values(
+            template,
+            tuple((s, s.original.site.position.literal.value) for s in template.slots),
+            named_values(template, SAVED),
+        )
+        record = store.register_binding(
+            publisher, binding, operation=store.new_operation()
+        ).get("binding")
+        generation = store.register_generation(
+            publisher,
+            record,
+            binding,
+            route="postgres_rows",
+            isolation="stable",
+            operation=store.new_operation(),
+        ).get("generation")
+        publisher.close()
+        workspace = WorkspaceRef(opened.root, opened.identity)
+    finally:
+        opened.close()
+    monkeypatch.setattr(
+        jobs,
+        "recover_recoverable",
+        lambda *args, **kwargs: pytest.fail("a refused restatement reached a source"),
+    )
+
+    def recover(parameters, **overrides):
+        return _recover(
+            workspace,
+            query,
+            parameters,
+            **({"job": job, "generation": generation} | overrides),
+        )
+
+    for parameters in (
+        None,
+        {"low": 5},
+        {**SAVED, "extra": 1},
+        {**SAVED, "low": True},
+        {**SAVED, "low": None},
+        {**SAVED, "note": 5},
+        {**SAVED, "low": 2**63 - 1},
+        {**SAVED, "low": 6},
+        {**SAVED, "note": ""},
+    ):
+        assert recover(parameters) == ("PIE-R1009", "BINDING_VECTOR")
+    # The saved values pass the restatement and meet the next stored fact.
+    assert recover(dict(SAVED)) == ("PIE-R1009", "EXTRACTION_UNKNOWN")
+    # The workspace's own checks come first: no saved binding, no comparison.
+    unknown = "gen-" + "0" * 32
+    assert recover({**SAVED, "low": True}, generation=unknown) == (
+        "PIE-R1009",
+        "GENERATION_UNKNOWN",
+    )
+    monkeypatch.setattr(
+        private_workspace,
+        "open_workspace",
+        lambda *args, **kwargs: pytest.fail("opened the workspace"),
+    )
+    assert recover([("low", 5)]) == ("PIE-R1002", "PUBLIC_PARAMETERS_TYPE")
+
+
+def test_recover_refuses_its_other_inputs_first_whatever_the_restatement(
+    tmp_path, monkeypatch
+):
+    """Every other refusal of recover precedes the workspace in the same order
+    whether the restated parameters bind, differ or cannot bind at all: the
+    access, premise, limits, isolation and R2 checks read no value."""
+    from dataclasses import replace
+
+    import pietto.execution as execution
+    from pietto._project import project_job_workspace as private_workspace
+
+    since, grouped = _queries(tmp_path)
+    exists, lateral = _capturing(tmp_path / "capturing")
+    bundle = execution.export_bundle(since)
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    workspace = object.__new__(WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "3" * 32)
+    monkeypatch.setattr(
+        private_workspace,
+        "open_workspace",
+        lambda *args, **kwargs: pytest.fail("opened the workspace"),
+    )
+    (source,) = since._template.artifact.request.sources
+    declared = execution.R2SourceInput(
+        source.namespace,
+        "other",
+        "provider",
+        "v1",
+        "r1",
+        source.namespace,
+        "registry",
+        "SELECT 1",
+        ("id",),
+        "pietto_query",
+        "retained",
+    )
+    host = "db.example.test"
+    for query, overrides, refusal in (
+        (
+            since,
+            {"premise": execution.PostgresDeploymentPremise(("pg_catalog",))},
+            ("PIE-R1002", "POSTGRES_DEPLOYMENT_PREMISE_SCOPE"),
+        ),
+        (
+            since,
+            {"access": execution.PostgresAccess("127.0.0.1", 0, "db", "u", "pw")},
+            ("PIE-R1002", "EXECUTION_ACCESS"),
+        ),
+        (
+            since,
+            {
+                "access": execution.PostgresAccess(
+                    host, 5432, "db", "u", "pw", "disable"
+                )
+            },
+            ("PIE-R1002", "EXECUTION_ACCESS_PROFILE"),
+        ),
+        (since, {"isolation": "dirty"}, ("PIE-R1002", "EXECUTION_ISOLATION")),
+        (
+            since,
+            {"limits": execution.ExecutionLimits(batch_rows=4097)},
+            ("PIE-R1002", "EXECUTION_LIMITS"),
+        ),
+        (loaded, {}, ("PIE-R1004", "PUBLIC_R2_LIVE_QUERY")),
+        (since, {"source_requirements": ()}, ("PIE-R1004", "PUBLIC_R2_SOURCE_CLOSURE")),
+        (
+            since,
+            {"source_requirements": (replace(declared),)},
+            ("PIE-R1004", "PUBLIC_R2_SOURCE_ORDER"),
+        ),
+        (grouped, {}, ("PIE-R1004", "PUBLIC_R2_COMPUTED_GROUP_KEY")),
+        (exists, {}, ("PIE-R1004", "REFINEMENT_EXPRESSION_BLOCK_READ")),
+        (lateral, {}, ("PIE-R1004", "REFINEMENT_LATERAL_JOIN")),
+    ):
+        # Equal for one query, different or unbindable for the other.
+        for parameters in (SAVED, {"low": 5}, {"low": 6}, {"low": True}, None):
+            assert _recover(workspace, query, parameters, **overrides) == refusal

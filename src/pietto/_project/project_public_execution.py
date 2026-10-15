@@ -97,11 +97,8 @@ def query_facts(template):
 def export_facts(template):
     """The verified compiled root's exact bytes and its own pin, producer and
     code identity; no I/O."""
-    from pietto._project.project_compiled_schema import CompiledError, encode
+    from pietto._project.project_compiled_schema import encode
 
-    if template.parameters:
-        # The v2 bundle transport is not published yet (Phase70 S11).
-        raise CompiledError("PUBLIC_BUNDLE_UNSUPPORTED")
     root = template.artifact.request.verification.completed.root
     root.verify()
     return (
@@ -110,16 +107,6 @@ def export_facts(template):
         root.accepted_producer,
         root.accepted_compatibility[-1],
     )
-
-
-def _named(template, parameters):
-    """The header's (parameter, value) pairs from the caller's exact names."""
-    from pietto._project.project_execution_template import BindingError
-
-    supplied = {} if parameters is None else parameters
-    if set(supplied) != {p.name for p in template.parameters}:
-        raise BindingError("BINDING_PARAMETERS")
-    return tuple((p, supplied[p.name]) for p in template.parameters)
 
 
 @entry
@@ -138,9 +125,10 @@ def prepare_attempt(
     the template's compiled root once for the binding and the request.
     `values` None binds the template's own literals; a tuple of another
     length is handed to the binder whole, which refuses it. `parameters`
-    names a value for every header parameter (None: no header)."""
+    names a value for every header parameter (None: no header); every route
+    binds them the same way."""
     from pietto._project.project_execution_postgres import PostgresExecution
-    from pietto._project.project_execution_template import bind_values
+    from pietto._project.project_execution_template import bind_values, named_values
 
     if values is None:
         values = tuple(
@@ -151,7 +139,7 @@ def prepare_attempt(
         tuple(zip(template.slots, values))
         if len(values) == len(template.slots)
         else values,
-        _named(template, parameters),
+        named_values(template, parameters),
     )
     premise = ex.PostgresDeploymentPremise(
         access, binding.artifact.request.sources, schemas, route
@@ -169,7 +157,9 @@ def prepare_attempt(
 
 
 @entry
-def prepare_mysql_attempt(template, access, *, schemas, limits, isolation, values=None):
+def prepare_mysql_attempt(
+    template, access, *, schemas, limits, isolation, values=None, parameters=None
+):
     """One fresh, unopened MySQL rows owner; no I/O or driver import.
 
     The ambient TLS refusal precedes importing the private MySQL owner, whose
@@ -179,7 +169,7 @@ def prepare_mysql_attempt(template, access, *, schemas, limits, isolation, value
     """
     ex.refuse_ambient()
     from pietto._project.project_execution_mysql import MySQLExecution
-    from pietto._project.project_execution_template import bind_values
+    from pietto._project.project_execution_template import bind_values, named_values
 
     if values is None:
         values = tuple(
@@ -190,6 +180,7 @@ def prepare_mysql_attempt(template, access, *, schemas, limits, isolation, value
         tuple(zip(template.slots, values))
         if len(values) == len(template.slots)
         else values,
+        named_values(template, parameters),
     )
     premise = ex.MySQLDeploymentPremise(
         access, binding.artifact.request.sources, schemas
@@ -208,7 +199,7 @@ def prepare_mysql_attempt(template, access, *, schemas, limits, isolation, value
 
 @entry
 def prepare_postgres_adbc_attempt(
-    template, access, *, schemas, limits, isolation, values=None
+    template, access, *, schemas, limits, isolation, values=None, parameters=None
 ):
     """One fresh, unopened PostgreSQL ADBC rows owner; no I/O.
 
@@ -218,7 +209,7 @@ def prepare_postgres_adbc_attempt(
     """
     ex.refuse_ambient(("PG",))
     from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
-    from pietto._project.project_execution_template import bind_values
+    from pietto._project.project_execution_template import bind_values, named_values
 
     if values is None:
         values = tuple(
@@ -229,6 +220,7 @@ def prepare_postgres_adbc_attempt(
         tuple(zip(template.slots, values))
         if len(values) == len(template.slots)
         else values,
+        named_values(template, parameters),
     )
     premise = ex.PostgresADBCDeploymentPremise(
         access, binding.artifact.request.sources, schemas

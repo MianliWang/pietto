@@ -242,29 +242,62 @@ def _header(record, field, value):
     return type(record)(record.address, tuple(values))
 
 
-def _parameterized(directory, target, variant):
-    """The compiled root of the published v2 conformance query."""
+def _parameterized(directory, target, variant, case="Q_query_parameters"):
+    """The compiled root of a published conformance query (by default the v2
+    query that declares parameters)."""
     import _pietto_sql_emission as probe
     from pietto._project.project_compiled_build import build_compiled
 
-    item = probe.fixture(target, "Q_query_parameters", variant)
+    item = probe.fixture(target, case, variant)
     _, outcome = probe.build_case(
         directory, item["source"], item["contract"], item["policy"]
     )
     return build_compiled(outcome.artifact)
 
 
+def _relabelled(payload, marker):
+    """The same canonical payload under another format marker."""
+    document = json.loads(payload)
+    return json.dumps(
+        {**document, "format": marker}, ensure_ascii=False, separators=(",", ":")
+    ).encode()
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_a_parameterized_root_is_a_v2_payload_no_loader_accepts_yet(tmp_path, target):
+def test_a_parameterized_root_travels_as_a_v2_payload(tmp_path, target):
     from pietto._project.model import CompiledProjectInput
+    from pietto._project.project_compiled_loading import load_compiled
     from pietto._project.project_execution_template import prepare_compiled_template
 
-    built = _parameterized(tmp_path, target, "bind")
+    built = _parameterized(tmp_path / "v2", target, "bind")
     assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
+    assert wire.PARAMETERIZED_FORMAT != wire.FORMAT
     assert built.compatibility[: len(wire.VERSIONS)] == wire.VERSIONS
-    # Transport of v2 roots is not published: the v1 decoder refuses the tag.
-    with pytest.raises(wire.CompiledError, match="^COMPILED_FORMAT$"):
-        wire.decode(built.payload)
+    # The unbound template decodes byte for byte and loads under its records.
+    assert wire.encode(wire.decode(built.payload)) == built.payload
+    loaded = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert [(p.name, p.tag, p.nullable) for p in loaded.parameters] == [
+        ("low", "Int", False),
+        ("label", "Text", True),
+    ]
+    # The marker names the records: a v1 marker on it, a v2 marker on a root
+    # without parameters and an unknown marker are all refused.
+    plain = _parameterized(tmp_path / "v1", target, "bag", "G_emission_table_bag")
+    assert json.loads(plain.payload)["format"] == wire.FORMAT
+    for payload, marker, word in (
+        (built.payload, wire.FORMAT, "COMPILED_CANONICAL"),
+        (plain.payload, wire.PARAMETERIZED_FORMAT, "COMPILED_CANONICAL"),
+        (built.payload, "pietto.compiled-execution.v3", "COMPILED_FORMAT"),
+    ):
+        with pytest.raises(wire.CompiledError, match=f"^{word}$"):
+            wire.decode(_relabelled(payload, marker))
     description = built.root.description
     header = [r for r in description.records if r.address.kind == "parameter"]
     assert [(r.get("label"), r.get("tag")) for r in header] == [
@@ -374,16 +407,28 @@ def test_a_window_parameter_argument_is_tied_to_its_own_read(tmp_path, monkeypat
     assert offset[1].kind == bucket[1].kind == "parameter_read"
     position = wire.FIELDS["window_value"].index("arguments")
 
-    def swapped(record):
-        if record is not values[0]:
-            return record
+    def arguments(record, replaced):
         changed = list(record.values)
-        changed[position] = (value, ("offset", bucket[1]))
+        changed[position] = replaced
         return type(record)(record.address, tuple(changed))
 
-    # A valid-looking read of the other count parameter.
+    def one_sided(record):
+        if record is not values[0]:
+            return record
+        return arguments(record, (value, ("offset", bucket[1])))
+
+    def swapped(record):
+        if record is values[1]:
+            return arguments(record, (("bucket", offset[1]),))
+        return one_sided(record)
+
+    # A valid-looking read of the other count parameter: the two reads trade
+    # places, so each keeps one reader and only the export sees the swap.
     with pytest.raises(wire.CompiledError, match="^COMPILED_EXPORT_WINDOW_PARAMETER$"):
         verify_export(_forged(description, swapped), outcome.artifact)
+    # A one-sided swap leaves a header read outside every expression.
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER_OWNER$"):
+        verify_description(_forged(description, one_sided))
     header = [r for r in description.records if r.address.kind == "parameter"]
     nullable = _forged(
         description, lambda r: _header(r, "nullable", True) if r is header[0] else r
@@ -440,3 +485,464 @@ def test_a_parameter_read_fact_keeps_its_proven_int_range(tmp_path, monkeypatch)
         forged = derive_compiled_semantics(root, (), (2**63 - 1, "x"))
     with pytest.raises(wire.CompiledError, match="^COMPILED_SEMANTIC_REALIZATION$"):
         verify_compiled_semantics(forged)
+
+
+def _set(record, field, value):
+    values = list(record.values)
+    values[wire.FIELDS[record.address.kind].index(field)] = value
+    return type(record)(record.address, tuple(values))
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_repinned_v2_payload_with_valid_looking_swaps_never_loads(tmp_path, target):
+    """Each forgery keeps every value well formed and is re-pinned, so only
+    the loader's own derivation can refuse it."""
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    built = _parameterized(tmp_path, target, "bind")
+    description = built.root.description
+    low, label = (r for r in description.records if r.address.kind == "parameter")
+    first_read = next(
+        r for r in description.records if r.address.kind == "parameter_read"
+    )
+    first, second = [r for r in description.records if r.address.kind == "native_use"][
+        :2
+    ]
+    forgeries = {
+        # label NULL becomes illegal, which its own port type still reads.
+        "not_null_label": (lambda r: _set(r, "nullable", False) if r is label else r),
+        "float_low": (lambda r: _set(r, "tag", "Float") if r is low else r),
+        "read_of_label": (
+            lambda r: _set(r, "parameter", label.address) if r is first_read else r
+        ),
+        "server_index": (
+            lambda r: _set(r, "index", r.get("index") + 1) if r is first else r
+        ),
+        "swapped_occurrences": (
+            lambda r: (
+                _set(r, "slot", second.get("slot"))
+                if r is first
+                else _set(r, "slot", first.get("slot"))
+                if r is second
+                else r
+            )
+        ),
+        "swapped_ordinals": (
+            lambda r: (
+                _set(r, "ordinal", 1)
+                if r is low
+                else _set(r, "ordinal", 0)
+                if r is label
+                else r
+            )
+        ),
+    }
+    words = {
+        "not_null_label": "COMPILED_PORT_TYPE",
+        "float_low": "COMPILED_PHYSICAL_DOMAIN",
+        "read_of_label": "COMPILED_OPERATOR_TYPE",
+        "server_index": "COMPILED_PLAN_USES",
+        "swapped_occurrences": "COMPILED_PLAN_USES"
+        if target == "postgres"
+        else "COMPILED_EMISSION_PARAMETER_INVENTORY",
+        "swapped_ordinals": "COMPILED_PARAMETER",
+    }
+    for name, change in forgeries.items():
+        forged = wire.Description(
+            description.compatibility,
+            description.producer,
+            description.query,
+            tuple(
+                (member, tuple(change(r) for r in records))
+                for member, records in description.members
+            ),
+        )
+        raw = wire.encode(forged)
+        assert json.loads(raw)["format"] == wire.PARAMETERIZED_FORMAT
+        with pytest.raises(wire.CompiledError) as refused:
+            prepare_compiled_template(
+                load_compiled(
+                    raw,
+                    expected_pin=wire.content_pin(raw),
+                    accepted_producer=forged.producer,
+                    accepted_compatibility=forged.compatibility,
+                )
+            )
+        assert (name, str(refused.value)) == (name, words[name])
+        # The caller's own pin names the original bytes only.
+        with pytest.raises(wire.CompiledError, match="^COMPILED_CONTENT_PIN$"):
+            load_compiled(
+                raw,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_only_the_entry_query_and_its_lets_read_the_header(tmp_path, target):
+    """A let's read travels in the v2 root and binds; a re-pinned root that
+    moves a read into another declaration is not one compile_query makes."""
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    built = _parameterized(tmp_path / "let", target, "let_bind")
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    literals = tuple(
+        (s, s.original.site.position.literal.value) for s in template.slots
+    )
+    bound = bind_values(
+        template, literals, tuple(zip(template.parameters, (4, "x"), strict=True))
+    )
+    assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+    assert bound.arguments == (
+        (4, 3, "x", 1) if target == "postgres" else (4, 3, "x", 4, 1, 4)
+    )
+
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+
+    item = probe.fixture(target, "Q_query_parameters", "preserve")
+    source = (
+        item["source"]
+        .replace(
+            "query result(",
+            "table t:\n    from rows\n    where plain > 5\n    select:\n        id\n"
+            "        plain\nquery result(",
+        )
+        .replace("    from rows\n    where id > low", "    from t\n    where id > low")
+    )
+    _, outcome = probe.build_case(
+        tmp_path / "two", source, item["contract"], item["policy"]
+    )
+    description = build_compiled(outcome.artifact).root.description
+    records = {r.address: r for r in description.records}
+    (table,) = (
+        r
+        for r in description.records
+        if r.address.kind == "declaration" and r.get("label") == "t"
+    )
+    (outer,) = (
+        r
+        for r in description.records
+        if r.address.kind == "operation"
+        and r.get("operator") == ("comparison", ">")
+        and any(o.kind == "parameter_read" for o in r.get("operands"))
+    )
+    (inner,) = (
+        r
+        for r in description.records
+        if r.address.kind == "operation"
+        and r.get("operator") == ("comparison", ">")
+        and any(
+            records[u].get("owner") == table.address
+            for u in records
+            if u.kind == "row" and records[u].get("predicate") == r.address
+        )
+    )
+    # Swap the leaves: `t` now reads `low`, the entry reads the literal.
+    read = next(o for o in outer.get("operands") if o.kind == "parameter_read")
+    leaf = inner.get("operands")[1]
+
+    def change(record):
+        if record is outer:
+            return _set(record, "operands", (outer.get("operands")[0], leaf))
+        if record is inner:
+            return _set(record, "operands", (inner.get("operands")[0], read))
+        return record
+
+    forged = wire.Description(
+        description.compatibility,
+        description.producer,
+        description.query,
+        tuple(
+            (member, tuple(change(r) for r in records_))
+            for member, records_ in description.members
+        ),
+    )
+    raw = wire.encode(forged)
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER_OWNER$"):
+        load_compiled(
+            raw,
+            expected_pin=wire.content_pin(raw),
+            accepted_producer=forged.producer,
+            accepted_compatibility=forged.compatibility,
+        )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_let_read_only_by_relation_reads_binds_its_header_reads(tmp_path, target):
+    """Lets read only by `exists`, `scalar` and `in` travel in the v2 root,
+    and a binding sends their reads in the template's placeholder order."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    body = (
+        "query result(low: Int not null, high: Int not null):\n"
+        "    let a:\n        from rows\n        where id > low\n"
+        "        select:\n            id\n"
+        "    let b:\n        from rows\n        where exists a and id < high + low\n"
+        "        select:\n            n = count()\n"
+        "    from rows\n"
+        "    where id >= high and id in a and id <= scalar b.n and not exists a\n"
+        "    select:\n        record_id = id\n"
+    )
+    _, outcome = parameterized_case(tmp_path, target, body)
+    built = build_compiled(outcome.artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert [p.name for p in template.parameters] == ["low", "high"]
+    bound = bind_values(
+        template, (), tuple(zip(template.parameters, (1, 5), strict=True))
+    )
+    assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+    assert bound.arguments == ((1, 5) if target == "postgres" else (1, 5, 1, 5))
+    # `high + low` in let b waits for the binding.
+    with pytest.raises(ValueError, match="^BINDING_INVALID$"):
+        bind_values(
+            template,
+            (),
+            tuple(zip(template.parameters, (1, 2**63 - 1), strict=True)),
+        )
+
+
+# Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
+HEADER_IN_CAPTURES = """query result(cut: Int not null, hi: Int nullable):
+    let later:
+        capture lhs
+        from rhs
+        where rhs.id > lhs.id and rhs.id < hi and rhs.id != 100
+        select:
+            later_id = id
+        order by:
+            id desc
+        limit 2
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > cut
+        select:
+            id
+    from lhs
+    left join later as l:
+        from lhs
+        on l.later_id > cut
+    where exists matched and lhs.id < hi
+    select:
+        id = lhs.id
+        later_id = l.later_id
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_header_reads_inside_capturing_lets_round_trip_and_bind_in_order(
+    tmp_path, target
+):
+    """A LATERAL top-k let and an EXISTS-read let read the header; the v2
+    root carries their reads, decodes byte for byte and binds them in the
+    template's placeholder order, the slot between them included."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    item = probe.join_witness(target, HEADER_IN_CAPTURES, policy="bind_safe_literals")
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
+    assert wire.encode(wire.decode(built.payload)) == built.payload
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == outcome.artifact.rendered.sql
+    assert [(p.name, p.nullable) for p in template.parameters] == [
+        ("cut", False),
+        ("hi", True),
+    ]
+    literals = tuple(
+        (s, s.original.site.position.literal.value) for s in template.slots
+    )
+    for values, arguments in (
+        # PostgreSQL: hi=$1 (let later), 100=$2, cut=$3 (ON, let matched),
+        # hi again; MySQL: one marker per read in rendering order.
+        ((3, 7), (7, 100, 3) if target == "postgres" else (7, 100, 3, 3, 7)),
+        (
+            (3, None),
+            (None, 100, 3) if target == "postgres" else (None, 100, 3, 3, None),
+        ),
+    ):
+        bound = bind_values(
+            template, literals, tuple(zip(template.parameters, values, strict=True))
+        )
+        assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+        assert bound.arguments == arguments
+    # A re-pinned root whose first two native uses trade slots is refused.
+    description = built.root.description
+    first, second = [r for r in description.records if r.address.kind == "native_use"][
+        :2
+    ]
+
+    def change(record):
+        if record is first:
+            return _set(record, "slot", second.get("slot"))
+        if record is second:
+            return _set(record, "slot", first.get("slot"))
+        return record
+
+    forged = wire.Description(
+        description.compatibility,
+        description.producer,
+        description.query,
+        tuple(
+            (member, tuple(change(r) for r in records))
+            for member, records in description.members
+        ),
+    )
+    raw = wire.encode(forged)
+    with pytest.raises(wire.CompiledError):
+        prepare_compiled_template(
+            load_compiled(
+                raw,
+                expected_pin=wire.content_pin(raw),
+                accepted_producer=forged.producer,
+                accepted_compatibility=forged.compatibility,
+            )
+        )
+
+
+# Phase70 S11 x S10/S14: binding obligations inside lets with capture lines
+# (an Int sum or difference, a Text call) are checked for each binding.
+OBLIGATIONS_IN_CAPTURES = """query result(cut: Int not null, tag: Text nullable):
+    let early:
+        capture lhs
+        from rhs
+        where rhs.id > cut + 1 and rhs.id < lhs.id
+        select:
+            id
+    let near:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key
+        select:
+            v = lower(tag)
+    let later:
+        capture lhs
+        from rhs
+        where rhs.id > lhs.id and rhs.id > cut - 3
+        select:
+            id
+    let other:
+        capture lhs
+        from rhs
+        where rhs.id == lhs.id and rhs.id != cut + 2
+        select:
+            id
+    from lhs
+    where exists early and lhs.id in other and lhs.id not in later
+    select:
+        id
+        v = scalar near.v
+"""
+OBLIGATION_ARGUMENTS = {
+    ("postgres", "preserve_literals"): lambda cut, tag: (cut, tag),
+    ("postgres", "bind_safe_literals"): lambda cut, tag: (cut, 1, 2, 3, tag),
+    ("mysql", "preserve_literals"): lambda cut, tag: (cut, cut, cut, tag),
+    ("mysql", "bind_safe_literals"): lambda cut, tag: (cut, 1, cut, 2, cut, 3, tag),
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_obligations_inside_capturing_lets_are_checked_for_each_binding(
+    tmp_path, target, policy
+):
+    """`exists`, `scalar`, `in` and `not in` reads render their lets inline;
+    each deferred check there is imaged in the bound statement like any
+    other, so a value is refused only when its own result leaves the range."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    item = probe.join_witness(target, OBLIGATIONS_IN_CAPTURES, policy=policy)
+    contract = json.loads(item["contract"])
+    if policy == "preserve_literals":
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], json.dumps(contract), item["policy"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    literals = tuple(
+        (s, s.original.site.position.literal.value) for s in template.slots
+    )
+    expected = OBLIGATION_ARGUMENTS[target, policy]
+    for cut, tag in ((5, "Ab"), (0, None), (2**63 - 3, "x"), (-(2**63) + 3, None)):
+        bound = bind_values(
+            template,
+            literals,
+            tuple(zip(template.parameters, (cut, tag), strict=True)),
+        )
+        assert bound.arguments == expected(cut, tag)
+    # `cut + 2` and `cut - 3` leave the signed 64-bit range one step further.
+    for cut in (2**63 - 2, -(2**63) + 2):
+        with pytest.raises(ValueError, match="^BINDING_INVALID$"):
+            bind_values(
+                template,
+                literals,
+                tuple(zip(template.parameters, (cut, "x"), strict=True)),
+            )

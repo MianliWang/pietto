@@ -77,8 +77,8 @@ def test_only_an_explicit_module_project_admits_a_header(tmp_path: Path) -> None
     (
         (
             "    let recent:\n        from rows\n        where id > cutoff\n"
-            "        select:\n            id\n    from recent\n    select:\n"
-            "        id\n",
+            "        select:\n            id\n    union all:\n        from recent\n"
+            "        from rows\n",
             [("PIE-S2346", 1)],
         ),
         ("    union all:\n        from rows\n        from rows\n", [("PIE-S2346", 1)]),
@@ -91,7 +91,7 @@ def test_only_an_explicit_module_project_admits_a_header(tmp_path: Path) -> None
             [("PIE-S2346", 1), ("PIE-S2352", 2)],
         ),
     ),
-    ids=("relation_let", "set_operation", "values", "table_function"),
+    ids=("let_set_operation", "set_operation", "values", "table_function"),
 )
 def test_a_header_without_a_relation_from_body_stays_unadmitted(
     tmp_path: Path, body: str, expected: list[tuple[str, int]]
@@ -738,3 +738,156 @@ def test_other_window_positions_never_read_a_parameter(tmp_path: Path) -> None:
             )
         ],
     )
+
+
+LET_VALID = (
+    "query q(cutoff: Int not null, label2: Text nullable):\n"
+    "    let recent:\n"
+    "        from rows\n"
+    "        let:\n"
+    "            next = cutoff + 1\n"
+    "        where id > next and label == label2\n"
+    "        select:\n"
+    "            id\n"
+    "            bumped = next\n"
+    "    from recent\n"
+    "    where id > cutoff\n"
+    "    select:\n"
+    "        id\n"
+    "        bumped\n"
+)
+
+
+def test_relation_lets_of_an_entry_query_read_its_header(tmp_path: Path) -> None:
+    """Only EXPLICIT_MODULES admits a header beside relation lets; single-file
+    analysis and LEGACY_FLAT keep the S01 refusals."""
+    assert _check(_project(tmp_path / "explicit", LET_VALID)) == (0, [])
+    assert _check(_project(tmp_path / "flat", LET_VALID, schema=1)) == (
+        1,
+        [("PIE-S2346", 1, 9), ("PIE-S2346", 1, 31), ("PIE-S2345", 2, 5)],
+    )
+    single = tmp_path / "single.pietto"
+    single.write_text(HEADER + LET_VALID, encoding="utf-8")
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = cli.main(["check", str(single), "--format", "json"])
+    document = json.loads(out.getvalue())
+    assert code == 1
+    assert [
+        (d["code"], d["location"]["line"] - FIRST + 1, d["location"]["column"])
+        for d in document["diagnostics"]
+    ] == [("PIE-S2346", 1, 9), ("PIE-S2346", 1, 31), ("PIE-S2345", 2, 5)]
+
+
+@pytest.mark.parametrize(("clauses", "expected"), REFUSED.values(), ids=tuple(REFUSED))
+def test_a_relation_let_reads_the_header_under_the_same_position_rules(
+    tmp_path: Path, clauses: str, expected: list[tuple[str, int, int]]
+) -> None:
+    """Every refused position of the entry body is refused inside its let,
+    one line lower and one block deeper."""
+    body = (
+        HEADER_QUERY.splitlines()[0]
+        + "\n    let a:\n        from rows\n"
+        + "".join("    " + line + "\n" for line in clauses.splitlines())
+        + "    from a\n    select:\n        one = 1\n"
+    )
+    shifted = [(code, line + 1, column + 4) for code, line, column in expected]
+    assert _check(_project(tmp_path, body)) == (1, shifted)
+
+
+@pytest.mark.parametrize(
+    ("header", "let", "expected"),
+    (
+        ("plain: Int not null", "        select:\n            id\n", [(1, 9)]),
+        ("a: Int not null", "        select:\n            id\n", [(1, 9)]),
+        (
+            "z: Int not null",
+            "        select:\n            id\n            z = plain\n",
+            [(1, 9)],
+        ),
+        (
+            "s: Int not null",
+            "        let:\n            s = 1\n        select:\n            id\n",
+            [(1, 9)],
+        ),
+        (
+            "k: Int not null",
+            "        inner join rows as k:\n            from rows\n"
+            "            on rows.id == k.id\n        select:\n"
+            "            id = rows.id\n",
+            [(1, 9)],
+        ),
+        (
+            "w: Int not null",
+            "        select:\n            id\n        window w:\n"
+            "            order by:\n                id\n",
+            [(1, 9)],
+        ),
+        (
+            "c: Int not null",
+            "        select:\n            id\n            c\n",
+            [(6, 13)],
+        ),
+    ),
+    ids=(
+        "let_field",
+        "let_name",
+        "let_output",
+        "let_row_let",
+        "let_join_binding",
+        "let_named_window",
+        "let_unaliased_read",
+    ),
+)
+def test_a_header_name_never_shadows_a_name_of_a_relation_let(
+    tmp_path: Path, header: str, let: str, expected: list[tuple[int, int]]
+) -> None:
+    body = (
+        f"query q({header}):\n    let a:\n        from rows\n"
+        + let
+        + "    from a\n    select:\n        one = 1\n"
+    )
+    assert _check(_project(tmp_path, body)) == (
+        1,
+        [(COLLISION, line, column) for line, column in expected],
+    )
+
+
+def test_a_header_with_relation_lets_declares_at_most_sixty_four(
+    tmp_path: Path,
+) -> None:
+    allowed = ", ".join(f"p{i}: Int not null" for i in range(64))
+    tail = "    let a:\n        from rows\n        where id > p0\n"
+    tail += "        select:\n            id\n    from a\n    select:\n        id\n"
+    assert _check(_project(tmp_path / "64", f"query q({allowed}):\n" + tail)) == (
+        0,
+        [],
+    )
+    body = f"query q({allowed}, extra: Int not null):\n" + tail
+    column = len("query q(") + len(allowed) + len(", ") + 1
+    assert _check(_project(tmp_path / "65", body)) == (1, [(DECLARATION, 1, column)])
+
+
+def test_a_query_whose_lets_read_its_header_is_never_an_input(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "query q(cutoff: Int not null):\n"
+        "    let a:\n"
+        "        from rows\n"
+        "        where id > cutoff\n"
+        "        select:\n"
+        "            id\n"
+        "    from a\n"
+        "    select:\n"
+        "        id\n"
+        "table t:\n"
+        "    let b:\n"
+        "        from q\n"
+        "        select:\n"
+        "            id\n"
+        "    from b\n"
+        "    select:\n"
+        "        id\n"
+    )
+    assert _check(_project(tmp_path, body)) == (1, [(INPUT, 12, 9)])

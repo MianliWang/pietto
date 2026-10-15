@@ -106,6 +106,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Severity
 from pietto.semantic.expressions import query_parameter_value_type
+from pietto._project.query_parameters import reads_header
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_scalar_namespaces import ProjectScalarNamespaceStage
@@ -3118,7 +3119,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             elif isinstance(value, row.ProjectSQLParameterRead):
                 parameters = plan.parameters
                 if (
-                    site.owner is not plan.scope.selected_owner
+                    not reads_header(site.owner, plan.scope.selected_owner)
                     or not 0 <= node.ordinal < len(parameters)
                     or value.parameter is not parameters[node.ordinal]
                     or value.parameter.declaration.name != node.name

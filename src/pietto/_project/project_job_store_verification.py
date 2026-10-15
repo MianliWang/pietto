@@ -141,6 +141,22 @@ OUTCOME_FIELDS = (
     "transaction",
     "transaction_opened",
 )
+# A stored binding description: its members in order, then ``parameters`` and
+# the interface ``["parameter", 1]`` only for a bundle that declares a header.
+DESCRIPTION_FIELDS = (
+    "content_pin",
+    "producer",
+    "compatibility",
+    "query",
+    "target",
+    "interfaces",
+    "slots",
+    "outputs",
+    "sources",
+    "refinement",
+    "provider_requirements",
+)
+INTERFACES = [["output", 1], ["meaning", 1], ["guard", 1], ["occurrence", 1]]
 
 
 def _fail(code: str) -> NoReturn:
@@ -170,6 +186,39 @@ def _canonical(text: str, *, ascii: bool = False):
     return value
 
 
+def _header(description) -> list:
+    """The binding-description wire of a bundle's own header parameters:
+    address, label, tag, nullable and each read's (occurrence, index)."""
+    records = {r.address: r for r in description.records}
+    return [
+        [
+            {"ref": ["parameter", r.address.position]},
+            r.get("label"),
+            r.get("tag"),
+            r.get("nullable"),
+            [
+                [use.get("ordinal"), use.get("index")]
+                for use in records.values()
+                if use.address.kind == "native_use"
+                and use.get("slot").kind == "parameter_read"
+                and records[use.get("slot")].get("parameter") == r.address
+            ],
+        ]
+        for r in records.values()
+        if r.address.kind == "parameter"
+    ]
+
+
+def _family(description) -> str:
+    """The bundle's own target family: every stored value must bind there."""
+    from pietto._project.project_compiled_schema import Address
+
+    target = {r.address: r for r in description.records}.get(Address("target", 0))
+    if target is None:
+        _fail("JOB_BUNDLE")
+    return target.get("family")
+
+
 def verify_store(workspace: Workspace) -> dict:
     """Check every row and the full ordered history; return complete counts."""
     from pietto._project.project_compiled_schema import (
@@ -179,6 +228,7 @@ def verify_store(workspace: Workspace) -> dict:
         decode,
         scalar_read,
     )
+    from pietto._project.project_sql_emission_parameters import value_valid
 
     capture = supports(workspace, "result-chunks")
     replay = supports(workspace, "saved-replay")
@@ -427,6 +477,7 @@ def verify_store(workspace: Workspace) -> dict:
                 _fail("CLOSING_HISTORY")
             if current["open"] == attempt:
                 current["open"] = None
+    headers: dict[str, tuple[list, str]] = {}
     for job, row in jobs.items():
         current = state.get(job)
         if current is None or (row[5], row[6], row[7], row[8]) != (
@@ -448,29 +499,70 @@ def verify_store(workspace: Workspace) -> dict:
             or description.compatibility != compatibility
         ):
             _fail("JOB_BUNDLE")
+        headers[job] = _header(description), _family(description)
     for identity, row in bindings.items():
         slots = _canonical(row[2])
+        stored = _canonical(row[3])
+        header, family = headers.get(row[1], ([], ""))
+        named = []
         try:
-            values = [scalar_read(item) for item in _canonical(row[3])]
+            if header:
+                # v2 (pietto.binding-vector.v2): typed header values, NULL
+                # only for a nullable parameter, then the slot values.
+                if (
+                    type(stored) is not dict
+                    or tuple(sorted(stored)) != ("format", "parameters", "slots")
+                    or stored["format"] != "pietto.binding-vector.v2"
+                    or type(stored["parameters"]) is not list
+                    or len(stored["parameters"]) != len(header)
+                ):
+                    _fail("BINDING_VECTOR")
+                named = [
+                    (scalar_read(item), entry[2])
+                    for item, entry in zip(stored["parameters"], header)
+                    if not (item == [entry[2], None] and entry[3])
+                ]
+                stored = stored["slots"]
+            if type(stored) is not list:
+                _fail("BINDING_VECTOR")
+            values = [(scalar_read(item), slot[1]) for item, slot in zip(stored, slots)]
         except CompiledError:
             _fail("BINDING_VECTOR")
             raise
+        # Every value has its declared tag and binds on the bundle's own
+        # family (no NUL in a PostgreSQL Text), as the binder checks it.
         if (
             identity not in created
-            or len(values) != len(slots)
-            or any(v.tag != s[1] for v, s in zip(values, slots))
+            or len(stored) != len(slots)
+            or not all(
+                v.tag == tag and value_valid(tag, v.value, family)
+                for v, tag in (*named, *values)
+            )
         ):
             _fail("BINDING_VECTOR")
     for identity, row in generations.items():
-        description = dict(_canonical(row[5]))
         job = jobs[row[1]]
+        header = headers[row[1]][0]
+        pairs = _canonical(row[5])
+        # Each member once, in the producer's order; nothing else.
+        if (
+            type(pairs) is not list
+            or any(type(p) is not list or len(p) != 2 for p in pairs)
+            or tuple(p[0] for p in pairs)
+            != DESCRIPTION_FIELDS + (("parameters",) if header else ())
+        ):
+            _fail("GENERATION_DESCRIPTION")
+        description = dict(pairs)
         if (
             identity not in created
+            or description["interfaces"]
+            != INTERFACES + ([["parameter", 1]] if header else [])
             or description.get("content_pin") != job[2]
             or description.get("producer") != job[3]
             or description.get("compatibility") != _canonical(job[4])
             or description.get("slots") != _canonical(bindings[row[2]][2])
             or description.get("target", [None] * 3)[2] != row[3]
+            or description.get("parameters") != (header or None)
         ):
             _fail("GENERATION_DESCRIPTION")
     ordinals: dict[str, list[int]] = {}

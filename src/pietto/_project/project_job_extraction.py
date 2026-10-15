@@ -50,7 +50,7 @@ from pietto._project.project_job_store import (
     _json,
     _operate,
     _unpublished,
-    _vector,
+    restated,
     new_operation,
 )
 from pietto._project.project_job_workspace import (
@@ -226,10 +226,10 @@ def _recovery_inputs(
     accepted_compatibility,
     source_requirements,
     live_r2,
+    parameters,
 ):
     """Rebuild caller-held recovery inputs without accepting a continuation."""
     from pietto._project.project_execution import compiled_output
-    from pietto._project.project_execution_template import bind_values
 
     _extracting(workspace)
     if checkpoint is not None and not valid_identity(checkpoint, "ckp"):
@@ -242,12 +242,7 @@ def _recovery_inputs(
         accepted_producer=accepted_producer,
         accepted_compatibility=accepted_compatibility,
     )
-    try:
-        stated = bind_values(template, tuple(zip(template.slots, values, strict=True)))
-    except (ValueError, TypeError):
-        raise JobStoreError("BINDING_VECTOR") from None
-    if _vector(stated) != _vector(binding):
-        raise JobStoreError("BINDING_VECTOR")
+    restated(template, binding, values, parameters)
     output, refinement, _program = compiled_output(binding)
     if source_requirements is not None:
         from pietto._project.project_public_r2_proposal import (
@@ -315,6 +310,7 @@ def continuation_replay_request(
     accepted_compatibility: tuple,
     source_requirements=None,
     live_r2=None,
+    parameters=None,
 ) -> dict:
     """Project a frozen first step without accepting an obsolete predecessor."""
     _binding, route, output, refinement, _live_r2 = _recovery_inputs(
@@ -328,6 +324,7 @@ def continuation_replay_request(
         accepted_compatibility,
         source_requirements,
         live_r2,
+        parameters,
     )
     text, qualification, isolation = read(
         workspace, lambda c: _recovery_metadata(c, job, generation)
@@ -355,6 +352,7 @@ def accept_recovery(
     seconds: int,
     source_requirements=None,
     live_r2=None,
+    parameters=None,
 ) -> RecoveryAcceptance:
     """Fresh trust, exact values/specification, current checkpoint, verified bytes.
 
@@ -382,6 +380,7 @@ def accept_recovery(
         accepted_compatibility,
         source_requirements,
         live_r2,
+        parameters,
     )
 
     def body(c):

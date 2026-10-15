@@ -39,7 +39,7 @@ from pietto._project.project_job_store import (
     _fence,
     _identity_request,
     _operate,
-    _vector,
+    restated,
 )
 from pietto._project.project_job_workspace import (
     JobStoreError,
@@ -133,10 +133,9 @@ def accept_saved_read(
     accepted_compatibility: tuple,
     seconds: int,
     batch_rows: int,
+    parameters=None,
 ) -> SavedReadAcceptance:
     """Fresh trust, exact binding/output correspondence and bounded validity."""
-    from pietto._project.project_execution_template import bind_values
-
     _replaying(workspace)
     if not valid_identity(consumer, "csm"):
         raise JobStoreError("CONSUMER_IDENTITY")
@@ -168,13 +167,7 @@ def accept_saved_read(
     )
     if route != stored_route:
         raise JobStoreError("ACCEPTANCE_ROUTE")
-    try:
-        stated = bind_values(template, tuple(zip(template.slots, values, strict=True)))
-    except (ValueError, TypeError):
-        raise JobStoreError("BINDING_VECTOR") from None
-    # The typed wire keeps True != 1, -0.0 != 0.0 and exact Text distinct.
-    if _vector(stated) != _vector(binding):
-        raise JobStoreError("BINDING_VECTOR")
+    restated(template, binding, values, parameters)
     output = verified_stored_output(workspace, job, generation, binding, route)
     snapshot = checkpoint_snapshot(workspace, job, generation, checkpoint=checkpoint)
     if (snapshot.contract, snapshot.scheme) != (output.contract, output.scheme):

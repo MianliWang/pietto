@@ -34,6 +34,9 @@ from pietto._project.project_job_workspace import (
 __all__: tuple[str, ...] = ()
 
 MAX_VECTOR_BYTES = 4 * 1024 * 1024
+# A binding whose template declares parameters stores this versioned vector;
+# one without parameters keeps the bare v1 list of slot scalars.
+VECTOR_V2 = "pietto.binding-vector.v2"
 MAX_DESCRIPTION_BYTES = 4 * 1024 * 1024
 MAX_OUTCOME_BYTES = 64 * 1024
 LIMITS = {
@@ -386,18 +389,61 @@ def register_job_request(template) -> dict:
 
 
 def _vector(binding) -> str:
-    """Canonical typed vector (S10 scalar wire): Bool/Int/±0/Float bits/Text kept."""
+    """Canonical typed vector (S10 scalar wire): Bool/Int/±0/Float bits/Text kept.
+
+    v2 adds the header parameter values in header order; NULL keeps its
+    declared tag (``[tag, null]``)."""
     from pietto._project.project_compiled_schema import Scalar, scalar_wire
 
+    slots = [
+        scalar_wire(Scalar(slot.tag, value))
+        for slot, value in zip(binding.template.slots, binding.values, strict=True)
+    ]
+    header = binding.template.parameters
     text = _json(
-        [
-            scalar_wire(Scalar(slot.tag, value))
-            for slot, value in zip(binding.template.slots, binding.values, strict=True)
-        ]
+        {
+            "format": VECTOR_V2,
+            "parameters": [
+                _parameter_wire(p, value)
+                for p, value in zip(header, binding.parameters, strict=True)
+            ],
+            "slots": slots,
+        }
+        if header
+        else slots
     )
     if len(text.encode("utf-8")) > MAX_VECTOR_BYTES:
         raise JobStoreError("BINDING_VECTOR")
     return text
+
+
+def _parameter_wire(parameter, value) -> list:
+    """One header value on the typed scalar wire; NULL keeps its tag."""
+    from pietto._project.project_compiled_schema import Scalar, scalar_wire
+
+    if value is not None:
+        return scalar_wire(Scalar(parameter.tag, value))
+    if not parameter.nullable:
+        raise JobStoreError("BINDING_VECTOR")
+    return [parameter.tag, None]
+
+
+def restated(template, binding, values, parameters) -> None:
+    """The caller restates a saved binding: the same slot values and, by name,
+    the same parameter values, each of the same type (else BINDING_VECTOR)."""
+    from pietto._project.project_execution_template import bind_values, named_values
+
+    try:
+        stated = bind_values(
+            template,
+            tuple(zip(template.slots, values, strict=True)),
+            named_values(template, parameters),
+        )
+    except (ValueError, TypeError):
+        raise JobStoreError("BINDING_VECTOR") from None
+    # The typed wire keeps True != 1, -0.0 != 0.0 and exact Text distinct.
+    if _vector(stated) != _vector(binding):
+        raise JobStoreError("BINDING_VECTOR")
 
 
 def register_binding_request(job: str, binding) -> dict:
@@ -422,6 +468,7 @@ def _description(binding, route) -> str:
                 [f.name, _wire(getattr(value, f.name))]
                 for f in fields(value)
                 if f.name != "binding_reference"
+                and (f.name != "parameters" or value.parameters)
             ]
         )
     except CompiledError:
@@ -1110,21 +1157,58 @@ def load_job(
 def bind_record(workspace: Workspace, job: str, template, record: str):
     """Rederive a NEW S10 binding from a stored vector; old references never return."""
     from pietto._project.project_compiled_schema import CompiledError, scalar_read
-    from pietto._project.project_execution_template import bind_values
+    from pietto._project.project_execution_template import BindingError, bind_values
 
     root = _template_root(template)
     slots, vector = _binding_row(workspace, job, record)
     if _job_row(workspace, job)[0] != root.expected_pin or _slots(root) != slots:
         raise JobStoreError("BINDING_ROOT")
+    header = template.parameters
     try:
-        values = tuple(scalar_read(item) for item in json.loads(vector))
+        stored = json.loads(vector)
+        if header:
+            if (
+                type(stored) is not dict
+                or tuple(sorted(stored)) != ("format", "parameters", "slots")
+                or stored["format"] != VECTOR_V2
+                or type(stored["parameters"]) is not list
+                or len(stored["parameters"]) != len(header)
+            ):
+                raise JobStoreError("BINDING_VECTOR")
+            named = tuple(
+                (p, None)
+                if item == [p.tag, None] and p.nullable
+                else (p, scalar_read(item).value)
+                for p, item in zip(header, stored["parameters"], strict=True)
+            )
+            if any(
+                value is not None and scalar_read(item).tag != p.tag
+                for (p, value), item in zip(named, stored["parameters"], strict=True)
+            ):
+                raise JobStoreError("BINDING_VECTOR")
+            stored = stored["slots"]
+        else:
+            named = ()
+        if type(stored) is not list:
+            raise JobStoreError("BINDING_VECTOR")
+        values = tuple(scalar_read(item) for item in stored)
     except (CompiledError, ValueError, TypeError):
         raise JobStoreError("BINDING_VECTOR") from None
     if len(values) != len(template.slots) or any(
         value.tag != slot.tag for value, slot in zip(values, template.slots)
     ):
         raise JobStoreError("BINDING_VECTOR")
-    return bind_values(
-        template,
-        tuple((slot, value.value) for slot, value in zip(template.slots, values)),
-    )
+    try:
+        result = bind_values(
+            template,
+            tuple((slot, value.value) for slot, value in zip(template.slots, values)),
+            named,
+        )
+    except BindingError:
+        # A stored value that does not bind on the bundle's own family, or
+        # fails a binding obligation, is a damaged vector, not a caller value.
+        raise JobStoreError("BINDING_VECTOR") from None
+    # Only the canonical text of the rebound values is a stored vector.
+    if _vector(result) != vector:
+        raise JobStoreError("BINDING_VECTOR")
+    return result

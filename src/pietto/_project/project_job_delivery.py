@@ -57,7 +57,7 @@ from pietto._project.project_job_store import (
     _identity_request,
     _json,
     _operate,
-    _vector,
+    restated,
     new_operation,
 )
 from pietto._project.project_job_workspace import (
@@ -262,10 +262,10 @@ def accept_window(
     accepted_compatibility: tuple,
     seconds: int,
     batch_rows: int,
+    parameters=None,
 ) -> WindowAcceptance:
     """Fresh trust, exact typed values, output/scheme correspondence, frontier."""
     from pietto._project.project_execution import compiled_output
-    from pietto._project.project_execution_template import bind_values
 
     _delivering(workspace)
     if checkpoint is not None and not valid_identity(checkpoint, "ckp"):
@@ -285,13 +285,7 @@ def accept_window(
     )
     if route != stored_route:
         raise JobStoreError("ACCEPTANCE_ROUTE")
-    try:
-        stated = bind_values(template, tuple(zip(template.slots, values, strict=True)))
-    except (ValueError, TypeError):
-        raise JobStoreError("BINDING_VECTOR") from None
-    # The typed wire keeps True != 1, -0.0 != 0.0 and exact Text distinct.
-    if _vector(stated) != _vector(binding):
-        raise JobStoreError("BINDING_VECTOR")
+    restated(template, binding, values, parameters)
     output, refinement, _program = compiled_output(binding)
 
     def body(c):

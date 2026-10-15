@@ -395,11 +395,10 @@ def test_private_observations_of_a_lateral_artifact_fail_closed(
         build_project_sql_plan_portable(checked)
 
 
-# Header parameters stay unavailable beside relation lets (PIE-S2346), but an
-# entry query with parameters may read a table that joins a let with capture
-# lines LATERAL and reads another by exists: both inline lets' literals render
-# in that table's CTEs first, then the parameter, which PostgreSQL reuses ($3)
-# and MySQL repeats (?).
+# An entry query with parameters may also read a table that joins a let with
+# capture lines LATERAL and reads another by exists: both inline lets'
+# literals render in that table's CTEs first, then the parameter, which
+# PostgreSQL reuses ($3) and MySQL repeats (?).
 PARAMETER_OVER_LATERAL = """table t:
     let later:
         capture lhs
@@ -1095,3 +1094,147 @@ def test_a_computed_lateral_order_key_keeps_its_result_body_refusal(
             13,
         )
     ]
+
+
+# Phase70 S11 x S12/S13: a let joined LATERAL reads the entry query's header
+# like any other let of it, also when it ends in ORDER BY and LIMIT (a top-k
+# per left row) and in the ON of a LEFT join. Each read renders where it is
+# written, in rendering order with the bind-safe slots: PostgreSQL reuses one
+# `$n` per parameter, MySQL writes one `?` per read.
+HEADER_IN_LATERAL = {
+    "top_k_cross": """query result(cut: Int not null, hi: Int nullable):
+    let m:
+        capture lhs
+        from rhs
+        where rhs.id > lhs.id and rhs.id < hi and rhs.id != 100
+        select:
+            id
+        order by:
+            id desc
+        limit 2
+    from lhs
+    cross join m as x:
+        from lhs
+    where lhs.id > cut
+    select:
+        a = lhs.id
+        b = x.id
+""",
+    "left_on": """query result(cut: Int not null, hi: Int nullable):
+    let m:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id < hi
+        select:
+            id
+    from lhs
+    left join m as x:
+        from lhs
+        on x.id > cut and x.id != 100
+    where lhs.id > cut
+    select:
+        a = lhs.id
+        b = x.id
+""",
+}
+HEADER_IN_LATERAL_SQL = {
+    ("top_k_cross", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "m0"."order.id" AS "c0", '
+        '"m0"."key value" AS "c1", "m1"."c0" AS "c2" FROM "public"."phase66 lhs '
+        'é" AS "m0" CROSS JOIN LATERAL (SELECT "t0"."c0" AS "c0" FROM (SELECT '
+        '"t1"."c0" AS "c0", "t1"."c0" AS "c1" FROM (SELECT "s0"."order.id" AS '
+        '"c0", "s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE ((("s0"."order.id" > "m0"."order.id") AND ("s0"."order.id" < '
+        'CAST($1 AS pg_catalog.int8))) AND ("s0"."order.id" <> CAST($2 AS '
+        'pg_catalog.int8)))) AS "t1") AS "t0" ORDER BY "t0"."c1" DESC LIMIT 2) AS '
+        '"m1"), "p1" ("c0", "c1", "c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" '
+        'AS "c1", "t0"."c2" AS "c2" FROM "p0" AS "t0" WHERE ("t0"."c0" > CAST($3 '
+        'AS pg_catalog.int8))) SELECT "t3"."c0" AS "a", "t3"."c2" AS "b" FROM '
+        '"p1" AS "t3"'
+    ),
+    ("top_k_cross", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `m0`.`order.id` AS `c0`, "
+        "`m0`.`key value` AS `c1`, `m1`.`c0` AS `c2` FROM `phase66`.`phase66 lhs "
+        "é` AS `m0` CROSS JOIN LATERAL (SELECT `t0`.`c0` AS `c0` FROM (SELECT "
+        "`t1`.`c0` AS `c0`, `t1`.`c0` AS `c1` FROM (SELECT `s0`.`order.id` AS "
+        "`c0`, `s0`.`key value` AS `c1` FROM `phase66`.`phase66 rhs é` AS `s0` "
+        "WHERE (((`s0`.`order.id` > `m0`.`order.id`) AND (`s0`.`order.id` < "
+        "CAST(? AS SIGNED))) AND (`s0`.`order.id` <> CAST(? AS SIGNED)))) AS "
+        "`t1`) AS `t0` ORDER BY `t0`.`c1` DESC LIMIT 2) AS `m1`), `p1` (`c0`, "
+        "`c1`, `c2`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` "
+        "AS `c2` FROM `p0` AS `t0` WHERE (`t0`.`c0` > CAST(? AS SIGNED))) SELECT "
+        "`t3`.`c0` AS `a`, `t3`.`c2` AS `b` FROM `p1` AS `t3`"
+    ),
+    ("left_on", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "m0"."order.id" AS "c0", '
+        '"m0"."key value" AS "c1", "m1"."c0" AS "c2" FROM "public"."phase66 lhs '
+        'é" AS "m0" LEFT JOIN LATERAL (SELECT "t1"."c0" AS "c0" FROM (SELECT '
+        '"s0"."order.id" AS "c0", "s0"."key value" AS "c1" FROM "public"."phase66 '
+        'rhs é" AS "s0" WHERE (("s0"."key value" = "m0"."key value") AND '
+        '("s0"."order.id" < CAST($1 AS pg_catalog.int8)))) AS "t1") AS "m1" ON '
+        '(("m1"."c0" > CAST($2 AS pg_catalog.int8)) AND ("m1"."c0" <> CAST($3 AS '
+        'pg_catalog.int8)))), "p1" ("c0", "c1", "c2") AS (SELECT "t0"."c0" AS '
+        '"c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2" FROM "p0" AS "t0" WHERE '
+        '("t0"."c0" > CAST($2 AS pg_catalog.int8))) SELECT "t3"."c0" AS "a", '
+        '"t3"."c2" AS "b" FROM "p1" AS "t3"'
+    ),
+    ("left_on", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `m0`.`order.id` AS `c0`, "
+        "`m0`.`key value` AS `c1`, `m1`.`c0` AS `c2` FROM `phase66`.`phase66 lhs "
+        "é` AS `m0` LEFT JOIN LATERAL (SELECT `t1`.`c0` AS `c0` FROM (SELECT "
+        "`s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` FROM "
+        "`phase66`.`phase66 rhs é` AS `s0` WHERE ((`s0`.`key value` = `m0`.`key "
+        "value`) AND (`s0`.`order.id` < CAST(? AS SIGNED)))) AS `t1`) AS `m1` ON "
+        "((`m1`.`c0` > CAST(? AS SIGNED)) AND (`m1`.`c0` <> CAST(? AS SIGNED)))), "
+        "`p1` (`c0`, `c1`, `c2`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, "
+        "`t0`.`c2` AS `c2` FROM `p0` AS `t0` WHERE (`t0`.`c0` > CAST(? AS "
+        "SIGNED))) SELECT `t3`.`c0` AS `a`, `t3`.`c2` AS `b` FROM `p1` AS `t3`"
+    ),
+}
+# (owner kind, owner ordinal, PostgreSQL index, MySQL index) per occurrence.
+HEADER_IN_LATERAL_USES = {
+    "top_k_cross": [("parameter", 1, 1, 1), ("slot", 0, 2, 2), ("parameter", 0, 3, 3)],
+    "left_on": [
+        ("parameter", 1, 1, 1),
+        ("parameter", 0, 2, 2),
+        ("slot", 0, 3, 3),
+        ("parameter", 0, 2, 4),
+    ],
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(HEADER_IN_LATERAL))
+def test_a_lateral_let_reads_the_entry_query_header(
+    tmp_path: Path, target: str, shape: str
+) -> None:
+    item = probe.join_witness(
+        target, HEADER_IN_LATERAL[shape], policy="bind_safe_literals"
+    )
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == HEADER_IN_LATERAL_SQL[shape, target]
+    uses = HEADER_IN_LATERAL_USES[shape]
+    index = TARGETS.index(target)
+    assert [
+        (u["owner"]["kind"], u["owner"][u["owner"]["kind"]], u["server_index"])
+        for u in document["parameter_uses"]
+    ] == [(kind, owner, indices[index]) for kind, owner, *indices in uses]
+    assert outcome.artifact is not None
+    assert verify_project_sql_emission(
+        outcome.artifact, outcome.artifact.request
+    ).verified
+    arguments = probe.decoded_arguments(probe.decode_public(raw), {"cut": 3, "hi": 7})
+    assert (
+        arguments
+        == {
+            ("top_k_cross", "postgres"): (7, 100, 3),
+            ("top_k_cross", "mysql"): (7, 100, 3),
+            ("left_on", "postgres"): (7, 3, 100),
+            ("left_on", "mysql"): (7, 3, 100, 3),
+        }[shape, target]
+    )

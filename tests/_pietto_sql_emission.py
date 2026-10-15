@@ -72,8 +72,9 @@ VARIANTS = {
         "empty_bind",
     ),
     # Phase70 S04: one v2 template per literal policy, then the S04r result and
-    # post-aggregation positions (PARAMETER_POSITION_VARIANTS); PARAMETER_BINDINGS
-    # gives each variant's caller values.
+    # post-aggregation positions (PARAMETER_POSITION_VARIANTS) and the S11
+    # relation-let reads (`let_bind`); PARAMETER_BINDINGS gives each variant's
+    # caller values.
     "Q_query_parameters": (
         "preserve",
         "bind",
@@ -82,6 +83,7 @@ VARIANTS = {
         "grouped_zero_collapse",
         "result_contains_a",
         "result_null_label",
+        "let_bind",
     ),
     "R_fixed_direct": (
         "table_preserve",
@@ -787,6 +789,23 @@ PARAMETER_POSITION_VARIANTS = {
     "result_contains_a": "result",
     "result_null_label": "result",
 }
+# The same result through a relation let that reads both parameters; the
+# entry body reads `low` again in a later CTE stage.
+PARAMETER_LET_BODY = """query result(low: Int not null, label: Text nullable):
+    let kept:
+        from rows
+        where id > low and plain != 3
+        select:
+            id
+            echo = label
+            above = low + 1
+    from kept
+    where id > low
+    select:
+        id
+        echo
+        above
+"""
 # The caller values of each Q_query_parameters variant, by parameter name.
 PARAMETER_BINDINGS = {
     ("Q_query_parameters", "preserve"): {"low": 10, "label": "雪?%s $1"},
@@ -796,6 +815,7 @@ PARAMETER_BINDINGS = {
     ("Q_query_parameters", "grouped_zero_collapse"): {"low": 0, "high": None},
     ("Q_query_parameters", "result_contains_a"): {"low": 1, "label": "a"},
     ("Q_query_parameters", "result_null_label"): {"low": 1, "label": None},
+    ("Q_query_parameters", "let_bind"): {"low": 4, "label": "x"},
 }
 
 
@@ -848,7 +868,8 @@ def parameterized_fixture(
 def parameter_fixture(target, variant):
     """A v2 template over the native rows: two header parameters, read in WHERE
     and SELECT, and a deferred Int range check (`low + 1`); an S04r variant
-    binds one position body over the published emission rows instead."""
+    binds one position body over the published emission rows instead, and the
+    `let_bind` variant reads them in a relation let and in the entry body."""
     if variant in PARAMETER_POSITION_VARIANTS:
         return parameterized_fixture(
             target, PARAMETER_POSITION_BODIES[PARAMETER_POSITION_VARIANTS[variant]]
@@ -864,7 +885,8 @@ def parameter_fixture(target, variant):
     )
     header = base["source"].split("query result:", 1)[0]
     return {
-        "source": header + PARAMETER_BODY,
+        "source": header
+        + (PARAMETER_LET_BODY if variant.startswith("let") else PARAMETER_BODY),
         "contract": encoded(contract).decode(),
         "policy": base["policy"],
     }
@@ -11019,7 +11041,7 @@ def decode_public(data: bytes) -> dict[str, Any]:
             "sql_bytes": 8 * 1024 * 1024,
             "artifact_bytes": 16 * 1024 * 1024,
             "nodes": 32768,
-            "parameters": 32768,
+            "parameters": 65535,
             "columns": 1664 if target["family"] == "postgres" else 4096,
         }
         for premise in all_premises:

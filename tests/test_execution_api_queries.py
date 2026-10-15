@@ -4508,3 +4508,141 @@ def test_correlated_declarations_compile_beside_each_other(tmp_path):
             r for r in decode(bundle.payload).records if r.address.kind == "capture_use"
         ]
         assert len(captures) == (2 if name == "correlated_items" else 1)
+
+
+# Phase70 S11 x S10/S12/S14: an entry query's lets with capture lines read its
+# header, one joined LEFT LATERAL with its ORDER BY and LIMIT, one read by a
+# correlated scalar; the bundle carries the unbound template.
+HEADER_CAPTURE_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+query tagged_since(low: Int not null, note: Text nullable):
+    let later_tags:
+        capture items
+        from tags
+        where tags.id > items.id and tags.label != note
+        select:
+            tag_id = id
+        order by:
+            id desc
+        limit 2
+    let same_label:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > low
+        select:
+            label
+    from items
+    left join later_tags as t:
+        from items
+        on t.tag_id > low
+    where items.id > low
+    select:
+        id = items.id
+        tag_id = t.tag_id
+        tag_label = scalar same_label.label
+"""
+
+
+def test_header_reads_inside_capturing_lets_bind_on_every_route(tmp_path, unconnected):
+    query = execution.compile_query(
+        let_example(tmp_path, HEADER_CAPTURE_TAGS),
+        module="main.pietto",
+        kind="query",
+        name="tagged_since",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+    assert query.parameters == (("low", "Int", False), ("note", "Text", True))
+    sql = query._template.artifact.rendered.sql
+    # `note` is read first (inside the LATERAL let), then `low` in the ON,
+    # the outer WHERE and the scalar-read let, which reuse `$2`.
+    assert sql.count(b"$1") == 1 and sql.count(b"$2") == 3
+    assert sql.index(b"LEFT JOIN LATERAL") < sql.index(b"$1") < sql.index(b"$2")
+    assert b"ORDER BY" in sql and b"LIMIT 2" in sql
+    bundle = execution.export_bundle(query)
+    assert json.loads(bundle.payload)["format"] == "pietto.compiled-execution.v2"
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert loaded.parameters == query.parameters
+    assert loaded._template.artifact.rendered.sql == sql
+    for parameters, arguments in (
+        ({"low": 2, "note": "x"}, ("x", 2)),
+        ({"note": None, "low": -1}, (None, -1)),
+    ):
+        handle = run(loaded, route="postgres_rows", parameters=parameters)
+        assert handle.outcome.end == "NOT_STARTED"
+        assert bound(handle) == (sql, arguments)
+        handle.close()
+        handle = run(loaded, route="postgres_adbc", parameters=parameters)
+        assert handle._owner._parameters("query") == (sql, arguments, ("Text", "Int"))
+        handle.close()
+    assert refused(run, loaded, parameters={"low": 2}) == (
+        "PIE-R1006",
+        "BINDING_PARAMETERS",
+    )
+
+
+# Phase70 S11 x S10/S14: a header read inside a let with capture lines may
+# carry a binding obligation; the let renders inside its read, and the bound
+# statement images the obligation there like anywhere else.
+HEADER_OBLIGATION_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+query tagged_after(low: Int not null, note: Text nullable):
+    let same:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > low + 1
+        select:
+            id
+    let noted:
+        capture items
+        from tags
+        where tags.id == items.id
+        select:
+            n = lower(note)
+    from items
+    where exists same
+    select:
+        id
+        n = scalar noted.n
+"""
+
+
+def test_obligations_inside_capturing_lets_bind_on_every_route(tmp_path, unconnected):
+    for policy, arguments in (
+        ("preserve", lambda low, note: (low, note)),
+        ("bind-safe", lambda low, note: (low, 1, note)),
+    ):
+        query = execution.compile_query(
+            let_example(tmp_path / policy, HEADER_OBLIGATION_TAGS),
+            module="main.pietto",
+            kind="query",
+            name="tagged_after",
+            dialect="postgres",
+            emission_contract="contract.json",
+            literal_policy=policy,
+        )
+        assert query.parameters == (("low", "Int", False), ("note", "Text", True))
+        loaded = load(execution.export_bundle(query))
+        for compiled in (query, loaded):
+            sql = compiled._template.artifact.rendered.sql
+            for low, note in ((5, "Ab"), (0, None), (2**63 - 2, "x")):
+                parameters = {"low": low, "note": note}
+                handle = run(compiled, route="postgres_rows", parameters=parameters)
+                assert handle.outcome.end == "NOT_STARTED"
+                assert bound(handle) == (sql, arguments(low, note))
+                handle.close()
+                handle = run(compiled, route="postgres_adbc", parameters=parameters)
+                assert handle._owner._parameters("query")[1] == arguments(low, note)
+                handle.close()
+            # `low + 1` leaves the signed 64-bit range: the value is refused.
+            for route in ("postgres_rows", "postgres_adbc"):
+                assert refused(
+                    run,
+                    compiled,
+                    route=route,
+                    parameters={"low": 2**63 - 1, "note": None},
+                ) == ("PIE-R1004", "BINDING_INVALID")

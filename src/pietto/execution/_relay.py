@@ -159,13 +159,23 @@ def relay_live(
     limits=None,
     isolation: str = "stable",
     values: tuple | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> RelayReply:
-    """Start one fresh live capture/relay; prior saved results are not inputs."""
+    """Start one fresh live capture/relay; prior saved results are not inputs.
+
+    ``parameters`` binds a query's declared parameters by name."""
     if limits is None:
         from pietto.execution._access import ExecutionLimits
 
         limits = ExecutionLimits()
-    binding, supplied, private_access, private_limits, schemas = _checked_request(
+    (
+        binding,
+        supplied,
+        private_access,
+        private_limits,
+        schemas,
+        named,
+    ) = _checked_request(
         workspace,
         query,
         operation,
@@ -176,6 +186,7 @@ def relay_live(
         isolation,
         values,
         None,
+        parameters=parameters,
     )
     sink = _sink_target(
         sink_root,
@@ -240,6 +251,7 @@ def relay_live(
             limits=private_limits,
             isolation=isolation,
             values=supplied,
+            parameters=named,
             trust=trust,
             sink=sink,
             purpose="public-live-relay",

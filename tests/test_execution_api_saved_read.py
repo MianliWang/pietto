@@ -105,6 +105,41 @@ def test_r1_rejects_non_string_register_operation_before_workspace_open(monkeypa
     assert refused.value.detail == "PUBLIC_REGISTER_OPERATION"
 
 
+@pytest.mark.parametrize("call", ("open_saved_read", "release_saved_read"))
+def test_r1_checks_the_parameters_type_before_workspace_open(monkeypatch, call):
+    monkeypatch.setattr(
+        private_workspace,
+        "open_workspace",
+        lambda *arguments, **keywords: pytest.fail("opened private workspace"),
+    )
+    arguments: dict[str, Any] = dict(
+        job="job-" + "0" * 32,
+        generation="gen-" + "0" * 32,
+        checkpoint="ckp-" + "0" * 32,
+        consumer=execution.new_consumer_identity(),
+        expected_pin="0" * 64,
+        accepted_producer="pietto",
+        accepted_compatibility="identity",
+        values=(),
+        extent=0,
+        purpose="saved-read",
+        route="postgres_rows",
+        batch_rows=1,
+        seconds=1,
+        parameters=(("low", 5),),
+    )
+    if call == "open_saved_read":
+        arguments.update(open_operation=execution.new_operation())
+    else:
+        arguments.update(operation=execution.new_operation())
+    with pytest.raises(execution.RequestRejected) as refused:
+        getattr(execution, call)(_workspace(), **arguments)
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1002",
+        "PUBLIC_PARAMETERS_TYPE",
+    )
+
+
 def test_saved_read_surface_keeps_workspace_and_operations_opaque():
     assert {
         "SavedBatch",
@@ -227,6 +262,8 @@ def test_r1_real_checkpoint_requires_ack_and_reissues_unacknowledged_extent(
         {"accepted_producer": "pietto-other"},
         {"accepted_compatibility": "other"},
         {"values": (True,)},
+        # The saved binding names no parameter, so any restated name differs.
+        {"parameters": {"low": 1}},
     ),
 )
 def test_r1_fresh_acceptance_projects_wrong_trust_or_values(

@@ -59,6 +59,7 @@ from pietto._project.model import ProjectRowField
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.expressions import query_parameter_value_type
+from pietto._project.query_parameters import reads_header
 from pietto.ir.model import SymbolId, SymbolNamespace
 
 from pietto._project.model import (
@@ -2520,7 +2521,7 @@ def build_project_sql_plan(
                     ref=node_ref, site=site, expression=node, value_type=value_type
                 )
             elif isinstance(node, ParameterRefExpr):
-                if site.owner is not selected_owner or not (
+                if not reads_header(site.owner, selected_owner) or not (
                     0 <= node.ordinal < len(query_parameters)
                 ):
                     raise ValueError("Parameter read is outside its entry query.")

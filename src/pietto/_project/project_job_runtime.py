@@ -437,7 +437,8 @@ class SinkTarget:
 @dataclass(frozen=True, slots=True, eq=False)
 class Unit:
     """One typed unit request. `trust` is the caller's fresh (pin, producer,
-    compatibility); `values` the caller's typed statement of the binding."""
+    compatibility); `values` and `parameters` (a dict by name, or None) the
+    caller's typed statement of the binding."""
 
     mode: str
     root: str = field(repr=False)
@@ -447,6 +448,7 @@ class Unit:
     trust: tuple = field(repr=False)
     seconds: int = 3600
     values: tuple = field(default=(), repr=False)
+    parameters: dict | None = field(default=None, repr=False)
     source: NativeSource | None = field(default=None, repr=False)
     durable: int = 0
     operations: int = 4096
@@ -1305,11 +1307,16 @@ class Runtime:
         from pietto._project.project_job_capture import stored_binding
 
         if unit.template is not None:
-            from pietto._project.project_execution_template import bind_values
+            from pietto._project.project_execution_template import (
+                bind_values,
+                named_values,
+            )
 
             template = unit.template
             binding = bind_values(
-                template, tuple(zip(template.slots, unit.values, strict=True))
+                template,
+                tuple(zip(template.slots, unit.values, strict=True)),
+                named_values(template, unit.parameters),
             )
             route = read(
                 workspace,
@@ -1427,6 +1434,7 @@ class Runtime:
             purpose=unit.purpose,
             route=route,
             values=unit.values,
+            parameters=unit.parameters,
             seconds=unit.seconds,
             batch_rows=unit.batch_rows,
             expected_pin=pin,
@@ -1491,6 +1499,7 @@ class Runtime:
             checkpoint=unit.checkpoint,
             purpose=unit.purpose,
             values=unit.values,
+            parameters=unit.parameters,
             seconds=unit.seconds,
             expected_pin=pin,
             accepted_producer=producer,
@@ -1561,6 +1570,7 @@ class Runtime:
             purpose=unit.purpose,
             route=route,
             values=unit.values,
+            parameters=unit.parameters,
             expected_pin=pin,
             accepted_producer=producer,
             accepted_compatibility=compatibility,
@@ -1625,6 +1635,7 @@ class Runtime:
             route=route,
             isolation=isolation,
             values=unit.values,
+            parameters=unit.parameters,
             expected_pin=pin,
             accepted_producer=producer,
             accepted_compatibility=compatibility,

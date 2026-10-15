@@ -8,7 +8,9 @@ from typing import cast
 from pietto.ast_nodes import (
     BlockRelationDef,
     CaptureClause,
+    FromClause,
     LetRelationDef,
+    ModuleDeclarationKind,
     Node,
     QueryDef,
     QueryParameter,
@@ -114,6 +116,22 @@ def source_order(item: Diagnostic) -> tuple[str, int, int, str, int, int]:
     )
 
 
+def _admitted_header(definition: Node) -> bool:
+    """An entry query whose own body reads a relation with ``from``; its
+    relation lets may read the header too (Phase70 S11)."""
+
+    if type(definition) is QueryDef:
+        return True
+    if type(definition) is not BlockRelationDef:
+        return False
+    block = cast(BlockRelationDef, definition)
+    return (
+        block.kind is ModuleDeclarationKind.QUERY
+        and type(block.body) is SelectBody
+        and type(cast(SelectBody, block.body).from_clause) is FromClause
+    )
+
+
 def unadmitted_syntax_diagnostics(
     script: Script, *, explicit_modules: bool = False
 ) -> tuple[Diagnostic, ...]:
@@ -122,9 +140,9 @@ def unadmitted_syntax_diagnostics(
     Single-file and LEGACY_FLAT callers keep every family gated; an
     EXPLICIT_MODULES caller admits the families its readers implement, up to
     ``_MAX_RELATION_LETS`` relation lets per table or query, and the header of
-    an entry query built as a ``QueryDef`` (its FROM reads a relation and it
-    declares no relation let), whose parameter types are still read; headers
-    of any other body stay unadmitted. An EXISTS, scalar or IN read is admitted
+    an entry query whose own body reads a relation with ``from``, with or
+    without relation lets, whose parameter types are still read; headers of
+    any other body stay unadmitted. An EXISTS, scalar or IN read is admitted
     only inside a relation body.
     """
 
@@ -164,7 +182,11 @@ def unadmitted_syntax_diagnostics(
         body = (body or kind in _BODIES) and kind is not TypeExpr
         for item in fields(value):
             child = getattr(value, item.name)
-            if explicit_modules and kind is QueryDef and item.name == "parameters":
+            if (
+                explicit_modules
+                and item.name == "parameters"
+                and _admitted_header(cast(Node, value))
+            ):
                 # The header is admitted; a form inside a parameter type is not.
                 child = tuple(
                     parameter.type

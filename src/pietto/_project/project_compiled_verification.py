@@ -133,6 +133,38 @@ def _references(value):
             need(type(item) in (type(None), bool, int, str), "VALUE")
 
 
+def _verify_parameter_owners(records, entry) -> None:
+    """Every header read sits in an expression of the entry query or of one of
+    its own relation lets (D70.01); no other declaration reads the header."""
+    header = records[entry.get("declaration")]
+    origin = tuple(header.get(n) for n in ("module", "module_position", "position"))
+    found = set()
+    for unit in records.values():
+        if unit.address.kind not in ("row", "join", "aggregate", "window", "result"):
+            continue
+        owner = records[unit.get("owner")]
+        reads_header = owner.address == header.address or (
+            owner.get("let") is not None
+            and tuple(owner.get(n) for n in ("module", "module_position", "position"))
+            == origin
+        )
+        pending = list(unit.values)
+        while pending:
+            value = pending.pop()
+            if type(value) is tuple:
+                pending.extend(value)
+            elif type(value) is Address and value.kind == "parameter_read":
+                need(reads_header, "PARAMETER_OWNER")
+                found.add(value)
+            elif type(value) is Address and value.kind in (
+                "operation",
+                "aggregate_value",
+                "window_value",
+            ):
+                pending.extend(records[value].values)
+    need(found == {a for a in records if a.kind == "parameter_read"}, "PARAMETER_OWNER")
+
+
 def verify_description(value: Description) -> None:
     need(type(value) is Description, "DESCRIPTION")
     need(
@@ -1356,6 +1388,7 @@ def verify_description(value: Description) -> None:
         if kind == "aggregate_value":
             roots.extend(record.get("arguments"))
     need(sum(costs[a] for a in roots) <= MAX_RECORDS, "EXPRESSION_EXPANSION")
+    _verify_parameter_owners(records, entry)
     policy = records[Address("policy", 0)]
     need(
         policy.get("literal_policy") in ("preserve_literals", "bind_safe_literals"),

@@ -397,6 +397,8 @@ def test_recovery_authority_is_fresh_and_exact(setup):
         ({"checkpoint": first}, "CONTINUATION_PREDECESSOR"),
         ({"checkpoint": None}, "CONTINUATION_PREDECESSOR"),
         ({"values": tuple(v + 1 for v in values)}, "BINDING_VECTOR"),
+        # The saved binding names no parameter, so any restated name differs.
+        ({"parameters": {"low": 1}}, "BINDING_VECTOR"),
         ({"expected_pin": "0" * 64}, "JOB_TRUST_INPUT"),
         ({"purpose": ""}, "ACCEPTANCE_PURPOSE"),
         ({"seconds": 0}, "ACCEPTANCE_BOUND"),

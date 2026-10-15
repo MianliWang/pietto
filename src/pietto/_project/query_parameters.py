@@ -12,7 +12,8 @@ admitted as a value argument, a lag/lead default, or a structural count
 (lag/lead offset, ntile bucket count, nth_value position); a count must be
 declared ``Int not null``. Every other position (LIMIT, other window positions
 and frames, structural call arguments) is refused here before semantic
-analysis.
+analysis. Each relation let of the entry query reads the header under the
+same rules (Phase70 S11); no other declaration reads it.
 """
 
 from __future__ import annotations
@@ -24,12 +25,14 @@ from typing import TYPE_CHECKING, Any, cast
 from pietto.ast_nodes import (
     AuthoredWindowFrame,
     BetweenExpr,
+    BlockRelationDef,
     BinaryExpr,
     CallExpr,
     CastExpr,
     ComparisonExpr,
     ConditionalExpr,
     DottedNameExpr,
+    FromClause,
     IsNullExpr,
     MembershipExpr,
     NameExpr,
@@ -38,6 +41,7 @@ from pietto.ast_nodes import (
     ParameterRefExpr,
     QueryDef,
     Script,
+    SelectBody,
     SetRelationDef,
     Span,
     TableDef,
@@ -151,18 +155,62 @@ def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
     )
 
 
+def reads_header(owner: object, entry: object) -> bool:
+    """Whether a relation-body owner reads the header of ``entry``: the entry
+    query itself and each of its own relation lets (Phase70 S11)."""
+
+    owner_ = cast("ProjectDeclarationOccurrence", owner)
+    entry_ = cast("ProjectDeclarationOccurrence", entry)
+    return owner_ is entry_ or (
+        entry_.let_position is None
+        and owner_.let_position is not None
+        and owner_.identity.module_path == entry_.identity.module_path
+        and owner_.module_position == entry_.module_position
+        and owner_.declaration_position == entry_.declaration_position
+    )
+
+
+def _header_bodies(definition: object) -> tuple[QueryDef, ...]:
+    """The entry query and each FROM-based relation let of it, every one as a
+    query carrying the header, so a let reads it under the entry's rules."""
+
+    if type(definition) is QueryDef and definition.parameters:
+        return (definition,)
+    if type(definition) is not BlockRelationDef or not definition.parameters:
+        return ()
+    from pietto._project.module_catalog import _SELECT_FIELDS
+
+    block = cast(BlockRelationDef, definition)
+    return tuple(
+        QueryDef(
+            span=span,
+            name=name,
+            parameters=block.parameters,
+            **{item: getattr(body, item) for item in _SELECT_FIELDS},
+        )
+        for span, name, body in (
+            (block.span, block.name, block.body),
+            *((let.span, let.name, let.body) for let in block.let_relations),
+        )
+        if type(body) is SelectBody and type(body.from_clause) is FromClause
+    )
+
+
 def query_parameter_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
-    """Declaration and position errors of every entry-query header, sorted."""
+    """Declaration and position errors of every entry-query header, sorted;
+    the relation lets of an entry query follow the same position rules."""
 
     found: list[Diagnostic] = []
     for definition in script.definitions:
-        if type(definition) is QueryDef and definition.parameters:
-            found.extend(_declaration_diagnostics(definition))
-            found.extend(_position_diagnostics(definition))
+        bodies = _header_bodies(definition)
+        if bodies:
+            found.extend(_declaration_diagnostics(bodies[0]))
+        for body in bodies:
+            found.extend(_position_diagnostics(body))
             # An unaliased read would name its output after the parameter.
             found.extend(
                 _diagnostic(COLLISION_CODE, COLLISION_MESSAGE, item.expression.span)
-                for item in definition.select_items
+                for item in body.select_items
                 if item.alias is None and type(item.expression) is ParameterRefExpr
             )
     return tuple(
@@ -457,7 +505,8 @@ def query_parameter_semantic_diagnostics(
     occurrence.
 
     Every relation body is read, relation lets and the body of a declaration
-    with lets included, each through its own scoped relation names.
+    with lets included, each through its own scoped relation names; the names
+    of an entry query include those of each of its relation lets.
     """
 
     if resolutions is None or catalogs is None:
@@ -481,7 +530,19 @@ def query_parameter_semantic_diagnostics(
                     ):
                         found.append(_diagnostic(INPUT_CODE, INPUT_MESSAGE, span))
                 if type(definition) is QueryDef and definition.parameters:
-                    names = _visible_names(owner, definition, environment, input_fields)
+                    names = set(
+                        _visible_names(owner, definition, environment, input_fields)
+                    )
+                    # Each relation let reads the header too: its name and every
+                    # name visible in its own body are collisions as well.
+                    for let in catalog.find_lets(owner.declaration_position):
+                        names.add(let.identity.declared_name)
+                        if type(let.definition) is QueryDef:
+                            names.update(
+                                _visible_names(
+                                    let, let.definition, environment, input_fields
+                                )
+                            )
                     seen: set[str] = set()
                     for parameter in definition.parameters:
                         if parameter.name in names and parameter.name not in seen:

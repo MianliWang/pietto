@@ -9,6 +9,7 @@ from pietto._project import project_job_workspace as private_workspace
 from pietto._project import project_public_verified_export as composition
 from pietto.execution._errors import RequestRejected, failure, workspace_failure
 from pietto.execution._handle import ResultBatch, _batch
+from pietto.execution._saved import _parameters
 from pietto.execution._saved_read import _compatibility
 from pietto.execution._workspace import WorkspaceRef
 
@@ -125,10 +126,15 @@ def verified_export(
     accepted_compatibility: str,
     seconds: int,
     batch_rows: int,
+    parameters: dict[str, object] | None = None,
 ) -> VerifiedExport:
-    """Open no coordinator and write no row while verifying one fixed snapshot."""
+    """Open no coordinator and write no row while verifying one fixed snapshot.
+
+    ``values`` and ``parameters`` restate the saved binding as for
+    open_saved_read()."""
     if type(workspace) is not WorkspaceRef:
         raise RequestRejected(failure("PIE-R1002", "PUBLIC_WORKSPACE_REFERENCE"))
+    named = _parameters(parameters)
     opened = None
     try:
         opened = private_workspace.open_workspace(
@@ -144,6 +150,7 @@ def verified_export(
             purpose=purpose,
             route=route,
             values=values,
+            parameters=named,
             expected_pin=expected_pin,
             accepted_producer=accepted_producer,
             accepted_compatibility=_compatibility(accepted_compatibility),

@@ -1040,7 +1040,7 @@ def verify_refinement(value):
         and bool(value.units),
         "STATEMENT",
     )
-    _syntax_resources(value.statement, value.original.request)
+    limits = _syntax_resources(value.statement, value.original.request)
     _need(
         all(type(c) is CTE and type(c.name) is str for c in value.statement.ctes),
         "NATIVE_UNIT",
@@ -1067,7 +1067,36 @@ def verify_refinement(value):
             "ERASURE_IDENTITY",
         )
     _Rules(value).run()
+    # D70.07: the largest page, a continuation whose predicate reads every
+    # coordinate, fits the placeholder limit before any page is requested.
+    largest = _page_statement(value, bool(_page_coordinates(value)))
+    _need(_placeholders(largest) <= limits["parameters"], "RESOURCE_LIMIT")
     return value.units[-1]
+
+
+def _placeholders(statement):
+    """The placeholder occurrences rendering ``statement`` writes."""
+    from pietto._project.project_refinement_rendering import _parameters
+
+    pending, total = [statement], 0
+    while pending:
+        node = pending.pop()
+        if type(node) is tuple:
+            pending.extend(node)
+        elif type(node) is Expr and node.kind == "original_scalar":
+            total += len(_parameters(node.args[0]))
+        elif type(node) is Expr and node.kind == "original_aggregate":
+            argument = node.args[0].argument
+            total += 0 if argument is None else len(_parameters(argument))
+        elif type(node) is Expr and node.kind in (
+            "page",
+            "page_limit",
+            "guard_control",
+        ):
+            total += 1
+        elif type(node) in _SYNTAX:
+            pending.extend(getattr(node, f.name) for f in fields(node))
+    return total
 
 
 class _Bytes:
@@ -1461,15 +1490,25 @@ def page_syntax(value, frontier, size):
     """A checked segment expression is not authority for completed progress."""
     from pietto._project.project_refinement_order import check_coordinates
 
-    unit = value.units[-1]
     _need(type(size) is int and 0 < size < 2**63, "PAGE_SIZE")
-    coordinates = unit.order_coordinates + _shift(
+    controls = ()
+    if frontier is not None:
+        controls = check_coordinates(frontier, _page_coordinates(value))
+    return _page_statement(value, frontier is not None), controls + (size,)
+
+
+def _page_coordinates(value):
+    unit = value.units[-1]
+    return unit.order_coordinates + _shift(
         unit.coordinates, len(unit.order_coordinates)
     )
-    controls = ()
+
+
+def _page_statement(value, continuation):
+    """One page's syntax: a continuation reads every coordinate."""
+    coordinates = _page_coordinates(value)
     predicate = None
-    if frontier is not None:
-        controls = check_coordinates(frontier, coordinates)
+    if continuation:
         arguments = []
         for index, coordinate in enumerate(coordinates):
             domain = dict(coordinate.domain)
@@ -1491,9 +1530,11 @@ def page_syntax(value, frontier, size):
             tuple(o.direction for o in orders),
             value.original.request.family,
         )
-    limit = Expr("page_limit", (len(controls), "Int", None, None))
+    limit = Expr(
+        "page_limit", (len(coordinates) if continuation else 0, "Int", None, None)
+    )
     query = replace(value.statement.query, where=predicate, limit=limit)
-    return replace(value.statement, query=query), controls + (size,)
+    return replace(value.statement, query=query)
 
 
 @entry

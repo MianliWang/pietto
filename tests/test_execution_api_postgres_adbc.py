@@ -60,7 +60,166 @@ def test_adbc_route_dispatches_one_private_owner_with_fresh_public_inputs(
         "limits": ex.ExecutionLimits(),
         "isolation": "stable",
         "values": (7,),
+        "parameters": None,
     }
+
+
+SINCE = """
+query since(low: Int not null, note: Text nullable):
+    from items
+    where id > low and (note is null or label != note)
+    select:
+        id
+        tag = note
+        next = low + 1
+"""
+
+
+@pytest.fixture(scope="module")
+def since(tmp_path_factory):
+    project = api.write_example(tmp_path_factory.mktemp("execution-adbc-parameters"))
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + SINCE, encoding="utf-8")
+    return execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="since",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+
+
+def test_adbc_binds_parameters_by_name_before_any_driver_import(since):
+    """The ADBC route binds the same unbound template as the rows route: one
+    native argument per parameter and slot, the template's exact SQL."""
+    before = {module.partition(".")[0] for module in sys.modules}
+    template = since._template.artifact.rendered.sql
+    for parameters, arguments in (
+        ({"note": "x", "low": 5}, (5, "x", 1)),
+        ({"low": -5, "note": None}, (-5, None, 1)),
+    ):
+        handle = execution.execute(
+            since,
+            route="postgres_adbc",
+            access=ACCESS,
+            premise=PREMISE,
+            parameters=parameters,
+        )
+        request = handle._owner.request
+        assert request.route == "postgres_adbc"
+        assert request.binding.arguments == arguments
+        assert request.artifact.rendered.sql == template
+        handle.close()
+    after = {module.partition(".")[0] for module in sys.modules}
+    assert not (after - before) & {"adbc_driver_manager", "adbc_driver_postgresql"}
+
+
+class Submitted(Exception):
+    """Stops a statement at the driver's execute call."""
+
+
+def test_adbc_submits_each_parameter_with_its_type_at_the_driver(since, monkeypatch):
+    """The ADBC reader prepares the template SQL and binds one typed Arrow
+    column per `$n`, up to the driver's execute: a header parameter carries
+    its declared type, also as a NULL, and a bind-safe slot its own."""
+    from pietto._project import project_execution_postgres_adbc as adbc
+
+    monkeypatch.setattr(adbc, "read_control", lambda *args, **kwargs: None)
+    submitted = []
+
+    class Statement:
+        def __init__(self, connection):
+            self.sql = self.bound = None
+
+        def set_options(self, **options):
+            pass
+
+        def set_sql_query(self, sql):
+            self.sql = sql
+
+        def prepare(self):
+            pass
+
+        def bind(self, batch):
+            self.bound = batch
+
+        def execute_query(self):
+            submitted.append((self.sql, self.bound))
+            raise Submitted
+
+        def close(self):
+            pass
+
+    arrow = SimpleNamespace(
+        int64=lambda: "int64",
+        bool_=lambda: "bool",
+        float64=lambda: "double",
+        string=lambda: "string",
+        array=lambda values, type: (*values, type),
+        record_batch=lambda columns, names: SimpleNamespace(
+            num_rows=1, columns=tuple(columns), names=tuple(names)
+        ),
+    )
+    template = since._template.artifact.rendered.sql.decode()
+    for parameters, columns in (
+        ({"low": 5, "note": "x"}, ((5, "int64"), ("x", "string"), (1, "int64"))),
+        ({"low": -5, "note": None}, ((-5, "int64"), (None, "string"), (1, "int64"))),
+    ):
+        handle = execution.execute(
+            since,
+            route="postgres_adbc",
+            access=ACCESS,
+            premise=PREMISE,
+            parameters=parameters,
+        )
+        owner = handle._owner
+        owner._manager = SimpleNamespace(AdbcStatement=Statement)
+        owner._arrow = arrow
+        with pytest.raises(Submitted):
+            owner._submit("query", 1)
+        sql, batch = submitted.pop()
+        assert (sql, batch.columns, batch.names) == (
+            template,
+            columns,
+            ("p1", "p2", "p3"),
+        )
+        handle.close()
+
+
+@pytest.mark.parametrize(
+    "parameters,code,detail",
+    (
+        (None, "PIE-R1006", "BINDING_PARAMETERS"),
+        ({"low": 5, "note": "x", "high": 1}, "PIE-R1006", "BINDING_PARAMETERS"),
+        ({"low": 5.0, "note": "x"}, "PIE-R1006", "BINDING_PARAMETER:0:Int"),
+        ({"low": None, "note": "x"}, "PIE-R1006", "BINDING_PARAMETER:0:Int"),
+        ({"low": 5, "note": b"x"}, "PIE-R1006", "BINDING_PARAMETER:1:Text"),
+        ([("low", 5)], "PIE-R1002", "PUBLIC_PARAMETERS_TYPE"),
+        ({"low": 2**63 - 1, "note": None}, "PIE-R1004", "BINDING_INVALID"),
+    ),
+    ids=("missing", "extra", "float", "null", "bytes", "pairs", "overflow"),
+)
+def test_adbc_refuses_each_parameter_input_before_the_bridge_opens(
+    since, monkeypatch, parameters, code, detail
+):
+    from pietto._project import project_execution_postgres_adbc as adbc
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the ADBC owner")
+
+    monkeypatch.setattr(adbc.PostgresADBCExecution, "__init__", forbidden)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            since,
+            route="postgres_adbc",
+            access=ACCESS,
+            premise=PREMISE,
+            parameters=parameters,
+        )
+    assert (refused.value.code, refused.value.detail) == (code, detail)
+    assert refused.value.__cause__ is None and refused.value.__context__ is None
 
 
 def test_adbc_requires_the_existing_postgres_public_access_and_premise(query):

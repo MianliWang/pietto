@@ -129,6 +129,79 @@ def test_compiled_adbc_uses_its_fresh_route_bound_premise(artifact):
     assert row_request.postgres_deployment is rows
 
 
+def test_guard_and_page_statements_send_each_parameter_with_its_type(tmp_path):
+    """Each `$n` of a guard statement and of a refinement page of a query with
+    parameters has its declared type, also for a NULL; controls are Int."""
+    from types import SimpleNamespace
+
+    from _pietto_execution_guard_cases import DIRECT, planned
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_execution import ExecutionLimits
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+    from pietto._project.project_guard_preparation import prepare_guarded
+    from pietto._project.project_guard_program import prepare_program, statement_for
+    from pietto._project.project_guard_rendering import render_guard
+    from pietto._project.project_refinement import prepare_compiled_refinement
+    from pietto._project.project_refinement_enumeration import Enumeration
+
+    body = DIRECT.replace(
+        "query result:", "query result(low: Int not null, label: Text nullable):"
+    ).replace(
+        "on lhs.id == r.id", "on lhs.id == r.id and lhs.id > low and r.key != label"
+    )
+    prepared = prepare_guarded(
+        *planned(tmp_path, body=body, policy="bind_safe_literals", wide_text=True)
+    )
+    refined = prepare_refinement(
+        prepared.artifact,
+        capabilities(prepared.artifact),
+        policy=TieRefinement(),
+        output=prepare_guarded_output(prepared),
+    )
+    template = prepare_compiled_template(
+        build_compiled(prepared.artifact, guarded=prepared, refinement=refined).root
+    )
+    bound = bind_values(template, (), tuple(zip(template.parameters, (3, None))))
+    refinement = prepare_compiled_refinement(
+        bound.artifact, binding=bound, guarded=bound.guarded
+    )
+    owner = object.__new__(PostgresADBCExecution)
+    for program in (
+        prepare_program(bound.guarded, binding=bound),
+        prepare_program(bound.guarded, binding=bound, refinement=refinement),
+    ):
+        native = render_guard(statement_for(program, "guard"))
+        vars(owner).update(refined_request=None, guards=SimpleNamespace(native=native))
+        assert owner._parameters("guard") == (
+            native.sql,
+            (3, None, 1, 1),
+            ("Int", "Text", "Int", "Int"),
+        )
+    # The first page: its row limit (the default 256) is the last `$n`.
+    enumeration = object.__new__(Enumeration)
+    vars(enumeration).update(
+        verify=lambda: None,
+        query=refinement,
+        limits=ExecutionLimits(),
+        _frontier=None,
+        _pending=None,
+        _complete=False,
+        _pages=0,
+    )
+    page = enumeration.request_page()
+    vars(owner).update(
+        refined_request=SimpleNamespace(refinement=refinement), last_page=page
+    )
+    assert owner._parameters("page") == (
+        page.native.sql,
+        (3, None, 256),
+        ("Int", "Text", "Int"),
+    )
+
+
 @pytest.mark.parametrize(
     "change", ("access", "roots", "schemas", "route", "basis", "mutable")
 )

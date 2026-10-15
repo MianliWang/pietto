@@ -47,6 +47,7 @@ from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
+from pietto._project.project_sql_plan_windows import ProjectSQLWindowArgument
 from pietto._project.query_parameters import parameter_ordinals
 from pietto._project.project_sql_emission_rendering import (
     RenderedSQL,
@@ -1034,16 +1035,41 @@ def _document(outcome, artifact, request, columns, source_map, slots):
     obligations = (
         () if type(artifact.ast) is SQLSelect else row_binding_obligations(artifact.ast)
     )
-    definition = request.plan.parameters[0].owner.definition
+    entry = request.plan.parameters[0].owner
+    owners = {d.ref: d.entry.owner for d in request.plan.bindings.definitions}
+    window_owners = {w.ref: owners[w.definition] for w in request.plan.windows}
+
+    def owner_of(value):
+        """The block of a read or operation; a window argument has its window's."""
+        if type(value) is ProjectSQLWindowArgument:
+            return window_owners[value.window]
+        return value.site.owner
+
+    # A relation let reaches a later block as a stage column, so an operation
+    # may depend on any parameter a relation let reads (an over-approximation).
+    in_lets = frozenset(
+        ordinal
+        for ordinal, found in reads.items()
+        if any(owner_of(read) is not entry for read in found)
+    )
     document["binding_obligations"] = [
         {
             "obligation": i,
             "kind": node.realization.obligation,
             "subject": _ref(node.original.ref),
-            # A let reaches its readers as a stage column, never as a
-            # placeholder, so dependence is read from the authored expression.
+            # A `let:` binding reaches its readers as a stage column, never as
+            # a placeholder, so dependence is read from the authored expression
+            # of the subject's own block; a window count checks only the one
+            # parameter its bare read names.
             "parameters": sorted(
-                parameter_ordinals(definition, node.original.expression)
+                parameter_ordinals(
+                    owner_of(node.original).definition, node.original.expression
+                )
+                | (
+                    frozenset()
+                    if type(node.original) is ProjectSQLWindowArgument
+                    else in_lets
+                )
             ),
         }
         for i, node in enumerate(obligations)

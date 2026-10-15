@@ -10,7 +10,11 @@ from pietto._project import project_public_jobs as jobs
 from pietto._project import project_job_store as store
 from pietto._project import project_job_workspace as private_workspace
 from pietto._project.project_compiled_loading import supported_compatibility
-from pietto._project.project_execution_template import bind_values
+from pietto._project.project_execution_template import (
+    BindingError,
+    bind_values,
+    named_values,
+)
 from pietto.execution._access import (
     ExecutionLimits,
     MySQLAccess,
@@ -86,6 +90,16 @@ def _values(query: Any, values: Any) -> Any:
     return values
 
 
+def _parameters(parameters: Any) -> dict | None:
+    """A private copy of a caller's ``parameters``: None or a dict with string
+    keys (PIE-R1002 otherwise); names and values are checked by binding."""
+    if parameters is None:
+        return None
+    if type(parameters) is not dict or any(type(k) is not str for k in parameters):
+        _refuse("PIE-R1002", "PUBLIC_PARAMETERS_TYPE")
+    return dict(parameters)
+
+
 def _checked_request(
     workspace: Any,
     query: Any,
@@ -98,7 +112,15 @@ def _checked_request(
     values: Any,
     job: Any,
     allow_guard_sql: bool = False,
-) -> tuple[Any, Any, Any, Any, tuple[str, ...]]:
+    parameters: Any = None,
+    restating: bool = False,
+) -> tuple[Any, Any, Any, Any, tuple[str, ...], dict | None]:
+    """Check one request before the workspace opens and bind its values.
+
+    ``restating`` (recover): once parameters take part, values that do not
+    bind are not refused here; only the saved binding can tell how they
+    differ (BINDING_VECTOR in the workspace). The result then has no binding,
+    and every check of the other inputs still runs, in the same order."""
     if type(workspace) is not WorkspaceRef:
         _refuse("PIE-R1002", "PUBLIC_WORKSPACE_REFERENCE")
     if query is None:
@@ -124,9 +146,6 @@ def _checked_request(
     }.get(route)
     if dialect is None or query.dialect != dialect:
         _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
-    if query.parameters:
-        # A saved job records no parameter values; execute() runs these.
-        _refuse("PIE-R1003", "PUBLIC_PARAMETERS_ROUTE")
     if access is None:
         _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
     access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess
@@ -153,6 +172,7 @@ def _checked_request(
     isolation = cast(Any, isolation)
     if values is not None and type(values) is not tuple:
         _refuse("PIE-R1002", "PUBLIC_VALUES_TYPE")
+    named = _parameters(parameters)
     if job is not None and type(job) is not str:
         _refuse("PIE-R1002", "PUBLIC_JOB_TYPE")
     if (
@@ -167,12 +187,21 @@ def _checked_request(
         root = query._template.artifact.request.verification.completed.root
         if root.accepted_compatibility != supported_compatibility():
             raise private_execution.ExecutionError("COMPILED_COMPATIBILITY")
-        binding = bind_values(
-            query._template,
-            tuple(zip(query._template.slots, supplied))
-            if len(supplied) == len(query._template.slots)
-            else supplied,
-        )
+        try:
+            binding = bind_values(
+                query._template,
+                tuple(zip(query._template.slots, supplied))
+                if len(supplied) == len(query._template.slots)
+                else supplied,
+                named_values(query._template, named),
+            )
+        except BindingError:
+            if not (restating and (named or query._template.parameters)):
+                raise
+            binding = None
+        sources = (
+            query._template if binding is None else binding
+        ).artifact.request.sources
         private_limits = private_execution.ExecutionLimits(
             limits.batch_rows,
             limits.batch_bytes,
@@ -193,19 +222,11 @@ def _checked_request(
                 verify_identity=True,
                 loopback_tls_exception=False,
             )
-            private_execution.prepare_compiled_execution(
-                binding,
-                private_access,
-                route=route,
-                limits=private_limits,
-                isolation=isolation,
-                mysql_deployment=private_execution.MySQLDeploymentPremise(
-                    private_access,
-                    binding.artifact.request.sources,
-                    tuple(premise.schemas),
-                ),
-                allow_guard_sql=allow_guard_sql,
-            )
+            deployment = {
+                "mysql_deployment": private_execution.MySQLDeploymentPremise(
+                    private_access, sources, tuple(premise.schemas)
+                )
+            }
         else:
             private_access = private_execution.PostgresAccess(
                 access.host,
@@ -218,21 +239,26 @@ def _checked_request(
             deployment = (
                 {
                     "postgres_adbc_deployment": private_execution.PostgresADBCDeploymentPremise(
-                        private_access,
-                        binding.artifact.request.sources,
-                        tuple(premise.schemas),
+                        private_access, sources, tuple(premise.schemas)
                     )
                 }
                 if route == "postgres_adbc"
                 else {
                     "postgres_deployment": private_execution.PostgresDeploymentPremise(
-                        private_access,
-                        binding.artifact.request.sources,
-                        tuple(premise.schemas),
-                        route,
+                        private_access, sources, tuple(premise.schemas), route
                     )
                 }
             )
+        if binding is None:
+            private_execution.verify_unbound_request(
+                query._template,
+                private_access,
+                route=route,
+                limits=private_limits,
+                isolation=isolation,
+                **deployment,
+            )
+        else:
             private_execution.prepare_compiled_execution(
                 binding,
                 private_access,
@@ -245,7 +271,14 @@ def _checked_request(
     except Exception as caught:
         refusal = request_failure(caught)
     else:
-        return binding, supplied, private_access, private_limits, tuple(premise.schemas)
+        return (
+            binding,
+            supplied,
+            private_access,
+            private_limits,
+            tuple(premise.schemas),
+            named,
+        )
     raise RequestRejected(refusal)
 
 
@@ -261,14 +294,24 @@ def save(
     isolation: str = "stable",
     values: tuple | None = None,
     job: str | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> SaveReply:
     """Save one ordinary query result; the supplied operation is never retried.
 
     It runs a fresh source attempt through private runtime admission and records
     its own attempt/capture/checkpoint lifecycle.  A replayed caller operation
     only reports its recorded first step, because later steps may be unknown.
+    ``parameters`` binds a query's declared parameters by name, as for
+    execute(); the job records their values with the slot values.
     """
-    binding, supplied, private_access, private_limits, schemas = _checked_request(
+    (
+        binding,
+        supplied,
+        private_access,
+        private_limits,
+        schemas,
+        named,
+    ) = _checked_request(
         workspace,
         query,
         operation,
@@ -279,6 +322,7 @@ def save(
         isolation,
         values,
         job,
+        parameters=parameters,
     )
     refusal = None
     try:
@@ -323,6 +367,7 @@ def save(
                     tuple(zip(template.slots, supplied))
                     if len(supplied) == len(template.slots)
                     else supplied,
+                    named_values(template, named),
                 )
             registered, actual_job, generation = jobs.register_generation(
                 opened, template, binding, route, isolation, operation, job
@@ -353,6 +398,7 @@ def save(
             limits=private_limits,
             isolation=isolation,
             values=supplied,
+            parameters=named,
         )
         return SaveReply(
             workspace.identity,

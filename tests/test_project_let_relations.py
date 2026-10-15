@@ -801,20 +801,13 @@ CAPTURE_DIAGNOSTICS = {
         "    from lhs\n    where exists m\n    select:\n        a = lhs.id\n",
         [("PIE-S2370", BODY_SHAPE, 7, 5)],
     ),
-    # Header parameters stay unavailable beside relation lets (PIE-S2346), so
-    # no header parameter is ever read inside a let with capture lines.
+    # A let with capture lines reads the entry query's header like any other
+    # let of it (Phase70 S11); the read renders inside the EXISTS subquery.
     "header_parameter": (
         CAPTURE.replace("query q:", "query q(cut: Int not null):").replace(
             "rhs.key == lhs.key", "rhs.key == lhs.key and rhs.id > cut"
         ),
-        [
-            (
-                "PIE-S2346",
-                "Query header parameter semantics are not implemented.",
-                6,
-                9,
-            )
-        ],
+        [],
     ),
     "distinct_body": (
         CAPTURE.replace(
@@ -1576,19 +1569,12 @@ LATERAL_DIAGNOSTICS = {
         ),
         [("PIE-S2370", READ_ONLY_BY_EXISTS, 16, 5)],
     ),
-    # Header parameters stay unavailable beside relation lets (PIE-S2346).
+    # A let joined LATERAL reads the entry query's header too (Phase70 S11).
     "header_parameter": (
         _lateral("cross")
         .replace("query q:", "query q(cut: Int not null):")
         .replace("rhs.key == lhs.key", "rhs.key == lhs.key and rhs.id > cut"),
-        [
-            (
-                "PIE-S2346",
-                "Query header parameter semantics are not implemented.",
-                6,
-                9,
-            )
-        ],
+        [],
     ),
     # A JOIN written in another let is nested correlation.
     "join_in_another_let": (

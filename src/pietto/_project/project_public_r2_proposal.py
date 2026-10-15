@@ -10,7 +10,10 @@ from pietto._project.project_execution_source import (
     RetainedSourceRequirement,
     verify_requirement,
 )
-from pietto._project.project_refinement import prepare_live_r2_refinement
+from pietto._project.project_refinement import (
+    check_live_r2_refinement,
+    prepare_live_r2_refinement,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -81,6 +84,15 @@ def prepare_live_refinement(query, binding, inputs):
     prepared = _prepare_for_template(binding, inputs, query._template)
     _LIVE_R2_PREPARATIONS.add(prepared)
     return prepared
+
+
+def check_live_refinement(query, inputs):
+    """The checks of `prepare_live_refinement` that read no bound value, in
+    its order, for a restatement that has no binding yet (recover)."""
+    if getattr(query, "origin", None) != "live":
+        raise ValueError("PUBLIC_R2_LIVE_QUERY")
+    template = query._template
+    check_live_r2_refinement(template, retained_requirements(template.artifact, inputs))
 
 
 def _prepare_for_template(binding, inputs, template, *, reanchor=False):

@@ -116,6 +116,7 @@ def capture(
     limits,
     isolation,
     values,
+    parameters=None,
 ):
     """Run the one private CAPTURE unit to its recorded terminal state."""
     budget, available_operations = runtime_capacity(workspace_ref)
@@ -137,6 +138,7 @@ def capture(
             trust=(),
             seconds=max(1, math.ceil(limits.seconds)),
             values=values,
+            parameters=parameters,
             source=source,
             durable=policy.durable,
             operations=policy.operations,
@@ -169,6 +171,7 @@ def capture_recoverable(
     limits,
     isolation,
     values,
+    parameters=None,
     source_requirements,
     live_r2=None,
 ):
@@ -192,6 +195,7 @@ def capture_recoverable(
                 trust=(),
                 seconds=max(1, math.ceil(limits.seconds)),
                 values=values,
+                parameters=parameters,
                 source=runtime.NativeSource(
                     route, access, schemas, limits, isolation, live_r2=live_r2
                 ),
@@ -229,6 +233,7 @@ def recover_recoverable(
     limits,
     isolation,
     values,
+    parameters=None,
     trust,
     purpose,
     seconds,
@@ -256,6 +261,7 @@ def recover_recoverable(
                 trust=trust,
                 seconds=seconds,
                 values=values,
+                parameters=parameters,
                 source=runtime.NativeSource(
                     route, access, schemas, limits, isolation, live_r2=live_r2
                 ),
@@ -294,6 +300,7 @@ def relay(
     limits,
     isolation,
     values,
+    parameters=None,
     trust,
     sink,
     purpose,
@@ -320,6 +327,7 @@ def relay(
             trust=trust,
             seconds=max(1, math.ceil(limits.seconds)),
             values=values,
+            parameters=parameters,
             source=source,
             durable=policy.durable,
             operations=policy.operations,

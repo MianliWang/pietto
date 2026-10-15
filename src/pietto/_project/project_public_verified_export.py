@@ -19,6 +19,7 @@ def open_verified_export(
     accepted_compatibility,
     seconds,
     batch_rows,
+    parameters=None,
 ):
     from pietto._project import project_job_replay as replay
     from pietto._project.project_job_capture import (
@@ -37,6 +38,7 @@ def open_verified_export(
         purpose=purpose,
         route=route,
         values=values,
+        parameters=parameters,
         expected_pin=expected_pin,
         accepted_producer=accepted_producer,
         accepted_compatibility=accepted_compatibility,

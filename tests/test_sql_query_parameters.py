@@ -21,12 +21,15 @@ import _pietto_sql_emission as probe
 from _pietto_sql_query_parameters import PROTOCOL
 from _pietto_sql_query_parameters import parameterized_case as _case
 import _pietto_target_conformance_cases as conformance
+from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.project_sql_emission import serialize_project_sql_emission
+from pietto._project.project_sql_emission_ast import resource_limits
 from pietto._project.project_sql_emission_cli import _render_verified
 from pietto._project.project_sql_emission_verification import (
     verify_project_sql_emission,
 )
 from pietto._project.project_sql_plan import ProjectSQLPlan
+from pietto._project.project_sql_plan_expressions import ProjectSQLParameterRead
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerificationIssue,
     verify_project_sql_plan,
@@ -1053,3 +1056,296 @@ def test_window_parameters_over_a_join_and_a_named_window(
     assert [o["kind"] for o in document["binding_obligations"]] == [
         "structural_count_interval"
     ] * (1 if shape == "joined" else 2)
+
+
+LET_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."%s""" AS "c0", '
+        '"s0"."?""" AS "c1", "s0"."%s" AS "c2", "s0"."neighbor" AS "c3" FROM '
+        '"public"."phase66 native" AS "s0" WHERE (("s0"."%s""" > CAST($1 AS '
+        'pg_catalog.int8)) AND ("s0"."%s" <> CAST($2 AS pg_catalog.int8)))), '
+        '"p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", CAST($3 AS '
+        'pg_catalog.text) COLLATE "C" AS "c1", (CAST($1 AS pg_catalog.int8) + '
+        'CAST($4 AS pg_catalog.int8)) AS "c2" FROM "p0" AS "t1"), "p2" ("c0", '
+        '"c1", "c2") AS (SELECT "s1"."c0" AS "c0", "s1"."c1" AS "c1", "s1"."c2" '
+        'AS "c2" FROM "p1" AS "s1" WHERE ("s1"."c0" > CAST($1 AS '
+        'pg_catalog.int8))) SELECT "t3"."c0" AS "id", "t3"."c1" AS "echo", '
+        '"t3"."c2" AS "above" FROM "p2" AS "t3"'
+    ),
+    "mysql": (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`%s"` AS `c0`, '
+        '`s0`.`?"` AS `c1`, `s0`.`%s` AS `c2`, `s0`.`neighbor` AS `c3` FROM '
+        '`phase66`.`phase66 native` AS `s0` WHERE ((`s0`.`%s"` > CAST(? AS '
+        "SIGNED)) AND (`s0`.`%s` <> CAST(? AS SIGNED)))), `p1` (`c0`, `c1`, "
+        "`c2`) AS (SELECT `t1`.`c0` AS `c0`, CAST(? AS CHAR CHARACTER SET "
+        "utf8mb4) COLLATE utf8mb4_0900_bin AS `c1`, (CAST(? AS SIGNED) + CAST(? "
+        "AS SIGNED)) AS `c2` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`) AS "
+        "(SELECT `s1`.`c0` AS `c0`, `s1`.`c1` AS `c1`, `s1`.`c2` AS `c2` FROM "
+        "`p1` AS `s1` WHERE (`s1`.`c0` > CAST(? AS SIGNED))) SELECT `t3`.`c0` "
+        "AS `id`, `t3`.`c1` AS `echo`, `t3`.`c2` AS `above` FROM `p2` AS `t3`"
+    ),
+}
+
+
+def _let_case(directory: Path, target: str, limit: int | None = None) -> Any:
+    item = probe.fixture(target, "Q_query_parameters", "let_bind")
+    contract = json.loads(item["contract"])
+    if limit is not None:
+        contract["environment"].append(
+            {
+                "key": "resource_limits",
+                "scope": "statement",
+                "value": {"parameters": limit},
+            }
+        )
+    return probe.build_case(
+        directory, item["source"], probe.encoded(contract).decode(), item["policy"]
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_reads_across_let_stages_share_one_numbering(
+    tmp_path: Path, target: str
+) -> None:
+    """A relation let and the entry body read the same header: PostgreSQL
+    keeps one `$n` per parameter across CTE stages, MySQL one `?` per read."""
+    checked, outcome = _let_case(tmp_path, target)
+    assert checked.verified and outcome.status == "VERIFIED"
+    document = _document(outcome)
+    assert document["sql"] == LET_SQL[target]
+    owners = [
+        ("parameter", 0),
+        ("slot", 0),
+        ("parameter", 1),
+        ("parameter", 0),
+        ("slot", 1),
+        ("parameter", 0),
+    ]
+    uses = document["parameter_uses"]
+    assert [
+        (u["owner"]["kind"], u["owner"][u["owner"]["kind"]]) for u in uses
+    ] == owners
+    assert [u["server_index"] for u in uses] == (
+        [1, 2, 3, 1, 4, 1] if target == "postgres" else [1, 2, 3, 4, 5, 6]
+    )
+    assert [(p["name"], len(p["reads"])) for p in document["parameters"]] == [
+        ("low", 3),
+        ("label", 1),
+    ]
+    # `above = low + 1` is checked by each binding; a let reads both
+    # parameters, so the dependence names both (an over-approximation).
+    assert [(o["kind"], o["parameters"]) for o in document["binding_obligations"]] == [
+        ("int_range_representable", [0, 1])
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_let_column_carries_its_parameters_to_a_later_check(
+    tmp_path: Path, target: str
+) -> None:
+    body = (
+        "query result(low: Int not null, high: Int not null):\n"
+        "    let a:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            display_text = text\n"
+        "            k = low * 2\n"
+        "    from a\n"
+        "    select:\n"
+        "        display_text\n"
+        "        z = k + high\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    # `low * 2` in the let reads `low`; `k + high` reads `low` only through
+    # the let's stage column.
+    assert [(o["kind"], o["parameters"]) for o in document["binding_obligations"]] == [
+        ("int_range_representable", [0]),
+        ("int_range_representable", [0, 1]),
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_placeholders_of_every_let_stage_count_toward_one_statement_limit(
+    tmp_path: Path, target: str
+) -> None:
+    _, at_limit = _let_case(tmp_path / "six", target, 6)
+    assert at_limit.status == "VERIFIED"
+    _, over = _let_case(tmp_path / "five", target, 5)
+    assert over.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in over.blockers] == [
+        ("PIE-B1008", "native_occurrence_allocation"),
+        ("PIE-B1007", "parameter_occurrence_limit"),
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_one_statement_admits_at_most_65535_placeholders(
+    tmp_path: Path, target: str
+) -> None:
+    """D70.07: the protocol ceiling of both databases bounds every statement,
+    also under a larger declared limit. No statement that large is built: the
+    real read is allocated at the request's own limit and one past it."""
+    checked, outcome = _let_case(tmp_path, target, 65536)
+    assert outcome.status == "VERIFIED"
+    limit = resource_limits(outcome.artifact.request)["parameters"]
+    assert limit == 65535
+    read = next(
+        e for e in checked.plan.expressions if type(e) is ProjectSQLParameterRead
+    )
+    occurrence = (read, parameters.PHYSICAL[target][read.parameter.tag])
+    assert len(parameters.allocate_uses(target, (occurrence,) * limit, limit)) == limit
+    with pytest.raises(ValueError, match="limit"):
+        parameters.allocate_uses(target, (occurrence,) * (limit + 1), limit)
+
+
+def test_the_plan_verifier_rederives_a_read_inside_a_let(tmp_path: Path) -> None:
+    checked, outcome = _let_case(tmp_path, "postgres")
+    artifact = outcome.artifact
+    assert artifact is not None
+    # The emission verifier re-reads every stage's occurrence order.
+    swapped = replace(artifact, parameter_uses=artifact.parameter_uses[::-1])
+    assert not verify_project_sql_emission(swapped, swapped.request).verified
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    selected = checked.selected_owner
+    (read,) = [
+        e
+        for e in plan.expressions
+        if type(e) is ProjectSQLParameterRead
+        and e.site.owner is not selected
+        and e.parameter.ordinal == 1
+    ]
+    # A well-formed swap to the other header entry of the same query.
+    object.__setattr__(read, "parameter", plan.parameters[0])
+    again = verify_project_sql_plan(
+        plan,
+        checked.completed,
+        checked.analysis_bundle,
+        selected,
+        literal_policy=checked.literal_policy,
+    )
+    assert not again.verified
+
+
+LET_COLUMN = """query result(low: Int not null):
+    let a:
+        from rows
+        select:
+            record_id = id
+            k = low * 2
+    from a
+    group by:
+        k
+    select:
+        k
+        n = count()
+    order by:
+        k
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_let_column_computed_from_a_parameter_is_an_ordinary_column(
+    tmp_path: Path, target: str
+) -> None:
+    """Group and order keys refuse a read of the header, but the entry body
+    may group and order by a let column that a parameter computes."""
+    checked, outcome = _case(tmp_path, target, LET_COLUMN, "preserve_literals")
+    document = _document(outcome)
+    assert checked.verified and outcome.status == "VERIFIED", document
+    assert [p["name"] for p in document["parameters"]] == ["low"]
+    assert len(document["parameter_uses"]) == 1
+    assert [(o["kind"], o["parameters"]) for o in document["binding_obligations"]] == [
+        ("int_range_representable", [0])
+    ]
+
+
+LET_WINDOW = """query result(low: Int not null, step: Int not null):
+    let a:
+        from rows
+        where id > low
+        select:
+            id
+            b = lag(id, step) window:
+                order by:
+                    id
+    from a
+    select:
+        id
+        b
+        z = id + low
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_window_count_inside_a_let_checks_only_its_own_parameter(
+    tmp_path: Path, target: str
+) -> None:
+    """A count read in a relation let names only its own parameter, while an
+    operation over a let column names every parameter a let reads."""
+    _, outcome = _case(tmp_path, target, LET_WINDOW, "preserve_literals")
+    assert outcome.status == "VERIFIED", outcome.blockers
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert [
+        (o["kind"], o["subject"]["kind"], o["parameters"])
+        for o in document["binding_obligations"]
+    ] == [
+        ("structural_count_interval", "window_argument", [1]),
+        ("int_range_representable", "expression", [0, 1]),
+    ]
+    assert probe.decoded_arguments(probe.decode_public(raw), {"low": 1, "step": 2}) == (
+        (1, 2) if target == "postgres" else (1, 2, 1)
+    )
+
+
+LET_READS = """query result(low: Int not null, high: Int not null):
+    let a:
+        from rows
+        where id > low
+        select:
+            id
+    let b:
+        from rows
+        where exists a and id < high + low
+        select:
+            n = count()
+    from rows
+    where id >= high and id in a and id <= scalar b.n and not exists a
+    select:
+        record_id = id
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_lets_read_by_exists_scalar_and_in_carry_the_header(
+    tmp_path: Path, target: str
+) -> None:
+    """A let that reads the header and is read only by `exists`, `scalar` or
+    `in` keeps its placeholders in the one statement stream, in rendering
+    order, and its checks name the parameters it reads."""
+    _, outcome = _case(tmp_path, target, LET_READS, "preserve_literals")
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert outcome.status == "VERIFIED", document
+    plain = document["sql"].replace('"', "").replace("`", "")
+    assert plain.index("EXISTS (SELECT 1 FROM p1 AS e0)") < plain.index(
+        "IN (SELECT e1.c0 FROM p1 AS e1)"
+    )
+    assert "NOT EXISTS (SELECT 1 FROM p1 AS e3)" in plain
+    # Let a reads low, let b reads high then low, the entry body reads high.
+    assert [
+        (u["owner"]["parameter"], u["server_index"]) for u in document["parameter_uses"]
+    ] == (
+        [(0, 1), (1, 2), (0, 1), (1, 2)]
+        if target == "postgres"
+        else [(0, 1), (1, 2), (0, 3), (1, 4)]
+    )
+    assert [(o["kind"], o["parameters"]) for o in document["binding_obligations"]] == [
+        ("int_range_representable", [0, 1])
+    ]
+    assert probe.decoded_arguments(probe.decode_public(raw), {"low": 1, "high": 5}) == (
+        (1, 5) if target == "postgres" else (1, 5, 1, 5)
+    )

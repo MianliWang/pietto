@@ -7,7 +7,7 @@ from pietto._project import project_job_workspace as private_workspace
 from pietto._project import project_job_extraction as extraction
 from pietto._project import project_public_jobs as jobs
 from pietto._project import project_public_r2_proposal as proposal
-from pietto._project.project_execution_template import bind_values
+from pietto._project.project_execution_template import bind_values, named_values
 from pietto.execution._errors import (
     RequestRejected,
     failure,
@@ -89,9 +89,20 @@ def save_recoverable(
     isolation: str = "stable",
     values: tuple | None = None,
     job: str | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> SaveReply:
-    """Create an R2 generation by recording explicit retention before progress."""
-    binding, supplied, private_access, private_limits, schemas = _checked_request(
+    """Create an R2 generation by recording explicit retention before progress.
+
+    ``parameters`` binds a query's declared parameters by name; a new
+    generation may use new values."""
+    (
+        binding,
+        supplied,
+        private_access,
+        private_limits,
+        schemas,
+        named,
+    ) = _checked_request(
         workspace,
         query,
         operation,
@@ -103,6 +114,7 @@ def save_recoverable(
         values,
         job,
         allow_guard_sql=True,
+        parameters=parameters,
     )
     prepared = _request(
         lambda: proposal.prepare_live_refinement(query, binding, source_requirements)
@@ -149,6 +161,7 @@ def save_recoverable(
                     tuple(zip(template.slots, supplied))
                     if len(supplied) == len(template.slots)
                     else supplied,
+                    named_values(template, named),
                 )
             recorded, actual_job, generation = _generation(
                 opened, template, binding, route, isolation, operation, job
@@ -176,6 +189,7 @@ def save_recoverable(
             limits=private_limits,
             isolation=isolation,
             values=supplied,
+            parameters=named,
             source_requirements=source_requirements,
             live_r2=prepared,
         )
@@ -217,8 +231,12 @@ def recover(
     seconds: int,
     isolation: str = "stable",
     values: tuple | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> SaveReply:
-    """Make one new R2 attempt; an existing operation never reruns its source."""
+    """Make one new R2 attempt; an existing operation never reruns its source.
+
+    ``values`` and ``parameters`` restate the saved generation's binding:
+    each must equal the saved value with the same type (BINDING_VECTOR)."""
     if (
         type(purpose) is not str
         or not purpose
@@ -231,7 +249,14 @@ def recover(
         or not 1 <= seconds <= extraction.MAX_ACCEPTANCE_SECONDS
     ):
         raise RequestRejected(failure("PIE-R1002", "ACCEPTANCE_BOUND"))
-    binding, supplied, private_access, private_limits, schemas = _checked_request(
+    (
+        binding,
+        supplied,
+        private_access,
+        private_limits,
+        schemas,
+        named,
+    ) = _checked_request(
         workspace,
         query,
         operation,
@@ -243,9 +268,18 @@ def recover(
         values,
         job,
         allow_guard_sql=True,
+        parameters=parameters,
+        restating=True,
     )
+    # A restatement with parameters that cannot bind has no live binding: its
+    # R2 checks still run on the template alone, then the saved binding, read
+    # in the workspace, refuses it as BINDING_VECTOR before anything uses it.
     prepared = _request(
-        lambda: proposal.prepare_live_refinement(query, binding, source_requirements)
+        lambda: (
+            proposal.check_live_refinement(query, source_requirements)
+            if binding is None
+            else proposal.prepare_live_refinement(query, binding, source_requirements)
+        )
     )
     trust = _request(
         lambda: _recovery_trust(
@@ -268,6 +302,7 @@ def recover(
                     generation,
                     checkpoint=checkpoint,
                     values=supplied,
+                    parameters=named,
                     expected_pin=trust[0],
                     accepted_producer=trust[1],
                     accepted_compatibility=trust[2],
@@ -292,6 +327,7 @@ def recover(
                 checkpoint=checkpoint,
                 purpose=purpose,
                 values=supplied,
+                parameters=named,
                 expected_pin=trust[0],
                 accepted_producer=trust[1],
                 accepted_compatibility=trust[2],
@@ -313,6 +349,7 @@ def recover(
             limits=private_limits,
             isolation=isolation,
             values=supplied,
+            parameters=named,
             trust=trust,
             purpose=purpose,
             seconds=seconds,

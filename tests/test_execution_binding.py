@@ -476,7 +476,7 @@ def _literals(t):
 
 
 @pytest.mark.parametrize("target", ["postgres", "mysql"])
-@pytest.mark.parametrize("variant", ["preserve", "bind"])
+@pytest.mark.parametrize("variant", ["preserve", "bind", "let_bind"])
 def test_a_parameter_binding_rederives_the_template_statement(
     tmp_path, target, variant
 ):

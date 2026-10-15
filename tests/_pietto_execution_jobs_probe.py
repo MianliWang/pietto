@@ -19,8 +19,11 @@ STORAGE_CLASSES = ("hosted-refusal", "qualified", "report")
 STORAGE_CLASS_OPTION = None
 
 
-def compiled_template(directory, *, seed=None, target="postgres", entry="live"):
-    """A current S10 template; a seed adds one typed slot beside the WHERE Int slot."""
+def compiled_template(
+    directory, *, seed=None, target="postgres", entry="live", source=None
+):
+    """A current S10 template; a seed adds one typed slot beside the WHERE Int
+    slot, and `source` replaces the whole bind-safe fixture source."""
     import _pietto_results_product as original
     from _pietto_execution_postgres_rows_probe import template
     from pietto._project.project_compiled_build import build_compiled
@@ -30,7 +33,6 @@ def compiled_template(directory, *, seed=None, target="postgres", entry="live"):
         prepare_live_template,
     )
 
-    source = None
     if seed is not None:
         source = (
             original.source(target)
@@ -750,3 +752,23 @@ def bridge(directory, ledger, interpreter, *, target, cells, wheel=None, core=No
             },
         )
     return report
+
+
+def parameter_source(target="postgres"):
+    """The product fixture as an entry query that declares one parameter of
+    each tag, all read in WHERE."""
+    import _pietto_results_product as original
+
+    return (
+        original.source(target)
+        .replace(
+            "table result:",
+            "query result(low: Int not null, scale: Float nullable,"
+            " note: Text nullable, flag: Bool nullable):",
+        )
+        .replace(
+            "    select:",
+            "    where id > low and (scale is null or note is null or flag is null)\n"
+            "    select:",
+        )
+    )

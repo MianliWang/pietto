@@ -12,8 +12,9 @@ from typing import Any
 __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.compiled-execution.v1"
-# A root with header parameters (an unbound template) is tagged v2; S11 owns
-# its transport, so decode refuses the tag until then.
+# A root with header parameters (an unbound template) is tagged v2; a v1
+# reader refuses the tag (COMPILED_FORMAT) and a tag that disagrees with the
+# records is not canonical.
 PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
 # 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch);
@@ -471,7 +472,7 @@ def decode(raw: bytes) -> Description:
             "members",
         ):
             raise CompiledError("COMPILED_HEADER")
-        if value["format"] != FORMAT:
+        if value["format"] not in (FORMAT, PARAMETERIZED_FORMAT):
             raise CompiledError("COMPILED_FORMAT")
         if type(value["producer"]) is not str or not value["producer"]:
             raise CompiledError("COMPILED_PRODUCER")

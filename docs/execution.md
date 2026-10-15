@@ -240,8 +240,8 @@ or ACK authority. In particular, multiple `closings` remain multiple facts;
 the observation never chooses a successful or publishable one.
 
 `save(workspace, query, *, operation, route, access, premise,
-limits=ExecutionLimits(), isolation="stable", values=None, job=None) ->
-SaveReply` makes one ordinary capture. It is not R2. A repeated `operation` is
+limits=ExecutionLimits(), isolation="stable", values=None, job=None,
+parameters=None) -> SaveReply` makes one ordinary capture. It is not R2. A repeated `operation` is
 looked up before a later claim or generation write and returns the factual
 `REPLY_LOST_OR_PARTIAL` observation; it never infers completion or retries.
 `SaveReply` has `workspace`, `operation`, `job`, `generation`, `admission`,
@@ -255,13 +255,13 @@ identity with `new_consumer_identity()`, then call
 `open_saved_read(workspace, *, job, generation, checkpoint, consumer,
 register_operation=None, open_operation, expected_pin, accepted_producer,
 accepted_compatibility, values, scope="complete_capture", extent, purpose,
-route, batch_rows, seconds) -> SavedRead`. `SavedRead.next(rows, *, operation)`
+route, batch_rows, seconds, parameters=None) -> SavedRead`. `SavedRead.next(rows, *, operation)`
 returns `SavedBatch | SavedReadEnd`; only `SavedRead.ack(batch, *, operation)`
 advances its frontier. Close the reader (or use `with`) to release its local
 reader and publisher resources. `release_saved_read(workspace, *, job,
 generation, checkpoint, consumer, operation, expected_pin, accepted_producer,
 accepted_compatibility, values, scope="complete_capture", extent, purpose,
-route, batch_rows, seconds) -> OperationReply` is the separate retention
+route, batch_rows, seconds, parameters=None) -> OperationReply` is the separate retention
 release. R1 does not access a source, manufacture an ACK, or release retention
 when a reader merely exhausts its local extent.
 
@@ -271,7 +271,8 @@ does not infer them from a workspace, checkpoint or inspection result.
 
 `verified_export(workspace, *, job, generation, checkpoint, scope, extent,
 purpose, route, values, expected_pin, accepted_producer,
-accepted_compatibility, seconds, batch_rows) -> VerifiedExport` is a distinct,
+accepted_compatibility, seconds, batch_rows, parameters=None) ->
+VerifiedExport` is a distinct,
 read-only source-free reader of one fixed snapshot. Iterate it or use `with`;
 its `close()` closes its local reader and workspace. It has no caller operation,
 does not acquire a coordinator, and writes no row, delivery, ACK or retention
@@ -305,14 +306,17 @@ fixed row has no recovery coordinate), then a query with an `exists`, `scalar`
 or `in` read, including such a read of a let with `capture` lines, with or
 without its ORDER BY and LIMIT (`REFINEMENT_EXPRESSION_BLOCK_READ`), then a
 query with a JOIN that reads a let with `capture` lines LATERAL, with or
-without its ORDER BY and LIMIT (`REFINEMENT_LATERAL_JOIN`). Ordinary
+without its ORDER BY and LIMIT (`REFINEMENT_LATERAL_JOIN`). These checks read
+the live query alone, so `recover` makes them in this order also when its
+restated `values` or `parameters` cannot bind. Ordinary
 execution on every route, an ordinary `save` and bundles accept them.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,
-access, premise, limits, isolation="stable", values=None, job=None) ->
-SaveReply` records R2 retention before progress. `recover(workspace, *, job,
+access, premise, limits, isolation="stable", values=None, job=None,
+parameters=None) -> SaveReply` records R2 retention before progress. `recover(workspace, *, job,
 generation, checkpoint, query, source_requirements, operation, route, access,
 premise, limits, expected_pin, accepted_producer, accepted_compatibility,
-purpose, seconds, isolation="stable", values=None) -> SaveReply` validates the
+purpose, seconds, isolation="stable", values=None, parameters=None) ->
+SaveReply` validates the
 recorded checkpoint and trust inputs, requalifies the sources and continues one
 new R2 attempt. Before any workspace access, `recover` requires a non-empty,
 printable `purpose` of at most 256 UTF-8 bytes and integer `seconds` from 1 to
@@ -322,6 +326,13 @@ guarded and refined sources. An ordinary `save`, a source-free reader/export,
 and a loaded bundle never acquire this authority. R2 uses the same factual
 operation replay and possible `SaveCloseHandle` rule as ordinary save.
 
+R2 pages bind their own placeholders beside the query's: every page binds its
+row count, and a continuation page one value per recovery coordinate wherever
+its predicate reads it. `save_recoverable` and `recover` refuse a query whose
+largest page would bind more placeholders than the contract's `parameters`
+resource limit with `PIE-R1004` (`REFINEMENT_RESOURCE_LIMIT`) when they prepare
+it, before any workspace access or connection.
+
 Each R2 attempt takes the caller's values, access and deployment premise anew.
 `recover` also takes fresh caller-held scalar `expected_pin`,
 `accepted_producer` and `accepted_compatibility` inputs; `save_recoverable`
@@ -330,7 +341,8 @@ values, trust, or a premise from inspection metadata.
 
 `publish_saved_generation(workspace, *, job, generation, checkpoint, closing,
 purpose, route, isolation, values, expected_pin, accepted_producer,
-accepted_compatibility, seconds, operation) -> PublicationReply` makes one
+accepted_compatibility, seconds, operation, parameters=None) ->
+PublicationReply` makes one
 complete local publication after accepting a fixed captured generation.
 `PublicationReply` names the workspace, operation, job, generation,
 checkpoint, closing, extent, retention and terminal. Repeating the preparation
@@ -351,7 +363,7 @@ no open sink resource and carries `root`, `identity`, `namespace`, `epoch`,
 `relay_live(workspace, query, *, operation, route, access, premise, sink_root,
 expected_sink_identity, sink_namespace, sink_epoch, sink_retention,
 sink_budget_bytes, sink_busy_seconds=5.0, limits=None,
-isolation="stable", values=None) -> RelayReply` starts one fresh live
+isolation="stable", values=None, parameters=None) -> RelayReply` starts one fresh live
 capture/relay to that exact descriptor; earlier saved results are not its
 input. `RelayReply` has the save-like factual fields and may carry a
 `RelayCloseHandle`; close it only to settle the retained relay cleanup. A
@@ -689,8 +701,7 @@ in no promised order relative to other runtime errors of the statement.
 this order; right after the route's type it checks that the route is
 the selected route and the query was compiled for its selected dialect
 (`postgres_rows` or `postgres_adbc`/`postgres`, or `mysql_rows`/`mysql`,
-`PIE-R1003`) and that a query that declares parameters, or a `parameters`
-argument, goes to `postgres_rows` (`PIE-R1003`). It
+`PIE-R1003`). It
 then checks that `values` is `None` or a tuple and `parameters` is `None` or a
 dict with string keys (`PIE-R1002`), binds the query to the values and
 parameters (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
@@ -712,9 +723,7 @@ the accepted producer and compatibility (`PIE-R1008`); that the query is one
 template (`PIE-R1004`, or `PIE-R1005` when the code changed in between). Bytes
 whose bracket nesting the bounded reader refuses before it hashes them are
 malformed (`PIE-R1008`), whatever the pin. `export_bundle()` checks that
-`query` is given (`PIE-R1001`) and is a `CompiledQuery` (`PIE-R1002`), and
-refuses a query that declares parameters (`PIE-R1004`, `detail`
-`PUBLIC_BUNDLE_UNSUPPORTED`).
+`query` is given (`PIE-R1001`) and is a `CompiledQuery` (`PIE-R1002`).
 
 Error text never contains a password, driver message, SQL text, value or bundle
 content, and a public error is not chained to the private or driver exception
@@ -818,17 +827,51 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   2147483647, is `PIE-R1004` with `detail` `BINDING_INVALID`. Every binding
   derives the query again and checks that its SQL text is the template's.
 - `values` and `parameters` are independent: a `bind-safe` query takes both.
-- Only `postgres_rows` runs a query that declares parameters, and only it
-  accepts a `parameters` argument; `postgres_adbc` and `mysql_rows` refuse
-  them with `PIE-R1003` (`PUBLIC_PARAMETERS_ROUTE`). `save`,
-  `save_recoverable`, `recover` and `relay_live` refuse such a query the same
-  way before they open the workspace, since a saved job records no parameter
-  values. `export_bundle` refuses it with `PIE-R1004`
-  (`PUBLIC_BUNDLE_UNSUPPORTED`): the bundle format of a parameterized query
-  (`pietto.compiled-execution.v2`) is not published yet, and the loader
-  refuses it.
+- Every route binds them the same way: `postgres_rows` and `postgres_adbc`
+  send one `$n` per parameter, `mysql_rows` one `?` per read, in the order the
+  artifact's `parameter_uses` give.
 
 All of these checks run in `execute()`, before any connection.
+
+`export_bundle` keeps the unbound template: the bundle of a query that
+declares parameters has the format marker `pietto.compiled-execution.v2` and
+carries the declared names, types and reads but no value. `load_bundle`
+returns a query with the same `parameters`, and each `execute()` of it binds
+anew (see [Query bundles](#query-bundles)).
+
+The saved-result calls take the same `parameters` argument; anything but
+`None` or a dict with string keys is `PIE-R1002` (`PUBLIC_PARAMETERS_TYPE`)
+before the workspace opens.
+
+- `save`, `save_recoverable` and `relay_live` start a new generation, so they
+  bind the given parameters like `execute()`: a missing, extra, mistyped,
+  illegal NULL or out-of-range value is refused before the workspace opens or
+  any connection is made. Each new binding, also one added to an existing
+  `job`, may use new values.
+- `open_saved_read`, `release_saved_read`, `publish_saved_generation`,
+  `verified_export` and `recover` restate the saved generation's binding:
+  `parameters` must name every parameter of a saved binding that has them,
+  each with a value equal to the saved one and of the same type (`True` is not
+  `1`, `-0.0` is not `0.0`, and `None` is a NULL of the declared type). Any
+  difference, a missing or extra name included, is `PIE-R1009` with `detail`
+  `BINDING_VECTOR`, exactly as for `values`. This holds in `recover` also for
+  a value that cannot bind at all (mistyped, illegal NULL, out of range) once
+  the query declares parameters or `parameters` names any. The other inputs
+  are still checked first, in the same order as for a value that binds: the
+  access, premise, limits and isolation and, for R2, the live query, its
+  `source_requirements` and the four shapes R2 refuses (see above) before the
+  workspace opens, then
+  the workspace's own checks; then the saved binding refuses the
+  restatement. Only a `recover` without parameters still refuses a `values`
+  entry that cannot bind before the workspace opens, as before. A saved
+  binding without parameters takes `parameters=None` (or `{}`) as before.
+- `save_recoverable` and `recover` keep their own shape rules: a query whose
+  result has no recoverable coordinate basis is refused as before.
+- The workspace records the parameter values with the slot values in the
+  binding's typed vector (`pietto.binding-vector.v2`, NULL with its tag), and
+  the generation description names each parameter, its type and its
+  placeholder positions. A binding without parameters is recorded exactly as
+  before. A workspace or job from an earlier release is not migrated.
 
 ## Query bundles
 
@@ -846,7 +889,12 @@ and three records of 64 lowercase hexadecimal characters each:
 accepted_compatibility)` returns a `CompiledQuery` with `origin` `"bundle"`
 that runs exactly like the query it was exported from: the same SQL, the same
 slots and, for `values=None`, the same values. It reads no project file. Each
-load is a new query, and nothing about an accepted bundle is remembered.
+load is a new query, and nothing about an accepted bundle is remembered. A
+query that declares parameters travels as its unbound template under the
+format marker `pietto.compiled-execution.v2`, with the same `parameters`; each
+`execute()` of the loaded query binds them anew. A reader that knows only the
+`pietto.compiled-execution.v1` marker refuses such bytes, and bytes whose
+marker does not match their content are malformed (`PIE-R1008`).
 
 `bundle_query.py` sits next to `run_query.py` in the example. It builds the
 bundle from `demo-exec` with `bind-safe` literals, then loads it and runs it
@@ -1327,9 +1375,9 @@ still running. Interpreter exit waits for the deadline timer, up to
   when compiled (`PIE-B1006`), as with `pietto emit-sql --project`.
 - Only the literals of a `bind-safe` query can take other values (see
   [Values](#values)); a `preserve` query always runs with the literal values of
-  its source. Declared parameters (see [Parameters](#parameters)) run only on
-  `postgres_rows`, and a query that declares them cannot be saved, relayed or
-  exported as a bundle yet.
+  its source. Declared parameters (see [Parameters](#parameters)) take
+  `Bool`, `Int`, `Float` and `Text` values only, and only the entry query and
+  its relation lets read them; queries do not pass parameters to each other.
 - A compiled query is a snapshot of the project files `compile_query` read;
   edits take effect with the next `compile_query`, and a bundle keeps the query
   it was exported from.

@@ -414,8 +414,7 @@ def execute(
     gives the query's declared parameters (``query.parameters``) by name: a
     dict with exactly one entry for each, whose value has the parameter's
     exact type, or is None for a nullable parameter; nothing is converted.
-    Only ``postgres_rows`` accepts it, and a query that declares parameters
-    runs only there; None is an empty dict. Every request
+    None is an empty dict. Every request
     check runs here, before any connection: first query, route, access,
     premise and limits are given and of the right type and isolation is
     given, in that order, with the route's availability for the query
@@ -443,8 +442,6 @@ def execute(
     }.get(route)
     if dialect is None or query.dialect != dialect:
         raise _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
-    if route != "postgres_rows" and (query.parameters or parameters is not None):
-        raise _refuse("PIE-R1003", "PUBLIC_PARAMETERS_ROUTE")
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
     access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess
@@ -522,6 +519,7 @@ def execute(
                 limits=private_limits,
                 isolation=isolation,
                 values=values,
+                parameters=parameters,
             )
         else:
             mysql_access = cast(MySQLAccess, access)
@@ -543,6 +541,7 @@ def execute(
                 limits=private_limits,
                 isolation=isolation,
                 values=values,
+                parameters=parameters,
             )
     except Exception as caught:
         refusal = request_failure(caught)
