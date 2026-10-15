@@ -1,7 +1,7 @@
 """Contextual row planning through real completion, IR and runtime inspection."""
 
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -1096,3 +1096,76 @@ def test_a_scalar_read_leaf_keeps_its_column_type_and_block_use(
         plan, expressions=tuple(changed.get(id(e), e) for e in plan.expressions)
     )
     assert not verify_project_sql_plan(candidate, *roots).verified, mutation
+
+
+MEMBERSHIP_SOURCE = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query keys:
+    from tags
+    select:
+        key
+query result:
+    let picked:
+        from tags
+        where id > 0
+        select:
+            id
+    from rows
+    where id in picked
+    select:
+        id
+        f = key not in keys
+"""
+
+
+@pytest.mark.parametrize(
+    "mutation", ("swapped_reads", "nullability", "left_value", "existence")
+)
+def test_membership_leaves_cannot_be_swapped_or_retyped(
+    tmp_path: Path, mutation: str
+) -> None:
+    from pietto.semantic.model import EffectiveNullability, ValueType
+
+    roots, plan, view = _product(tmp_path, MEMBERSHIP_SOURCE)
+    reads = [e for e in plan.expressions if type(e) is row.ProjectSQLRelationMembership]
+    assert [(e.expression.negated, e.use) for e in reads] == [
+        (False, plan.expression_block_uses[0].ref),
+        (True, plan.expression_block_uses[1].ref),
+    ]
+    first, second = reads
+    if mutation == "swapped_reads":
+        changed = {
+            id(first): _graft(first, use=second.use),
+            id(second): _graft(second, use=first.use),
+        }
+    elif mutation == "nullability":
+        # A well-formed Bool type, but three-valued membership is never non-NULL.
+        changed = {
+            id(first): _graft(
+                first,
+                value_type=ValueType(
+                    first.value_type.resolved_type, EffectiveNullability.NON_NULL
+                ),
+            )
+        }
+    elif mutation == "left_value":
+        changed = {id(first): _graft(first, value=second.value)}
+    else:
+        changed = {
+            id(first): row.ProjectSQLRelationExists(
+                ref=first.ref,
+                site=first.site,
+                value_type=first.value_type,
+                expression=cast(Any, first.expression),
+                use=first.use,
+            )
+        }
+    candidate = _graft(
+        plan,
+        expressions=tuple(changed.get(id(e), e) for e in plan.expressions),
+    )
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation
+    assert verify_project_sql_plan(plan, *roots).verified

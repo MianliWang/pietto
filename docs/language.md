@@ -302,10 +302,10 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 ## Relation blocks and relation references
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
-relation let, a typed VALUES body, a closed `exists`/`not exists` or `scalar`
-read and the header of an entry query whose FROM reads a relation and that
-declares no relation let are available, as described after the example; every
-other form is not available yet:
+relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
+`in`/`not in` read and the header of an entry query whose FROM reads a relation
+and that declares no relation let are available, as described after the example;
+every other form is not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -427,8 +427,9 @@ contract describes it, and the compiled query, source qualification and R2
 source requirements include it.
 
 In the same projects an expression can read a whole relation block without
-capture: `exists name` and `not exists name` test whether it has a row, and
-`scalar name.column` reads one of its output columns. The name is a source, a
+capture: `exists name` and `not exists name` test whether it has a row, `scalar
+name.column` reads one of its output columns, and `value in name` and `value not
+in name` compare a value with its one output column. The name is a source, a
 module table or query (a typed VALUES one included), or a let of the
 declaration, found by the same lookup as `from` (an unknown name is PIE-S2301; a
 read that would make its block read itself, directly or through its lets, other
@@ -446,9 +447,10 @@ available only in WHERE and in the SELECT of an ungrouped query, including a
 JOIN reader, a reader of a set and the let bodies of the declaration; in JOIN
 ON, a row `let:`, the SELECT of a grouped or aggregate query, SATISFYING, a
 window call or window specification, QUALIFY, ORDER BY or LIMIT it is reported
-at the read with its family's code, PIE-S2349 for `exists` and PIE-S2348 for
-`scalar`. Outside a relation body, for example in a type rule, a shape `check`,
-a type argument or a VALUES row, a read keeps that pre-admission code.
+at the read with its family's code, PIE-S2349 for `exists`, PIE-S2348 for
+`scalar` and PIE-S2350 for `in`. Outside a relation body, for example in a type
+rule, a shape `check`, a type argument or a VALUES row, a read keeps that
+pre-admission code.
 
 `exists r` is a `Bool not null`: true when `r` has at least one row. Project
 SQL renders it as `EXISTS (SELECT 1 FROM <block> AS e<n>)`.
@@ -466,6 +468,30 @@ columns in its header and is read like any other relation. An unknown column of 
 relation whose errors do not change its columns, for example an error in its
 WHERE, is read as usual and reports only its own errors. Project SQL renders
 the read as `(SELECT e<n>.c FROM <block> AS e<n>)`.
+
+`value in r` and `value not in r` keep the three-valued logic of the literal
+list: the test is true when a row of `r` equals a non-NULL `value`; otherwise it
+is NULL when `value` is NULL and `r` has rows, or when `r` holds a NULL;
+otherwise, and always for an empty `r`, it is false, so over an empty `r` `NULL
+in r` is false and `NULL not in r` is true. Duplicate rows do not change the
+result. The result is a nullable `Bool` even when neither side can be NULL; `not
+in` is never rewritten to an ANTI JOIN, a literal list or a COALESCE, and WHERE
+keeps the rows where the test is true. A `value` whose type the literal-list
+`in` would not accept against the column of `r` is PIE-S2105 at the test, and so
+is a read of a block whose columns are known and are not exactly one. A bare
+`null` value takes the type of that one column, like a NULL in a literal list.
+The columns of a set, an authored JOIN or a relation reading one of them or a
+typed VALUES body are not known before completion, so for such a block `check
+--project` reports none of these, and `emit-sql --project` and `compile_query`
+refuse the query with PIE-B1003 `relation_membership_width_not_one` when it does
+not have exactly one output column, with PIE-B1003
+`membership_type_pair_not_admitted` when the type or physical carrier of `value`
+does not pair with its column, and with PIE-B1003
+`expression_evidence_unavailable` for a bare `null` value, which has no type
+there, like an all-NULL literal list. Project SQL renders the read as `(value
+[NOT] IN (SELECT e<n>.<column> FROM <block> AS e<n>))`, so an `order by` and
+`limit` of the read block stay inside its CTE and no IN subquery carries a
+LIMIT.
 
 In an EXPLICIT_MODULES project a typed VALUES body is also the body of a
 top-level table or query. It is its own zero-input relation, read by `from`, a
@@ -507,24 +533,24 @@ document, and a body over either limit is BLOCKED with PIE-B1007
 long before PIE-S2365: a body of 1,000 rows and 64 columns is always BLOCKED,
 and 1,000 rows of short cells emit with only about a dozen columns.
 
-In EXPLICIT_MODULES the `let NAME:` line, a typed VALUES body and an `exists`
-or `scalar` read inside a relation body are admitted, so a let there never
+In EXPLICIT_MODULES the `let NAME:` line, a typed VALUES body and an `exists`,
+`scalar` or `in` read inside a relation body are admitted, so a let there never
 receives the temporary PIE-S2345, a VALUES body never receives PIE-S2347 and
-such a read never receives PIE-S2348 or PIE-S2349; a `capture` line or other
-form inside a let still receives its own code. Every other occurrence of these forms receives its
-temporary ERROR diagnostic in every check mode before any semantic reader runs:
-PIE-S2345 relation let,
-PIE-S2346 query header parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read,
-PIE-S2349 EXISTS reference, PIE-S2350 IN reference, PIE-S2351 capture line and
-PIE-S2352 table-function FROM input. The one exception is a query header that
-an EXPLICIT_MODULES project admits (see below). That run then reports no other
+such a read never receives PIE-S2348, PIE-S2349 or PIE-S2350; a `capture` line
+or other form inside a let still receives its own code. Every other occurrence
+of these forms receives its temporary ERROR diagnostic in every check mode
+before any semantic reader runs: PIE-S2345 relation let, PIE-S2346 query header
+parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read, PIE-S2349 EXISTS
+reference, PIE-S2350 IN reference, PIE-S2351 capture line and PIE-S2352
+table-function FROM input. The one exception is a query header that an
+EXPLICIT_MODULES project admits (see below). That run then reports no other
 semantic diagnostic. Single-file `check`, `explain` and `emit-sql` report them
-from semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks,
-project `emit-sql` and `compile_query` report them with the owning file's parse
+from semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks, project
+`emit-sql` and `compile_query` report them with the owning file's parse
 diagnostics, alongside other files' parse errors.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT retain their existing availability
-boundaries: relation lets, `exists` and `scalar` reads and every later family
-become available only for EXPLICIT_MODULES.
+boundaries: relation lets, entry-query header parameters, `exists`, `scalar` and
+`in` reads and every later family become available only for EXPLICIT_MODULES.
 PACKAGE_ROOT `explain --project` does not read relation bodies, so a package
 module using these forms can be explained; that does not make its relations
 available.
@@ -601,18 +627,18 @@ A nullable parameter bound to NULL makes `boosted` NULL in every row, so `n` is
 reads the parameter or a `let:` binding or output that reads it: LIMIT, window
 expressions and named windows (frame offsets included) except the window
 arguments below, other call arguments (such as the bounds of `substr`, `len`,
-`replace`, `matches` and the prefix of `starts_with`), a GROUP BY key that names a parameter, an alias or a key of a
-JOIN query, other grouped SELECT items (a direct read, `sum`, `count_distinct`,
-an aggregate of an expression or of a parameter), a grouped ORDER BY key that
-is not an output name, and an ORDER BY key that reads no field, binding or
-output. An output that reads a parameter counts only in SATISFYING, QUALIFY,
-ORDER BY and LIMIT; elsewhere its name reads the input field it may shadow. A
-position that a literal cannot use either keeps the literal's diagnostic. A
-query with parameters is never the input of another relation, a relation let or
-the body of a declaration with lets included, nor read by `exists` or
-`scalar` (PIE-S2356).
-Headers stay PIE-S2346 in single-file analysis, in LEGACY_FLAT projects and
-beside relation lets, VALUES, set-operation or table-function FROM bodies.
+`replace`, `matches` and the prefix of `starts_with`), a GROUP BY key that names
+a parameter, an alias or a key of a JOIN query, other grouped SELECT items (a
+direct read, `sum`, `count_distinct`, an aggregate of an expression or of a
+parameter), a grouped ORDER BY key that is not an output name, and an ORDER BY
+key that reads no field, binding or output. An output that reads a parameter
+counts only in SATISFYING, QUALIFY, ORDER BY and LIMIT; elsewhere its name reads
+the input field it may shadow. A position that a literal cannot use either keeps
+the literal's diagnostic. A query with parameters is never the input of another
+relation, a relation let or the body of a declaration with lets included, nor
+read by `exists`, `scalar` or `in` (PIE-S2356). Headers stay PIE-S2346 in
+single-file analysis, in LEGACY_FLAT projects and beside relation lets, VALUES,
+set-operation or table-function FROM bodies.
 
 In a window call that is a SELECT item of a query without GROUP BY, SATISFYING
 or aggregates, a bare read is also available as a window argument: the value

@@ -561,8 +561,14 @@ def executed_operations(records, relation):
     return found
 
 
-# Operators of an expression block use: each has no operand of its own.
-BLOCK_READ_OPERATORS = (("exists", "exists"), ("scalar", "scalar"))
+# Operators of an expression block use. A membership read's one operand is
+# its left value; the others have no operand of their own.
+BLOCK_READ_OPERATORS = (
+    ("exists", "exists"),
+    ("scalar", "scalar"),
+    ("relation_membership", "in"),
+    ("relation_membership", "not_in"),
+)
 
 
 def scalar_read_port(records, operation):

@@ -43,6 +43,7 @@ from pietto.ast_nodes import (
     QueryDef,
     RelationExistsExpr,
     RelationScalarExpr,
+    RelationMembershipExpr,
     Script,
     SelectItem,
     ShapeDef,
@@ -126,6 +127,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         WindowExpr,
         RelationExistsExpr,
         RelationScalarExpr,
+        RelationMembershipExpr,
     }
 )
 _KNOWN_DEFINITIONS = frozenset(
@@ -3093,6 +3095,8 @@ def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ..
             add_expression(expression.value)
             for option in expression.options:
                 add_expression(option)
+        elif isinstance(expression, RelationMembershipExpr):
+            add_expression(expression.value)
         elif isinstance(expression, CallExpr):
             for argument in expression.arguments:
                 add_expression(argument)

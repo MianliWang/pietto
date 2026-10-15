@@ -219,6 +219,7 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     RelationScalarExpr,
+    RelationMembershipExpr,
     SourceDef,
     TableDef,
 )
@@ -4630,7 +4631,11 @@ def _build_expression_uses(
     completed: ProjectConcreteCompletedSemanticResult,
     entries: tuple[ProjectIRQueryBlockEntry, ...],
 ) -> tuple[ProjectIRExpressionBlockUse, ...]:
-    """Image every completion expression edge onto its exact ledger entries."""
+    """Image every completion expression edge onto its exact ledger entries.
+
+    A membership read compares with the one output column of its producer;
+    a producer without exactly one output column leaves the column unbound.
+    """
     by_owner = {id(entry.owner): entry for entry in entries}
     result = []
     for use in completed.completion.expression_uses:
@@ -4650,15 +4655,20 @@ def _build_expression_uses(
 def expression_block_column(
     expression: object, output: ProjectIRActiveRowOutput | None
 ) -> int | None:
-    """The one output column a scalar read names; existence reads none."""
-    if type(expression) is not RelationScalarExpr or output is None:
+    """The output column a read names: a scalar read's one column of that name,
+    a membership read's sole column; an existence read names none."""
+    if output is None:
         return None
-    matches = tuple(
-        position
-        for position, item in enumerate(output.row_shape.fields)
-        if item.evidence.name == expression.column_name
-    )
-    return matches[0] if len(matches) == 1 else None
+    if type(expression) is RelationScalarExpr:
+        matches = tuple(
+            position
+            for position, item in enumerate(output.row_shape.fields)
+            if item.evidence.name == expression.column_name
+        )
+        return matches[0] if len(matches) == 1 else None
+    if type(expression) is RelationMembershipExpr and len(output.row_shape.fields) == 1:
+        return 0
+    return None
 
 
 def _build_set_structure(

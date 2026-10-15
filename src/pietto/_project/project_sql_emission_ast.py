@@ -990,6 +990,7 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLScalarCall,
     row.ProjectSQLRelationExists,
     row.ProjectSQLRelationScalar,
+    row.ProjectSQLRelationMembership,
 )
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
@@ -2325,14 +2326,21 @@ def value_requirements(request, value):
 
 
 def block_read_requirements(request, node):
-    """A block read, and the qualified scan when it reads a source."""
+    """A block read, and the qualified scan when it reads a source; a
+    membership operand keeps its own requirements after these."""
     target = node.target
+    kind = rows.requirement_kind(node)
     result = [
         GeneratedRequirement(
-            node.kind,
+            kind,
             node.original.ref,
-            rows.REQUIREMENT_RULES[node.kind],
-            node_premises(request, node.realization, (), node.kind),
+            rows.REQUIREMENT_RULES[kind],
+            node_premises(
+                request,
+                node.realization,
+                rows.block_read_operands(node, request.family),
+                kind,
+            ),
         )
     ]
     if target.source is not None:

@@ -20,6 +20,7 @@ from pietto.ast_nodes import (
     CallExpr,
     ConditionalExpr,
     MembershipExpr,
+    RelationMembershipExpr,
     Span,
 )
 from pietto.semantic.model import ValueType, ValueTypeKind, TypeKind
@@ -47,6 +48,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
+        ast.RelationMembershipExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -219,7 +221,7 @@ def literal_nodes(expression: Expression):
             children = (node.when_true, node.condition, node.when_false)
         elif isinstance(node, MembershipExpr):
             children = (node.value, *node.options)
-        elif isinstance(node, CastExpr):
+        elif isinstance(node, (RelationMembershipExpr, CastExpr)):
             children = (node.value,)
         elif isinstance(node, CallExpr):
             children = node.arguments
@@ -437,6 +439,7 @@ def classify(position: ProjectSQLLiteralPosition, policy: ProjectSQLLiteralPolic
             BetweenExpr,
             ConditionalExpr,
             MembershipExpr,
+            RelationMembershipExpr,
             CastExpr,
         )
         for parent, _ in position.ancestry

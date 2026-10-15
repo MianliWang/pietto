@@ -61,6 +61,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
+        ast.RelationMembershipExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -620,6 +621,8 @@ def _child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.when_true, expression.condition, expression.when_false)
     if isinstance(expression, MembershipExpr):
         return (expression.value, *expression.options)
+    if isinstance(expression, ast.RelationMembershipExpr):
+        return (expression.value,)
     if isinstance(expression, CastExpr):
         return (expression.value,)
     if isinstance(expression, BinaryExpr):

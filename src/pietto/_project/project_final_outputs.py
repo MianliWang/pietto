@@ -3384,6 +3384,7 @@ def _analyze_no_join_scalar(
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
         bare_value_expressions=let_scope.binding_expressions,
+        relation_columns=read_types,
     )
     retained_diagnostics = tuple(diagnostics)
     status = (

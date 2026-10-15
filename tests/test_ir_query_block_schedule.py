@@ -495,3 +495,64 @@ def test_a_scalar_read_edge_binds_its_one_named_output_column(tmp_path) -> None:
         assert ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE in {
             issue.kind for issue in issues
         }
+
+
+MEMBERSHIP_READS = """query result:
+    let picked:
+        from tags
+        select:
+            id
+    from rows
+    where id in picked and id not in tags and id in pairs
+    select:
+        id
+query pairs:
+    from tags
+    inner join rows as r:
+        from tags
+        on tags.id == r.id
+    select:
+        id = tags.id
+        twice = r.id
+"""
+
+
+def test_a_membership_read_binds_the_sole_column_of_its_target(tmp_path) -> None:
+    from copy import copy
+
+    from _pietto_project_join import _completed
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        ProjectIRQueryBlockVerificationIssueKind,
+        verify_project_query_block_ir,
+    )
+
+    def graft(value, **changes):
+        changed = copy(value)
+        for name, item in changes.items():
+            object.__setattr__(changed, name, item)
+        return changed
+
+    completed = _completed(tmp_path, EXISTS_HEAD + MEMBERSHIP_READS)
+    assert completed.ok, completed.diagnostics
+    snapshot = build_project_query_block_ir(completed)
+    assert verify_project_query_block_ir(snapshot).verified
+    edges = snapshot.expression_uses
+    # A let, a source and a two-column JOIN query, whose columns are known
+    # only after completion: only one-column targets bind.
+    assert [(e.producer.owner.definition.name, e.column) for e in edges] == [
+        ("picked", 0),
+        ("tags", 0),
+        ("pairs", None),
+    ]
+    for index, column in ((0, None), (0, 1), (2, 0)):
+        forged = tuple(
+            graft(edge, column=column) if position == index else edge
+            for position, edge in enumerate(edges)
+        )
+        issues = verify_project_query_block_ir(
+            graft(snapshot, expression_uses=forged)
+        ).issues
+        assert ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE in {
+            issue.kind for issue in issues
+        }

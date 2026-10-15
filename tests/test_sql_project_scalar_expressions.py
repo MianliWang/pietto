@@ -893,3 +893,75 @@ def test_q1_text_carrier_rejects_collation_tampering(family, storage, domain):
     )
     assert result is None
     assert problem == ("PIE-B1003", "membership_type_pair_not_admitted")
+
+
+COEXISTING_MEMBERSHIP = """query ids:
+    from rows
+    select:
+        id
+table result:
+    from rows
+    where id in (id, 0) and id not in ids
+    select:
+        listed = id in (1, null)
+        read = id in ids
+"""
+COEXISTING_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0") AS (SELECT "s0"."order.id" AS "c0" '
+        'FROM "public"."phase66 source é" AS "s0"), '
+        '"p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "s1"."order.id" AS "c0", '
+        '"s1"."flag value" AS "c1", "s1"."text `""é" AS "c2", '
+        '"s1"."amount value" AS "c3", "s1"."ratio value" AS "c4" '
+        'FROM "public"."phase66 source é" AS "s1" '
+        'WHERE (("s1"."order.id" IN ("s1"."order.id", CAST(0 AS pg_catalog.int8))) '
+        'AND ("s1"."order.id" NOT IN (SELECT "e0"."c0" FROM "p0" AS "e0")))) '
+        'SELECT ("t2"."c0" IN (CAST(1 AS pg_catalog.int8), NULL)) AS "listed", '
+        '("t2"."c0" IN (SELECT "e1"."c0" FROM "p0" AS "e1")) AS "read" '
+        'FROM "p1" AS "t2"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`) AS (SELECT `s0`.`order.id` AS `c0` "
+        "FROM `phase66`.`phase66 source é` AS `s0`), "
+        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s1`.`order.id` AS `c0`, "
+        '`s1`.`flag value` AS `c1`, `s1`.`text ``"é` AS `c2`, '
+        "`s1`.`amount value` AS `c3`, `s1`.`ratio value` AS `c4` "
+        "FROM `phase66`.`phase66 source é` AS `s1` "
+        "WHERE ((`s1`.`order.id` IN (`s1`.`order.id`, CAST(0 AS SIGNED))) "
+        "AND (`s1`.`order.id` NOT IN (SELECT `e0`.`c0` FROM `p0` AS `e0`)))) "
+        "SELECT (`t2`.`c0` IN (CAST(1 AS SIGNED), NULL)) AS `listed`, "
+        "(`t2`.`c0` IN (SELECT `e1`.`c0` FROM `p0` AS `e1`)) AS `read` "
+        "FROM `p1` AS `t2`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_literal_list_and_relation_membership_stay_distinct(tmp_path, target):
+    from pietto._project import project_sql_plan_expressions as plan_rows
+    from pietto._project.project_sql_plan import ProjectSQLPlan
+
+    checked, outcome = emit(tmp_path, target, COEXISTING_MEMBERSHIP)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == COEXISTING_SQL[target]
+    plan = checked.plan
+    assert isinstance(plan, ProjectSQLPlan)
+    kinds = [
+        type(expression).__name__
+        for expression in plan.expressions
+        if type(expression)
+        in {plan_rows.ProjectSQLMembership, plan_rows.ProjectSQLRelationMembership}
+    ]
+    # Each written form keeps its own node: a relation read is never folded
+    # into literal options, and a literal list never reads a relation.
+    assert kinds == [
+        "ProjectSQLMembership",
+        "ProjectSQLRelationMembership",
+        "ProjectSQLMembership",
+        "ProjectSQLRelationMembership",
+    ]
+    assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
+        ("listed", True),
+        ("read", True),
+    ]

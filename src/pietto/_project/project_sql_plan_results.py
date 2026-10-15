@@ -90,6 +90,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
+        ast.RelationMembershipExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,

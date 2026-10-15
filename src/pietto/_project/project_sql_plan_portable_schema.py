@@ -216,6 +216,8 @@ ANCHOR = Shape(
         "relation_scalar_expr",
         "project_sql_relation_exists",
         "project_sql_relation_scalar",
+        "relation_membership_expr",
+        "project_sql_relation_membership",
         "project_sql_expression_block_use",
         "project_ir_expression_block_use",
         "project_expression_block_use",
@@ -1241,6 +1243,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_sql_membership"),
                             ref("project_sql_relation_exists"),
                             ref("project_sql_relation_scalar"),
+                            ref("project_sql_relation_membership"),
                             ref("project_sql_cast"),
                             ref("project_sql_scalar_call"),
                             ref("project_sql_result_reference"),
@@ -1706,6 +1709,23 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("use", ref("project_sql_plan_ref")),
             ),
         ),
+        "project_sql_relation_membership": RecordRule(
+            "project_sql_relation_membership",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("relation_membership_expr")),
+                FieldRule("value", ref("project_sql_plan_ref")),
+                FieldRule("use", ref("project_sql_plan_ref")),
+            ),
+        ),
         "project_sql_expression_block_use": RecordRule(
             "project_sql_expression_block_use",
             (
@@ -1772,7 +1792,11 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("owner", ref("project_declaration_occurrence")),
                 FieldRule(
                     "expression",
-                    union(ref("relation_exists_expr"), ref("relation_scalar_expr")),
+                    union(
+                        ref("relation_exists_expr"),
+                        ref("relation_scalar_expr"),
+                        ref("relation_membership_expr"),
+                    ),
                 ),
                 FieldRule(
                     "position",
@@ -1807,6 +1831,15 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("span", ref("span")),
                 FieldRule("relation_name", TEXT),
                 FieldRule("column_name", TEXT),
+            ),
+        ),
+        "relation_membership_expr": RecordRule(
+            "relation_membership_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("value", ANCHOR),
+                FieldRule("relation_name", TEXT),
+                FieldRule("negated", BOOLEAN),
             ),
         ),
         "project_sql_cast": RecordRule(

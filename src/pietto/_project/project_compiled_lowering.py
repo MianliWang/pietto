@@ -278,12 +278,12 @@ def emit_compiled(root, values, named=None):
                 leaf,
             )
         role, token = record.get("operator")
-        if (role, token) in BLOCK_READ_OPERATORS:
-            return block_read(address, fact)
         operands = tuple(
             scalar(a, use, producer, alias, join_contexts)
             for a in record.get("operands")
         )
+        if (role, token) in BLOCK_READ_OPERATORS:
+            return block_read(address, fact, token, operands)
         if role == "unary" and type(operands[0]) in (
             parameters.SQLAnchor,
             parameters.SQLUnary,
@@ -311,8 +311,9 @@ def emit_compiled(root, values, named=None):
         if r.address.kind == "expression_block_use"
     }
 
-    def block_read(address, fact):
-        """The executed block read of one already realized producer."""
+    def block_read(address, fact, kind, operands):
+        """The executed block read of one already realized producer; a
+        membership read keeps its left value operand."""
         described = block_uses.get(address)
         identity = plan.expression_identities.get(address)
         if described is None or identity is None:
@@ -330,9 +331,8 @@ def emit_compiled(root, values, named=None):
             )
         else:
             raise CompiledError("COMPILED_BLOCK_READ_PRODUCER")
-        kind = records[address].get("operator")[0]
         return rows.SQLBlockRead(
-            identity, target, fact.realization, kind, described.get("column")
+            identity, target, fact.realization, kind, described.get("column"), operands
         )
 
     def read_column(address, use, producer, alias):

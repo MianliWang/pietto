@@ -1017,6 +1017,148 @@ def test_retained_unselected_requests_rederive_without_execution_or_source(
         assert len(bound.arguments) == 1
 
 
+@pytest.mark.parametrize("shared_reads", (False, True))
+def test_retained_unselected_relation_reads_export_and_verify(
+    tmp_path, monkeypatch, shared_reads
+):
+    """An unselected request owner's NOT IN, EXISTS and scalar reads export and
+    verify like the selected path's: each operation names one block use of its actual
+    producer, a producer reached only through such a read is retained, a read
+    of a relation shared with the selected statement stays one block use, and
+    the loaded replay is the source statement."""
+    from dataclasses import replace
+    from pietto._project import project_compiled_verification as verification
+    from pietto._project.project_compiled_schema import CompiledError, Record
+
+    original = emission.join_witness
+    projection = "    select:\n        value = lhs.id\n"
+
+    def with_reads(target, body, **options):
+        selected, unused = body.split("query unused:", 1)
+        if shared_reads:
+            selected = selected.replace(
+                projection, "    where lhs.id in ranked_ids\n" + projection
+            ).replace(
+                "    from rhs\n", "    from rhs\n    where id not in ranked_ids\n", 1
+            )
+        unused = unused.replace(
+            projection,
+            "    where lhs.id not in ranked_ids\n"
+            + projection
+            + "        seen = exists ranked_ids\n"
+            + "        top = scalar ranked_ids.id\n",
+        )
+        return original(
+            target,
+            "query ranked_ids:\n    from rhs\n    select:\n        id\n"
+            + selected
+            + "query unused:"
+            + unused,
+            **options,
+        )
+
+    captured = []
+    checker = verification.verify_logical_export
+
+    def capture(description, checked, references):
+        checker(description, checked, references)
+        captured.append((description, checked, references))
+
+    monkeypatch.setattr(emission, "join_witness", with_reads)
+    monkeypatch.setattr(verification, "verify_logical_export", capture)
+    source = proof_artifact(tmp_path / "retained-reads", retained=True).artifact
+    assert source is not None
+    built = build_compiled(source)
+    records = built.root.records
+
+    def label(address):
+        return records[records[address].get("owner")].get("label")
+
+    assert [
+        (
+            records[r.get("operation")].get("operator"),
+            r.get("column"),
+            label(r.get("producer")),
+            label(r.get("consumer")),
+        )
+        for r in records.values()
+        if r.address.kind == "expression_block_use"
+    ] == [
+        *(
+            [
+                (("relation_membership", "not_in"), 0, "ranked_ids", "ranked"),
+                (("relation_membership", "in"), 0, "ranked_ids", "result"),
+            ]
+            * shared_reads
+        ),
+        (("relation_membership", "not_in"), 0, "ranked_ids", "unused"),
+        (("exists", "exists"), None, "ranked_ids", "unused"),
+        (("scalar", "scalar"), 0, "ranked_ids", "unused"),
+    ]
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(loaded, tuple(v.value for v in source.fixed_values))
+    assert replay.rendered.sql == source.rendered.sql
+    # The retained component is re-derived from its own plan: another
+    # operator or another producer for its membership read, and another
+    # operator or no column for its scalar read, are refused.
+    ((child, checked, references),) = captured
+    described = {r.address: r for r in child.records}
+    membership, scalar_read = (
+        r
+        for r in described.values()
+        if r.address.kind == "expression_block_use"
+        and r.get("column") == 0
+        and described[described[r.get("consumer")].get("owner")].get("label")
+        == "unused"
+    )
+    operation = described[membership.get("operation")]
+    scalar_operation = described[scalar_read.get("operation")]
+    assert scalar_operation.get("operator") == ("scalar", "scalar")
+    for changed, word in (
+        (
+            Record(
+                operation.address,
+                (("relation_membership", "in"), *operation.values[1:]),
+            ),
+            "EXPRESSION",
+        ),
+        (
+            Record(
+                membership.address,
+                (*membership.values[:2], membership.get("consumer"), 0),
+            ),
+            "BLOCK_READ",
+        ),
+        (
+            Record(
+                scalar_operation.address,
+                (("exists", "exists"), *scalar_operation.values[1:]),
+            ),
+            "EXPRESSION",
+        ),
+        (Record(scalar_read.address, (*scalar_read.values[:3], None)), "BLOCK_READ"),
+    ):
+        forged = replace(
+            child,
+            members=tuple(
+                (
+                    name,
+                    tuple(
+                        changed if r.address == changed.address else r for r in group
+                    ),
+                )
+                for name, group in child.members
+            ),
+        )
+        with pytest.raises(CompiledError, match=f"^COMPILED_RETAINED_{word}$"):
+            checker(forged, checked, references)
+
+
 def test_embedded_json_depth_is_checked_before_decoder_recursion(tmp_path):
     from dataclasses import replace
     from _pietto_execution_postgres_rows_probe import template

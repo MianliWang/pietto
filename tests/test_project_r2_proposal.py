@@ -310,6 +310,18 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
             "    group by:\n        label\n    select:\n        label\n",
             False,
         ),
+        # A WHERE stage between the let and the grouping only carries the key.
+        (
+            "computed_where",
+            "    let:\n        big = id > 5\n    where id > 1\n" + computed,
+            True,
+        ),
+        (
+            "field_where",
+            "    where id > 1\n    group by:\n        label\n    select:\n"
+            "        label\n",
+            False,
+        ),
     ):
         project = api.write_example(Path(tmp_path) / name)
         main = project / "main.pietto"
@@ -664,4 +676,182 @@ def test_live_refinement_refuses_a_scalar_read_after_its_source_closure(tmp_path
     with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
         proposal.prepare_live_refinement(query, binding, inputs[:1])
     with pytest.raises(ValueError, match="REFINEMENT_EXPRESSION_BLOCK_READ"):
+        proposal.prepare_live_refinement(query, binding, inputs)
+
+
+def test_a_membership_read_is_refused_after_its_source_closure_before_any_workspace(
+    tmp_path, monkeypatch
+):
+    import socket
+
+    import _pietto_execution_api as api
+    from pietto import execution
+    from pietto._project import project_execution_postgres as pg
+    from pietto._project import project_job_workspace as private_workspace
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-membership")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        "table flagged_items:\n    let tagged:\n        from tags\n"
+        "        select:\n            tag_id = id\n    from items\n"
+        "    where id not in tagged\n    select:\n        id = items.id\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="flagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    sources = binding.artifact.request.sources
+    assert [(s.namespace, s.name) for s in sources] == [
+        ("fixture", "items"),
+        ("fixture", "tags"),
+    ]
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in sources
+    )
+    # The source read only through the membership read is a required input,
+    # then the read itself is refused.
+    with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])
+    with pytest.raises(ValueError, match="REFINEMENT_EXPRESSION_BLOCK_READ"):
+        proposal.prepare_live_refinement(query, binding, inputs)
+    workspace = execution.create_workspace(
+        Path(tmp_path) / "workspace", budget_bytes=private_workspace.MIN_BUDGET
+    )
+    before = sorted(
+        (p.relative_to(workspace.root), p.stat().st_size)
+        for p in Path(workspace.root).rglob("*")
+    )
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the driver")
+
+    for owner, name in ((pg, "_connect"), (pg, "drivers"), (socket.socket, "connect")):
+        monkeypatch.setattr(owner, name, forbidden)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.save_recoverable(
+            workspace,
+            query,
+            source_requirements=inputs,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=execution.PostgresAccess(
+                "127.0.0.1", 5432, "app", "reader", "x" * 24, "disable"
+            ),
+            premise=execution.PostgresDeploymentPremise(
+                schemas=("fixture", "pg_catalog")
+            ),
+            limits=execution.ExecutionLimits(),
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "REFINEMENT_EXPRESSION_BLOCK_READ",
+    )
+    assert refused.value.attempt is None and refused.value.outcome is None
+    assert (
+        sorted(
+            (p.relative_to(workspace.root), p.stat().st_size)
+            for p in Path(workspace.root).rglob("*")
+        )
+        == before
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        # The statement groups by its own computed key and reads a block.
+        "table refused:\n    from items\n    let:\n        big = id > 2\n"
+        "    where exists tags\n    group by:\n        big\n    select:\n"
+        "        big\n        n = count()\n",
+        # The block it reads groups by that block's own computed key.
+        "table grouped_tags:\n    from tags\n    let:\n        big = id > 2\n"
+        "    group by:\n        big\n    select:\n        flag = big\n"
+        "        n = count()\n"
+        "table refused:\n    from items\n    where exists grouped_tags\n"
+        "    select:\n        id = items.id\n",
+    ),
+    ids=("own_key", "read_key"),
+)
+def test_r2_refusals_keep_their_order_closure_group_key_then_block_read(tmp_path, text):
+    import _pietto_execution_api as api
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-order")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + text,
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="refused",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in binding.artifact.request.sources
+    )
+    assert [i.name for i in inputs] == ["items", "tags"]
+    # The source closure first, then the computed group key before the read.
+    with pytest.raises(ValueError, match="^PUBLIC_R2_SOURCE_CLOSURE$"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])
+    with pytest.raises(ValueError, match="^PUBLIC_R2_COMPUTED_GROUP_KEY$"):
         proposal.prepare_live_refinement(query, binding, inputs)

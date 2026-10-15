@@ -111,6 +111,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.WindowExpr,
         ast_nodes.RelationExistsExpr,
         ast_nodes.RelationScalarExpr,
+        ast_nodes.RelationMembershipExpr,
     }
 )
 
@@ -2455,6 +2456,67 @@ def _block_scope_column(scope, column):
     return columns[column].column.realization
 
 
+def _verify_block_membership(
+    request, value, expression, columns, children, state, *, reference_type
+):
+    """``v [NOT] IN`` the one column of the block use's own realized producer."""
+    expected = columns.get(getattr(expression, "use", None))
+    target = value.target
+    if (
+        type(expression) is not row.ProjectSQLRelationMembership
+        or value.original is not expression
+        or value.kind != ("not_in" if expression.expression.negated else "in")
+        or children.get(expression.ref, ()) != (expression.value,)
+        or len(value.operands) != 1
+        or rows.root_expression(value.operands[0]).ref is not expression.value
+        or type(expected) is not _BlockScope
+        or type(target) is not rows.SQLBlockTarget
+        or target.use is not expected.use
+        or expected.use.ref is not expression.use
+        or expected.use.edge.column != 0
+        or value.column != 0
+        or target.producer is not expected.producer
+        or target.source is not expected.source
+        or target.symbol.binding is not expected.use.ref
+        or target.symbol.position != 0
+        or target.symbol.name != f"e{expected.use.ref.position}"
+        or (rows.value_tag(expression), rows.value_nullable(expression))
+        != ("Bool", True)
+    ):
+        raise ValueError("membership read")
+    if expected.source is not None:
+        fields = expected.producer.fields
+        candidate = rows.field_realization(fields[0]) if len(fields) == 1 else None
+    else:
+        unit = expected.producer
+        candidate = (
+            unit.columns[0].column.realization
+            if len(unit.columns) == 1 and len(unit.cte_columns) == 1
+            else None
+        )
+    state["expressions"].append(expression)
+    state["nodes"] += 1
+    state["symbols"].append(target.symbol)
+    state.setdefault("block_reads", []).append(expected.use)
+    left = _verify_row_value(
+        request,
+        value.operands[0],
+        expression.value,
+        columns,
+        children,
+        state,
+        reference_type=reference_type,
+    )
+    if candidate is None or left.tag != candidate.tag:
+        raise ValueError("membership read column")
+    checked, _ = rows.resolved_membership_realization(
+        request.family, "Bool", True, (left, candidate)
+    )
+    if checked is None or not _same_realization(value.realization, checked):
+        raise ValueError("membership read realization")
+    return value.realization
+
+
 def _verify_row_value(
     request,
     value,
@@ -2470,6 +2532,16 @@ def _verify_row_value(
     expression = plan.expressions[reference.position]
     if expression.ref is not reference:
         raise ValueError("expression identity")
+    if type(value) is rows.SQLBlockRead and value.kind in ("in", "not_in"):
+        return _verify_block_membership(
+            request,
+            value,
+            expression,
+            columns,
+            children,
+            state,
+            reference_type=reference_type,
+        )
     if type(value) is rows.SQLBlockRead:
         # The independent scope image names each readable block use's producer.
         expected = columns.get(getattr(expression, "use", None))
@@ -4603,6 +4675,81 @@ def verify_row_bytes(query, rendered):
 
         def scalar(value, alias):
             start = offset
+            if type(value) is rows.SQLBlockRead and value.kind in ("in", "not_in"):
+                reference = value.original.ref
+                target = value.target
+                column = rows.block_read_column(target)
+                if column is None or len(value.operands) != 1:
+                    raise ValueError("membership read shape")
+                take("syntax", "in_open", reference, "(")
+                scalar(value.operands[0], alias)
+                take(
+                    "syntax",
+                    "in_operator",
+                    reference,
+                    " NOT IN (" if value.kind == "not_in" else " IN (",
+                )
+                take("syntax", "in_select", reference, "SELECT ")
+                take(
+                    "identifier",
+                    "in_column_scope",
+                    target.use.ref,
+                    target.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "in_column_qualifier", target.use.ref, ".")
+                if target.source is not None:
+                    relation = target.source.ref
+                    take(
+                        "identifier",
+                        "in_source_column",
+                        relation,
+                        column[0],
+                        identifier=True,
+                    )
+                    take("syntax", "in_from", reference, " FROM ")
+                    take(
+                        "identifier",
+                        "in_namespace",
+                        relation,
+                        target.producer.namespace,
+                        identifier=True,
+                    )
+                    take("syntax", "in_qualifier", relation, ".")
+                    take(
+                        "identifier",
+                        "in_relation",
+                        relation,
+                        target.producer.name,
+                        identifier=True,
+                    )
+                else:
+                    take(
+                        "identifier",
+                        "in_column",
+                        target.producer.cte_columns[0].binding,
+                        column[0],
+                        identifier=True,
+                    )
+                    take("syntax", "in_from", reference, " FROM ")
+                    take(
+                        "identifier",
+                        "in_reference",
+                        target.producer.block.ref,
+                        target.producer.symbol.name,
+                        identifier=True,
+                    )
+                take("syntax", "in_alias", target.use.ref, " AS ")
+                take(
+                    "identifier",
+                    "in_scope",
+                    target.use.ref,
+                    target.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "in_close", reference, "))")
+                spans.append(("relation_membership", reference, start, offset))
+                return
             if type(value) is rows.SQLBlockRead:
                 reference = value.original.ref
                 target = value.target
@@ -5996,14 +6143,20 @@ def verify_row_generated_requirements(request, query, generated):
                 )
                 continue
             if type(node) is rows.SQLBlockRead:
-                if node.kind not in ("exists", "scalar"):
+                if node.kind not in ("exists", "scalar", "in", "not_in"):
                     raise ValueError("block read kind")
+                kind = rows.requirement_kind(node)
                 expected.append(
                     (
-                        node.kind,
+                        kind,
                         node.original.ref,
                         "R11",
-                        node_premises(request, node.realization, (), node.kind),
+                        node_premises(
+                            request,
+                            node.realization,
+                            rows.block_read_operands(node, request.family),
+                            kind,
+                        ),
                     )
                 )
                 producer = node.target.producer

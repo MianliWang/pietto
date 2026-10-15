@@ -667,6 +667,7 @@ def _relationships(document, declared):
         "project_sql_between": ("value", "lower", "upper"),
         "project_sql_conditional": ("when_true", "condition", "when_false"),
         "project_sql_cast": ("value",),
+        "project_sql_relation_membership": ("value",),
     }
     expression_edges = {}
     for ref in p["expressions"]:

@@ -349,9 +349,12 @@ class _Writer:
         )
         self.enclose("anchor", reference, start)
 
-    def block_read(self, value):
+    def block_read(self, value, alias):
         """``EXISTS (SELECT 1 FROM <producer> AS <alias>)`` or, for a scalar
         read, ``(SELECT <alias>.<column> FROM <producer> AS <alias>)``."""
+        if value.kind in ("in", "not_in"):
+            self.block_membership(value, alias)
+            return
         start = self.offset
         reference = value.original.ref
         target = value.target
@@ -382,11 +385,51 @@ class _Writer:
         self.emit(")", "syntax", f"{kind}_close", reference)
         self.enclose(kind, reference, start)
 
+    def block_membership(self, value, alias):
+        """``(<v> [NOT] IN (SELECT <e>.<c> FROM <producer> AS <e>))``.
+
+        The producer is a top-level CTE or a qualified source; any LIMIT of
+        the producer stays inside its own CTE.
+        """
+        start = self.offset
+        reference = value.original.ref
+        target = value.target
+        column = rows.block_read_column(target)
+        if column is None or len(value.operands) != 1:
+            raise ValueError("unrenderable membership read")
+        self.emit("(", "syntax", "in_open", reference)
+        self.scalar(value.operands[0], alias)
+        self.emit(
+            " NOT IN (" if value.kind == "not_in" else " IN (",
+            "syntax",
+            "in_operator",
+            reference,
+        )
+        self.emit("SELECT ", "syntax", "in_select", reference)
+        self.identifier(target.symbol.name, "in_column_scope", target.use.ref)
+        self.emit(".", "syntax", "in_column_qualifier", target.use.ref)
+        if target.source is not None:
+            relation = target.source.ref
+            self.identifier(column[0], "in_source_column", relation)
+            self.emit(" FROM ", "syntax", "in_from", reference)
+            self.identifier(target.producer.namespace, "in_namespace", relation)
+            self.emit(".", "syntax", "in_qualifier", relation)
+            self.identifier(target.producer.name, "in_relation", relation)
+        else:
+            producer = target.producer
+            self.identifier(column[0], "in_column", producer.cte_columns[0].binding)
+            self.emit(" FROM ", "syntax", "in_from", reference)
+            self.identifier(producer.symbol.name, "in_reference", producer.block.ref)
+        self.emit(" AS ", "syntax", "in_alias", target.use.ref)
+        self.identifier(target.symbol.name, "in_scope", target.use.ref)
+        self.emit("))", "syntax", "in_close", reference)
+        self.enclose("relation_membership", reference, start)
+
     def scalar(self, value, alias):
         """One admitted tree; a reference with its own scope reads that relation."""
         start = self.offset
         if type(value) is rows.SQLBlockRead:
-            self.block_read(value)
+            self.block_read(value, alias)
             return
         if type(value) is rows.SQLStageReference:
             reference = value.original.ref

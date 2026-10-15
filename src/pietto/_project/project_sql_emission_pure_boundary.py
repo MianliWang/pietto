@@ -636,6 +636,7 @@ COLUMN_ROLES = frozenset(
         "join_column",
         "set_input_column",
         "equality_column",
+        "in_column",
     }
 )
 RELATION_ROLES = {
@@ -649,6 +650,8 @@ RELATION_ROLES = {
     "exists_relation": "name",
     "scalar_namespace": "namespace",
     "scalar_relation": "name",
+    "in_namespace": "namespace",
+    "in_relation": "name",
 }
 UNIT_REFERENCE_ROLES = frozenset(
     {
@@ -658,6 +661,7 @@ UNIT_REFERENCE_ROLES = frozenset(
         "set_reference",
         "exists_reference",
         "scalar_reference",
+        "in_reference",
     }
 )
 # Roles that only the WITH preamble may carry, never a unit's own SELECT.
@@ -925,9 +929,12 @@ class _Check:
             read = doc[ref]
             target = doc[read["target"]]
             realization = doc[read["realization"]]
+            producer = doc[target["producer"]]
+            membership = read["kind"] in ("in", "not_in")
             _require(
                 (target["source"] is None)
                 is (target["producer"].kind != "bound_source")
+                and len(read["operands"]) == (1 if membership else 0)
                 and (
                     read["kind"] == "exists"
                     and read["column"] is None
@@ -935,6 +942,17 @@ class _Check:
                     and realization["nullable"] is False
                     or read["kind"] == "scalar"
                     and _block_column_name(doc, target, read["column"]) is not None
+                    and realization["nullable"] is True
+                    # Membership compares with the producer's one output column.
+                    or membership
+                    and read["column"] == 0
+                    and len(
+                        producer["fields"]
+                        if target["producer"].kind == "bound_source"
+                        else producer["cte_columns"]
+                    )
+                    == 1
+                    and realization["tag"] == "Bool"
                     and realization["nullable"] is True
                 ),
                 "block read",
@@ -1504,6 +1522,13 @@ class _Tokens:
             doc[ref]["use"]: doc[doc[ref]["symbol"]]["name"]
             for ref in doc.all("sql_block_target")
         }
+        block_source_columns: dict[PlanRef, set[str]] = {}
+        for ref in doc.all("sql_block_target"):
+            target = doc[ref]
+            if target["source"] is not None:
+                block_source_columns.setdefault(target["source"], set()).update(
+                    doc[field]["column"] for field in doc[target["producer"]]["fields"]
+                )
         operations = self.index("sql_operation", "original")
         unaries = self.index("sql_unary", "original")
         anchors = self.index("sql_anchor", "original")
@@ -1551,7 +1576,12 @@ class _Tokens:
                         )
                     elif role in UNIT_REFERENCE_ROLES:
                         _require(name in unit_names.get(subject, ()), "unit reference")
-                    elif role in ("exists_scope", "scalar_scope"):
+                    elif role in (
+                        "exists_scope",
+                        "scalar_scope",
+                        "in_scope",
+                        "in_column_scope",
+                    ):
                         _require(block_aliases.get(subject) == name, "block alias")
                     elif role == "scalar_column":
                         read = self.one(block_reads, subject, "scalar column")
@@ -1562,6 +1592,11 @@ class _Tokens:
                                 doc, doc[read["target"]], read["column"]
                             ),
                             "scalar column",
+                        )
+                    elif role == "in_source_column":
+                        _require(
+                            name in block_source_columns.get(subject, ()),
+                            "membership source column",
                         )
                     elif role == "window_definition":
                         _require(
@@ -1618,6 +1653,14 @@ class _Tokens:
                         _require(text == "1", "existence sentinel")
                     else:
                         raise _Reject(Status.INVALID_RELATION, "literal role")
+                elif role == "in_operator":
+                    read = self.one(block_reads, subject, "membership operator")
+                    _require(
+                        read["kind"] in ("in", "not_in")
+                        and text
+                        == (" NOT IN (" if read["kind"] == "not_in" else " IN ("),
+                        "membership operator",
+                    )
                 else:
                     self.syntax(
                         role,
@@ -2140,12 +2183,22 @@ class _Requirements:
         doc = self.doc
         if value.kind == "sql_block_read":
             fields = doc[value]
-            _require(fields["kind"] in ("exists", "scalar"), "block read kind")
+            _require(
+                fields["kind"] in ("exists", "scalar", "in", "not_in"),
+                "block read kind",
+            )
+            kind = (
+                "relation_membership"
+                if fields["kind"] in ("in", "not_in")
+                else fields["kind"]
+            )
+            # Membership compares its operand with one column of that tag.
+            operands = tuple(self.tag(operand) for operand in fields["operands"])
             self.add(
-                fields["kind"],
+                kind,
                 fields["original"],
                 "R11",
-                self.node_premises(self.tag(value), (), fields["kind"]),
+                self.node_premises(self.tag(value), operands, kind),
             )
             target = doc[fields["target"]]
             if target["source"] is not None:
@@ -2164,6 +2217,8 @@ class _Requirements:
                         "R02",
                         self.applicable(owner, True),
                     )
+            for operand in fields["operands"]:
+                self.value(operand)
             return
         if value.kind == "sql_stage_reference":
             fields = doc[value]

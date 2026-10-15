@@ -1240,6 +1240,17 @@ def derive_compiled_semantics(root, values, parameters=None):
                             for operand in parent_operands
                             if operand != ref and operand in facts
                         )
+                    elif role == "relation_membership" and position == 0:
+                        # A bare NULL left value takes the read column's type.
+                        candidates.extend(
+                            declared(port.get("logical"))
+                            for use in records.values()
+                            if use.address.kind == "expression_block_use"
+                            and use.get("operation") == parent.address
+                            for port in records.values()
+                            if port.address.kind == "port"
+                            and port.get("owner") == use.get("producer")
+                        )
                     elif role == "scalar_call":
                         from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
@@ -1600,6 +1611,17 @@ def derive_compiled_semantics(root, values, parameters=None):
                     typed = ValueType(
                         arguments[0].resolved_type, EffectiveNullability.NULLABLE
                     )
+                elif (
+                    role == "relation_membership"
+                    and token in {"in", "not_in"}
+                    and len(arguments) == 1
+                ):
+                    # Three-valued membership in a whole producer block's one
+                    # column is conservatively nullable.
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NULLABLE,
+                    )
                 elif role == "cast" and token == "int_to_float" and len(arguments) == 1:
                     error = (
                         None
@@ -1769,6 +1791,8 @@ def derive_compiled_semantics(root, values, parameters=None):
                         realized = physical._bool(family, False)
                     elif role == "scalar":
                         realized = physical.scalar_read_realization(inputs[0])
+                    elif role == "relation_membership":
+                        realized = physical._bool(family, nullable)
                     elif type(input_facts[0].value) in (int, float):
                         value = (
                             -input_facts[0].value
@@ -1822,6 +1846,37 @@ def derive_compiled_semantics(root, values, parameters=None):
         r.address for r in records.values() if r.address.kind in scalar_kinds
     }:
         raise CompiledError("COMPILED_NULL_CONTEXT")
+    for record in records.values():
+        if (
+            record.address.kind != "expression_block_use"
+            or records[record.get("operation")].get("operator")[0]
+            != "relation_membership"
+        ):
+            continue
+        # A membership read pairs its left value with its producer's one
+        # column under the literal-list type and carrier rules of emission.
+        columns = tuple(
+            r.get("source")
+            for r in records.values()
+            if r.address.kind == "port" and r.get("owner") == record.get("producer")
+        )
+        operation = records[record.get("operation")]
+        left = facts[operation.get("operands")[0]]
+        if (
+            len(columns) != 1
+            or left.value_type.resolved_type
+            != facts[columns[0]].value_type.resolved_type
+        ):
+            raise CompiledError("COMPILED_OPERATOR_TYPE")
+        if operation.address in executable:
+            realized, problem = physical.resolved_membership_realization(
+                family,
+                "Bool",
+                True,
+                (left.require_realization(), facts[columns[0]].require_realization()),
+            )
+            if realized is None or problem is not None:
+                raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
     retention = tuple(
         (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
         for r in records.values()
@@ -2226,6 +2281,17 @@ def verify_compiled_semantics(value):
                             for operand in parent_operands
                             if operand != current and operand in by_address
                         )
+                    elif role == "relation_membership" and position == 0:
+                        # A bare NULL left value takes the read column's type.
+                        candidates.extend(
+                            by_address[port.address].value_type
+                            for use in records.values()
+                            if use.address.kind == "expression_block_use"
+                            and use.get("operation") == parent.address
+                            for port in records.values()
+                            if port.address.kind == "port"
+                            and port.get("owner") == use.get("producer")
+                        )
                     elif role == "scalar_call":
                         from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
@@ -2575,6 +2641,16 @@ def verify_compiled_semantics(value):
                         inputs[0].value_type.resolved_type,
                         EffectiveNullability.NULLABLE,
                     )
+                elif (
+                    role == "relation_membership"
+                    and token in {"in", "not_in"}
+                    and len(inputs) == 1
+                ):
+                    problem = None
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NULLABLE,
+                    )
                 elif role == "cast" and token == "int_to_float" and len(inputs) == 1:
                     problem = (
                         None
@@ -2761,7 +2837,7 @@ def verify_compiled_semantics(value):
                             realization is not None and problem is None,
                             "SEMANTIC_DOMAIN",
                         )
-                    elif role in {"not", "exists"}:
+                    elif role in {"not", "exists", "relation_membership"}:
                         from pietto._project import (
                             project_sql_emission_rows as physical,
                         )
@@ -2871,6 +2947,33 @@ def verify_compiled_semantics(value):
                 need(actual.realization is None, "SEMANTIC_LOGICAL_ONLY")
             checked.add(current)
     need(checked == set(by_address), "SEMANTIC_NULL")
+    for record in records.values():
+        if (
+            record.address.kind != "expression_block_use"
+            or records[record.get("operation")].get("operator")[0]
+            != "relation_membership"
+        ):
+            continue
+        # Membership pairs the left value with the producer's one column.
+        columns = tuple(
+            by_address[r.get("source")]
+            for r in records.values()
+            if r.address.kind == "port" and r.get("owner") == record.get("producer")
+        )
+        operation = records[record.get("operation")]
+        left = by_address[operation.get("operands")[0]]
+        need(
+            len(columns) == 1
+            and left.value_type.resolved_type == columns[0].value_type.resolved_type,
+            "SEMANTIC_TYPE",
+        )
+        if operation.address in executable:
+            pair = (left.realization, columns[0].realization)
+            need(all(type(r) is Realization for r in pair), "SEMANTIC_DOMAIN")
+            realization, problem = physical.resolved_membership_realization(
+                family, "Bool", True, pair
+            )
+            need(realization is not None and problem is None, "SEMANTIC_DOMAIN")
     expected_retention = tuple(
         (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
         for r in records.values()

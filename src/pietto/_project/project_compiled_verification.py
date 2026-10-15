@@ -476,13 +476,24 @@ def verify_description(value: Description) -> None:
         elif kind == "expression_block_use":
             operation = ref(get("operation"), {"operation"})
             consumer = ref(get("consumer"), RELATIONS - {"source"})
-            ref(get("producer"), RELATIONS)
+            producer = ref(get("producer"), RELATIONS)
+            # An existence read has no column, a scalar read names one output
+            # port of its producer, and a membership read compares with column
+            # 0 of its single-column producer.
             need(
                 operation.get("operator") in BLOCK_READ_OPERATORS
                 and (
                     get("column") is None
                     if operation.get("operator") == ("exists", "exists")
                     else scalar_read_port(records, operation.address) is not None
+                    if operation.get("operator") == ("scalar", "scalar")
+                    else type(get("column")) is int
+                    and get("column") == 0
+                    and sum(
+                        r.address.kind == "port" and r.get("owner") == producer.address
+                        for r in records.values()
+                    )
+                    == 1
                 )
                 and get("producer") != consumer.address
                 and operation.address in executed_operations(records, consumer.address),
@@ -1143,6 +1154,7 @@ def verify_description(value: Description) -> None:
                 "cast": ({"int_to_float"}, 1),
                 "exists": ({"exists"}, 0),
                 "scalar": ({"scalar"}, 0),
+                "relation_membership": ({"in", "not_in"}, 1),
                 "scalar_call": (
                     {
                         "lower",
@@ -1362,7 +1374,8 @@ def verify_description(value: Description) -> None:
             if address in reached:
                 continue
             reached.add(address)
-            retained_pending.extend(incoming[address])
+            # Every described block read is executed by its consumer.
+            retained_pending.extend((*incoming[address], *reads[address]))
     need(reached == set(incoming), "RELATION_INVENTORY_CLOSURE")
 
     # A let is a block of the table or query record at its coordinates. Only
@@ -1789,6 +1802,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         MembershipExpr,
         BetweenExpr,
         CallExpr,
+        RelationMembershipExpr,
     )
 
     parent_kinds = {
@@ -1800,6 +1814,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         CallExpr: "call",
         ConditionalExpr: "conditional",
         MembershipExpr: "membership",
+        RelationMembershipExpr: "relation_membership",
         CastExpr: "cast",
     }
     expected_declarations = {}
@@ -2127,16 +2142,27 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             for child, expected in zip(record.get("operands"), operands, strict=True):
                 check_scalar(child, expected, producer, use, join_contexts)
         elif type(actual) is rows.SQLBlockRead:
-            # The existence operation and its one expression block use name the
-            # live read's consumer, producer, occurrence and generated alias.
+            # The block read operation and its one expression block use name
+            # the live read's consumer, producer, occurrence, read or compared
+            # column and generated alias.
             need(
                 join_contexts is None
                 and record.address.kind == "operation"
-                and record.get("operator") == (actual.kind, actual.kind)
+                and record.get("operator")
+                == (
+                    (actual.kind, actual.kind)
+                    if actual.kind in ("exists", "scalar")
+                    else ("relation_membership", actual.kind)
+                )
                 and record.get("operator") in BLOCK_READ_OPERATORS
-                and record.get("operands") == (),
+                and len(record.get("operands")) == len(actual.operands)
+                and len(actual.operands) == (actual.kind in ("in", "not_in")),
                 "EXPORT_BLOCK_READ",
             )
+            for child, expected in zip(
+                record.get("operands"), actual.operands, strict=True
+            ):
+                check_scalar(child, expected, producer, use, join_contexts)
             matches = tuple(
                 r
                 for r in records.values()
@@ -3223,21 +3249,26 @@ def _verify_compiled_emission(artifact, request):
             role, token = record.get("operator")
             children = record.get("operands")
             if (role, token) in BLOCK_READ_OPERATORS:
+                operand_free = role != "relation_membership"
                 described = tuple(
                     r
                     for r in records.values()
                     if r.address.kind == "expression_block_use"
                     and r.get("operation") == address
                 )
-                need(len(described) == 1 and not children, "EMISSION_BLOCK_READ")
+                need(
+                    len(described) == 1 and len(children) == (0 if operand_free else 1),
+                    "EMISSION_BLOCK_READ",
+                )
                 block_use = described[0]
                 target = actual.target
                 producer_address = block_use.get("producer")
                 need(
                     type(actual) is rows.SQLBlockRead
                     and actual.original is plan.expression_identities[address]
-                    and actual.kind == role
+                    and actual.kind == token
                     and actual.column == block_use.get("column")
+                    and len(actual.operands) == len(children)
                     and actual.realization is facts[address].realization
                     and records[use].get("consumer") == block_use.get("consumer")
                     and type(target) is rows.SQLBlockTarget
@@ -3255,6 +3286,8 @@ def _verify_compiled_emission(artifact, request):
                     ),
                     "EMISSION_BLOCK_READ",
                 )
+                for operand, child in zip(actual.operands, children, strict=True):
+                    scalar(operand, child, producer, use, join_contexts)
                 return
             if type(actual) is parameters.SQLUnary:
                 need(
@@ -4566,6 +4599,7 @@ def verify_logical_export(description, checked, references):
         syntax.CallExpr: "call",
         syntax.ConditionalExpr: "conditional",
         syntax.MembershipExpr: "membership",
+        syntax.RelationMembershipExpr: "relation_membership",
         syntax.CastExpr: "cast",
     }
     literal_addresses = {}
@@ -4616,6 +4650,8 @@ def verify_logical_export(description, checked, references):
         }
     )
     expressions = {e.ref: e for e in plan.expressions}
+    block_uses = {u.ref: u for u in plan.expression_block_uses}
+    read_edges = set()
     terminals = {}
     source_defs = {d.ref: d for d in plan.bindings.definitions}
 
@@ -4677,6 +4713,9 @@ def verify_logical_export(description, checked, references):
                 scalar.ProjectSQLConditional,
                 scalar.ProjectSQLMembership,
                 scalar.ProjectSQLCast,
+                scalar.ProjectSQLRelationExists,
+                scalar.ProjectSQLRelationScalar,
+                scalar.ProjectSQLRelationMembership,
             ),
             "RETAINED_EXPRESSION_DOMAIN",
         )
@@ -4750,6 +4789,16 @@ def verify_logical_export(description, checked, references):
         elif type(original) is scalar.ProjectSQLCast:
             expected = ("cast", "int_to_float")
             inputs = (original.value,)
+        elif type(original) is scalar.ProjectSQLRelationExists:
+            expected, inputs = ("exists", "exists"), ()
+        elif type(original) is scalar.ProjectSQLRelationScalar:
+            expected, inputs = ("scalar", "scalar"), ()
+        elif type(original) is scalar.ProjectSQLRelationMembership:
+            expected = (
+                "relation_membership",
+                "not_in" if original.expression.negated else "in",
+            )
+            inputs = (original.value,)
         else:
             raise CompiledError("COMPILED_RETAINED_EXPRESSION_DOMAIN")
         need(
@@ -4758,6 +4807,34 @@ def verify_logical_export(description, checked, references):
             and len(record.get("operands")) == len(inputs),
             "RETAINED_EXPRESSION",
         )
+        if isinstance(
+            original,
+            (
+                scalar.ProjectSQLRelationExists,
+                scalar.ProjectSQLRelationScalar,
+                scalar.ProjectSQLRelationMembership,
+            ),
+        ):
+            # The one block use of this read names the actual plan edge's
+            # consumer, producer terminal and read column.
+            edge = block_uses.get(original.use)
+            described = tuple(
+                r
+                for r in records.values()
+                if r.address.kind == "expression_block_use"
+                and r.get("operation") == address
+            )
+            need(
+                edge is not None
+                and original.use not in read_edges
+                and len(described) == 1
+                and {records[use].get("consumer") for use in uses}
+                == {described[0].get("consumer")}
+                and described[0].get("producer") == terminals.get(edge.producer)
+                and described[0].get("column") == edge.edge.column,
+                "RETAINED_BLOCK_READ",
+            )
+            read_edges.add(original.use)
         for child, ref in zip(record.get("operands"), inputs, strict=True):
             expression(child, ref, uses)
 
@@ -5332,6 +5409,12 @@ def verify_logical_export(description, checked, references):
             definition.exports, outputs(records[previous]), strict=True
         ):
             ports[original.ref] = described.address
+    need(
+        read_edges == set(block_uses)
+        and sum(r.address.kind == "expression_block_use" for r in records.values())
+        == len(block_uses),
+        "RETAINED_BLOCK_READ_INVENTORY",
+    )
     entry = records[description.query]
     selected = next(
         d for d in plan.bindings.definitions if d.entry.owner is checked.selected_owner

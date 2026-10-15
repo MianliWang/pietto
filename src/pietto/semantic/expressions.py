@@ -103,6 +103,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
+        ast.RelationMembershipExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -493,8 +494,13 @@ def infer_row_expression(
     bare_value_expressions: Mapping[str, Expression] | None = None,
     suppressed_unknown_names: set[str] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    relation_columns: Mapping[Expression, ValueType] | None = None,
 ) -> ValueType:
-    """Infer one row-level expression with optional bare-only local bindings."""
+    """Infer one row-level expression with optional bare-only local bindings.
+
+    ``relation_columns`` holds the known column type of each ``in`` relation
+    read, keyed by its expression; its left value must pair with it.
+    """
 
     return _infer(
         expression,
@@ -507,6 +513,7 @@ def infer_row_expression(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
 
 
@@ -623,6 +630,7 @@ def _infer(
     bare_value_expressions: Mapping[str, Expression] | None = None,
     suppressed_unknown_names: set[str] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    relation_columns: Mapping[Expression, ValueType] | None = None,
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
 
@@ -677,6 +685,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     elif isinstance(expression, ast.RelationExistsExpr):
         # An existence test is never NULL; its relation is resolved, scheduled
@@ -686,6 +695,51 @@ def _infer(
         # A scalar read's type is its read block column's, which only the
         # relation-name owner knows; a caller supplies it in ``value_types``.
         value_type = _UNKNOWN_VALUE_TYPE
+    elif isinstance(expression, ast.RelationMembershipExpr):
+        # The left value is checked here; the read relation is resolved,
+        # scheduled and checked by the relation-name owner, which supplies the
+        # type of its one column in ``relation_columns`` when it is known, and
+        # the pair then follows the literal-list rule. Three-valued IN is NULL
+        # for a NULL left value over a non-empty relation and for a NULL
+        # candidate without a match, so the result is conservatively nullable.
+        left_type = _infer(
+            expression.value,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+            bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
+            suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
+            relation_columns=relation_columns,
+        )
+        column = None if relation_columns is None else relation_columns.get(expression)
+        if column is not None and _is_null_literal(expression.value):
+            # A bare NULL takes the known column's type, as in the literal list.
+            contextual = _contextual_null_literal_types(
+                (expression.value, expression),
+                (left_type, column),
+                value_types,
+                type_expansions,
+            )
+            if contextual is not None:
+                left_type = contextual[0]
+        if left_type.kind is ValueTypeKind.UNKNOWN:
+            value_type = _UNKNOWN_VALUE_TYPE
+        elif (
+            column is not None
+            and _shared_canonical_type((left_type, column), type_expansions) is None
+        ):
+            diagnostics.append(
+                _invalid_operator_operands_diagnostic(
+                    expression, expected="same canonical membership operands"
+                )
+            )
+            value_type = _UNKNOWN_VALUE_TYPE
+        else:
+            value_type = _builtin_value_type("Bool", EffectiveNullability.NULLABLE)
     elif isinstance(expression, IsNullExpr):
         _infer(
             expression.value,
@@ -698,6 +752,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         value_type = _builtin_value_type(
             "Bool",
@@ -715,6 +770,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     elif isinstance(expression, ConditionalExpr):
         value_type = _conditional_value_type(
@@ -728,6 +784,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     elif isinstance(expression, MembershipExpr):
         value_type = _membership_value_type(
@@ -741,6 +798,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     elif isinstance(expression, CastExpr):
         value_type = _cast_value_type(
@@ -754,6 +812,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     elif isinstance(expression, BinaryExpr):
         value_type = _binary_value_type(
@@ -767,6 +826,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     elif isinstance(expression, ComparisonExpr):
         left_type = _infer(
@@ -780,6 +840,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         right_type = _infer(
             expression.right,
@@ -792,6 +853,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         if expression.operator in {"like", "not like"}:
             value_type, expected = resolved_like_value_type(left_type, right_type)
@@ -815,6 +877,7 @@ def _infer(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
     else:
         # Unsupported forms remain opaque so calls and arithmetic are not
@@ -837,6 +900,7 @@ def _unary_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Type one prefix arithmetic expression."""
 
@@ -851,6 +915,7 @@ def _unary_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     if expression.operator == "not" and _is_canonical_builtin(
         operand_type, "Bool", type_expansions
@@ -910,6 +975,7 @@ def _conditional_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Type source-ordered conditional operands with no branch promotion."""
 
@@ -924,6 +990,7 @@ def _conditional_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     condition_type = _infer(
         expression.condition,
@@ -936,6 +1003,7 @@ def _conditional_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     when_false_type = _infer(
         expression.when_false,
@@ -948,6 +1016,7 @@ def _conditional_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     branch_types = _contextual_null_literal_types(
         (expression.when_true, expression.when_false),
@@ -1008,6 +1077,7 @@ def _membership_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Type fixed scalar-list membership while retaining every occurrence."""
 
@@ -1023,6 +1093,7 @@ def _membership_value_type(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         for child in (expression.value, *expression.options)
     )
@@ -1064,6 +1135,7 @@ def _cast_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Admit only the explicit portable Int-to-Float conversion."""
 
@@ -1078,6 +1150,7 @@ def _cast_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     if value_type.kind is ValueTypeKind.UNKNOWN:
         return _UNKNOWN_VALUE_TYPE
@@ -1106,6 +1179,7 @@ def _binary_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Type one arithmetic or Boolean binary expression."""
 
@@ -1120,6 +1194,7 @@ def _binary_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     right_type = _infer(
         expression.right,
@@ -1132,6 +1207,7 @@ def _binary_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     result, expected = resolved_binary_value_type(
         expression.operator, left_type, right_type
@@ -1299,6 +1375,7 @@ def _between_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Type an inclusive between predicate as two bound comparisons."""
 
@@ -1314,6 +1391,7 @@ def _between_value_type(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         for child in (expression.value, expression.lower, expression.upper)
     )
@@ -1344,6 +1422,7 @@ def _call_value_type(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades."""
 
@@ -1360,6 +1439,7 @@ def _call_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
+        relation_columns=relation_columns,
     )
     if function_name in {"coalesce", "nullif"}:
         contextual = _contextual_null_literal_types(
@@ -1714,6 +1794,7 @@ def _call_argument_types(
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
 ) -> tuple[ValueType, ...]:
     if (
         allow_aggregate_projection
@@ -1744,6 +1825,7 @@ def _call_argument_types(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         if is_supported_semantic_aggregate_argument_expression(
             function_name,
@@ -1766,6 +1848,7 @@ def _call_argument_types(
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
+            relation_columns=relation_columns,
         )
         for argument in expression.arguments
     )
@@ -1982,6 +2065,7 @@ def _invalid_operator_operands_diagnostic(
         | BetweenExpr
         | ConditionalExpr
         | MembershipExpr
+        | ast.RelationMembershipExpr
     ),
     *,
     expected: str,
@@ -1993,7 +2077,7 @@ def _invalid_operator_operands_diagnostic(
         operator = "between"
     elif isinstance(expression, ConditionalExpr):
         operator = "conditional"
-    elif isinstance(expression, MembershipExpr):
+    elif isinstance(expression, (MembershipExpr, ast.RelationMembershipExpr)):
         operator = "in" if not expression.negated else "not in"
     else:
         operator = expression.operator

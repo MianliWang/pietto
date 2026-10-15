@@ -22,6 +22,7 @@ from pietto.ast_nodes import (
     MembershipExpr,
     RelationExistsExpr,
     RelationScalarExpr,
+    RelationMembershipExpr,
     NameExpr,
     ParameterRefExpr,
     QueryDef,
@@ -365,6 +366,8 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
     elif isinstance(expression, MembershipExpr):
         children.append(expression.value)
         children.extend(expression.options)
+    elif isinstance(expression, RelationMembershipExpr):
+        children.append(expression.value)
     elif isinstance(expression, CastExpr):
         children.append(expression.value)
     elif isinstance(expression, BinaryExpr):

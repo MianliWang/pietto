@@ -2338,3 +2338,412 @@ def test_each_route_prepares_a_scalar_read_with_its_inner_source(tmp_path, uncon
     assert b"(SELECT `e0`.`c0` FROM `p3` AS `e0`)" in (
         handle._owner.request.artifact.rendered.sql
     )
+
+
+MEMBERSHIP_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table tag_ids:
+    from tags
+    select:
+        id
+
+table flagged_items:
+    let tagged:
+        from tags
+        where id > 2
+        select:
+            tag_id = id
+    from items
+    where id not in tagged
+    select:
+        id = items.id
+        label = items.label
+        flag = 3 in tag_ids
+"""
+
+
+def _members(project, policy="preserve"):
+    return execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="flagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+
+
+def test_a_compiled_membership_read_carries_its_operand_column_and_inner_source(
+    tmp_path,
+):
+    project = let_example(tmp_path, MEMBERSHIP_TAGS)
+    query = _members(project)
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    reads = [r for r in description.records if r.address.kind == "expression_block_use"]
+    operations = [records[r.get("operation")] for r in reads]
+    assert [r.address.position for r in reads] == [0, 1]
+    assert [o.get("operator") for o in operations] == [
+        ("relation_membership", "not_in"),
+        ("relation_membership", "in"),
+    ]
+    assert [o.get("logical") for o in operations] == [("Bool", "nullable")] * 2
+    assert [[a.kind for a in o.get("operands")] for o in operations] == [
+        ["read"],
+        ["literal"],
+    ]
+    # The read compares with column 0 of its single-column producer.
+    assert [r.get("column") for r in reads] == [0, 0]
+    producers = [records[records[r.get("producer")].get("owner")] for r in reads]
+    assert [(p.get("label"), p.get("let")) for p in producers] == [
+        ("tagged", 0),
+        ("tag_ids", None),
+    ]
+    assert sorted(
+        r.get("name") for r in records.values() if r.address.kind == "source"
+    ) == ["items", "tags"]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    first = reads[0]
+    for changed in (
+        # No column, another column, a Boolean that equals 0 and a producer
+        # equal to its consumer are each refused.
+        lambda r: Record(r.address, (*r.values[:3], None)),
+        lambda r: Record(r.address, (*r.values[:3], 1)),
+        lambda r: Record(r.address, (*r.values[:3], False)),
+        lambda r: Record(r.address, (r.values[0], r.values[1], r.values[1], 0)),
+    ):
+        forged = _replaced(
+            description,
+            "expression_block_use",
+            lambda r: changed(r) if r.address == first.address else r,
+        )
+        with pytest.raises(CompiledError):
+            verify_description(forged)
+    # A membership without its left value breaks the operator arity.
+    with pytest.raises(CompiledError):
+        verify_description(
+            _replaced(
+                description,
+                "operation",
+                lambda r: (
+                    Record(r.address, (r.values[0], (), *r.values[2:]))
+                    if r.address == operations[0].address
+                    else r
+                ),
+            )
+        )
+    # The other membership operator describes another consistent query; the
+    # export verifier re-derives it from the live statement and refuses it.
+    flipped = _replaced(
+        description,
+        "operation",
+        lambda r: (
+            Record(r.address, (("relation_membership", "in"), *r.values[1:]))
+            if r.address == operations[0].address
+            else r
+        ),
+    )
+    verify_description(flipped)
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "table",
+        "flagged_items",
+        "postgres",
+        "contract.json",
+        POLICIES["preserve"],
+    )
+    verify_export(description, outcome.artifact)
+    with pytest.raises(CompiledError):
+        verify_export(flipped, outcome.artifact)
+
+
+def test_each_route_prepares_a_membership_read_with_its_inner_source(
+    tmp_path, unconnected
+):
+    query = _members(let_example(tmp_path, MEMBERSHIP_TAGS), policy="bind-safe")
+    sql = query._template.artifact.rendered.sql.decode()
+    assert '"s2"."item_id" NOT IN (SELECT "e0"."c0" FROM "p2" AS "e0")' in sql
+    assert (
+        '(CAST($2 AS pg_catalog.int8) IN (SELECT "e1"."c0" FROM "p0" AS "e1"))' in sql
+    )
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        request = handle._owner.request
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+        assert [s.name for s in request.binding.artifact.request.sources] == [
+            "items",
+            "tags",
+        ]
+
+
+def test_compile_query_refuses_a_two_column_membership_read(tmp_path):
+    text = MEMBERSHIP_TAGS.replace(
+        "        id\n\ntable flagged_items:",
+        "        id\n        label\n\ntable flagged_items:",
+    )
+    assert text != MEMBERSHIP_TAGS
+    with pytest.raises(execution.CompileRejected) as error:
+        _members(let_example(tmp_path, text))
+    document = json.loads(error.value.emission)
+    assert error.value.status == document["status"] == "BLOCKED"
+    # The width of a module table is known before completion: the semantic
+    # check refuses the read at the test.
+    assert [
+        (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+        for d in document["diagnostics"]
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator in: expected a relation with one "
+            "output column",
+            33,
+            16,
+        )
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve", "bind-safe"))
+def test_a_null_left_value_takes_the_read_column_type_through_compile_and_load(
+    tmp_path, unconnected, policy
+):
+    text = MEMBERSHIP_TAGS.replace(
+        "        flag = 3 in tag_ids\n",
+        "        flag = 3 in tag_ids\n        unknown = null not in tag_ids\n",
+    )
+    assert text != MEMBERSHIP_TAGS
+    query = _members(let_example(tmp_path, text), policy)
+    sql = query._template.artifact.rendered.sql.decode()
+    assert '(NULL NOT IN (SELECT "e2"."c0" FROM "p0" AS "e2")) AS "unknown"' in sql
+    bundle = execution.export_bundle(query)
+    records = {r.address: r for r in decode(bundle.payload).records}
+    (read,) = (
+        r
+        for r in records.values()
+        if r.address.kind == "expression_block_use" and r.address.position == 2
+    )
+    (operand,) = records[read.get("operation")].get("operands")
+    assert operand.kind == "null_literal"
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert bound(run(loaded)) == bound(run(query))
+
+
+PAIRED_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table tag_ids:
+    from tags
+    select:
+        id
+
+table tag_labels:
+    from tags
+    select:
+        label
+
+table tag_pairs:
+    from tags
+    select:
+        id
+        label
+
+table flagged_items:
+    from items
+    where id not in tag_ids and exists tag_pairs and exists tag_labels
+    select:
+        id
+        label
+"""
+
+
+def test_a_loaded_membership_read_rederives_its_operand_and_column_pair(tmp_path):
+    """Pinned bytes whose membership operand or producer no longer pairs with
+    one column of its own type are refused before any template exists, as
+    compile_query refuses the written pair; a derivation that skipped the
+    pairing is refused by the independent semantic verifier."""
+    from pietto._project.project_completed_semantics import (
+        CompiledCompletedSemanticResult,
+        derive_compiled_semantics,
+        verify_compiled_semantics,
+    )
+
+    bundle = execution.export_bundle(_members(let_example(tmp_path, PAIRED_TAGS)))
+    description = decode(bundle.payload)
+    by_address = {r.address: r for r in description.records}
+    reads = {
+        by_address[by_address[r.get("producer")].get("owner")].get("label"): r
+        for r in description.records
+        if r.address.kind == "expression_block_use"
+    }
+    membership = reads["tag_ids"]
+    operand = by_address[by_address[membership.get("operation")].get("operands")[0]]
+    (label,) = (
+        p
+        for p in by_address[operand.get("use")].get("ports")
+        if by_address[p].get("logical")[0] == "Text"
+    )
+
+    def forged(kind, changes):
+        return _replaced(description, kind, lambda r: changes.get(r.address, r))
+
+    def swapped(other):
+        """The membership read and an existence read exchange producers."""
+        return forged(
+            "expression_block_use",
+            {
+                membership.address: Record(
+                    membership.address,
+                    (*membership.values[:2], other.get("producer"), 0),
+                ),
+                other.address: Record(
+                    other.address,
+                    (*other.values[:2], membership.get("producer"), None),
+                ),
+            },
+        )
+
+    retyped = forged(
+        "read", {operand.address: Record(operand.address, (label, *operand.values[1:]))}
+    )
+    for changed, expected in (
+        # items.id NOT IN tag_ids becomes items.label NOT IN tag_ids.
+        (retyped, ("PIE-R1004", "COMPILED_OPERATOR_TYPE")),
+        # items.id NOT IN the one Text column of tag_labels.
+        (swapped(reads["tag_labels"]), ("PIE-R1004", "COMPILED_OPERATOR_TYPE")),
+        # A membership read of the two columns of tag_pairs.
+        (swapped(reads["tag_pairs"]), ("PIE-R1008", "COMPILED_EXPRESSION_BLOCK_USE")),
+    ):
+        payload = encode(changed)
+        assert refused(load, bundle, payload, expected_pin=content_pin(payload)) == (
+            expected
+        )
+
+    # The producer exchange changes no scalar record, so the genuine facts on
+    # the forged root form a derivation that skipped only the pairing.
+    def loaded(payload):
+        return loading.load_compiled(
+            payload,
+            expected_pin=content_pin(payload),
+            accepted_producer=description.producer,
+            accepted_compatibility=description.compatibility,
+        )
+
+    root = loaded(encode(swapped(reads["tag_labels"])))
+    genuine = derive_compiled_semantics(loaded(bundle.payload), ())
+    verify_compiled_semantics(genuine)
+    with pytest.raises(CompiledError, match="^COMPILED_SEMANTIC_TYPE$"):
+        verify_compiled_semantics(
+            CompiledCompletedSemanticResult(
+                root,
+                genuine.values,
+                tuple(dataclasses.replace(d, root=root) for d in genuine.declarations),
+                tuple(dataclasses.replace(f, root=root) for f in genuine.facts),
+                genuine.retention,
+            )
+        )
+
+
+CROSS_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table tag_ids:
+    from tags
+    select:
+        id
+
+table tag_count:
+    from tags
+    select:
+        n = count()
+
+table cross_reads:
+"""
+# The read kinds of the stacked slices together: (body, block use operators
+# with their column, in record order).
+CROSS_READS = {
+    "scalar_in_in": (
+        "    from items\n    where scalar tag_count.n in tag_ids\n"
+        "    select:\n        id = items.id\n",
+        [(("relation_membership", "in"), 0), (("scalar", "scalar"), 0)],
+    ),
+    "let_bodies": (
+        "    let a:\n        from tags\n        select:\n            id\n"
+        "    let b:\n        from tags\n        select:\n            n = count()\n"
+        "    let c:\n        from tags\n        select:\n            label\n"
+        "    let d:\n        from tags\n"
+        "        where id in a and exists c and id <= scalar b.n\n"
+        "        select:\n            id\n"
+        "    from items\n    where id not in d\n    select:\n        id = items.id\n",
+        [
+            (("relation_membership", "in"), 0),
+            (("exists", "exists"), None),
+            (("scalar", "scalar"), 0),
+            (("relation_membership", "not_in"), 0),
+        ],
+    ),
+    "computed_group_key": (
+        "    from items\n    let:\n        big = id > 2\n"
+        "    where id in tag_ids and exists tags and id <= scalar tag_count.n\n"
+        "    group by:\n        big\n    select:\n        big\n        n = count()\n",
+        [
+            (("relation_membership", "in"), 0),
+            (("exists", "exists"), None),
+            (("scalar", "scalar"), 0),
+        ],
+    ),
+    # Typed VALUES lets, one of them with no row, read by all three kinds
+    # (the contract's `tags` source is read too).
+    "values": (
+        "    let seed:\n        values(rid: Int not null):\n            1\n"
+        "            2\n"
+        "    let top:\n        values(n: Int not null):\n            5\n"
+        "    let none:\n        values(rid: Int not null)\n"
+        "    from items\n"
+        "    where id in seed and not exists none and id <= scalar top.n\n"
+        "    select:\n        id = items.id\n        tagged = exists tags\n",
+        [
+            (("relation_membership", "in"), 0),
+            (("exists", "exists"), None),
+            (("scalar", "scalar"), 0),
+            (("exists", "exists"), None),
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve", "bind-safe"))
+@pytest.mark.parametrize("shape", tuple(CROSS_READS))
+def test_read_kinds_combine_through_compile_bundle_and_load(
+    tmp_path, unconnected, shape, policy
+):
+    body, expected = CROSS_READS[shape]
+    query = execution.compile_query(
+        let_example(tmp_path, CROSS_TAGS + body),
+        module="main.pietto",
+        kind="table",
+        name="cross_reads",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+    bundle = execution.export_bundle(query)
+    records = {r.address: r for r in decode(bundle.payload).records}
+    assert [
+        (records[r.get("operation")].get("operator"), r.get("column"))
+        for r in sorted(
+            (r for r in records.values() if r.address.kind == "expression_block_use"),
+            key=lambda r: r.address.position,
+        )
+    ] == expected
+    loaded = load(bundle)
+    assert bound(run(loaded)) == bound(run(query))

@@ -109,8 +109,9 @@ def build_project_row_expression_value_types(
 ) -> Mapping[Expression, ValueType]:
     """Infer known row expression value types from a concrete project schema.
 
-    ``read_types`` holds the owner's typed scalar relation reads; the kernel
-    takes each from there and never types a relation read on its own.
+    ``read_types`` holds the owner's typed scalar relation reads and the column
+    type of each ``in`` read; the kernel takes each from there and never types
+    a relation read on its own.
     """
 
     if input_schema.is_unknown:
@@ -131,6 +132,7 @@ def build_project_row_expression_value_types(
             report_unknown_name=not isinstance(expression, NameExpr),
             field_qualifier=relation_qualifier,
             bare_value_types=bare_value_types,
+            relation_columns=read_types,
         )
         if (
             diagnostics

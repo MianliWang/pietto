@@ -46,6 +46,10 @@ VARIANTS = {
     "L_relation_exists": ("kept",),
     # Phase70 S07: closed scalar reads in WHERE.
     "L_relation_scalar": ("kept",),
+    # Phase70 S09: closed `[not] in` reads; one three-valued SELECT table over
+    # empty, duplicated, NULL-only and full candidates, and one WHERE filter
+    # over a closed LIMIT let emitted as a top-level CTE.
+    "L_relation_membership": ("select_truth", "where_limit"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -464,6 +468,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return exists_fixture(target, variant)
     if case == "L_relation_scalar":
         return scalar_fixture(target, variant)
+    if case == "L_relation_membership":
+        return membership_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
@@ -2135,6 +2141,70 @@ def scalar_fixture(target, variant):
         + "query result:\n    from second\n"
         + "    where id2 >= scalar low.k and scalar none.Key is null"
         + " and scalar counted.n == scalar low.k\n"
+        + final
+    )
+    return item
+
+
+# Single-column candidate relations over the flags of `first` (true, true,
+# false, NULL): none, the two duplicated true flags, the NULL flag and all four.
+MEMBERSHIP_CANDIDATES = """query flags:
+    from first
+    select:
+        FlagValue
+query none_flags:
+    from flags
+    where FlagValue and not FlagValue
+    select:
+        FlagValue
+query true_flags:
+    from flags
+    where FlagValue
+    select:
+        FlagValue
+query null_flags:
+    from flags
+    where FlagValue is null
+    select:
+        FlagValue
+"""
+MEMBERSHIP_RELATIONS = {
+    "none": "none_flags",
+    "true": "true_flags",
+    "null": "null_flags",
+    "all": "flags",
+}
+MEMBERSHIP_TRUTH_LABELS = tuple(
+    f"{prefix}_{candidates}"
+    for candidates in ("none", "true", "null", "all")
+    for prefix in ("in", "out")
+)
+
+
+def membership_fixture(target, variant):
+    """M_named_chain/query_bag read through closed `[not] in` relation reads.
+
+    Every candidate relation reads `first`, so no physical scan is added.
+    `select_truth` tests each flag against no, duplicated, NULL-only and all
+    candidates; `where_limit` keeps the rows whose id is not the smallest id,
+    held by a closed LIMIT 1 let that only a top-level CTE carries.
+    """
+    _need(variant in VARIANTS["L_relation_membership"], "unknown membership variant")
+    item = chain_fixture(target, "M_named_chain", "query_bag")
+    head, final = item["source"].split("query result:\n    from second\n", 1)
+    if variant == "select_truth":
+        body = "query result:\n    from second\n    select:\n" + "".join(
+            f"        {label} = flag2 {'in' if label.startswith('in_') else 'not in'}"
+            f" {MEMBERSHIP_RELATIONS[label.split('_', 1)[1]]}\n"
+            for label in MEMBERSHIP_TRUTH_LABELS
+        )
+        item["source"] = head + MEMBERSHIP_CANDIDATES + body
+        return item
+    item["source"] = (
+        head
+        + "query result:\n    let firsts:\n        from first\n"
+        + "        select:\n            Key\n        order by:\n            Key\n"
+        + "        limit 1\n    from second\n    where id2 not in firsts\n"
         + final
     )
     return item
@@ -6042,6 +6112,50 @@ def _decode_fixed_public(document, limits):
                 "use": use,
                 "read": source_body["outgoing"][names.index(column)],
             }
+        if role == "in_open":
+            # Phase70 S09: a three-valued membership in the one column of one
+            # complete named producer terminal; a source target is not part of
+            # this independent grammar.
+            take("syntax", "in_open", "(", original)
+            operand = row_parse(block, port_kind)
+            _, token = take("syntax", "in_operator", subject=original)
+            _need(token in {" IN (", " NOT IN ("}, "membership read spelling")
+            take("syntax", "in_select", "SELECT ", original)
+            use = lexical[cursor][0]["subject"]
+            _need(use["kind"] == "expression_block_use", "membership read use")
+            _, scope = take("identifier", "in_column_scope", subject=use)
+            _need(scope == f"e{use['position']}", "membership read alias")
+            take("syntax", "in_column_qualifier", ".", use)
+            column_token, column = take("identifier", "in_column")
+            take("syntax", "in_from", " FROM ", original)
+            producer = lexical[cursor][0]["subject"]
+            _, name = take("identifier", "in_reference", subject=producer)
+            source_body = row_ctes.get(name)
+            _need(
+                source_body is not None
+                and source_body["block"] == producer
+                and source_body["projection"]
+                and len(source_body["outgoing"]) == 1
+                and column == source_body["outgoing"][0]["name"]
+                and column_token["subject"] == source_body["outgoing"][0]["terminal"],
+                "a membership read compares with the one column of a complete "
+                "definition terminal",
+            )
+            assert source_body is not None
+            take("syntax", "in_alias", " AS ", use)
+            _, alias = take("identifier", "in_scope", subject=use)
+            _need(alias == scope, "membership read scope")
+            closed, _ = take("syntax", "in_close", "))", original)
+            expected_ranges.append(
+                ("relation_membership", original, start, closed["end"])
+            )
+            return {
+                "kind": "relation_membership",
+                "expression": original,
+                "negated": token == " NOT IN (",
+                "operands": [operand],
+                "column": source_body["outgoing"][0]["realization"],
+            }
         _need(role in {"binary_open", "comparison_open"}, "row expression node")
         take("syntax", role, "(", original)
         left = row_parse(block, port_kind)
@@ -6208,6 +6322,51 @@ def _decode_fixed_public(document, limits):
                 "root": original,
                 "operands": [],
                 "kind": "scalar",
+                "strict": False,
+            }
+        if node["kind"] == "relation_membership":
+            # Three-valued membership is nullable; the read precedes its operand.
+            _need(within(cause(original), cause(owner)))
+            slot = len(row_generated)
+            row_generated.append(None)
+            left = row_resolve(
+                node["operands"][0], incoming, alias, owner, scopes, context
+            )
+            column = node["column"]
+            # A finite carrier rule of its own: one tag; Int ranges, Bool 0/1
+            # values or one identical carrier otherwise.
+            _need(
+                left["tag"] == column["tag"]
+                and (
+                    left.get("null")
+                    or left["tag"] == "Int"
+                    and left["storage"]["kind"] in INT_BITS
+                    and column["storage"]["kind"] in INT_BITS
+                    and left["domain"]["kind"]
+                    == column["domain"]["kind"]
+                    == "int_range"
+                    or left["tag"] == "Bool"
+                    and left["domain"] == column["domain"] == {"kind": "bool01"}
+                    or left["storage"] == column["storage"]
+                    and left["domain"] == column["domain"]
+                ),
+                "membership read carrier",
+            )
+            row_generated[slot] = (
+                "relation_membership",
+                ("opaque", "relation_membership"),
+                "R11",
+                row_node_premises(
+                    "Bool", (left["tag"], column["tag"]), "relation_membership"
+                ),
+                None,
+            )
+            row_rules[original["position"]] = "R11"
+            return {
+                **row_bool(True),
+                "root": original,
+                "operands": [left["root"]],
+                "kind": "relation_membership",
                 "strict": False,
             }
         kind = "arithmetic" if node["kind"] == "sign" else node["kind"]

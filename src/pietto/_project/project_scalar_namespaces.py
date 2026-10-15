@@ -537,7 +537,8 @@ def analyze_project_joined_namespace_expression(
 ) -> ProjectJoinedNamespaceExpressionResult:
     """Resolve and type one expression without applying a consumer policy.
 
-    ``read_types`` holds the owner's typed scalar relation reads.
+    ``read_types`` holds the owner's typed scalar relation reads and the column
+    type of each ``in`` read.
     """
 
     if type(namespace) is not ProjectJoinedScalarNamespace:
@@ -590,6 +591,7 @@ def analyze_project_joined_namespace_expression(
             value.occurrence.binding.name: value.value_type
             for value in namespace.let_values
         },
+        relation_columns=read_types,
     )
     retained_diagnostics = tuple(diagnostics)
     if root_value_type.kind is ValueTypeKind.UNKNOWN or any(

@@ -1061,6 +1061,7 @@ def valid_receipts(
                         "L_let_relations",
                         "L_relation_exists",
                         "L_relation_scalar",
+                        "L_relation_membership",
                     }
                     types = (
                         [25, 20, 16, 1700, 701]
@@ -1095,6 +1096,13 @@ def valid_receipts(
                         )
                         names = [str(label) for label in probe.ROW_LABELS]
                         types = cases.row_result_metadata(target)
+                    if (case_id, record["variant"]) == (
+                        "L_relation_membership",
+                        "select_truth",
+                    ):
+                        rows = cases.membership_truth_rows(target)
+                        names = [str(label) for label in probe.MEMBERSHIP_TRUTH_LABELS]
+                        types = [16 if target == "postgres" else 8] * len(names)
                     if record["variant"] == "truth_table":
                         rows = cases.truth_rows(target)
                         names = [str(label) for label in probe.TRUTH_LABELS]
@@ -1680,6 +1688,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "L_emission_blocked",
         "L_let_relations",
         "L_relation_exists",
+        "L_relation_membership",
         "L_relation_scalar",
         "M_metamorphic_composition",
         "M_named_chain",

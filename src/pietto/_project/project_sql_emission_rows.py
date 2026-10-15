@@ -225,15 +225,20 @@ class SQLBlockTarget:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SQLBlockRead:
-    """A read of one whole producer: ``EXISTS (SELECT 1 FROM p AS e)`` for kind
-    ``exists``, or ``(SELECT e.c FROM p AS e)`` of output ``column`` for kind
-    ``scalar``, which is NULL when ``p`` has no row."""
+    """A read of one whole producer through one expression block use.
+
+    ``exists``: ``EXISTS (SELECT 1 FROM p AS e)``. ``scalar``: ``(SELECT e.c
+    FROM p AS e)`` of output ``column``, NULL when ``p`` has no row.
+    ``in``/``not_in``: the three-valued ``(v [NOT] IN (SELECT e.c FROM p AS e))``
+    of its one operand ``v`` over the producer's one output column ``c``.
+    """
 
     original: Any
     target: SQLBlockTarget
     realization: Realization
     kind: str = "exists"
     column: int | None = None
+    operands: tuple[Any, ...] = ()
 
 
 def block_column(target: SQLBlockTarget, column: int) -> tuple[str, Realization] | None:
@@ -255,6 +260,16 @@ def block_column(target: SQLBlockTarget, column: int) -> tuple[str, Realization]
 def scalar_read_realization(read: Realization) -> Realization:
     """A scalar read keeps its column's carrier and is NULL for no row."""
     return Realization(read.tag, read.storage, True, read.domain, read.proven_int_range)
+
+
+def block_read_column(target: SQLBlockTarget) -> tuple[str, Realization] | None:
+    """The name and realization of the one output column a membership read
+    compares with, or None when the producer has not exactly one column."""
+    if target.source is not None:
+        width = len(target.producer.fields)
+    else:
+        width = len(target.producer.columns)
+    return block_column(target, 0) if width == 1 else None
 
 
 def signed_range(storage) -> tuple[int, int] | None:
@@ -683,6 +698,7 @@ CHILD_FIELDS = {
     row.ProjectSQLConditional: ("when_true", "condition", "when_false"),
     row.ProjectSQLMembership: ("value", "options"),
     row.ProjectSQLCast: ("value",),
+    row.ProjectSQLRelationMembership: ("value",),
 }
 
 
@@ -948,6 +964,10 @@ def build_row_value(
         if realization.tag != tag or nullable is not True:
             return None, ("PIE-B1002", "scalar_read_type_mismatch")
         return SQLBlockRead(expression, target, realization, "scalar", column), None
+    if type(expression) is row.ProjectSQLRelationMembership:
+        return _relation_membership(
+            request, columns, expression, tag, nullable, uses, reference_type
+        )
     return None, ("PIE-B1003", "row_expression_not_admitted_in_slice6")
 
 
@@ -1368,6 +1388,37 @@ def _membership(request, columns, expression, tag, nullable, uses, reference_typ
     return SQLOperation(expression, "membership", values, checked), None
 
 
+def _relation_membership(
+    request, columns, expression, tag, nullable, uses, reference_type
+):
+    """``v [NOT] IN`` one whole producer's one column, under the literal-list
+    carrier rule; never folded into options, SEMI/ANTI or COALESCE."""
+    target = columns.get(expression.use)
+    if type(target) is not SQLBlockTarget or target.use.ref is not expression.use:
+        return None, ("PIE-B1001", "expression_block_use_outside_scope")
+    column = block_read_column(target) if target.use.edge.column == 0 else None
+    if column is None:
+        return None, ("PIE-B1003", "relation_membership_width_not_one")
+    value, problem = build_row_value(
+        request, columns, expression.value, uses, reference_type=reference_type
+    )
+    if problem is not None:
+        return None, problem
+    left = realization_of(value, request.family)
+    if left.tag != column[1].tag:
+        return None, ("PIE-B1003", "membership_type_pair_not_admitted")
+    if tag != "Bool" or nullable is not True:
+        return None, ("PIE-B1002", "relation_membership_result_not_nullable_bool")
+    checked, problem = resolved_membership_realization(
+        request.family, tag, nullable, (left, column[1])
+    )
+    if checked is None:
+        assert problem is not None
+        return None, problem
+    kind = "not_in" if expression.expression.negated else "in"
+    return SQLBlockRead(expression, target, checked, kind, 0, (value,)), None
+
+
 def resolved_membership_realization(family, tag, nullable, values):
     if not values or tag != "Bool":
         return None, ("PIE-B1003", "membership_realization_not_admitted")
@@ -1639,6 +1690,16 @@ def resolved_scalar_call_realization(family, symbol, tag, nullable, values):
     return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
 
 
+def block_read_operands(node: SQLBlockRead, family: str) -> tuple[Realization, ...]:
+    """The compared realizations of a membership read; none for the others."""
+    if node.kind not in ("in", "not_in"):
+        return ()
+    column = block_read_column(node.target)
+    if column is None or len(node.operands) != 1:
+        raise ValueError("membership read operands")
+    return realization_of(node.operands[0], family), column[1]
+
+
 def realization_of(value, family: str) -> Realization:
     if type(value) in {
         SQLStageReference,
@@ -1661,8 +1722,18 @@ def rendered_value_nodes(value) -> tuple[Any, ...]:
 
 
 def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
-    if type(value) in {SQLStageReference, SQLBlockRead}:
+    if type(value) is SQLStageReference:
         return (value,)
+    if type(value) is SQLBlockRead:
+        # A membership read renders its operand before the read relation.
+        return (
+            value,
+            *(
+                node
+                for operand in value.operands
+                for node in _value_nodes(operand, render_order=render_order)
+            ),
+        )
     if type(value) is SQLOperation:
         result: list[Any] = [value]
         operands = (
@@ -1680,7 +1751,7 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
 
 
 def operand_refs(value) -> tuple[Any, ...]:
-    if type(value) is SQLOperation:
+    if type(value) in {SQLOperation, SQLBlockRead}:
         return tuple(root_expression(operand).ref for operand in value.operands)
     return ()
 
@@ -1702,7 +1773,7 @@ def requirement_kind(node) -> str:
     if type(node) is SQLParameterRead:
         return "query_parameter"
     if type(node) is SQLBlockRead:
-        return node.kind
+        return "relation_membership" if node.kind in ("in", "not_in") else node.kind
     assert type(node) is SQLOperation
     return {
         "sign": "arithmetic",
@@ -1735,6 +1806,7 @@ REQUIREMENT_RULES = {
     # A block read wraps one complete producer terminal like SEMI/ANTI.
     "exists": "R11",
     "scalar": "R11",
+    "relation_membership": "R11",
 }
 
 
@@ -1761,7 +1833,11 @@ def demand_rule(plan, entry) -> str | None:
         return "R06" if expression.expression.operator in LOGICAL else "R05"
     if type(expression) in R05_OPERATIONS:
         return "R05"
-    if type(expression) in {row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar}:
+    if type(expression) in {
+        row.ProjectSQLRelationExists,
+        row.ProjectSQLRelationScalar,
+        row.ProjectSQLRelationMembership,
+    }:
         return "R11"
     return None
 

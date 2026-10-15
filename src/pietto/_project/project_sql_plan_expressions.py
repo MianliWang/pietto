@@ -94,6 +94,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
+        ast.RelationMembershipExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -322,6 +323,16 @@ class ProjectSQLRelationScalar(ProjectSQLExpressionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLRelationMembership(ProjectSQLExpressionBase):
+    """A three-valued ``[not] in`` test of ``value`` against the one output
+    column of a whole block read through its expression block use."""
+
+    expression: ast.RelationMembershipExpr
+    value: ProjectSQLPlanRef
+    use: ProjectSQLPlanRef
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLCast(ProjectSQLExpressionBase):
     expression: CastExpr
     value: ProjectSQLPlanRef
@@ -350,6 +361,7 @@ type ProjectSQLExpression = (
     | ProjectSQLMembership
     | ProjectSQLRelationExists
     | ProjectSQLRelationScalar
+    | ProjectSQLRelationMembership
     | ProjectSQLCast
     | ProjectSQLScalarCall
     | aggregation.ProjectSQLResultReference
@@ -754,7 +766,7 @@ def scalar_children(expression: Expression) -> tuple[Expression, ...]:
         return expression.when_true, expression.condition, expression.when_false
     if isinstance(expression, MembershipExpr):
         return expression.value, *expression.options
-    if isinstance(expression, CastExpr):
+    if isinstance(expression, (ast.RelationMembershipExpr, CastExpr)):
         return (expression.value,)
     if isinstance(expression, CallExpr):
         return expression.arguments

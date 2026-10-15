@@ -109,6 +109,7 @@ from pietto.ast_nodes import (
     NameExpr,
     OrderItem,
     QueryDef,
+    RelationMembershipExpr,
     RelationScalarExpr,
     SelectItem,
     SourceDef,
@@ -201,6 +202,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
+        ast.RelationMembershipExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -1275,7 +1277,11 @@ class ProjectModuleScalarReadFact:
 
     ``value_type`` is the column's type made NULLABLE, because a read of no row
     is NULL; it is absent when the read block or column is not available, and
-    ``diagnostic`` then names why unless the read block reports it itself.
+    ``diagnostic`` then names why unless the read block reports it itself. A
+    ``value [not] in r`` read is typed the same way by the one column of ``r``
+    it compares with; its only diagnostic is PIE-S2105 for a block whose
+    columns are known and are not exactly one, and a block whose columns are
+    not known before completion leaves it untyped.
     """
 
     read: ProjectResolvedExpressionBlockRead
@@ -1288,10 +1294,9 @@ class ProjectModuleScalarReadFact:
 
     def __post_init__(self) -> None:
         read = self.read
-        if (
-            type(read) is not ProjectResolvedExpressionBlockRead
-            or type(read.read.expression) is not RelationScalarExpr
-        ):
+        if type(read) is not ProjectResolvedExpressionBlockRead or type(
+            read.read.expression
+        ) not in {RelationScalarExpr, RelationMembershipExpr}:
             raise TypeError("Scalar read facts require one exact scalar read.")
         symbol = read.target_symbol
         if self.target is not None and (
@@ -1299,10 +1304,20 @@ class ProjectModuleScalarReadFact:
         ):
             raise ValueError("Scalar read facts must keep the read block.")
         schema = None if self.target is None else _read_block_schema(self.target)
+        fields = {} if schema is None else schema.fields
+        if type(self.expression) is RelationScalarExpr:
+            expected = fields.get(self.expression.column_name)
+        else:
+            if self.diagnostic is not None and (
+                schema is None
+                or len(fields) == 1
+                or self.diagnostic.code != "PIE-S2105"
+            ):
+                raise ValueError("A membership read reports only its known width.")
+            expected = next(iter(fields.values())) if len(fields) == 1 else None
         if (self.value_type is not None) and (
             self.column is None
-            or schema is None
-            or schema.fields.get(self.expression.column_name) != self.column
+            or expected != self.column
             or self.value_type
             != project_row_field_to_semantic_value_type(
                 self.column, ProjectRowFieldNullability.NULLABLE
@@ -1313,8 +1328,10 @@ class ProjectModuleScalarReadFact:
             raise ValueError("A typed scalar read has no diagnostic.")
 
     @property
-    def expression(self) -> RelationScalarExpr:
-        return cast(RelationScalarExpr, self.read.read.expression)
+    def expression(self) -> RelationScalarExpr | RelationMembershipExpr:
+        return cast(
+            RelationScalarExpr | RelationMembershipExpr, self.read.read.expression
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1350,7 +1367,8 @@ class ProjectModuleRelationSemanticFacts:
 
     @property
     def scalar_read_types(self) -> Mapping[Expression, ValueType]:
-        """The typed scalar reads of this owner, for every kernel call over it."""
+        """The typed scalar reads of this owner and the column type of each of
+        its ``in`` reads, for every kernel call over it."""
         return MappingProxyType(
             {
                 item.expression: item.value_type
@@ -2949,10 +2967,12 @@ def _scalar_reads_of(
     owner: ProjectDeclarationOccurrence,
     environment: ProjectModuleRelationResolutionEnvironment,
 ) -> tuple[ProjectResolvedExpressionBlockRead, ...]:
+    """The scalar and ``in`` reads of one owner: each reads a column."""
     return tuple(
         item
         for item in environment.expression_reads
-        if item.read.owner is owner and type(item.read.expression) is RelationScalarExpr
+        if item.read.owner is owner
+        and type(item.read.expression) in {RelationScalarExpr, RelationMembershipExpr}
     )
 
 
@@ -2972,10 +2992,11 @@ def _scalar_read_facts(
     environment: ProjectModuleRelationResolutionEnvironment,
     completed: list[ProjectModuleRelationSemanticFacts],
 ) -> tuple[ProjectModuleScalarReadFact, ...]:
-    """Type each scalar read of one owner by its read block's column."""
+    """Type each scalar or ``in`` read of one owner by its read block's column;
+    an ``in`` read compares with the block's one column."""
     result: list[ProjectModuleScalarReadFact] = []
     for item in _scalar_reads_of(owner, environment):
-        expression = cast(RelationScalarExpr, item.read.expression)
+        expression = item.read.expression
         symbol = item.target_symbol
         target = (
             None
@@ -2984,7 +3005,27 @@ def _scalar_read_facts(
         )
         schema = None if target is None else _read_block_schema(target)
         column = value_type = diagnostic = None
-        if schema is not None:
+        if type(expression) is RelationMembershipExpr:
+            # A block whose columns are known before completion compares with
+            # exactly one of them; any other block is paired at emission.
+            fields = None if schema is None else tuple(schema.fields.values())
+            if fields is not None and len(fields) == 1:
+                column = fields[0]
+                typed = project_row_field_to_semantic_value_type(
+                    column, ProjectRowFieldNullability.NULLABLE
+                )
+                value_type = typed if typed.kind is ValueTypeKind.KNOWN else None
+            elif fields is not None:
+                diagnostic = _scalar_read_diagnostic(
+                    expression,
+                    "PIE-S2105",
+                    "Invalid operands for operator "
+                    f"{'not in' if expression.negated else 'in'}: expected a "
+                    "relation with one output column",
+                )
+        elif type(expression) is not RelationScalarExpr:
+            raise TypeError("Scalar read facts require one exact scalar read.")
+        elif schema is not None:
             column = schema.fields.get(expression.column_name)
             if column is None:
                 diagnostic = _scalar_read_diagnostic(
@@ -3000,8 +3041,9 @@ def _scalar_read_facts(
                 value_type = typed if typed.kind is ValueTypeKind.KNOWN else None
         elif target is not None:
             # A read block whose row is not concrete here (a set, an authored
-            # JOIN, a relation over one, or one whose own errors leave its row
-            # unknown) has no column type, so the read is never left untyped.
+            # JOIN, a relation over one of them or a VALUES body, or one whose
+            # own errors leave its row unknown) has no column type, so the read
+            # is never left untyped.
             diagnostic = _scalar_read_diagnostic(
                 expression,
                 "PIE-S2348",
@@ -3038,7 +3080,7 @@ def _read_block_schema(
 
 
 def _scalar_read_diagnostic(
-    expression: RelationScalarExpr, code: str, message: str
+    expression: RelationScalarExpr | RelationMembershipExpr, code: str, message: str
 ) -> Diagnostic:
     span = expression.span
     return Diagnostic(
@@ -3543,6 +3585,7 @@ def _select_facts(
                 report_unknown_name=True,
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_values,
+                relation_columns=read_types,
             )
             retained_types = failed_types
         output_name = _projection_output_name(item)
@@ -3641,6 +3684,7 @@ def _where_fact(
         report_unknown_name=True,
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
+        relation_columns=read_types,
     )
     diagnostic = _check_bool_expression(
         clause.expression, context="where clause", expression_value_types=value_types
@@ -3848,7 +3892,7 @@ def _direct_name_leaves(
         )
     elif isinstance(expression, MembershipExpr):
         children = (expression.value, *expression.options)
-    elif isinstance(expression, CastExpr):
+    elif isinstance(expression, (ast.RelationMembershipExpr, CastExpr)):
         children = (expression.value,)
     elif isinstance(expression, BinaryExpr):
         children = (expression.left, expression.right)

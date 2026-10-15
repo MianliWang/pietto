@@ -576,6 +576,8 @@ def chain_rows(target, *, empty=False):
 FILTERED_VARIANTS = {
     ("L_emission_blocked", "where_later"),
     ("O_named_later", "producer_filter"),
+    # `id not in` the smallest id (0) keeps exactly the positive ids.
+    ("L_relation_membership", "where_limit"),
 }
 
 
@@ -903,6 +905,47 @@ def _bool(target, value):
     if target == "postgres":
         return {"kind": "bool", "value": value}
     return {"kind": "int", "value": "1" if value else "0"}
+
+
+# The chain rows' flags in authored order and each candidate relation of
+# L_relation_membership/select_truth, stated from the fixture, never from SQL.
+MEMBERSHIP_FLAGS = ("true", "true", "false", "null")
+MEMBERSHIP_CANDIDATES = {
+    "none": (),
+    "true": ("true", "true"),
+    "null": ("null",),
+    "all": MEMBERSHIP_FLAGS,
+}
+NOT_TABLE = {"true": "false", "false": "true", "null": "null"}
+
+
+def _membership(value, candidates):
+    """SQL three-valued `IN` as its finite rules: no candidate is false; a
+    non-NULL match is true; otherwise a NULL left value or a NULL candidate is
+    unknown, and anything else is false."""
+    if not candidates:
+        return "false"
+    if value != "null" and any(value == item for item in candidates):
+        return "true"
+    if value == "null" or any(item == "null" for item in candidates):
+        return "null"
+    return "false"
+
+
+def membership_truth_rows(target):
+    """Explicit three-valued `[not] in` table over the chain rows' flags."""
+
+    def flag(name):
+        return _bool(target, None if name == "null" else name == "true")
+
+    rows = []
+    for value in MEMBERSHIP_FLAGS:
+        row = []
+        for label in emission.MEMBERSHIP_TRUTH_LABELS:
+            result = _membership(value, MEMBERSHIP_CANDIDATES[label.split("_", 1)[1]])
+            row.append(flag(result if label.startswith("in_") else NOT_TABLE[result]))
+        rows.append(row)
+    return rows
 
 
 def _decimal(value: str) -> dict[str, str]:
@@ -1561,6 +1604,24 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ):
             raise ValueError("between typed BAG or metadata mismatch")
         return
+    if (case_id, variant_name) == ("L_relation_membership", "select_truth"):
+        expected_rows = membership_truth_rows(target)
+        # BAG multiplicity, not order: this query authors no ordering.
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("three-valued membership table mismatch")
+        labels = emission.MEMBERSHIP_TRUTH_LABELS
+        metadata = observation["metadata"]
+        if [m[0] for m in metadata] != list(labels) or [m[1] for m in metadata] != [
+            16 if target == "postgres" else 8
+        ] * len(labels):
+            raise ValueError("membership positional physical metadata mismatch")
+        if [(c["label"], c["logical_type"]["name"]) for c in document["columns"]] != [
+            (label, "Bool") for label in labels
+        ]:
+            raise ValueError("membership positional logical metadata mismatch")
+        return
     if variant_name == "truth_table":
         expected_rows = truth_rows(target)
         # BAG multiplicity, not order: this query authors no ordering.
@@ -1723,6 +1784,7 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         "L_let_relations",
         "L_relation_exists",
         "L_relation_scalar",
+        "L_relation_membership",
     }
     expected_rows = (chain_rows if named else emission_rows)(
         target, empty=variant_name == "empty"

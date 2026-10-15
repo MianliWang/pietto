@@ -249,6 +249,7 @@ class _Export:
             MembershipExpr,
             BetweenExpr,
             CallExpr,
+            RelationMembershipExpr,
         )
 
         parents = {
@@ -260,6 +261,7 @@ class _Export:
             CallExpr: "call",
             ConditionalExpr: "conditional",
             MembershipExpr: "membership",
+            RelationMembershipExpr: "relation_membership",
             CastExpr: "cast",
         }
         for index, site in enumerate(plan.literal_sites):
@@ -377,13 +379,14 @@ class _Export:
         self.anchor(value.original.ref, address)
         return address
 
-    def block_read(self, value, use):
-        """A block read operation and the expression block use it executes."""
+    def block_read(self, value, producer, use):
+        """A block read operation and the expression block use it executes; a
+        membership operation's one operand is its left value."""
         target = value.target
         if (
             use is None
             or type(target) is not rows.SQLBlockTarget
-            or value.kind not in ("exists", "scalar")
+            or value.kind not in ("exists", "scalar", "in", "not_in")
         ):
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
         if self.block_uses is None:
@@ -402,8 +405,10 @@ class _Export:
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
         operation = self.add(
             "operation",
-            (value.kind, value.kind),
-            (),
+            (value.kind, value.kind)
+            if value.kind in ("exists", "scalar")
+            else ("relation_membership", value.kind),
+            tuple(self.scalar(v, producer, use) for v in value.operands),
             _logical(value.original.value_type),
             None,
         )
@@ -422,7 +427,7 @@ class _Export:
         if type(value) is rows.SQLBlockRead:
             if join_inputs is not None:
                 raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
-            return self.block_read(value, use)
+            return self.block_read(value, producer, use)
         if type(value) is rows.SQLStageReference:
             if join_inputs is not None:
                 matches = tuple(
@@ -1555,15 +1560,55 @@ class _LogicalExport(_Export):
             )
         elif type(original) is expressions.ProjectSQLCast:
             token, children = ("cast", "int_to_float"), (original.value,)
+        elif type(original) is expressions.ProjectSQLRelationExists:
+            token, children = ("exists", "exists"), ()
+        elif type(original) is expressions.ProjectSQLRelationScalar:
+            token, children = ("scalar", "scalar"), ()
+        elif type(original) is expressions.ProjectSQLRelationMembership:
+            token, children = (
+                (
+                    "relation_membership",
+                    "not_in" if original.expression.negated else "in",
+                ),
+                (original.value,),
+            )
         else:
             raise CompiledError("COMPILED_RETAINED_EXPRESSION")
-        return self.add(
+        operation = self.add(
             "operation",
             token,
             tuple(self.expression(c, uses) for c in children),
             _logical(original.value_type),
             None,
         )
+        if isinstance(
+            original,
+            (
+                expressions.ProjectSQLRelationExists,
+                expressions.ProjectSQLRelationScalar,
+                expressions.ProjectSQLRelationMembership,
+            ),
+        ):
+            # The read's actual plan edge names its whole producer block and
+            # read column; the consumer is the relation these uses enter.
+            edges = tuple(
+                u for u in self.plan.expression_block_uses if u.ref is original.use
+            )
+            consumers = {self.records[use].get("consumer") for use in uses}
+            if (
+                len(edges) != 1
+                or len(consumers) != 1
+                or edges[0].producer not in self.terminals
+            ):
+                raise CompiledError("COMPILED_RETAINED_BLOCK_READ")
+            self.add(
+                "expression_block_use",
+                operation,
+                consumers.pop(),
+                self.terminals[edges[0].producer],
+                edges[0].edge.column,
+            )
+        return operation
 
     def inputs(self, address, producers):
         return tuple(
@@ -2441,6 +2486,13 @@ def merge_retained_components(components, requests):
                             keys[child] = ("child", parent, name, path, child.kind)
                         if child not in visited:
                             pending.append((child, keys[child]))
+        for record in records.values():
+            if record.address.kind == "expression_block_use":
+                # Exactly one block use names each read operation occurrence.
+                keys[record.address] = (
+                    "expression_block_use",
+                    keys[record.get("operation")],
+                )
         kept = tuple(
             r
             for r in records.values()

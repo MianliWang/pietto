@@ -850,12 +850,16 @@ def _authored_relation_reads(definition: object) -> tuple[object, ...]:
 
 
 def _read_column(expression: object, output: object) -> int | None:
-    """A scalar read's one named output column; an existence read has none."""
+    """A scalar read's one named output column, a membership read's sole
+    column; an existence read has none."""
     if type(expression) is RelationExistsExpr or output is None:
         return None
+    fields = cast(Any, output).row_shape.fields
+    if type(expression) is RelationMembershipExpr:
+        return 0 if len(fields) == 1 else None
     if type(expression) is not RelationScalarExpr:
         return -1
-    names = [item.evidence.name for item in cast(Any, output).row_shape.fields]
+    names = [item.evidence.name for item in fields]
     if names.count(expression.column_name) != 1:
         return None
     return names.index(expression.column_name)

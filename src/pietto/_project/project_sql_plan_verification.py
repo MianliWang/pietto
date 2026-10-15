@@ -163,6 +163,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.MembershipExpr,
         ast_nodes.RelationExistsExpr,
         ast_nodes.RelationScalarExpr,
+        ast_nodes.RelationMembershipExpr,
         ast_nodes.CastExpr,
         ast_nodes.BinaryExpr,
         ast_nodes.ComparisonExpr,
@@ -2591,14 +2592,22 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
 
 
 def _block_read_type(value, edge) -> ValueType | None:
-    """An existence read is a non-NULL Bool; a scalar read is its read
-    column's type made NULLABLE, since a read of no row is NULL."""
+    """An existence read is a non-NULL Bool; a three-valued membership read
+    is a NULLABLE Bool; a scalar read is its read column's type made NULLABLE,
+    since a read of no row is NULL."""
     if isinstance(value, row.ProjectSQLRelationExists):
         return (
             value.value_type
             if edge.column is None
             and value.value_type.resolved_type.name == "Bool"
             and value.value_type.nullability is EffectiveNullability.NON_NULL
+            else None
+        )
+    if isinstance(value, row.ProjectSQLRelationMembership):
+        return (
+            value.value_type
+            if value.value_type.resolved_type.name == "Bool"
+            and value.value_type.nullability is EffectiveNullability.NULLABLE
             else None
         )
     if edge.column is None or edge.output is None:
@@ -2627,6 +2636,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         MembershipExpr: row.ProjectSQLMembership,
         ast_nodes.RelationExistsExpr: row.ProjectSQLRelationExists,
         ast_nodes.RelationScalarExpr: row.ProjectSQLRelationScalar,
+        ast_nodes.RelationMembershipExpr: row.ProjectSQLRelationMembership,
         CastExpr: row.ProjectSQLCast,
     }
     read_uses: list[object] = []
@@ -2701,7 +2711,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = (node.when_true, node.condition, node.when_false)
             elif isinstance(node, MembershipExpr):
                 children = (node.value, *node.options)
-            elif isinstance(node, CastExpr):
+            elif isinstance(node, (CastExpr, ast_nodes.RelationMembershipExpr)):
                 children = (node.value,)
             elif isinstance(
                 node,
@@ -3055,7 +3065,12 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 if value.value is not children[0]:
                     return False
             elif isinstance(
-                value, (row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar)
+                value,
+                (
+                    row.ProjectSQLRelationExists,
+                    row.ProjectSQLRelationScalar,
+                    row.ProjectSQLRelationMembership,
+                ),
             ):
                 # The read names exactly the block use retained for this node,
                 # consumed by this site's own definition, in WHERE or SELECT.
@@ -3088,7 +3103,12 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 ):
                     return False
                 read_uses.append(block_use)
-                children = ()
+                if isinstance(value, row.ProjectSQLRelationMembership):
+                    children = (local[id(node.value)].ref,)
+                    if value.value is not children[0]:
+                        return False
+                else:
+                    children = ()
             else:
                 children = (
                     local[id(node.value)].ref,
@@ -3246,7 +3266,12 @@ def _row_origins_and_demands(plan):
             )
             else (value.use,)
             if isinstance(
-                value, (row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar)
+                value,
+                (
+                    row.ProjectSQLRelationExists,
+                    row.ProjectSQLRelationScalar,
+                    row.ProjectSQLRelationMembership,
+                ),
             )
             else ()
         )
@@ -5679,6 +5704,7 @@ def _literal_schema(plan, policy):
                 BetweenExpr,
                 ConditionalExpr,
                 MembershipExpr,
+                ast_nodes.RelationMembershipExpr,
                 CastExpr,
             )
             for parent, _ in position.ancestry

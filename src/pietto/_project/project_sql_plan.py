@@ -138,6 +138,7 @@ from pietto.ast_nodes import (
     QueryDef,
     RelationExistsExpr,
     RelationScalarExpr,
+    RelationMembershipExpr,
     SelectItem,
     SetRelationDef,
     SetOperationBody,
@@ -840,7 +841,9 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
 
 
 # Expression nodes that read a whole block through an expression block use.
-_BLOCK_READS = frozenset({RelationExistsExpr, RelationScalarExpr})
+_BLOCK_READS = frozenset(
+    {RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr}
+)
 
 
 def _site_block_reads(sites) -> frozenset[int]:
@@ -2583,7 +2586,9 @@ def build_project_sql_plan(
                     value=children[0],
                     options=children[1:],
                 )
-            elif isinstance(node, (RelationExistsExpr, RelationScalarExpr)):
+            elif isinstance(
+                node, (RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr)
+            ):
                 block_use = block_uses_by_expression.get(id(node))
                 if (
                     block_use is None
@@ -2599,12 +2604,21 @@ def build_project_sql_plan(
                         value_type=value_type,
                         use=block_use.ref,
                     )
-                else:
+                elif isinstance(node, RelationScalarExpr):
                     value = row.ProjectSQLRelationScalar(
                         ref=node_ref,
                         site=site,
                         expression=node,
                         value_type=value_type,
+                        use=block_use.ref,
+                    )
+                else:
+                    value = row.ProjectSQLRelationMembership(
+                        ref=node_ref,
+                        site=site,
+                        expression=node,
+                        value_type=value_type,
+                        value=children[0],
                         use=block_use.ref,
                     )
             elif isinstance(node, CastExpr):
@@ -3695,7 +3709,12 @@ def build_project_sql_plan(
             )
             else (value.use,)
             if isinstance(
-                value, (row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar)
+                value,
+                (
+                    row.ProjectSQLRelationExists,
+                    row.ProjectSQLRelationScalar,
+                    row.ProjectSQLRelationMembership,
+                ),
             )
             else ()
         )
