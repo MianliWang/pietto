@@ -36,6 +36,7 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockAnalysisBundle,
 )
 from pietto._project.project_query_block_ir import (
+    ProjectIRCaptureStage,
     ProjectIRCompletedSetOperationOutput,
     ProjectIRCompletedValuesOutput,
     ProjectIRCompletedQueryBlockOutput,
@@ -68,6 +69,7 @@ from pietto._project.project_sql_plan import (
     ProjectSQLInputUse,
     ProjectSQLBoundary,
     ProjectSQLBoundaryReason,
+    ProjectSQLCapture,
     ProjectSQLExpressionBlockUse,
     ProjectSQLSymbol,
     ProjectSQLSymbolNamespace,
@@ -164,6 +166,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.RelationExistsExpr,
         ast_nodes.RelationScalarExpr,
         ast_nodes.RelationMembershipExpr,
+        ast_nodes.CapturedFieldExpr,
         ast_nodes.CastExpr,
         ast_nodes.BinaryExpr,
         ast_nodes.ComparisonExpr,
@@ -2055,9 +2058,12 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         (plan.filters, row.ProjectSQLFilter, K.FILTER),
         (plan.projections, ProjectSQLProjection, K.PROJECTION),
         (plan.operands, row.ProjectSQLExpressionOperand, K.OPERAND),
+        (plan.captures, ProjectSQLCapture, K.CAPTURE),
     ):
         if not _inventory(values, cls, plan.scope, kind):
             return (Issue.STRUCTURE,)
+    if not _capture_inventory(plan):
+        return (Issue.STRUCTURE,)
     if type(plan.expressions) is not tuple or any(
         not _ref(e.ref, plan.scope, K.EXPRESSION, i)
         for i, e in enumerate(plan.expressions)
@@ -2620,6 +2626,52 @@ def _block_read_type(value, edge) -> ValueType | None:
     )
 
 
+def _capture_inventory(plan) -> bool:
+    """One capture record per imaged capture of the statement, in IR order."""
+    root = plan.scope.analysis_bundle.root
+    owners = {id(d.entry.owner): d.ref for d in plan.bindings.definitions}
+    expected = tuple(
+        edge
+        for edge in root.capture_uses
+        if id(edge.capture.inner) in owners and id(edge.capture.outer) in owners
+    )
+    return len(plan.captures) == len(expected) and all(
+        capture.edge is edge
+        and capture.inner is owners[id(edge.capture.inner)]
+        and capture.outer is owners[id(edge.capture.outer)]
+        and type(capture.ports) is tuple
+        and len(capture.ports) == len(edge.fields)
+        for capture, edge in zip(plan.captures, expected, strict=True)
+    )
+
+
+def _capture_ports(edge, incoming) -> tuple | None:
+    """The read site's own image of one capture's outer row ports."""
+    fields = edge.checkpoint.output.row_shape.fields
+    result = []
+    for position in edge.fields:
+        if edge.checkpoint.stage is ProjectIRCaptureStage.INPUT:
+            if not 0 <= position < len(incoming):
+                return None
+            port = incoming[position]
+            if getattr(port.key, "name", None) != fields[position].evidence.name:
+                return None
+        else:
+            matches = tuple(
+                item
+                for item in incoming
+                if getattr(item.key, "position", None) == position
+                and getattr(item.key, "evidence", None) is fields[position].evidence
+            )
+            if len(matches) != 1:
+                return None
+            port = matches[0]
+        if port.kind is not row.ProjectSQLStagePortKind.INPUT:
+            return None
+        result.append(port.ref)
+    return tuple(result)
+
+
 def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
     position = operand_position = 0
     variants = {
@@ -2637,9 +2689,11 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         ast_nodes.RelationExistsExpr: row.ProjectSQLRelationExists,
         ast_nodes.RelationScalarExpr: row.ProjectSQLRelationScalar,
         ast_nodes.RelationMembershipExpr: row.ProjectSQLRelationMembership,
+        ast_nodes.CapturedFieldExpr: row.ProjectSQLCapturedField,
         CastExpr: row.ProjectSQLCast,
     }
     read_uses: list[object] = []
+    read_captures: list[object] = []
     roles = {
         row.ProjectSQLExpressionRole.LET: ProjectModuleFactOccurrenceRole.LET_VALUE,
         row.ProjectSQLExpressionRole.SELECT: ProjectModuleFactOccurrenceRole.SELECT_VALUE,
@@ -2721,6 +2775,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     DottedNameExpr,
                     ast_nodes.RelationExistsExpr,
                     ast_nodes.RelationScalarExpr,
+                    ast_nodes.CapturedFieldExpr,
                 ),
             ):
                 children = ()
@@ -3103,12 +3158,57 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 ):
                     return False
                 read_uses.append(block_use)
+                # A read of a capturing let completes each of its capture
+                # records with this block's own outer row ports.
+                for capture in plan.captures:
+                    if capture.edge.checkpoint.read is not block_use.edge:
+                        continue
+                    if (
+                        capture.read is not value.ref
+                        or capture.block is not site.block
+                        or capture.outer is not consumer
+                        or capture.ports != _capture_ports(capture.edge, incoming)
+                    ):
+                        return False
+                    read_captures.append(capture)
                 if isinstance(value, row.ProjectSQLRelationMembership):
                     children = (local[id(node.value)].ref,)
                     if value.value is not children[0]:
                         return False
                 else:
                     children = ()
+            elif isinstance(value, row.ProjectSQLCapturedField):
+                # The read names the imaged capture of its own let's line and
+                # the one outer row field of that line with its name.
+                captured = next(
+                    (
+                        item
+                        for item in plan.scope.analysis_bundle.root.captured_fields
+                        if item.expression is node
+                    ),
+                    None,
+                )
+                capture = next(
+                    (c for c in plan.captures if c.ref is value.capture), None
+                )
+                if (
+                    captured is None
+                    or capture is None
+                    or capture.edge is not captured.capture
+                    or capture.use.inner is not site.owner
+                    or capture.use.ordinal != node.ordinal
+                    or type(value.position) is not int
+                    or value.position != captured.position
+                    or value.position not in capture.edge.fields
+                    or not isinstance(site, row.ProjectSQLExpressionSite)
+                    or site.role
+                    not in {
+                        row.ProjectSQLExpressionRole.WHERE,
+                        row.ProjectSQLExpressionRole.SELECT,
+                    }
+                ):
+                    return False
+                children = ()
             else:
                 children = (
                     local[id(node.value)].ref,
@@ -3134,10 +3234,16 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     return False
         if next(references, None) is not None:
             return False
-    # Every retained expression block use is read by exactly one expression.
+    # Every retained expression block use is read by exactly one expression,
+    # and every capture record is completed by its let's single read.
     if len(read_uses) != len(plan.bindings.expression_block_uses) or {
         id(u) for u in read_uses
     } != {id(u) for u in plan.bindings.expression_block_uses}:
+        return False
+    captures = getattr(plan, "captures", ())
+    if len(read_captures) != len(captures) or {id(c) for c in read_captures} != {
+        id(c) for c in captures
+    }:
         return False
     return position == len(plan.expressions) and operand_position == len(plan.operands)
 
@@ -3273,6 +3379,8 @@ def _row_origins_and_demands(plan):
                     row.ProjectSQLRelationMembership,
                 ),
             )
+            else (value.capture,)
+            if isinstance(value, row.ProjectSQLCapturedField)
             else ()
         )
         specs.append(
@@ -3284,6 +3392,18 @@ def _row_origins_and_demands(plan):
                 value.expression,
                 value.value_type,
                 (value.site.ref, *dependencies),
+            )
+        )
+    for capture in plan.captures:
+        specs.append(
+            (
+                capture.ref,
+                R.CAPTURE,
+                P.GENERATED_STRUCTURE,
+                capture.use.inner,
+                capture.use.clause,
+                capture.use,
+                (capture.read, *capture.ports),
             )
         )
     for operand in plan.operands:

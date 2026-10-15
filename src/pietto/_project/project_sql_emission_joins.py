@@ -146,6 +146,7 @@ def admitted_join_shape(plan, *, _guarded=None) -> bool:
             row.ProjectSQLRelationExists,
             row.ProjectSQLRelationScalar,
             row.ProjectSQLRelationMembership,
+            row.ProjectSQLCapturedField,
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }

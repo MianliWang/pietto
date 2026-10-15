@@ -6,8 +6,12 @@ from dataclasses import replace
 from pathlib import Path
 
 import pietto.parser_api as parser_api
-from pietto._syntax_admission import unadmitted_syntax_diagnostics
+from pietto._syntax_admission import (
+    source_order,
+    unadmitted_syntax_diagnostics,
+)
 from pietto._project.query_parameters import query_parameter_diagnostics
+from pietto._project.relation_captures import capture_diagnostics
 from pietto._project.config import load_project_config
 from pietto._project.module_carrier import (
     ProjectCompilationMode,
@@ -195,8 +199,20 @@ def _parse_selected_input(
         *(
             _with_project_relative_path(diagnostic, selected_input.identity.path)
             for diagnostic in (
-                *unadmitted_syntax_diagnostics(
-                    parse_result.ast, explicit_modules=explicit_modules
+                # Capture refusals are pre-admission diagnostics: one source
+                # order with the gate's, then the header checks.
+                *sorted(
+                    (
+                        *unadmitted_syntax_diagnostics(
+                            parse_result.ast, explicit_modules=explicit_modules
+                        ),
+                        *(
+                            capture_diagnostics(parse_result.ast)
+                            if explicit_modules
+                            else ()
+                        ),
+                    ),
+                    key=source_order,
                 ),
                 *(
                     query_parameter_diagnostics(parse_result.ast)

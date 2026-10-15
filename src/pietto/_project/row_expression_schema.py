@@ -79,6 +79,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.IsNullExpr,
         ast.WindowExpr,
         ast.ParameterRefExpr,
+        ast.CapturedFieldExpr,
     }
 )
 

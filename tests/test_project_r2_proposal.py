@@ -507,8 +507,18 @@ table result:
     ]
 
 
+# A capture-free let and (Phase70 S10) a let with a capture line, inline at its
+# read; both are read only by EXISTS.
+EXISTS_LETS = {
+    "let": "        from tags\n",
+    "captured": "        capture items\n        from tags\n"
+    "        where tags.label == items.label\n",
+}
+
+
+@pytest.mark.parametrize("let", sorted(EXISTS_LETS))
 def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, let
 ):
     import _pietto_execution_api as api
     from pietto._project.project_execution_template import bind_values
@@ -519,8 +529,9 @@ def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
     main.write_text(
         main.read_text(encoding="utf-8")
         + 'source tags: Item is postgres.table("fixture.tags")\n'
-        "table flagged_items:\n    let tagged:\n        from tags\n"
-        "        select:\n            tag_id = id\n    from items\n"
+        "table flagged_items:\n    let tagged:\n"
+        + EXISTS_LETS[let]
+        + "        select:\n            tag_id = id\n    from items\n"
         "    where exists tagged\n    select:\n        id = items.id\n",
         encoding="utf-8",
     )

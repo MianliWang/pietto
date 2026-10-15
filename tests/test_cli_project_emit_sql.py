@@ -391,6 +391,37 @@ def test_existence_reads_emit_through_the_project_command(
     assert document["sql"].count("EXISTS (SELECT 1 FROM ") == 2
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_correlated_existence_read_emits_through_the_project_command(
+    tmp_path: Path, target: str
+) -> None:
+    # Phase70 S10: the let with a capture line is the derived relation of its
+    # own read, correlated to the reading body's FROM row.
+    item = probe.join_witness(
+        target,
+        "query result:\n    let matched:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key and rhs.id > 0\n        select:\n"
+        "            id\n    from lhs\n    where exists matched\n    select:\n"
+        "        a = lhs.id\n",
+        policy="bind_safe_literals",
+    )
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    for file, content in probe.source_files(item["source"]).items():
+        (root / file).write_text(content, encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    expected = api_bytes(tmp_path, item)
+    arguments = argv(root, target, kind="query", literal_policy="bind-safe")
+    assert run(arguments) == (0, expected, "")
+    document = json.loads(expected)
+    quote = '"' if target == "postgres" else "`"
+    outer = f"{quote}s1{quote}.{quote}key value{quote}"
+    assert document["status"] == "VERIFIED" and len(document["parameter_uses"]) == 1
+    assert document["sql"].count("EXISTS (SELECT 1 FROM (SELECT ") == 1
+    assert document["sql"].count(outer) == 2
+
+
 # --- contract read boundary ------------------------------------------------------
 
 
@@ -638,11 +669,11 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             "PIE-S2105",
         ),
         (
-            "unadmitted_sibling_let_capture",
+            "unadmitted_sibling_let_table_function",
             "table result:\n    from rows\n    select:\n        id\n"
-            "query other:\n    let l:\n        capture rows\n        from rows\n"
-            "        select:\n            id\n    from l\n    select:\n        id\n",
-            "PIE-S2351",
+            "query other:\n    let l:\n        from generate_series(1, 3, 1) as n\n"
+            "        select:\n            n\n    from l\n    select:\n        n\n",
+            "PIE-S2352",
         ),
     ):
         root, item = project(tmp_path, target, name=name)
@@ -655,7 +686,7 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             d["code"].startswith(prefix) and d["severity"] == "error"
             for d in document["diagnostics"]
         )
-        if prefix in ("PIE-S2105", "PIE-S2351"):
+        if prefix in ("PIE-S2105", "PIE-S2352"):
             assert len(document["diagnostics"]) == 1
         assert probe.decode_public(out)["blockers"] == []
         code, out, err = run(argv(root, target, format="text"))

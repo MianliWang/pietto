@@ -55,7 +55,14 @@ from pietto._project.module_carrier import (
 )
 from pietto._project.module_catalog import (
     ProjectDeclarationOccurrence,
+    ProjectModuleCatalog,
     ProjectModuleCatalogSet,
+)
+from pietto._project.relation_captures import (
+    captured_field_diagnostic,
+    captured_field_reads,
+    null_extended_bindings,
+    outer_row_bindings,
 )
 from pietto._project.module_relation_resolution import (
     ProjectModuleRelationResolutionEnvironment,
@@ -95,6 +102,8 @@ from pietto._window_identity import WindowFunctionIdentity
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    BlockRelationDef,
+    CapturedFieldExpr,
     CastExpr,
     CallExpr,
     ConditionalExpr,
@@ -104,6 +113,7 @@ from pietto.ast_nodes import (
     GroupByItem,
     IsNullExpr,
     LetBinding,
+    LetRelationDef,
     LiteralExpr,
     MembershipExpr,
     NameExpr,
@@ -146,7 +156,13 @@ from pietto.semantic.capability_signatures import _CAPABILITY_SIGNATURE_FACTS
 from pietto.semantic.capability_windows import _WINDOW_CAPABILITY_FACTS
 from pietto.semantic.generic_compatibility import GenericSignature
 from pietto.semantic.model import RowSchema as SemanticRowSchema
-from pietto.semantic.model import ValueType, ValueTypeKind
+from pietto.semantic.model import (
+    EffectiveNullability,
+    ResolvedType,
+    TypeKind,
+    ValueType,
+    ValueTypeKind,
+)
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.predicate_checks import _check_bool_expression
 from pietto.semantic.nullability_formulas import SignatureResultFormula
@@ -210,10 +226,16 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.IsNullExpr,
         ast.WindowExpr,
         ast.ParameterRefExpr,
+        ast.CapturedFieldExpr,
     }
 )
 
 _DerivedRelation = TableDef | QueryDef
+# One let's capture environment: a type per captured field read, or the
+# diagnostic of a field its captured outer input lacks.
+type _CaptureEnvironment = Mapping[CapturedFieldExpr, ValueType | Diagnostic]
+_NO_CAPTURES: _CaptureEnvironment = MappingProxyType({})
+_CAPTURE_PENDING = object()
 _RelationDefinition = (
     SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
 )
@@ -1365,6 +1387,9 @@ class ProjectModuleRelationSemanticFacts:
     ] = ()
     scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = ()
 
+    captured_value_types: _CaptureEnvironment = _NO_CAPTURES
+    """The capture environment of a let with capture lines, else empty."""
+
     @property
     def scalar_read_types(self) -> Mapping[Expression, ValueType]:
         """The typed scalar reads of this owner and the column type of each of
@@ -1383,6 +1408,15 @@ class ProjectModuleRelationSemanticFacts:
         _require_tuple(self.scalar_reads, ProjectModuleScalarReadFact, "Scalar reads")
         if any(item.read.read.owner is not self.owner for item in self.scalar_reads):
             raise ValueError("Scalar read facts must belong to their owner.")
+        let = self.owner.authored_block
+        if type(self.captured_value_types) is not MappingProxyType or (
+            self.captured_value_types
+            and (
+                type(let) is not LetRelationDef
+                or tuple(self.captured_value_types) != captured_field_reads(let)
+            )
+        ):
+            raise ValueError("Capture environment must cover its let's reads.")
         if type(self.base_row_fact) is not ProjectModuleRelationRowFact:
             raise TypeError("Relation semantic facts require a Slice 10 row fact.")
         if self.base_row_fact.owner is not self.owner:
@@ -2768,6 +2802,11 @@ def _build_project_module_semantic_fact_set(
                         )
                     ):
                         continue
+                    captures = _capture_environment(
+                        owner, catalog, resolution_environment, completed
+                    )
+                    if captures is _CAPTURE_PENDING:
+                        continue
                     semantic_fact, pre_window_state = _build_derived_relation_facts(
                         owner=owner,
                         base_row_fact=base_row_fact,
@@ -2777,6 +2816,7 @@ def _build_project_module_semantic_fact_set(
                         scalar_reads=_scalar_read_facts(
                             owner, resolution_environment, completed
                         ),
+                        captures=cast(_CaptureEnvironment, captures),
                     )
                 built_for_module.append(semantic_fact)
                 completed.append(semantic_fact)
@@ -2793,6 +2833,9 @@ def _build_project_module_semantic_fact_set(
                     definition.from_clause
                 )
                 resolution = resolutions[0] if len(resolutions) == 1 else None
+                captures = _capture_environment(
+                    base_row_fact.owner, catalog, resolution_environment, completed
+                )
                 semantic_fact, pre_window_state = _build_derived_relation_facts(
                     owner=base_row_fact.owner,
                     base_row_fact=base_row_fact,
@@ -2802,6 +2845,9 @@ def _build_project_module_semantic_fact_set(
                     scalar_reads=_scalar_read_facts(
                         base_row_fact.owner, resolution_environment, completed
                     ),
+                    captures=_unknown_captures(base_row_fact.owner)
+                    if captures is _CAPTURE_PENDING
+                    else cast(_CaptureEnvironment, captures),
                 )
                 built_for_module.append(semantic_fact)
                 completed.append(semantic_fact)
@@ -2896,6 +2942,95 @@ def _build_project_module_semantic_fact_set(
         capabilities=capabilities,
         authority=authority,
     )
+
+
+_UNKNOWN_CAPTURED_VALUE = ValueType(
+    resolved_type=ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN),
+    nullability=EffectiveNullability.UNKNOWN,
+    kind=ValueTypeKind.UNKNOWN,
+)
+
+
+def _unknown_captures(owner: ProjectDeclarationOccurrence) -> _CaptureEnvironment:
+    let = owner.authored_block
+    if type(let) is not LetRelationDef:
+        return _NO_CAPTURES
+    return MappingProxyType(
+        {read: _UNKNOWN_CAPTURED_VALUE for read in captured_field_reads(let)}
+    )
+
+
+def _capture_environment(
+    owner: ProjectDeclarationOccurrence,
+    catalog: ProjectModuleCatalog,
+    environment: ProjectModuleRelationResolutionEnvironment,
+    completed: list[ProjectModuleRelationSemanticFacts],
+) -> _CaptureEnvironment | object:
+    """The type of every captured field read of one let, from its outer inputs.
+
+    A captured field keeps the outer input field's type; it is nullable when
+    that field is, or when an outer JOIN may null-extend its binding. An outer
+    input that does not resolve yields unknown types (its own diagnostic is the
+    root); one not yet built makes the let wait; a field of one whose row is
+    not concrete here (a set, an authored JOIN, a typed VALUES body, a relation
+    reading one of them, or one whose own errors leave its row unknown) is
+    refused, like a scalar read.
+    """
+
+    let = owner.authored_block
+    if type(let) is not LetRelationDef or not let.captures:
+        return _NO_CAPTURES
+    declaration = catalog.occurrences[owner.declaration_position]
+    block = cast(BlockRelationDef, declaration.authored_block)
+    body = cast(_DerivedRelation, declaration.definition)
+    positions = dict(outer_row_bindings(block))
+    nulled = null_extended_bindings(block)
+    rows: dict[str, tuple[ProjectRowSchema | None, bool, bool]] = {}
+    for clause in let.captures:
+        position = positions[clause.name]
+        if position == 0:
+            symbols = tuple(
+                item.target_symbol
+                for item in environment.find_from_clause(body.from_clause)
+            )
+        else:
+            symbols = environment.find_scoped_relation_name(
+                declaration, body.join_clauses[position - 1].target_relation_name
+            )
+        target = symbols[0].target_occurrence if len(symbols) == 1 else None
+        facts = None if target is None else _find_exact_owner(completed, target)
+        if target is not None and facts is None:
+            return _CAPTURE_PENDING
+        schema = (
+            facts.state.schema
+            if facts is not None
+            and facts.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+            and facts.state.schema is not None
+            and not facts.state.schema.is_unknown
+            else None
+        )
+        rows.setdefault(
+            clause.name,
+            (schema, position in nulled, facts is not None and schema is None),
+        )
+    types: dict[CapturedFieldExpr, ValueType | Diagnostic] = {}
+    for read in captured_field_reads(let):
+        schema, extended, deferred = rows[read.capture]
+        field = None if schema is None else schema.fields.get(read.field)
+        if deferred:
+            types[read] = captured_field_diagnostic(
+                read.capture, read.field, read.span, known=False
+            )
+        elif schema is None:
+            types[read] = _UNKNOWN_CAPTURED_VALUE
+        elif field is None:
+            types[read] = captured_field_diagnostic(read.capture, read.field, read.span)
+        else:
+            types[read] = project_row_field_to_semantic_value_type(
+                field,
+                ProjectRowFieldNullability.NULLABLE if extended else field.nullability,
+            )
+    return MappingProxyType(types)
 
 
 def _validate_builder_inputs(
@@ -3105,6 +3240,7 @@ def _build_derived_relation_facts(
     upstream: ProjectModuleRelationSemanticFacts | None,
     capabilities: ProjectModuleCapabilityFactInventory,
     scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = (),
+    captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> tuple[
     ProjectModuleRelationSemanticFacts,
     ProjectRelationRowSchemaState,
@@ -3147,6 +3283,7 @@ def _build_derived_relation_facts(
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
                 scalar_reads=scalar_reads,
+                captures=captures,
             ),
             state,
         )
@@ -3176,6 +3313,7 @@ def _build_derived_relation_facts(
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
                 scalar_reads=scalar_reads,
+                captures=captures,
             ),
             state,
         )
@@ -3202,6 +3340,7 @@ def _build_derived_relation_facts(
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
                 scalar_reads=scalar_reads,
+                captures=captures,
             ),
             state,
         )
@@ -3253,6 +3392,7 @@ def _build_derived_relation_facts(
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
             read_types=read_types,
+            captured_value_types=captures,
         )
         helper_diagnostics = schema_result.diagnostics
         base_state = _project_relation_row_schema_state_from_result(
@@ -3319,6 +3459,7 @@ def _build_derived_relation_facts(
         let_scope=let_scope,
         aggregate_result_facts=published_aggregate_result_facts,
         read_types=read_types,
+        captures=captures,
     )
     return (
         ProjectModuleRelationSemanticFacts(
@@ -3354,8 +3495,11 @@ def _build_derived_relation_facts(
             window_outputs=window_outputs,
             named_window_namespace=named_window_namespace,
             helper_diagnostics=helper_diagnostics,
-            where_fact=_where_fact(owner, input_schema, let_scope, read_types),
+            where_fact=_where_fact(
+                owner, input_schema, let_scope, read_types, captures
+            ),
             scalar_reads=scalar_reads,
+            captured_value_types=captures,
         ),
         base_state,
     )
@@ -3372,6 +3516,7 @@ def _nonconcrete_relation_facts(
     group_key_occurrences: tuple[GroupByItem, ...],
     capabilities: ProjectModuleCapabilityFactInventory,
     scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = (),
+    captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> ProjectModuleRelationSemanticFacts:
     definition = cast(_DerivedRelation, owner.definition)
     named_window_namespace = (
@@ -3434,6 +3579,7 @@ def _nonconcrete_relation_facts(
         named_window_namespace=named_window_namespace,
         helper_diagnostics=syntax_diagnostics(definition, allow_distinct=True),
         scalar_reads=scalar_reads,
+        captured_value_types=captures,
     )
 
 
@@ -3532,6 +3678,7 @@ def _select_facts(
     let_scope: ProjectRelationLetScopeFacts,
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
     read_types: Mapping[Expression, ValueType] | None = None,
+    captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> tuple[
     tuple[ProjectModuleSelectFact, ...], tuple[ProjectModuleSelectExpressionFact, ...]
 ]:
@@ -3552,6 +3699,7 @@ def _select_facts(
             relation_qualifier=definition.from_clause.source_name,
             bare_value_types=let_values,
             read_types=read_types,
+            captured_value_types=captures,
         )
     aggregate_by_name = {fact.output_name: fact for fact in aggregate_result_facts}
     schema = (
@@ -3586,6 +3734,7 @@ def _select_facts(
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_values,
                 relation_columns=read_types,
+                captured_value_types=captures,
             )
             retained_types = failed_types
         output_name = _projection_output_name(item)
@@ -3662,6 +3811,7 @@ def _where_fact(
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
     read_types: Mapping[Expression, ValueType] | None = None,
+    captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> ProjectModuleWhereFact | None:
     definition = cast(_DerivedRelation, owner.definition)
     clause = definition.where_clause
@@ -3685,6 +3835,7 @@ def _where_fact(
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
         relation_columns=read_types,
+        captured_value_types=captures,
     )
     diagnostic = _check_bool_expression(
         clause.expression, context="where clause", expression_value_types=value_types

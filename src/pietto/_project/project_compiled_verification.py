@@ -6,6 +6,8 @@ from typing import Any, cast
 from pietto._project.project_verification_scope import once
 from pietto._project.project_compiled_schema import (
     BLOCK_READ_OPERATORS,
+    captured_logical,
+    captured_reads,
     executed_operations,
     scalar_read_port,
     Address,
@@ -21,8 +23,10 @@ from pietto._project.project_compiled_schema import (
     Scalar,
     VERSIONS,
     declaration_values,
+    row_bindings,
     scalar_wire,
     selected_relations,
+    unit_position,
 )
 
 __all__: tuple[str, ...] = ()
@@ -499,6 +503,32 @@ def verify_description(value: Description) -> None:
                 and operation.address in executed_operations(records, consumer.address),
                 "EXPRESSION_BLOCK_USE",
             )
+        elif kind == "capture_use":
+            block = ref(get("read"), {"expression_block_use"})
+            ports = refs(get("ports"), {"port"})
+            uses = tuple(
+                r
+                for r in records.values()
+                if r.address.kind == "use"
+                and r.get("consumer") == block.get("consumer")
+            )
+            # Only an existence read executes a capturing let.
+            need(
+                ref(block.get("operation"), {"operation"}).get("operator")
+                == ("exists", "exists"),
+                "CAPTURE_USE",
+            )
+            inner = records[block.get("producer")]
+            need(
+                type(get("ordinal")) is int
+                and get("ordinal") >= 0
+                and len(uses) == 1
+                and len({p.address for p in ports}) == len(ports)
+                and all(p.address in uses[0].get("ports") for p in ports)
+                and inner.address.kind == "row"
+                and unit_position(inner) is None,
+                "CAPTURE_USE",
+            )
         elif kind == "literal":
             need(
                 type(get("value")) is Scalar and get("value").tag == get("tag"),
@@ -539,6 +569,7 @@ def verify_description(value: Description) -> None:
                 "READ_USE",
             )
             need(port.get("owner") == use.get("producer"), "READ_PRODUCER")
+            need(get("role") in ("value", "capture"), "READ_ROLE")
         elif kind == "site":
             ref(get("owner"), {"declaration"})
             need(
@@ -1349,7 +1380,131 @@ def verify_description(value: Description) -> None:
     for record in records.values():
         if record.address.kind == "expression_block_use":
             reads[record.get("consumer")].append(record.get("producer"))
+    # Inline units are exactly the use chains of the capturing lets the
+    # capture records name, each read once and never a unit position.
+    inline = {
+        a
+        for a in incoming
+        if "layout" in FIELDS[a.kind] and unit_position(records[a]) is None
+    }
+    chained: set[Address] = set()
+    for read in {
+        r.get("read") for r in records.values() if r.address.kind == "capture_use"
+    }:
+        current = records[read].get("producer")
+        while current in inline:
+            need(current not in chained, "INLINE_CHAIN")
+            chained.add(current)
+            layout = records[current].get("layout")
+            need(
+                current.kind == "row"
+                and layout[:2] == (None, ())
+                and type(layout[2]) is str
+                and layout[3] is False,
+                "INLINE_LAYOUT",
+            )
+            producers = incoming[current]
+            need(len(producers) == 1, "INLINE_CHAIN")
+            current = producers[0]
+    need(chained == inline, "INLINE_INVENTORY")
+    # The records of one capturing read are its lines 0, 1, ... in record
+    # order, each exactly the ports of one distinct row binding of the reading
+    # body's input. Every captured field read lies in the inline units of one
+    # capturing read and reads, through its reading body's use, a port of one
+    # of that read's records.
+    capture_records: dict[Address, list[Record]] = {}
+    for record in records.values():
+        if record.address.kind == "capture_use":
+            capture_records.setdefault(record.get("read"), []).append(record)
+    reading_uses = {}
+    for read, described in capture_records.items():
+        consumer = records[read].get("consumer")
+        consumer_uses = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "use" and r.get("consumer") == consumer
+        )
+        need(consumer.kind == "row" and len(consumer_uses) == 1, "CAPTURE_SCOPE")
+        bindings = row_bindings(records, consumer_uses[0])
+        need(
+            [r.get("ordinal") for r in described] == list(range(len(described))),
+            "CAPTURE_ORDINALS",
+        )
+        need(
+            all(r.get("ports") in bindings for r in described)
+            and len({r.get("ports") for r in described}) == len(described),
+            "CAPTURE_PORTS",
+        )
+        reading_uses[read] = consumer_uses[0]
+    attributed = captured_reads(records)
+    need(
+        set(attributed)
+        == {
+            r.address
+            for r in records.values()
+            if r.address.kind == "read" and r.get("role") == "capture"
+        }
+        and all(
+            len(pairs) == 1
+            and pairs[0][1] is not None
+            and records[read].get("use") == reading_uses[pairs[0][0]]
+            for read, pairs in attributed.items()
+        ),
+        "READ_CAPTURE",
+    )
     execution = selected_relations(records, entry)
+    # A correlated reference names an alias of its reading unit from inside
+    # the let's inline units, so no inline unit of a read is named like a
+    # relation of that unit (its scan or JOIN inputs, or the e<n> of a block
+    # read it makes) or like another unit of the same let; the inputs of one
+    # JOIN or set have distinct aliases. Any other unit is another scope, where
+    # an alias may repeat, and a retained unit is never rendered.
+    for address in execution:
+        if "layout" not in FIELDS[address.kind]:
+            continue
+        alias = records[address].get("layout")[2]
+        if address.kind in ("join", "set"):
+            inputs = records[address].get(
+                "inputs" if address.kind == "join" else "operands"
+            )
+            need(
+                type(alias) is tuple
+                and all(type(a) is str for a in alias)
+                and len(set(alias)) == len(alias) == len(inputs),
+                "ALIASES",
+            )
+        else:
+            need(type(alias) is str, "ALIASES")
+    for read in {
+        r.get("read") for r in records.values() if r.address.kind == "capture_use"
+    }:
+        consumer = records[read].get("consumer")
+        if consumer not in execution:
+            continue
+        alias = records[consumer].get("layout")[2]
+        need(
+            type(alias) is str
+            or type(alias) is tuple
+            and all(type(a) is str for a in alias),
+            "ALIASES",
+        )
+        visible = {alias} if type(alias) is str else set(alias)
+        visible.update(
+            f"e{r.address.position}"
+            for r in records.values()
+            if r.address.kind == "expression_block_use"
+            and r.get("consumer") == consumer
+        )
+        names, current = [], records[read].get("producer")
+        while current in inline:
+            names.append(records[current].get("layout")[2])
+            current = incoming[current][0]
+        need(
+            all(type(n) is str for n in names)
+            and len(set(names)) == len(names)
+            and not set(names) & visible,
+            "ALIASES",
+        )
     retained = entry.get("retained")
     need(
         len(set(retained)) == len(retained) and entry.get("terminal") not in retained,
@@ -1986,9 +2141,22 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         units = ast.units
     else:
         raise CompiledError("COMPILED_EXPORT_ROOT")
+    # An inline let's units have no unit position: they are checked at the
+    # live read that renders them.
     described_units = tuple(
-        r for r in records.values() if r.address.kind in RELATIONS - {"source"}
+        r
+        for r in records.values()
+        if r.address.kind in RELATIONS - {"source"} and r.get("layout")[-1] is not None
     )
+    inline_units = {
+        r.address
+        for r in records.values()
+        if r.address.kind in RELATIONS - {"source"} and r.get("layout")[-1] is None
+    }
+    inline_seen: set[Address] = set()
+    capture_seen: set[Address] = set()
+    current_units: list[Any] = []
+    capture_context: list[tuple[Any, Any]] = []
     need(len(described_units) == len(units), "EXPORT_UNITS")
     index_of = {id(unit): index for index, unit in enumerate(units)}
     for index, (record, unit) in enumerate(zip(described_units, units, strict=True)):
@@ -2013,9 +2181,102 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             return scan.cte.body
         return scan.body
 
-    def check_read(address, actual, producer, use):
+    def port_address(column, producer):
+        source = source_map.get(id(producer))
+        if source is not None:
+            positions = tuple(
+                i for i, f in enumerate(producer.fields) if column.field is f
+            )
+            owner = source
+        else:
+            positions = tuple(
+                i
+                for i, c in enumerate(producer.columns)
+                if c.column.terminal is column.terminal
+            )
+            owner = unit_map.get(id(producer))
+        need(len(positions) == 1, "EXPORT_CAPTURE_PORT")
+        found = tuple(
+            r.address
+            for r in grouped["port"]
+            if r.get("owner") == owner and r.get("ordinal") == positions[0]
+        )
+        need(len(found) == 1, "EXPORT_CAPTURE_PORT")
+        return found[0]
+
+    def check_inline(block_use, actual, producer, use):
+        """A live inline let, unit by unit, and the capture records of its read."""
+        outer = current_units[-1]
+        chain = [actual.target.producer]
+        while type(chain[-1].scan) is sql.RowStageUse and sql.inline_body(
+            chain[-1].scan.body
+        ):
+            chain.append(chain[-1].scan.body)
+        chain.reverse()
+        addresses = [block_use.get("producer")]
+        while True:
+            uses = tuple(
+                r for r in grouped["use"] if r.get("consumer") == addresses[-1]
+            )
+            need(len(uses) == 1, "EXPORT_INLINE_USE")
+            if uses[0].get("producer") not in inline_units:
+                break
+            addresses.append(uses[0].get("producer"))
+        addresses.reverse()
+        need(
+            type(outer) is sql.RowBody
+            and len(addresses) == len(chain)
+            and all(sql.inline_body(body) for body in chain),
+            "EXPORT_INLINE",
+        )
+        capture_context.append((producer, use))
+        try:
+            for address, body in zip(addresses, chain, strict=True):
+                record = records[address]
+                need(
+                    address in inline_units
+                    and address not in inline_seen
+                    and record.address.kind == "row"
+                    and record.get("layout")
+                    == (None, (), body.scan.symbol.name, False, None),
+                    "EXPORT_INLINE_UNIT",
+                )
+                inline_seen.add(address)
+                unit_map[id(body)] = address
+                check_declaration(
+                    record.get("owner"), body.definition.original.entry.owner
+                )
+                check_unit(record, body)
+        finally:
+            capture_context.pop()
+        captures = tuple(
+            c for c in original.plan.captures if c.read is actual.original.ref
+        )
+        described = tuple(
+            r for r in grouped["capture_use"] if r.get("read") == block_use.address
+        )
+        need(len(described) == len(captures) > 0, "EXPORT_CAPTURES")
+        for record, capture in zip(described, captures, strict=True):
+            ports = []
+            for reference in capture.ports:
+                position = outer.block.inputs.index(reference)
+                column = sql._stage_read(original, outer.scan, position, reference)
+                need(column is not None, "EXPORT_CAPTURE_PORT")
+                ports.append(port_address(column, producer))
+            need(
+                record.values == (block_use.address, capture.use.ordinal, tuple(ports)),
+                "EXPORT_CAPTURE",
+            )
+            capture_seen.add(record.address)
+
+    def check_read(address, actual, producer, use, role="value"):
         record = records[address]
-        need(record.address.kind == "read" and record.get("use") == use, "EXPORT_READ")
+        need(
+            record.address.kind == "read"
+            and record.get("use") == use
+            and record.get("role") == role,
+            "EXPORT_READ",
+        )
         port = records[record.get("port")]
         source = source_map.get(id(producer))
         if source is not None:
@@ -2043,7 +2304,12 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
 
     def check_scalar(address, actual, producer, use, join_contexts=None):
         record = records[address]
-        if type(actual) is rows.SQLStageReference:
+        if type(actual) is rows.SQLCapturedReference:
+            # A captured field reads the reading body's own input row.
+            need(join_contexts is None and bool(capture_context), "EXPORT_CAPTURE")
+            outer_producer, outer_use = capture_context[-1]
+            check_read(address, actual.column, outer_producer, outer_use, "capture")
+        elif type(actual) is rows.SQLStageReference:
             if join_contexts is not None:
                 matches = tuple(
                     (p, u) for symbol, p, u in join_contexts if symbol is actual.scope
@@ -2176,6 +2442,9 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 if target.source is not None
                 else unit_map.get(id(target.producer))
             )
+            if target.source is None and sql.inline_body(target.producer):
+                check_inline(matches[0], actual, producer, use)
+                expected_producer = unit_map.get(id(target.producer))
             need(
                 expected_producer is not None
                 and matches[0].address.position == target.use.ref.position
@@ -2242,7 +2511,15 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         "EXPORT_WINDOW_BOUND_SITE",
                     )
 
-    for record, unit in zip(described_units, units, strict=True):
+    def check_unit(record, unit):
+        """One live unit against its record; inline lets are checked at their read."""
+        current_units.append(unit)
+        try:
+            check_unit_body(record, unit)
+        finally:
+            current_units.pop()
+
+    def check_unit_body(record, unit):
         if record.address.kind == "join":
             need(
                 type(unit) is joining.JoinBody
@@ -2325,7 +2602,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     "EXPORT_JOIN_COLUMN",
                 )
                 check_read(value.get("input"), column.read, *matches[0])
-            continue
+            return
         if record.address.kind == "set":
             need(
                 type(unit) is setting.SetBody
@@ -2361,7 +2638,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         producer,
                         address,
                     )
-            continue
+            return
         if record.address.kind == "values":
             from pietto._project.project_sql_emission_contract import canonical
 
@@ -2417,7 +2694,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     ),
                     "EXPORT_VALUES_ROW",
                 )
-            continue
+            return
         producer = expected_producer(unit.scan)
         producer_address = source_map.get(id(producer), unit_map.get(id(producer)))
         uses = tuple(r for r in grouped["use"] if r.get("consumer") == record.address)
@@ -2686,6 +2963,14 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             )
             if predicate is not None:
                 check_scalar(record.get("predicate"), predicate.value, producer, use)
+
+    for record, unit in zip(described_units, units, strict=True):
+        check_unit(record, unit)
+    need(
+        inline_seen == inline_units
+        and capture_seen == {r.address for r in grouped["capture_use"]},
+        "EXPORT_INLINE_INVENTORY",
+    )
     entry = records[description.query]
     reached_owners = tuple(d.entry.owner for d in original.plan.bindings.definitions)
     requests = tuple(
@@ -3117,19 +3402,108 @@ def _verify_compiled_emission(artifact, request):
     query = artifact.ast
     if type(query) is not ast.CompiledSQLQuery or query.request is not request:
         raise CompiledError("COMPILED_EMISSION_QUERY")
-    units = tuple(
-        r
+    positions = {
+        r.address: unit_position(r)
         for r in records.values()
-        if r.address.kind in RELATIONS - {"source"} and r.address in active
+        if "layout" in FIELDS[r.address.kind]
+    }
+    units = tuple(
+        records[a] for a, i in positions.items() if a in active and i is not None
     )
+    # An inline let's units have no unit position: they are checked at the
+    # read that renders them, over the reading body's input row.
+    inline_units = {a for a, i in positions.items() if i is None}
     need(len(query.bodies) == len(units), "EMISSION_UNITS")
     observed_bodies = {}
     used_parameters = []
+    current_bodies: list[Any] = []
+    capture_scopes: list[tuple[Any, Any, Any, Any]] = []
+    captured = captured_reads(records)
+
+    def column_name(body, index):
+        # A CTE column is read by its generated name, an inline column by label.
+        if body.cte_columns:
+            return body.cte_columns[index].name
+        return body.columns[index].label
+
+    def check_capture_read(actual, address):
+        record = records[address]
+        need(bool(capture_scopes), "EMISSION_CAPTURE_SCOPE")
+        outer_use, outer_producer, outer_symbol, block_use = capture_scopes[-1]
+        port = records[record.get("port")]
+        # The read names the record its inline let and line attribute it to.
+        attribution = captured.get(address, ())
+        need(
+            len(attribution) == 1
+            and attribution[0][0] == block_use
+            and attribution[0][1] is not None
+            and type(actual) is rows.SQLCapturedReference
+            and actual.original is plan.expressions[address]
+            and actual.capture.ref is refs[attribution[0][1]]
+            and actual.scope is outer_symbol
+            and record.get("use") == outer_use
+            and port.get("owner") == outer_producer
+            and actual.column.terminal is refs[record.get("port")]
+            and actual.realization is facts[address].realization,
+            "EMISSION_CAPTURE",
+        )
+        if outer_producer in sources:
+            field = sources[outer_producer].fields[port.get("ordinal")]
+            need(
+                actual.column.field is field and actual.column.name == field.column,
+                "EMISSION_CAPTURE_SOURCE",
+            )
+        else:
+            index = port.get("ordinal")
+            need(
+                actual.column.name
+                == column_name(observed_bodies[outer_producer], index),
+                "EMISSION_CAPTURE_STAGE",
+            )
+
+    def check_inline(actual, block_use, use, producer):
+        """The inline let a read renders, unit by unit, over its read's row."""
+        addresses = [block_use.get("producer")]
+        while True:
+            inputs = tuple(
+                r.get("producer")
+                for r in records.values()
+                if r.address.kind == "use" and r.get("consumer") == addresses[-1]
+            )
+            need(len(inputs) == 1, "EMISSION_INLINE_USE")
+            if inputs[0] not in inline_units:
+                break
+            addresses.append(inputs[0])
+        addresses.reverse()
+        chain = [actual.target.producer]
+        while type(chain[-1].scan) is ast.RowStageUse and ast.inline_body(
+            chain[-1].scan.body
+        ):
+            chain.append(chain[-1].scan.body)
+        chain.reverse()
+        need(
+            len(chain) == len(addresses)
+            and all(ast.inline_body(body) for body in chain)
+            and all(a not in observed_bodies for a in addresses),
+            "EMISSION_INLINE",
+        )
+        capture_scopes.append(
+            (use, producer, current_bodies[-1].scan.symbol, block_use.address)
+        )
+        try:
+            for index, (address, body) in enumerate(zip(addresses, chain, strict=True)):
+                verify_unit(index, body, records[address], inline=True)
+        finally:
+            capture_scopes.pop()
 
     def scalar(actual, address, producer, use, join_contexts=None):
         record = records[address]
         expected_original = plan.expressions[address]
-        if address.kind == "read":
+        if address.kind == "read" and record.get("role") == "capture":
+            need(join_contexts is None, "EMISSION_CAPTURE_SCOPE")
+            check_capture_read(actual, address)
+        elif address.kind == "read":
+            need(record.get("role") == "value", "EMISSION_READ_ROLE")
             if join_contexts is not None:
                 use = record.get("use")
                 need(use in join_contexts, "EMISSION_MATCH_USE")
@@ -3162,7 +3536,7 @@ def _verify_compiled_emission(artifact, request):
                 index = port.get("ordinal")
                 need(
                     actual.column.realization is body.columns[index].column.realization
-                    and actual.column.name == body.cte_columns[index].name,
+                    and actual.column.name == column_name(body, index),
                     "EMISSION_STAGE_READ",
                 )
         elif address.kind == "literal":
@@ -3263,6 +3637,13 @@ def _verify_compiled_emission(artifact, request):
                 block_use = described[0]
                 target = actual.target
                 producer_address = block_use.get("producer")
+                if producer_address in inline_units:
+                    need(
+                        type(actual) is rows.SQLBlockRead
+                        and type(target) is rows.SQLBlockTarget,
+                        "EMISSION_BLOCK_READ",
+                    )
+                    check_inline(actual, block_use, use, producer)
                 need(
                     type(actual) is rows.SQLBlockRead
                     and actual.original is plan.expression_identities[address]
@@ -3326,7 +3707,14 @@ def _verify_compiled_emission(artifact, request):
                         join_contexts,
                     )
 
-    for index, (body, record) in enumerate(zip(query.bodies, units, strict=True)):
+    def verify_unit(index, body, record, inline=False):
+        current_bodies.append(body)
+        try:
+            verify_unit_body(index, body, record, inline)
+        finally:
+            current_bodies.pop()
+
+    def verify_unit_body(index, body, record, inline):
         if record.address.kind == "join":
             verify_compiled_join_unit(
                 body, record, request, observed_bodies, sources, bindings_by_ref
@@ -3338,23 +3726,23 @@ def _verify_compiled_emission(artifact, request):
                 }
                 scalar(body.predicate, record.get("predicate"), None, None, contexts)
             observed_bodies[record.address] = body
-            continue
+            return
         if record.address.kind == "set":
             verify_compiled_set_unit(
                 body, record, request, observed_bodies, sources, bindings_by_ref
             )
             observed_bodies[record.address] = body
-            continue
+            return
         if record.address.kind == "values":
             verify_compiled_values_unit(body, record, request)
             observed_bodies[record.address] = body
-            continue
+            return
         if record.address.kind == "result":
             verify_compiled_result_unit(
                 body, record, request, observed_bodies, local_port, extra_by_key
             )
             observed_bodies[record.address] = body
-            continue
+            return
         need(
             record.address.kind in ("row", "aggregate", "window")
             and type(body) is ast.RowBody,
@@ -3362,7 +3750,10 @@ def _verify_compiled_emission(artifact, request):
         )
         name, native_names, alias, final, position = record.get("layout")
         need(
-            position == index == body.index
+            (position is None) is inline
+            and (inline or position == index)
+            and index == body.index
+            and (not inline or record.address.kind == "row")
             and body.block.ref is refs[record.address]
             and body.block.kind.value
             == (
@@ -3446,8 +3837,7 @@ def _verify_compiled_emission(artifact, request):
                 else:
                     i = records[read.get("port")].get("ordinal")
                     need(
-                        column.read.name
-                        == observed_bodies[producer].cte_columns[i].name,
+                        column.read.name == column_name(observed_bodies[producer], i),
                         "EMISSION_CARRY_NAME",
                     )
                 if type(column) is grouping.AggregateKeyColumn:
@@ -3563,8 +3953,15 @@ def _verify_compiled_emission(artifact, request):
             )
             scalar(body.predicate.value, predicate, producer, use)
         observed_bodies[record.address] = body
+
+    for index, (body, record) in enumerate(zip(query.bodies, units, strict=True)):
+        verify_unit(index, body, record)
+    # Every parameter leaf is checked once; an inline let is checked inside
+    # out, so the order is the rendered one.
     need(
-        tuple(used_parameters) == plan.parameter_uses
+        sorted(map(id, used_parameters)) == sorted(map(id, plan.parameter_uses))
+        and tuple(leaf.use for leaf in ast.row_parameter_leaves(query))
+        == plan.parameter_uses
         and artifact.parameter_uses is plan.parameter_uses
         and artifact.fixed_values is plan.fixed_envelope.values,
         "EMISSION_PARAMETER_INVENTORY",
@@ -4455,7 +4852,11 @@ def verify_requirement_export(records, artifact, check_declaration):
                 elif anchor.address.kind == "null_literal":
                     continue
                 elif anchor.address.kind == "read":
-                    expected = records[anchor.get("port")].get("logical")
+                    expected = (
+                        captured_logical(records, anchor.address)
+                        if anchor.get("role") == "capture"
+                        else records[anchor.get("port")].get("logical")
+                    )
                 elif anchor.address.kind == "parameter_read":
                     declared = records[anchor.get("parameter")]
                     expected = (
@@ -4654,6 +5055,9 @@ def verify_logical_export(description, checked, references):
     read_edges = set()
     terminals = {}
     source_defs = {d.ref: d for d in plan.bindings.definitions}
+    captures = {c.ref: c for c in plan.captures}
+    captured_definitions = {c.inner for c in plan.captures}
+    plan_blocks = {b.ref: b for b in plan.blocks}
 
     def port(reference):
         visited = set()
@@ -4716,9 +5120,38 @@ def verify_logical_export(description, checked, references):
                 scalar.ProjectSQLRelationExists,
                 scalar.ProjectSQLRelationScalar,
                 scalar.ProjectSQLRelationMembership,
+                scalar.ProjectSQLCapturedField,
             ),
             "RETAINED_EXPRESSION_DOMAIN",
         )
+        if type(original) is scalar.ProjectSQLCapturedField:
+            # A captured field reads the reading body's input row through
+            # that body's own use.
+            capture = captures.get(original.capture)
+            need(
+                capture is not None and original.position in capture.edge.fields,
+                "RETAINED_CAPTURE_READ",
+            )
+            assert capture is not None
+            outer = plan_blocks[capture.block]
+            reference = capture.ports[capture.edge.fields.index(original.position)]
+            outer_uses = tuple(
+                r
+                for r in records.values()
+                if r.address.kind == "use"
+                and r.get("consumer") == references.get(capture.block)
+            )
+            need(
+                len(outer_uses) == 1
+                and reference in outer.inputs
+                and record.address.kind == "read"
+                and record.get("role") == "capture"
+                and record.get("use") == outer_uses[0].address
+                and record.get("port")
+                == outer_uses[0].get("ports")[outer.inputs.index(reference)],
+                "RETAINED_CAPTURE_READ",
+            )
+            return
         if isinstance(
             original, (scalar.ProjectSQLLiteral, scalar.ProjectSQLBoundLiteral)
         ):
@@ -4833,6 +5266,26 @@ def verify_logical_export(description, checked, references):
                 and described[0].get("producer") == terminals.get(edge.producer)
                 and described[0].get("column") == edge.edge.column,
                 "RETAINED_BLOCK_READ",
+            )
+            # A capturing let's records name the reading body's ports of each
+            # captured input, in line order.
+            need(
+                tuple(
+                    r.values
+                    for r in records.values()
+                    if r.address.kind == "capture_use"
+                    and r.get("read") == described[0].address
+                )
+                == tuple(
+                    (
+                        described[0].address,
+                        c.use.ordinal,
+                        tuple(port(reference) for reference in c.ports),
+                    )
+                    for c in plan.captures
+                    if c.read is original_ref
+                ),
+                "RETAINED_CAPTURE",
             )
             read_edges.add(original.use)
         for child, ref in zip(record.get("operands"), inputs, strict=True):
@@ -4963,6 +5416,21 @@ def verify_logical_export(description, checked, references):
     for definition in plan.bindings.definitions:
         if definition.ref in terminals:
             continue
+        # A capturing let is FROM, WHERE and SELECT rows only, all inline.
+        inline = definition.ref in captured_definitions
+        need(
+            not inline
+            or not any(
+                item.definition is definition.ref
+                for item in (*plan.set_bodies, *plan.joins, *plan.result_boundaries)
+            )
+            and all(
+                b.kind.value not in ("aggregate", "window")
+                for b in plan.blocks
+                if b.definition is definition.ref
+            ),
+            "RETAINED_INLINE",
+        )
         previous = None
         sets = tuple(v for v in plan.set_bodies if v.definition is definition.ref)
         if sets:
@@ -5255,7 +5723,8 @@ def verify_logical_export(description, checked, references):
             else:
                 need(
                     record.address.kind == "row"
-                    and record.get("stage") == block.kind.value,
+                    and record.get("stage") == block.kind.value
+                    and (unit_position(record) is None) is inline,
                     "RETAINED_ROW",
                 )
                 projections = {

@@ -637,6 +637,7 @@ COLUMN_ROLES = frozenset(
         "set_input_column",
         "equality_column",
         "in_column",
+        "capture_column",
     }
 )
 RELATION_ROLES = {
@@ -858,11 +859,57 @@ class _Check:
                 _require(
                     doc[doc[column]["symbol"]]["position"] == i + 1, "column symbol"
                 )
+        inline = self.inline_units()
         _require(
-            all(ref in position for kind in UNITS for ref in doc.all(kind)),
+            all(
+                ref in position or ref in inline
+                for kind in UNITS
+                for ref in doc.all(kind)
+            ),
             "orphan unit",
         )
         return units
+
+    def inline_units(self) -> dict[Ref, Ref]:
+        """Each inline let body and the existence read target that renders it.
+
+        A capturing let is no unit: its bodies are nested derived tables of
+        its single read, the target's body first, each inner one read by a
+        stage use of the next.
+        """
+        doc = self.doc
+        result: dict[Ref, Ref] = {}
+        for target in doc.all("sql_block_target"):
+            body = doc[target]["producer"]
+            if body.kind != "row_body" or doc[body]["symbol"] is not None:
+                continue
+            while True:
+                unit = doc[body]
+                _require(
+                    body not in result
+                    and unit["final"] is False
+                    and unit["cte_columns"] == ()
+                    and unit["aggregation"] is None
+                    and unit["window"] is None,
+                    "inline unit",
+                )
+                result[body] = target
+                for i, column in enumerate(unit["columns"]):
+                    _require(doc[column]["ordinal"] == i, "column ordinal")
+                    _require(
+                        doc[doc[column]["symbol"]]["position"] == i + 1,
+                        "column symbol",
+                    )
+                scan = unit["scan"]
+                if scan.kind != "row_stage_use":
+                    break
+                body = doc[scan]["body"]
+                _require(
+                    body.kind == "row_body" and doc[body]["symbol"] is None,
+                    "inline unit",
+                )
+        self.inline = result
+        return result
 
     def producers(self, ref: Ref) -> list[Ref]:
         doc, unit = self.doc, self.doc[ref]
@@ -880,6 +927,7 @@ class _Check:
 
     def direct_units(self) -> list[Ref]:
         doc, select = self.doc, self.doc[self.ast]
+        self.inline = {}
         units = []
         for i, cte in enumerate(select["ctes"]):
             fields = doc[cte]
@@ -956,6 +1004,17 @@ class _Check:
                     and realization["nullable"] is True
                 ),
                 "block read",
+            )
+        for ref in doc.all("sql_captured_reference"):
+            fields = doc[ref]
+            own = dict(doc[fields["realization"]])
+            outer = dict(doc[doc[fields["column"]]["realization"]])
+            # A captured field may only widen its outer column to nullable.
+            _require(
+                fields["capture"].kind == "capture"
+                and own.pop("nullable") in (outer.pop("nullable"), True)
+                and own == outer,
+                "captured reference",
             )
         for ref in doc.all("sql_operation"):
             op = doc[ref]
@@ -1553,17 +1612,46 @@ class _Tokens:
         for binding, definition in definitions.items():
             specifications[binding] = doc[definition["specification"]]
         per_subject: dict[tuple[str, PlanRef], list[str]] = {}
+        # An inline let body opens and closes its own alias and label scope
+        # inside its reading unit; a captured reference names that unit's row.
+        inline_blocks = {doc[body]["block"]: body for body in self.check.inline}
+        captures = self.index("sql_captured_reference", "capture")
+        opened: set[Ref] = set()
         for unit, start, end in self.segments():
-            aliases = self.aliases(unit)
-            labels = []
+            frames: list[tuple[Ref, set[str], list[str]]] = [
+                (unit, self.aliases(unit), [])
+            ]
             for i in range(start, end):
                 event, text = self.events[i], self.texts[i]
                 role, subject, kind = event["role"], event["subject"], event["kind"]
                 _require(role not in PREAMBLE_ROLES, "token role placement")
+                if role == "inline_open":
+                    body = inline_blocks.get(subject)
+                    _require(body is not None and body not in opened, "inline unit")
+                    assert body is not None
+                    opened.add(body)
+                    frames.append((body, self.aliases(body), []))
+                elif role == "inline_close":
+                    _require(len(frames) > 1, "inline unit")
+                    body, _, inline_labels = frames.pop()
+                    _require(
+                        doc[body]["block"] == subject
+                        and inline_labels == self.labels(body),
+                        "inline unit",
+                    )
+                aliases, labels = frames[-1][1], frames[-1][2]
                 if kind == "identifier":
                     name = self.identifier(i)
                     if role == "label":
                         labels.append(name)
+                    elif role == "capture_scope":
+                        captured = self.one(captures, subject, "capture scope")
+                        _require(
+                            len(frames) > 1
+                            and name == doc[captured["scope"]]["name"]
+                            and name in frames[0][1],
+                            "capture scope",
+                        )
                     elif role in SCOPE_ROLES:
                         _require(name in aliases, "scope alias")
                     elif role in COLUMN_ROLES:
@@ -1677,7 +1765,9 @@ class _Tokens:
                         order_items,
                         specifications,
                     )
-            _require(labels == self.labels(unit), "output labels")
+            _require(len(frames) == 1, "inline unit")
+            _require(frames[0][2] == self.labels(unit), "output labels")
+        _require(opened == set(self.check.inline), "inline unit")
         for (role, subject), texts in per_subject.items():
             if role == "window_argument_literal":
                 column = self.one(windows, subject, "window arguments")
@@ -2000,9 +2090,11 @@ class _Tokens:
             "reference": {},
             "grouping": {},
             "order_item": {},
+            "capture": {},
         }
         for kind, role, key, port, read in (
             ("sql_stage_reference", "reference", "original", "port", "column"),
+            ("sql_captured_reference", "capture", "original", "capture", "column"),
             ("aggregate_key_column", "grouping", "key", "input_port", "read"),
             ("result_order_item", "order_item", "item", "port", "read"),
         ):
@@ -2031,7 +2123,7 @@ class _Tokens:
                 opening["role"] in first and closing["role"] in last, "overlay tokens"
             )
             subject = overlay["subject"]
-            if overlay["role"] in ("reference", "grouping", "order_item"):
+            if overlay["role"] in ("reference", "grouping", "order_item", "capture"):
                 _require(
                     i + 2 <= j and self.events[i + 1]["subject"] == subject,
                     "overlay subject",
@@ -2124,7 +2216,12 @@ class _Requirements:
 
     def tag(self, value: Ref) -> str:
         doc = self.doc
-        if value.kind in ("sql_stage_reference", "sql_operation", "sql_block_read"):
+        if value.kind in (
+            "sql_stage_reference",
+            "sql_operation",
+            "sql_block_read",
+            "sql_captured_reference",
+        ):
             return doc[doc[value]["realization"]]["tag"]
         if value.kind == "sql_null":
             return doc[value]["tag"]
@@ -2217,8 +2314,18 @@ class _Requirements:
                         "R02",
                         self.applicable(owner, True),
                     )
+            elif target["producer"] in self.check.inline:
+                self.inline(target["producer"])
             for operand in fields["operands"]:
                 self.value(operand)
+            return
+        if value.kind == "sql_captured_reference":
+            self.add(
+                "capture",
+                doc[value]["original"],
+                "R11",
+                self.node_premises(self.tag(value), (), "capture"),
+            )
             return
         if value.kind == "sql_stage_reference":
             fields = doc[value]
@@ -2294,7 +2401,13 @@ class _Requirements:
                 "original evidence",
             )
             demands.setdefault(item["subject"], set()).add(item["family"])
-        for kind in ("sql_operation", "sql_stage_reference", "sql_unary", "sql_anchor"):
+        for kind in (
+            "sql_operation",
+            "sql_stage_reference",
+            "sql_captured_reference",
+            "sql_unary",
+            "sql_anchor",
+        ):
             for ref in doc.all(kind):
                 _require(
                     "expression" in demands.get(doc[ref]["original"], ()),
@@ -2344,7 +2457,6 @@ class _Requirements:
     def rows(self) -> None:
         doc = self.doc
         naming = self.statement("identifier_case")
-        operators = self.statement("operator_environment")
         encoding = self.statement("client_encoding")
         units = self.units
         for unit in units[:-1]:
@@ -2384,87 +2496,98 @@ class _Requirements:
                 self.result(unit, naming, encoding)
                 self.add("read_only_select_bytes", unit, "R23", ())
                 continue
-            scan = fields["scan"]
-            item = doc[scan]
-            if scan.kind == "row_scan":
-                self.scan(scan, item["realization"])
-            elif scan.kind == "row_named_use":
-                self.add("named_use", item["use"], "R03", naming)
-                for binding in doc[item["binding"]]["bindings"]:
-                    self.add(
-                        "immediate_terminal", doc[binding]["terminal"], "R03", naming
-                    )
-            elif scan.kind == "row_join_use":
-                self.add("join_use", item["tail"], "R07", naming)
-                for symbol in doc[item["body"]]["cte_columns"]:
-                    self.add("join_terminal", doc[symbol]["binding"], "R07", naming)
-            else:
-                self.add("stage_use", item["block"], "R03", naming)
-                for symbol in doc[item["body"]]["cte_columns"]:
-                    self.add("stage_terminal", doc[symbol]["binding"], "R03", naming)
-            if fields["aggregation"] is not None:
-                self.add(
-                    "aggregation",
-                    doc[fields["aggregation"]]["aggregation"],
-                    "R12",
-                    operators,
-                )
-            for column in fields["columns"]:
-                item = doc[column]
-                kind = column.kind
-                if kind == "row_carry_column":
-                    self.add("carry_projection", item["export"], "R05", ())
-                elif kind == "aggregate_key_column":
-                    self.add("group_key", item["key"], "R12", operators)
-                elif kind == "aggregate_value_column":
-                    self.add("aggregate", item["aggregate"], "R13", operators)
-                    if item["argument"] is not None:
-                        self.value(item["argument"])
-                elif kind == "aggregate_projection_column":
-                    self.add("result_projection", item["projection"], "R12", ())
-                elif kind == "window_column":
-                    origin = doc[doc[item["column"]]["window"]]
-                    spec = doc[item["specification"]]
-                    self.add("window_computation", item["window"], "R14", operators)
-                    self.add("window_specification", origin["policy"], "R15", ())
-                    frame = None if spec["frame"] is None else doc[spec["frame"]]
-                    if frame is not None and _frame_offsets(frame):
-                        self.add(
-                            "window_frame_offset_domain", origin["policy"], "R15", ()
-                        )
-                        if frame["unit"] == "range":
-                            self.add(
-                                "window_range_arithmetic",
-                                origin["policy"],
-                                "R15",
-                                operators,
-                            )
-                    for partition in spec["partitions"]:
-                        read = doc[doc[partition]["read"]]
-                        self.add(
-                            "window_partition_comparison", read["terminal"], "R14", ()
-                        )
-                    for order in spec["orders"]:
-                        read = doc[doc[order]["read"]]
-                        self.add("window_order_comparison", read["terminal"], "R14", ())
-                elif kind == "window_projection_column":
-                    self.add("window_result_projection", item["projection"], "R17", ())
-                else:
-                    self.add("computed_projection", item["export"], "R05", ())
-                    self.value(item["value"])
-            if fields["predicate"] is not None:
-                predicate = doc[fields["predicate"]]
-                satisfying = fields["block_kind"] == "satisfying"
-                self.add(
-                    "satisfying_root" if satisfying else "predicate_root",
-                    predicate["original"],
-                    "R12" if satisfying else "R06",
-                    operators,
-                )
-                self.value(predicate["value"])
-            self.add("read_only_select_bytes", unit, "R23", ())
+            self.row_body(unit)
         if len(units) > 1:
             self.add("nonrecursive_with_bytes", self.check.ast, "R23", ())
+
+    def inline(self, body: Ref) -> None:
+        """An inline let's bodies, innermost first, at the read rendering them."""
+        doc = self.doc
+        scan = doc[body]["scan"]
+        if scan.kind == "row_stage_use" and doc[scan]["body"] in self.check.inline:
+            self.inline(doc[scan]["body"])
+        self.row_body(body)
+
+    def row_body(self, unit: Ref) -> None:
+        doc = self.doc
+        naming = self.statement("identifier_case")
+        operators = self.statement("operator_environment")
+        fields = doc[unit]
+        scan = fields["scan"]
+        item = doc[scan]
+        if scan.kind == "row_scan":
+            self.scan(scan, item["realization"])
+        elif scan.kind == "row_named_use":
+            self.add("named_use", item["use"], "R03", naming)
+            for binding in doc[item["binding"]]["bindings"]:
+                self.add("immediate_terminal", doc[binding]["terminal"], "R03", naming)
+        elif scan.kind == "row_join_use":
+            self.add("join_use", item["tail"], "R07", naming)
+            for symbol in doc[item["body"]]["cte_columns"]:
+                self.add("join_terminal", doc[symbol]["binding"], "R07", naming)
+        elif item["body"] in self.check.inline:
+            self.add("inline_stage_use", item["block"], "R11", naming)
+        else:
+            self.add("stage_use", item["block"], "R03", naming)
+            for symbol in doc[item["body"]]["cte_columns"]:
+                self.add("stage_terminal", doc[symbol]["binding"], "R03", naming)
+        if fields["aggregation"] is not None:
+            self.add(
+                "aggregation",
+                doc[fields["aggregation"]]["aggregation"],
+                "R12",
+                operators,
+            )
+        for column in fields["columns"]:
+            item = doc[column]
+            kind = column.kind
+            if kind == "row_carry_column":
+                self.add("carry_projection", item["export"], "R05", ())
+            elif kind == "aggregate_key_column":
+                self.add("group_key", item["key"], "R12", operators)
+            elif kind == "aggregate_value_column":
+                self.add("aggregate", item["aggregate"], "R13", operators)
+                if item["argument"] is not None:
+                    self.value(item["argument"])
+            elif kind == "aggregate_projection_column":
+                self.add("result_projection", item["projection"], "R12", ())
+            elif kind == "window_column":
+                origin = doc[doc[item["column"]]["window"]]
+                spec = doc[item["specification"]]
+                self.add("window_computation", item["window"], "R14", operators)
+                self.add("window_specification", origin["policy"], "R15", ())
+                frame = None if spec["frame"] is None else doc[spec["frame"]]
+                if frame is not None and _frame_offsets(frame):
+                    self.add("window_frame_offset_domain", origin["policy"], "R15", ())
+                    if frame["unit"] == "range":
+                        self.add(
+                            "window_range_arithmetic",
+                            origin["policy"],
+                            "R15",
+                            operators,
+                        )
+                for partition in spec["partitions"]:
+                    read = doc[doc[partition]["read"]]
+                    self.add("window_partition_comparison", read["terminal"], "R14", ())
+                for order in spec["orders"]:
+                    read = doc[doc[order]["read"]]
+                    self.add("window_order_comparison", read["terminal"], "R14", ())
+            elif kind == "window_projection_column":
+                self.add("window_result_projection", item["projection"], "R17", ())
+            else:
+                self.add("computed_projection", item["export"], "R05", ())
+                self.value(item["value"])
+        if fields["predicate"] is not None:
+            predicate = doc[fields["predicate"]]
+            satisfying = fields["block_kind"] == "satisfying"
+            self.add(
+                "satisfying_root" if satisfying else "predicate_root",
+                predicate["original"],
+                "R12" if satisfying else "R06",
+                operators,
+            )
+            self.value(predicate["value"])
+        self.add("read_only_select_bytes", unit, "R23", ())
 
     def join(self, unit: Ref, naming) -> None:
         doc = self.doc

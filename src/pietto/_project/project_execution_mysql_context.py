@@ -126,16 +126,33 @@ def _same_packet_requirements(left, right) -> bool:
 
 def mysql_text_packet_requirements(owner) -> tuple[tuple[object, int], ...]:
     """Derive every growing Text operation from the verified rendered AST."""
-    from pietto._project.project_sql_emission_ast import row_value_roots
-    from pietto._project.project_sql_emission_rows import SQLOperation, value_nodes
+    from pietto._project.project_sql_emission_ast import (
+        inline_body,
+        inline_values,
+        row_value_roots,
+    )
+    from pietto._project.project_sql_emission_rows import (
+        SQLBlockRead,
+        SQLOperation,
+        value_nodes,
+    )
     from pietto.ir.model import SymbolNamespace
 
     roots = row_value_roots(owner.request.artifact.ast)
     if type(roots) is not tuple:
         raise ExecutionError("MYSQL_TEXT_PACKET_ROOTS")
+
+    def nodes(values):
+        # An inline let's operations follow the EXISTS read that renders it.
+        for value in values:
+            for node in value_nodes(value):
+                yield node
+                if type(node) is SQLBlockRead and inline_body(node.target.producer):
+                    yield from nodes(inline_values(node.target.producer))
+
     requirements = []
     for root in roots:
-        for node in value_nodes(root):
+        for node in nodes((root,)):
             if type(node) is not SQLOperation:
                 continue
             original = node.original

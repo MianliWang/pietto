@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import cast
+from typing import Any, cast
 
 
 from _pietto_repository_facts import REPOSITORY_FACTS
@@ -556,3 +556,162 @@ def test_a_membership_read_binds_the_sole_column_of_its_target(tmp_path) -> None
         assert ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE in {
             issue.kind for issue in issues
         }
+
+
+CAPTURE_HEAD = """shape Row:
+    id: Int not null
+    key: Int nullable
+source lhs: Row is postgres.table("lhs")
+source rhs: Row is postgres.table("rhs")
+"""
+# Phase70 S10: the let reads the current row of the body's FROM and LEFT JOIN
+# inputs; only the body's EXISTS read orders the let first.
+CAPTURE_JOINED = """query result:
+    let matched:
+        capture r
+        capture lhs
+        from rhs
+        where rhs.key == r.key and rhs.id == lhs.id
+        select:
+            id
+    from lhs
+    left join rhs as r:
+        from lhs
+        on lhs.id == r.id
+    where exists matched
+    select:
+        a = lhs.id
+"""
+CAPTURE_INPUT = """query result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key
+        select:
+            id
+    from lhs
+    select:
+        a = lhs.id
+        e = exists matched
+"""
+
+
+def _capture_snapshot(tmp_path, body: str):
+    from _pietto_project_join import _completed
+
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+
+    completed = _completed(tmp_path, CAPTURE_HEAD + body)
+    assert completed.ok, completed.diagnostics
+    return completed, build_project_query_block_ir(completed)
+
+
+def test_capture_edges_carry_outer_rows_without_ordering_blocks(tmp_path) -> None:
+    from pietto._project.project_query_block_ir import ProjectIRCaptureStage
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+
+    completed, snapshot = _capture_snapshot(tmp_path, CAPTURE_JOINED)
+    completion = completed.completion
+    captures = completion.capture_uses
+    assert [
+        (c.inner.let_position, c.outer.let_position, c.ordinal, c.clause.name)
+        for c in captures
+    ] == [(0, None, 0, "r"), (0, None, 1, "lhs")]
+    # Each line binds the body's own JOIN (1) or FROM (0) dependency; no
+    # capture edge is a dependency, and only the EXISTS read orders the let.
+    assert [c.dependency.dependency_ordinal for c in captures] == [1, 0]
+    assert all(c.dependency.consumer is c.outer for c in captures)
+    inner, outer = captures[0].inner, captures[0].outer
+    assert not any(
+        {id(d.consumer), id(d.target)} == {id(inner), id(outer)}
+        for d in completion.dependencies
+    )
+    positions = {id(owner): i for i, owner in enumerate(completion.schedule)}
+    assert positions[id(inner)] < positions[id(outer)]
+    assert verify_project_query_block_ir(snapshot).verified
+    right, left = snapshot.capture_uses
+    assert right.checkpoint is left.checkpoint
+    checkpoint = right.checkpoint
+    assert checkpoint.stage is ProjectIRCaptureStage.JOINED
+    outer: Any = checkpoint.outer
+    assert checkpoint.output is outer.join_prefix.final_join.output
+    assert checkpoint.read.producer is right.inner
+    assert checkpoint.bindings == ((0, (0, 1)), (1, (2, 3)))
+    assert (right.fields, left.fields) == ((2, 3), (0, 1))
+    # The captured r.key is the null-extended joined occurrence.
+    fields: Any = checkpoint.output.row_shape.fields
+    assert [
+        (f.expression.capture, f.expression.field, f.position)
+        for f in snapshot.captured_fields
+    ] == [("r", "key", 3), ("lhs", "id", 0)]
+    assert fields[3].nulling_joins and not fields[0].nulling_joins
+
+
+def test_a_capture_of_an_unjoined_body_reads_its_input_row(tmp_path) -> None:
+    from pietto._project.project_query_block_ir import ProjectIRCaptureStage
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+
+    _, snapshot = _capture_snapshot(tmp_path, CAPTURE_INPUT)
+    assert verify_project_query_block_ir(snapshot).verified
+    (use,) = snapshot.capture_uses
+    assert use.checkpoint.stage is ProjectIRCaptureStage.INPUT
+    assert use.checkpoint.read.use.evidence.read.position.value == "select"
+    assert use.fields == (0, 1)
+    (captured,) = snapshot.captured_fields
+    assert (captured.expression.field, captured.position) == ("key", 1)
+
+
+def test_the_ir_rejects_forged_or_swapped_capture_edges(tmp_path) -> None:
+    from copy import copy
+
+    from pietto._project.project_query_block_ir import ProjectIRCaptureStage
+    from pietto._project.project_query_block_ir_verification import (
+        ProjectIRQueryBlockVerificationIssueKind,
+        verify_project_query_block_ir,
+    )
+
+    def graft(value, **changes):
+        changed = copy(value)
+        for name, item in changes.items():
+            object.__setattr__(changed, name, item)
+        return changed
+
+    _, snapshot = _capture_snapshot(tmp_path, CAPTURE_JOINED)
+    right, left = snapshot.capture_uses
+    first, second = snapshot.captured_fields
+    checkpoint = right.checkpoint
+    outer: Any = checkpoint.outer
+    filter_output = outer.row_outputs[0]
+    forged = (
+        {"capture_uses": ()},
+        {"capture_uses": (left, right)},
+        {"capture_uses": (graft(right, fields=left.fields), left)},
+        {"capture_uses": (graft(right, capture=left.capture), left)},
+        {
+            "capture_uses": (
+                graft(
+                    right,
+                    checkpoint=graft(checkpoint, stage=ProjectIRCaptureStage.INPUT),
+                ),
+                left,
+            )
+        },
+        {
+            "capture_uses": (
+                graft(right, checkpoint=graft(checkpoint, output=filter_output)),
+                left,
+            )
+        },
+        {"captured_fields": (graft(first, position=2), second)},
+        {"captured_fields": (second, first)},
+        {"captured_fields": (first,)},
+    )
+    for changes in forged:
+        issues = verify_project_query_block_ir(graft(snapshot, **changes)).issues
+        assert ProjectIRQueryBlockVerificationIssueKind.CAPTURE_USE in {
+            issue.kind for issue in issues
+        }, changes

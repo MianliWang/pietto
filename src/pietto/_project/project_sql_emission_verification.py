@@ -1812,8 +1812,12 @@ def _aggregate_result_realization(family, function, argument, retained):
     )
 
 
-def _verify_body_scope(body, position, state):
+def _verify_body_scope(body, position, state, *, inline=False):
     """One body's own generated CTE name and ordered terminal column symbols."""
+    if inline:
+        if body.final or body.symbol is not None or body.cte_columns != ():
+            raise ValueError("an inline body publishes no generated scope")
+        return
     if body.final:
         if body.symbol is not None or body.cte_columns != ():
             raise ValueError("final body publishes no generated scope")
@@ -2421,11 +2425,26 @@ class _BlockScope:
     source: Any
 
 
-def _block_scopes(request, definition, produced, source_refs):
-    """Each block use this definition reads, bound to its realized producer."""
+def _inline_body(unit) -> bool:
+    """An inline let body: a stage body with no unit name that is not final."""
+    return type(unit) is RowBody and unit.symbol is None and not unit.final
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _CaptureImage:
+    """The verifier's own image of one capture record's outer row scope."""
+
+    capture: Any
+    alias: Any
+    reads: tuple[Any, ...]
+
+
+def _block_scopes(request, definition, produced, source_refs, inline=frozenset()):
+    """Each block use this definition reads, bound to its realized producer;
+    an inline let is bound where its read is verified."""
     result = {}
     for use in request.plan.expression_block_uses:
-        if use.consumer is not definition.original.ref:
+        if use.consumer is not definition.original.ref or use.producer in inline:
             continue
         source = source_refs.get(use.producer)
         if source is not None:
@@ -2542,6 +2561,35 @@ def _verify_row_value(
             state,
             reference_type=reference_type,
         )
+    if type(value) is rows.SQLCapturedReference:
+        # The independent capture image names the outer row of this read.
+        scope = columns.get(getattr(expression, "capture", None))
+        if (
+            type(expression) is not row.ProjectSQLCapturedField
+            or value.original is not expression
+            or reference in children
+            or type(scope) is not _CaptureImage
+            or value.capture is not scope.capture
+            or scope.capture.ref is not expression.capture
+            or expression.position not in scope.capture.edge.fields
+            or value.scope is not scope.alias
+        ):
+            raise ValueError("captured reference")
+        column = scope.reads[scope.capture.edge.fields.index(expression.position)]
+        tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
+        expected = column.realization
+        if expected.nullable != nullable and nullable is True:
+            expected = replace(expected, nullable=True)
+        if (
+            not _same_read(value.column, column)
+            or expected.tag != tag
+            or expected.nullable != nullable
+            or not _same_realization(value.realization, expected)
+        ):
+            raise ValueError("captured reference realization")
+        state["expressions"].append(expression)
+        state["nodes"] += 1
+        return value.realization
     if type(value) is rows.SQLBlockRead:
         # The independent scope image names each readable block use's producer.
         expected = columns.get(getattr(expression, "use", None))
@@ -4011,7 +4059,13 @@ def verify_row_query(request, query, *, _guarded=None):
         set_groups = setting.bodies_by_definition(plan)
         values_groups = {body.definition: body for body in plan.values_bodies}
         expected = []
+        # A capturing let is verified inline, at its outer body's single read.
+        inline = frozenset(capture.inner for capture in plan.captures)
+        inline_blocks = {}
         for definition, blocks in definition_blocks(request):
+            if definition.original.ref in inline:
+                inline_blocks[definition.original.ref] = (definition, blocks)
+                continue
             values_body = values_groups.get(definition.original.ref)
             if values_body is not None:
                 if blocks or join_groups.get(definition.original.ref):
@@ -4043,59 +4097,73 @@ def verify_row_query(request, query, *, _guarded=None):
         columns_by_body = {}
         join_context["produced"] = produced
         join_context["by_join"] = by_join
-        for position, ((definition, block, index), body) in enumerate(
-            zip(expected, units, strict=True)
+
+        def verify_inline(block_use, block, scan, columns, body):
+            """The capturing let a body reads, verified at that body's read.
+
+            None outside the read's own block, False when it does not verify.
+            """
+            local = tuple(
+                capture
+                for capture in plan.captures
+                if capture.edge.checkpoint.read is block_use.edge
+            )
+            if not local or block_use.producer not in inline_blocks:
+                return False
+            if local[0].block is not block.ref:
+                return None
+            images = {}
+            for capture in local:
+                reads = tuple(columns.get(port) for port in capture.ports)
+                if capture.block is not block.ref or any(r is None for r in reads):
+                    return False
+                images[capture.ref] = _CaptureImage(capture, scan.symbol, reads)
+            reads = tuple(
+                node
+                for value in (
+                    *(getattr(column, "value", None) for column in body.columns),
+                    None if body.predicate is None else body.predicate.value,
+                )
+                if value is not None
+                for node in rows.value_nodes(value)
+                if type(node) is rows.SQLBlockRead and node.target.use is block_use
+            )
+            if len(reads) != 1:
+                return False
+            terminal = reads[0].target.producer
+            chain = [terminal]
+            while (
+                _inline_body(chain[-1])
+                and type(chain[-1].scan) is RowStageUse
+                and _inline_body(chain[-1].scan.body)
+            ):
+                chain.append(chain[-1].scan.body)
+            chain.reverse()
+            definition, blocks = inline_blocks[block_use.producer]
+            if len(chain) != len(blocks) or not all(map(_inline_body, chain)):
+                return False
+            previous = None
+            for index, (inner_block, inner_body) in enumerate(
+                zip(blocks, chain, strict=True)
+            ):
+                if not verify_stage(
+                    definition,
+                    inner_block,
+                    index,
+                    inner_body,
+                    -1,
+                    previous,
+                    False,
+                    images,
+                ):
+                    return False
+                previous = inner_body
+            return _BlockScope(block_use, terminal, None)
+
+        def verify_stage(
+            definition, block, index, body, position, predecessor, final, captures
         ):
-            if index is None:
-                _verify_join_unit(
-                    request,
-                    body,
-                    block,
-                    position,
-                    join_context,
-                    state,
-                    guarded=_guarded,
-                )
-                by_join[block.ref] = body
-                continue
-            if index == "values":
-                _verify_values_unit(
-                    request,
-                    body,
-                    definition,
-                    block,
-                    position,
-                    position == len(units) - 1,
-                    state,
-                )
-                produced[definition.original.ref] = body
-                continue
-            if index == "set":
-                _verify_set_unit(
-                    request,
-                    body,
-                    definition,
-                    block,
-                    position,
-                    produced,
-                    position == len(units) - 1,
-                    state,
-                )
-                produced[definition.original.ref] = body
-                continue
-            if index == "result":
-                _verify_result_body(
-                    request,
-                    body,
-                    definition,
-                    block,
-                    position,
-                    units[position - 1],
-                    position == len(units) - 1,
-                    state,
-                )
-                produced[definition.original.ref] = body
-                continue
+            """One stage body; ``captures`` makes it an inline let's body."""
             joined_definition = bool(join_groups.get(definition.original.ref, ()))
             result_boundaries = result_groups.get(definition.original.ref, ())
             selected = definition.original.entry.owner is plan.scope.selected_owner
@@ -4104,7 +4172,7 @@ def verify_row_query(request, query, *, _guarded=None):
                 or body.definition is not definition
                 or body.block is not block
                 or body.index != index
-                or body.final != (position == len(units) - 1)
+                or body.final != final
                 or body.final
                 != (
                     block.kind.value == "projection"
@@ -4158,7 +4226,7 @@ def verify_row_query(request, query, *, _guarded=None):
             elif (
                 type(scan) is not RowStageUse
                 or scan.block is not block
-                or scan.body is not units[position - 1]
+                or scan.body is not predecessor
                 or scan.body.definition is not definition
                 or scan.symbol.binding is not block.ref
                 or scan.symbol.name != f"t{block.ref.position}"
@@ -4177,18 +4245,30 @@ def verify_row_query(request, query, *, _guarded=None):
                     assert binding is not None
                     if port.source is not binding.bindings[slot].input_port.ref:
                         return False
-                elif port.source is not units[position - 1].block.exports[slot]:
+                elif port.source is not predecessor.block.exports[slot]:
                     return False
             columns = dict(
                 zip(block.inputs, _row_reads(request, scan, block), strict=True)
             )
             if any(column is None for column in columns.values()):
                 return False
-            readable = {
-                **columns,
-                **_block_scopes(request, definition, produced, source_refs),
-            }
-            columns_by_body[position] = columns
+            scopes = _block_scopes(request, definition, produced, source_refs, inline)
+            for block_use in plan.expression_block_uses:
+                if (
+                    block_use.consumer is definition.original.ref
+                    and block_use.producer in inline
+                ):
+                    scope = verify_inline(block_use, block, scan, columns, body)
+                    if scope is False:
+                        return False
+                    if scope is not None:
+                        scopes[block_use.ref] = scope
+            readable = {**columns, **scopes, **(captures or {})}
+            if captures is not None:
+                # An inline body's own structure counts like any other body.
+                state["nodes"] += 3 + 2 * len(body.columns)
+            if captures is None:
+                columns_by_body[position] = columns
             kind = block.kind.value
             stage = stages.get(definition.original.ref)
             if (kind == "aggregate") is not (
@@ -4215,8 +4295,8 @@ def verify_row_query(request, query, *, _guarded=None):
                     stage_ports.get(ref) for ref in block.exports
                 ):
                     return False
-                _verify_body_scope(body, position, state)
-                continue
+                _verify_body_scope(body, position, state, inline=captures is not None)
+                return True
             if (
                 kind == "projection"
                 and stage is not None
@@ -4238,9 +4318,9 @@ def verify_row_query(request, query, *, _guarded=None):
                 )
                 if body.predicate is not None:
                     return False
-                _verify_body_scope(body, position, state)
+                _verify_body_scope(body, position, state, inline=captures is not None)
                 produced[definition.original.ref] = body
-                continue
+                return True
             if body.aggregation is not None or (
                 aggregate_projections.get(block.ref)
                 and not window_projections.get(block.ref)
@@ -4454,6 +4534,7 @@ def verify_row_query(request, query, *, _guarded=None):
                         rows.SQLOperation,
                         rows.SQLParameterRead,
                         rows.SQLBlockRead,
+                        rows.SQLCapturedReference,
                     }:
                         if image.literal is not None:
                             return False
@@ -4531,9 +4612,75 @@ def verify_row_query(request, query, *, _guarded=None):
                     return False
             elif kind in {"where", "satisfying", "qualify"}:
                 return False
-            _verify_body_scope(body, position, state)
-            if kind == "projection":
+            _verify_body_scope(body, position, state, inline=captures is not None)
+            if kind == "projection" and captures is None:
                 produced[definition.original.ref] = body
+            return True
+
+        for position, ((definition, block, index), body) in enumerate(
+            zip(expected, units, strict=True)
+        ):
+            if index is None:
+                _verify_join_unit(
+                    request,
+                    body,
+                    block,
+                    position,
+                    join_context,
+                    state,
+                    guarded=_guarded,
+                )
+                by_join[block.ref] = body
+                continue
+            if index == "values":
+                _verify_values_unit(
+                    request,
+                    body,
+                    definition,
+                    block,
+                    position,
+                    position == len(units) - 1,
+                    state,
+                )
+                produced[definition.original.ref] = body
+                continue
+            if index == "set":
+                _verify_set_unit(
+                    request,
+                    body,
+                    definition,
+                    block,
+                    position,
+                    produced,
+                    position == len(units) - 1,
+                    state,
+                )
+                produced[definition.original.ref] = body
+                continue
+            if index == "result":
+                _verify_result_body(
+                    request,
+                    body,
+                    definition,
+                    block,
+                    position,
+                    units[position - 1],
+                    position == len(units) - 1,
+                    state,
+                )
+                produced[definition.original.ref] = body
+                continue
+            if not verify_stage(
+                definition,
+                block,
+                index,
+                body,
+                position,
+                units[position - 1] if position else None,
+                position == len(units) - 1,
+                None,
+            ):
+                return False
         block_reads = state.get("block_reads", [])
         if (
             len({id(s) for s in symbols}) != len(symbols)
@@ -4803,6 +4950,11 @@ def verify_row_bytes(query, rendered):
                         target.producer.name,
                         identifier=True,
                     )
+                elif _inline_body(target.producer):
+                    producer = target.producer.block.ref
+                    take("syntax", "inline_open", producer, "(")
+                    select(target.producer)
+                    take("syntax", "inline_close", producer, ")")
                 else:
                     take(
                         "identifier",
@@ -4821,6 +4973,25 @@ def verify_row_bytes(query, rendered):
                 )
                 take("syntax", f"{kind}_close", reference, ")")
                 spans.append((kind, reference, start, offset))
+                return
+            if type(value) is rows.SQLCapturedReference:
+                reference = value.original.ref
+                take(
+                    "identifier",
+                    "capture_scope",
+                    value.capture.ref,
+                    value.scope.name,
+                    identifier=True,
+                )
+                take("syntax", "capture_qualifier", reference, ".")
+                take(
+                    "identifier",
+                    "capture_column",
+                    value.column.terminal,
+                    value.column.name,
+                    identifier=True,
+                )
+                spans.append(("capture", reference, start, offset))
                 return
             if type(value) is rows.SQLStageReference:
                 reference = value.original.ref
@@ -5338,13 +5509,18 @@ def verify_row_bytes(query, rendered):
                     raise ValueError("unknown SQL relation")
                 reference = scan.body.block.ref
                 take("syntax", "from", reference, " FROM ")
-                take(
-                    "identifier",
-                    "stage_reference",
-                    reference,
-                    scan.body.symbol.name,
-                    identifier=True,
-                )
+                if _inline_body(scan.body):
+                    take("syntax", "inline_open", reference, "(")
+                    select(scan.body)
+                    take("syntax", "inline_close", reference, ")")
+                else:
+                    take(
+                        "identifier",
+                        "stage_reference",
+                        reference,
+                        scan.body.symbol.name,
+                        identifier=True,
+                    )
                 take("syntax", "alias", scan.block.ref, " AS ")
                 take(
                     "identifier", "stage_scope", scan.block.ref, alias, identifier=True
@@ -6097,6 +6273,7 @@ def verify_row_requirements(request, query, original, generated):
                         row.ProjectSQLReference,
                         row.ProjectSQLJoinedReference,
                         row.ProjectSQLMatchReference,
+                        row.ProjectSQLCapturedField,
                         grouping.ProjectSQLResultReference,
                         plan_windows.ProjectSQLWindowReference,
                     }
@@ -6178,6 +6355,18 @@ def verify_row_generated_requirements(request, query, generated):
                                 applicable_premises(request, producer.owner, field),
                             )
                         )
+                elif _inline_body(producer):
+                    inline_expectations(producer)
+                continue
+            if type(node) is rows.SQLCapturedReference:
+                expected.append(
+                    (
+                        "capture",
+                        node.original.ref,
+                        "R11",
+                        node_premises(request, node.realization, (), "capture"),
+                    )
+                )
                 continue
             if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
                 kind = rows.requirement_kind(node)
@@ -6282,6 +6471,162 @@ def verify_row_generated_requirements(request, query, generated):
             expected.append(("join_output", column.port.ref, "R07", naming))
             if column.port.nulling:
                 expected.append(("null_extension", column.port.ref, "R08", naming))
+
+    def body_expectations(body):
+        """One stage body's own structures and values, independently."""
+        scan = body.scan
+        if type(scan) is RowScan:
+            expected.append(
+                (
+                    "qualified_scan",
+                    scan,
+                    "R01",
+                    applicable_premises(request, scan.realization.owner),
+                )
+            )
+            for field in scan.realization.fields:
+                expected.append(
+                    (
+                        "source_representation",
+                        field,
+                        "R02",
+                        applicable_premises(request, scan.realization.owner, field),
+                    )
+                )
+        elif type(scan) is RowNamedUse:
+            expected.append(("named_use", scan.use.ref, "R03", naming))
+            for link in scan.binding.bindings:
+                expected.append(
+                    ("immediate_terminal", link.terminal.ref, "R03", naming)
+                )
+        elif type(scan) is RowJoinUse:
+            expected.append(("join_use", scan.tail.ref, "R07", naming))
+            for symbol in scan.body.cte_columns:
+                expected.append(("join_terminal", symbol.binding, "R07", naming))
+        elif _inline_body(scan.body):
+            expected.append(("inline_stage_use", scan.block.ref, "R11", naming))
+        else:
+            expected.append(("stage_use", scan.block.ref, "R03", naming))
+            for symbol in scan.body.cte_columns:
+                expected.append(("stage_terminal", symbol.binding, "R03", naming))
+        operators = tuple(
+            p
+            for p in request.premises
+            if p.scope == "statement" and p.key == "operator_environment"
+        )
+        if body.aggregation is not None:
+            expected.append(
+                ("aggregation", body.aggregation.aggregation.ref, "R12", operators)
+            )
+        for column in body.columns:
+            if type(column) is RowCarryColumn:
+                expected.append(("carry_projection", column.export.ref, "R05", ()))
+                continue
+            if type(column) is grouping.AggregateKeyColumn:
+                expected.append(("group_key", column.key.ref, "R12", operators))
+                continue
+            if type(column) is grouping.AggregateValueColumn:
+                expected.append(("aggregate", column.aggregate.ref, "R13", operators))
+                if column.argument is not None:
+                    node_expectations(column.argument)
+                continue
+            if type(column) is grouping.AggregateProjectionColumn:
+                expected.append(("result_projection", column.projection.ref, "R12", ()))
+                continue
+            if type(column) is windowing.WindowColumn:
+                expected.append(
+                    ("window_computation", column.window.ref, "R14", operators)
+                )
+                expected.append(
+                    ("window_specification", column.window.policy, "R15", ())
+                )
+                expected.extend(
+                    (
+                        "query_parameter",
+                        argument.parameter.original.ref,
+                        "R04",
+                        node_premises(
+                            request, argument.parameter.realization, (), "parameter"
+                        ),
+                    )
+                    for argument in column.arguments
+                    if argument.parameter is not None
+                )
+                # R15-INT-OFFSET-V1, enumerated from the retained policy's own
+                # frame rather than from the candidate's rendered bounds.
+                from pietto._project.project_sql_emission_contract import (
+                    CompiledPreparedEmission,
+                )
+
+                if type(request) is CompiledPreparedEmission:
+                    from pietto._project.project_compiled_schema import Address
+
+                    records = request.verification.completed.root.records
+                    described = records[
+                        Address(column.window.ref.kind, column.window.ref.position)
+                    ]
+                    specification = records[described.get("specification")]
+                    frame = specification.get("frame")
+                    offsets = (
+                        ()
+                        if frame is None
+                        else tuple(b for b in frame[1:3] if b[1] is not None)
+                    )
+                else:
+                    try:
+                        frame, offsets = _window_frame_expectation(
+                            windowing.window_policies(request.plan)[column.window.ref]
+                        )
+                    except (KeyError, ValueError):
+                        frame, offsets = None, ()
+                if offsets:
+                    expected.append(
+                        ("window_frame_offset_domain", column.window.policy, "R15", ())
+                    )
+                    if frame is not None and frame[0] == "range":
+                        expected.append(
+                            (
+                                "window_range_arithmetic",
+                                column.window.policy,
+                                "R15",
+                                operators,
+                            )
+                        )
+                for _binding, read in column.specification.partitions:
+                    expected.append(
+                        ("window_partition_comparison", read.terminal, "R14", ())
+                    )
+                for item in column.specification.orders:
+                    expected.append(
+                        ("window_order_comparison", item.read.terminal, "R14", ())
+                    )
+                continue
+            if type(column) is windowing.WindowProjectionColumn:
+                expected.append(
+                    ("window_result_projection", column.projection.ref, "R17", ())
+                )
+                continue
+            expected.append(("computed_projection", column.export.ref, "R05", ()))
+            node_expectations(column.value)
+        if body.predicate is not None:
+            satisfying = body.block.kind.value == "satisfying"
+            expected.append(
+                (
+                    "satisfying_root" if satisfying else "predicate_root",
+                    body.predicate.original.ref,
+                    "R12" if satisfying else "R06",
+                    operators,
+                )
+            )
+            node_expectations(body.predicate.value)
+        expected.append(("read_only_select_bytes", body, "R23", ()))
+
+    def inline_expectations(body):
+        """An inline let's bodies, innermost first."""
+        scan = body.scan
+        if type(scan) is RowStageUse and _inline_body(scan.body):
+            inline_expectations(scan.body)
+        body_expectations(body)
 
     for unit in units[:-1]:
         is_join = type(unit) is joining.JoinBody
@@ -6405,151 +6750,7 @@ def verify_row_generated_requirements(request, query, generated):
         if type(unit) is resulting.RowResultBody:
             result_expectations(unit)
             continue
-        body = unit
-        scan = body.scan
-        if type(scan) is RowScan:
-            expected.append(
-                (
-                    "qualified_scan",
-                    scan,
-                    "R01",
-                    applicable_premises(request, scan.realization.owner),
-                )
-            )
-            for field in scan.realization.fields:
-                expected.append(
-                    (
-                        "source_representation",
-                        field,
-                        "R02",
-                        applicable_premises(request, scan.realization.owner, field),
-                    )
-                )
-        elif type(scan) is RowNamedUse:
-            expected.append(("named_use", scan.use.ref, "R03", naming))
-            for link in scan.binding.bindings:
-                expected.append(
-                    ("immediate_terminal", link.terminal.ref, "R03", naming)
-                )
-        elif type(scan) is RowJoinUse:
-            expected.append(("join_use", scan.tail.ref, "R07", naming))
-            for symbol in scan.body.cte_columns:
-                expected.append(("join_terminal", symbol.binding, "R07", naming))
-        else:
-            expected.append(("stage_use", scan.block.ref, "R03", naming))
-            for symbol in scan.body.cte_columns:
-                expected.append(("stage_terminal", symbol.binding, "R03", naming))
-        operators = tuple(
-            p
-            for p in request.premises
-            if p.scope == "statement" and p.key == "operator_environment"
-        )
-        if body.aggregation is not None:
-            expected.append(
-                ("aggregation", body.aggregation.aggregation.ref, "R12", operators)
-            )
-        for column in body.columns:
-            if type(column) is RowCarryColumn:
-                expected.append(("carry_projection", column.export.ref, "R05", ()))
-                continue
-            if type(column) is grouping.AggregateKeyColumn:
-                expected.append(("group_key", column.key.ref, "R12", operators))
-                continue
-            if type(column) is grouping.AggregateValueColumn:
-                expected.append(("aggregate", column.aggregate.ref, "R13", operators))
-                if column.argument is not None:
-                    node_expectations(column.argument)
-                continue
-            if type(column) is grouping.AggregateProjectionColumn:
-                expected.append(("result_projection", column.projection.ref, "R12", ()))
-                continue
-            if type(column) is windowing.WindowColumn:
-                expected.append(
-                    ("window_computation", column.window.ref, "R14", operators)
-                )
-                expected.append(
-                    ("window_specification", column.window.policy, "R15", ())
-                )
-                expected.extend(
-                    (
-                        "query_parameter",
-                        argument.parameter.original.ref,
-                        "R04",
-                        node_premises(
-                            request, argument.parameter.realization, (), "parameter"
-                        ),
-                    )
-                    for argument in column.arguments
-                    if argument.parameter is not None
-                )
-                # R15-INT-OFFSET-V1, enumerated from the retained policy's own
-                # frame rather than from the candidate's rendered bounds.
-                from pietto._project.project_sql_emission_contract import (
-                    CompiledPreparedEmission,
-                )
-
-                if type(request) is CompiledPreparedEmission:
-                    from pietto._project.project_compiled_schema import Address
-
-                    records = request.verification.completed.root.records
-                    described = records[
-                        Address(column.window.ref.kind, column.window.ref.position)
-                    ]
-                    specification = records[described.get("specification")]
-                    frame = specification.get("frame")
-                    offsets = (
-                        ()
-                        if frame is None
-                        else tuple(b for b in frame[1:3] if b[1] is not None)
-                    )
-                else:
-                    try:
-                        frame, offsets = _window_frame_expectation(
-                            windowing.window_policies(request.plan)[column.window.ref]
-                        )
-                    except (KeyError, ValueError):
-                        frame, offsets = None, ()
-                if offsets:
-                    expected.append(
-                        ("window_frame_offset_domain", column.window.policy, "R15", ())
-                    )
-                    if frame is not None and frame[0] == "range":
-                        expected.append(
-                            (
-                                "window_range_arithmetic",
-                                column.window.policy,
-                                "R15",
-                                operators,
-                            )
-                        )
-                for _binding, read in column.specification.partitions:
-                    expected.append(
-                        ("window_partition_comparison", read.terminal, "R14", ())
-                    )
-                for item in column.specification.orders:
-                    expected.append(
-                        ("window_order_comparison", item.read.terminal, "R14", ())
-                    )
-                continue
-            if type(column) is windowing.WindowProjectionColumn:
-                expected.append(
-                    ("window_result_projection", column.projection.ref, "R17", ())
-                )
-                continue
-            expected.append(("computed_projection", column.export.ref, "R05", ()))
-            node_expectations(column.value)
-        if body.predicate is not None:
-            satisfying = body.block.kind.value == "satisfying"
-            expected.append(
-                (
-                    "satisfying_root" if satisfying else "predicate_root",
-                    body.predicate.original.ref,
-                    "R12" if satisfying else "R06",
-                    operators,
-                )
-            )
-            node_expectations(body.predicate.value)
-        expected.append(("read_only_select_bytes", body, "R23", ()))
+        body_expectations(unit)
     if generated_scopes:
         expected.append(("nonrecursive_with_bytes", query, "R23", ()))
     if len(expected) != len(generated):

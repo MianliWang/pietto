@@ -127,7 +127,22 @@ from pietto._project.project_joined_row_semantics import (
 from pietto._project.project_joined_windows import (
     ProjectSelectedWindowResultBinding,
 )
+from pietto._project.module_relation_resolution import (
+    ProjectResolvedModuleRelationReference,
+)
+from pietto._project.project_relationship_uses import (
+    ProjectRelationBindingOccurrence,
+)
+from pietto._project.relation_captures import (
+    captured_field_reads,
+    null_extended_bindings,
+    outer_row_bindings,
+)
+from pietto._project.row_expression_type_facts import (
+    project_row_field_to_semantic_value_type,
+)
 from pietto._project.project_query_block_ir import (
+    ProjectIRCaptureStage,
     ProjectIRDistinctComparison,
     ProjectIRSingleMatchRetention,
     ProjectIRSingleMatchProofImage,
@@ -157,12 +172,15 @@ from pietto._project.project_scalar_namespaces import (
 )
 from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
 from pietto.ast_nodes import (
+    BlockRelationDef,
     DottedNameExpr,
+    LetRelationDef,
     NameExpr,
     QueryDef,
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
+    SelectBody,
     Span,
     TableDef,
 )
@@ -181,6 +199,7 @@ class ProjectIRQueryBlockVerificationIssueKind(StrEnum):
     ALLOCATION = "allocation"
     LEDGER = "ledger"
     EXPRESSION_BLOCK_USE = "expression_block_use"
+    CAPTURE_USE = "capture_use"
     ACTIVE_ROOT = "active_root"
     HISTORICAL_REUSE = "historical_reuse"
     JOIN_REUSE = "join_reuse"
@@ -930,6 +949,216 @@ def _verify_expression_block_uses(
     )
     if not valid:
         _record(issues, ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE)
+
+
+def _capture_binding_name(dependency) -> str | None:
+    evidence = dependency.evidence
+    if type(evidence) is ProjectRelationBindingOccurrence:
+        return evidence.name
+    if type(evidence) is ProjectResolvedModuleRelationReference:
+        return evidence.reference.from_clause.source_name
+    return None
+
+
+def _capture_outer_row(entry):
+    """The outer row stage, output and binding fields, re-derived here."""
+    if type(entry) in {ProjectIRReusedEffectiveOutput, ProjectIRReboundExistingOutput}:
+        fragment = (
+            entry.semantic_entry.fragment
+            if type(entry) is ProjectIRReusedEffectiveOutput
+            else entry.rebuilt_fragment
+        )
+        operator = fragment.logical_stage.operators[0]
+        if operator.kind is not ProjectIRLogicalOperatorKind.RELATION_INPUT:
+            return None
+        outputs = tuple(
+            output
+            for output in fragment.property_stage.outputs
+            if output.occurrence.producer is operator.node
+        )
+        if len(outputs) != 1:
+            return None
+        width = len(outputs[0].row_shape.fields)
+        return ProjectIRCaptureStage.INPUT, outputs[0], {0: tuple(range(width))}
+    if type(entry) is not ProjectIRCompletedQueryBlockOutput:
+        return None
+    root = entry.semantic_entry.root
+    if type(root) is ProjectConcreteNoJoinReplay:
+        if entry.operators[0].kind is not ProjectIRLogicalOperatorKind.RELATION_INPUT:
+            return None
+        output = entry.row_outputs[0]
+        return (
+            ProjectIRCaptureStage.INPUT,
+            output,
+            {0: tuple(range(len(output.row_shape.fields)))},
+        )
+    if type(root) is not ProjectConcreteJoinedQualify or entry.join_prefix is None:
+        return None
+    output = entry.join_prefix.final_join.output
+    environment = (
+        root.window_stage.input_aggregation.input_filter.joined_semantics
+    ).namespaces.binding_environment
+    fields = output.row_shape.fields
+    bindings: dict[int, tuple[int, ...]] = {}
+    introductions: list[object] = []
+    for visible in environment.bindings:
+        positions = tuple(item.position for item in visible.fields)
+        uses = {id(fields[i].introduction_use) for i in positions}
+        if len(uses) > 1 or any(
+            fields[i].evidence is not item.evidence
+            for i, item in zip(positions, visible.fields, strict=True)
+        ):
+            return None
+        introductions.extend(uses)
+        bindings[visible.binding.identity.binding_position] = positions
+    if len(set(introductions)) != len(introductions):
+        return None
+    return ProjectIRCaptureStage.JOINED, output, bindings
+
+
+def _verify_capture_uses(
+    root: ProjectIRQueryBlockSnapshot,
+    issues: list[ProjectIRQueryBlockVerificationIssue],
+) -> None:
+    """Re-derive every capture edge, stage checkpoint and captured field.
+
+    Each capture line of an inventory let binds the FROM or JOIN dependency of
+    its declaration body that has the line's name; its IR image reads the
+    outer row of that body's single read of the let; each captured field read
+    is the one field of that binding with its name, and the let types it as
+    that field, nullable whenever an outer JOIN may null-extend the binding.
+    """
+    completion = root.completed.completion
+    entries = {id(entry.owner): entry for entry in root.entries}
+    outers = {
+        (owner.identity.module_path, owner.declaration_position): owner
+        for owner in root.owners
+        if owner.let_position is None
+    }
+    dependencies = {
+        (id(edge.consumer), edge.dependency_ordinal): edge for edge in root.dependencies
+    }
+    facts = {
+        id(fragment.semantic_facts.owner): fragment.semantic_facts
+        for fragment in completion.plan.fragments
+    }
+    expected = []
+    for owner in root.owners:
+        let = owner.authored_block
+        if type(let) is not LetRelationDef or not let.captures:
+            continue
+        outer = outers[(owner.identity.module_path, owner.declaration_position)]
+        positions = dict(
+            outer_row_bindings(cast(BlockRelationDef, outer.authored_block))
+        )
+        for ordinal, clause in enumerate(let.captures):
+            dependency = dependencies.get((id(outer), positions[clause.name]))
+            if dependency is not None:
+                expected.append((owner, outer, ordinal, dependency, clause.name))
+    uses = completion.capture_uses
+    valid = len(uses) == len(expected) and all(
+        use.inner is inner
+        and use.outer is outer
+        and use.ordinal == ordinal
+        and use.dependency is dependency
+        and _capture_binding_name(dependency) == name
+        for use, (inner, outer, ordinal, dependency, name) in zip(
+            uses, expected, strict=True
+        )
+    )
+    imaged = []
+    for use in uses if valid else ():
+        inner, outer = entries[id(use.inner)], entries[id(use.outer)]
+        reads = tuple(
+            edge
+            for edge in root.expression_uses
+            if edge.use.consumer is use.outer and edge.use.target is use.inner
+        )
+        if (
+            len(reads) != 1
+            or isinstance(inner, ProjectIRQueryBlockTerminal)
+            or isinstance(outer, ProjectIRQueryBlockTerminal)
+        ):
+            continue
+        row = _capture_outer_row(outer)
+        if row is None:
+            continue
+        stage, output, bindings = row
+        fields = bindings.get(use.dependency.dependency_ordinal)
+        if fields is None:
+            continue
+        imaged.append((use, inner, outer, reads[0], stage, output, bindings, fields))
+    valid = valid and len(root.capture_uses) == len(imaged)
+    checkpoints: dict[int, object] = {}
+    captured = []
+    for edge, (use, inner, outer, read, stage, output, bindings, fields) in zip(
+        root.capture_uses if valid else (), imaged, strict=True
+    ):
+        checkpoint = edge.checkpoint
+        shared = checkpoints.setdefault(id(read), checkpoint)
+        outer_definition = cast(BlockRelationDef, outer.owner.authored_block)
+        nulled = null_extended_bindings(outer_definition)
+        valid = valid and (
+            edge.capture is use
+            and edge.inner is inner
+            and shared is checkpoint
+            and checkpoint.outer is outer
+            and checkpoint.read is read
+            and checkpoint.stage is stage
+            and (stage is ProjectIRCaptureStage.JOINED)
+            is bool(cast(SelectBody, outer_definition.body).join_clauses)
+            and checkpoint.output is output
+            and dict(checkpoint.bindings) == bindings
+            and edge.fields == fields
+            and all(
+                not output.row_shape.fields[i].nulling_joins
+                or use.dependency.dependency_ordinal in nulled
+                for i in fields
+                if stage is ProjectIRCaptureStage.JOINED
+            )
+        )
+        environment = facts[id(use.inner)].captured_value_types
+        for read_node in captured_field_reads(use.inner.authored_block):
+            if read_node.ordinal != use.ordinal:
+                continue
+            named = tuple(
+                i
+                for i in fields
+                if output.row_shape.fields[i].evidence.name == read_node.field
+            )
+            if len(named) != 1:
+                continue
+            evidence = output.row_shape.fields[named[0]].evidence
+            expected_type = project_row_field_to_semantic_value_type(
+                evidence,
+                ProjectRowFieldNullability.NULLABLE
+                if use.dependency.dependency_ordinal in nulled
+                else evidence.nullability,
+            )
+            valid = valid and environment.get(read_node) == expected_type
+            captured.append((read_node, edge, named[0]))
+    order = {
+        id(edge.inner): i for i, edge in reversed(tuple(enumerate(root.capture_uses)))
+    }
+    captured.sort(
+        key=lambda item: (
+            order[id(item[1].inner)],
+            item[0].span.line,
+            item[0].span.column,
+        )
+    )
+    valid = (
+        valid
+        and len(root.captured_fields) == len(captured)
+        and all(
+            item.expression is node and item.capture is edge and item.position == i
+            for item, (node, edge, i) in zip(
+                root.captured_fields, captured, strict=True
+            )
+        )
+    )
+    if not valid:
+        _record(issues, ProjectIRQueryBlockVerificationIssueKind.CAPTURE_USE)
 
 
 def _historical_edge(
@@ -2681,6 +2910,7 @@ def verify_project_query_block_ir(
         _verify_allocation,
         _verify_ledger,
         _verify_expression_block_uses,
+        _verify_capture_uses,
         _verify_active_roots,
         _verify_historical_reuse,
         _verify_join_reuse,
@@ -2706,6 +2936,9 @@ def verify_project_query_block_ir(
                     _verify_ledger: ProjectIRQueryBlockVerificationIssueKind.LEDGER,
                     _verify_expression_block_uses: (
                         ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE
+                    ),
+                    _verify_capture_uses: (
+                        ProjectIRQueryBlockVerificationIssueKind.CAPTURE_USE
                     ),
                     _verify_active_roots: (
                         ProjectIRQueryBlockVerificationIssueKind.ACTIVE_ROOT
@@ -4054,6 +4287,7 @@ def verify_compiled_property_laws(root):
                     i
                     for i, source in enumerate(port_sources)
                     if source.address.kind == "read"
+                    and source.get("role") != "capture"
                     and any(
                         m.field_position == records[source.get("port")].get("ordinal")
                         for m in value.members

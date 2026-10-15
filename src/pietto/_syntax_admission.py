@@ -66,6 +66,7 @@ _EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset(
         RelationExistsExpr,
         RelationScalarExpr,
         RelationMembershipExpr,
+        CaptureClause,
     }
 )
 # Expression families admitted only inside a FROM-based relation body; in a
@@ -76,6 +77,12 @@ _BODY_ONLY: frozenset[type[Node]] = frozenset(
 _BODIES: frozenset[type[Node]] = frozenset({TableDef, QueryDef, SelectBody})
 # D70.07: one table or query declares at most this many relation lets.
 _MAX_RELATION_LETS = 64
+
+
+def explicit_modules_admits(kind: type[Node]) -> bool:
+    """Whether EXPLICIT_MODULES admits one gated family (read at call time)."""
+
+    return kind in _EXPLICIT_MODULES_ADMITTED
 
 
 def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
@@ -90,6 +97,20 @@ def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+    )
+
+
+def source_order(item: Diagnostic) -> tuple[str, int, int, str, int, int]:
+    """The (path, line, column, code, end) order of pre-admission diagnostics."""
+
+    location = item.location
+    return (
+        location.path or "",
+        location.line,
+        location.column,
+        item.code,
+        location.end_line or 0,
+        location.end_column or 0,
     )
 
 
@@ -150,16 +171,4 @@ def unadmitted_syntax_diagnostics(
                     for parameter in cast(tuple[QueryParameter, ...], child)
                 )
             pending.append((child, body))
-    return tuple(
-        sorted(
-            found,
-            key=lambda item: (
-                item.location.path or "",
-                item.location.line,
-                item.location.column,
-                item.code,
-                item.location.end_line or 0,
-                item.location.end_column or 0,
-            ),
-        )
-    )
+    return tuple(sorted(found, key=source_order))

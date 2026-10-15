@@ -52,6 +52,7 @@ _KNOWN_NODES = frozenset(
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
+        ast.CapturedFieldExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -114,6 +115,7 @@ _KNOWN_NODES = frozenset(
         ast.ValuesColumn,
         ast.ValuesRow,
         ast.ValuesRelationDef,
+        ast.CaptureClause,
         ast.SelectBody,
         ast.Script,
     }
@@ -153,6 +155,7 @@ GENERATED_ROLES = (
     R.INPUT_USE,
     R.INPUT_PORT,
     R.EXPRESSION_BLOCK_USE,
+    R.CAPTURE,
     R.STAGE_EXPORT,
     R.EXPORT,
     R.BOUNDARY,

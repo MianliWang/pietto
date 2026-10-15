@@ -224,6 +224,30 @@ class SQLBlockTarget:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class SQLCaptureScope:
+    """The outer row one capture record reads at its let's EXISTS read.
+
+    ``alias`` is the reading body's own FROM alias and ``reads`` are that
+    body's stage columns of the captured input's fields, in capture order.
+    """
+
+    capture: Any
+    alias: Any
+    reads: tuple[StageColumn, ...]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLCapturedReference:
+    """One captured field read: ``<outer alias>.<outer column>`` (correlation)."""
+
+    original: Any
+    capture: Any
+    column: StageColumn
+    realization: Realization
+    scope: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class SQLBlockRead:
     """A read of one whole producer through one expression block use.
 
@@ -941,6 +965,30 @@ def build_row_value(
         )
     if type(expression) is row.ProjectSQLCast:
         return _cast(request, columns, expression, tag, nullable, uses, reference_type)
+    if type(expression) is row.ProjectSQLCapturedField:
+        # An inline let's scope carries each capture record's outer row; a
+        # captured field may be typed wider (nullable) than the outer column.
+        scope = columns.get(expression.capture)
+        if (
+            type(scope) is not SQLCaptureScope
+            or scope.capture.ref is not expression.capture
+            or expression.position not in scope.capture.edge.fields
+        ):
+            return None, ("PIE-B1001", "captured_field_outside_scope")
+        column = scope.reads[scope.capture.edge.fields.index(expression.position)]
+        realization = column.realization
+        if realization.tag != tag:
+            return None, ("PIE-B1002", "captured_field_logical_type_drift")
+        if realization.nullable != nullable:
+            if nullable is not True or realization.nullable is not False:
+                return None, ("PIE-B1002", "captured_field_null_drift")
+            realization = replace(realization, nullable=True)
+        return (
+            SQLCapturedReference(
+                expression, scope.capture, column, realization, scope.alias
+            ),
+            None,
+        )
     if type(expression) is row.ProjectSQLRelationExists:
         # The stage scope carries each readable block target under its own
         # expression block use; existence is never NULL.
@@ -1706,6 +1754,7 @@ def realization_of(value, family: str) -> Realization:
         SQLOperation,
         SQLParameterRead,
         SQLBlockRead,
+        SQLCapturedReference,
     }:
         return value.realization
     return constant_realization(value, family)
@@ -1722,7 +1771,7 @@ def rendered_value_nodes(value) -> tuple[Any, ...]:
 
 
 def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
-    if type(value) is SQLStageReference:
+    if type(value) in {SQLStageReference, SQLCapturedReference}:
         return (value,)
     if type(value) is SQLBlockRead:
         # A membership read renders its operand before the read relation.
@@ -1762,6 +1811,7 @@ def root_expression(value):
         SQLOperation,
         SQLParameterRead,
         SQLBlockRead,
+        SQLCapturedReference,
     }:
         return value.original
     return parameters.value_nodes(value)[0].original
@@ -1774,6 +1824,8 @@ def requirement_kind(node) -> str:
         return "query_parameter"
     if type(node) is SQLBlockRead:
         return "relation_membership" if node.kind in ("in", "not_in") else node.kind
+    if type(node) is SQLCapturedReference:
+        return "capture"
     assert type(node) is SQLOperation
     return {
         "sign": "arithmetic",
@@ -1807,6 +1859,8 @@ REQUIREMENT_RULES = {
     "exists": "R11",
     "scalar": "R11",
     "relation_membership": "R11",
+    # A captured field is the outer correlation of an inline EXISTS read.
+    "capture": "R11",
 }
 
 

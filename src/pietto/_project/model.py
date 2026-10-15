@@ -22,6 +22,7 @@ from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
     CallExpr,
+    CapturedFieldExpr,
     CastExpr,
     CheckDef,
     ComparisonExpr,
@@ -2694,6 +2695,8 @@ def _project_direct_relation_row_schema(
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
     read_types: Mapping[Expression, ValueType] | None = None,
+    captured_value_types: Mapping[CapturedFieldExpr, ValueType | Diagnostic]
+    | None = None,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input."""
 
@@ -2742,6 +2745,7 @@ def _project_direct_relation_row_schema(
         relation_qualifier=definition.from_clause.source_name,
         bare_value_types=let_value_types,
         read_types=read_types,
+        captured_value_types=captured_value_types,
     )
 
     for item in definition.select_items:

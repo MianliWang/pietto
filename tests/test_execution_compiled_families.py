@@ -913,7 +913,7 @@ def _compare_requirements(reference, observed):
     )
 
 
-@pytest.mark.parametrize("retained", (True, "let"))
+@pytest.mark.parametrize("retained", (True, "let", "capture"))
 def test_retained_unselected_requests_rederive_without_execution_or_source(
     tmp_path, monkeypatch, retained
 ):
@@ -921,7 +921,8 @@ def test_retained_unselected_requests_rederive_without_execution_or_source(
     from pietto._project import project_execution_template
 
     # With "let" the retained request owner is a let of the unselected query,
-    # and the compiled closure carries that let without its block.
+    # and the compiled closure carries that let without its block. With
+    # "capture" the unselected query reads a capturing let by EXISTS.
     source = proof_artifact(tmp_path / "retained-source", retained=retained).artifact
     assert source is not None
     original = prepare_template(source)
@@ -947,6 +948,52 @@ def test_retained_unselected_requests_rederive_without_execution_or_source(
         accepted_producer=built.producer,
         accepted_compatibility=built.compatibility,
     )
+    if retained == "capture":
+        import dataclasses
+        from pietto._project.project_compiled_schema import CompiledError, Record
+        from pietto._project.project_compiled_verification import (
+            verify_description,
+        )
+
+        # The retained owner's let is inline at its read, and its one capture
+        # record is the FROM input row of that owner's reading body.
+        description = root.description
+        records = {r.address: r for r in description.records}
+        (capture,) = (r for r in description.records if r.address.kind == "capture_use")
+        block = records[capture.get("read")]
+        reader = records[block.get("consumer")]
+        assert records[reader.get("owner")].get("label") == "unused"
+        assert records[block.get("producer")].get("layout") == (
+            None,
+            (),
+            "s0",
+            False,
+            None,
+        )
+        (use,) = (
+            r
+            for r in description.records
+            if r.address.kind == "use" and r.get("consumer") == reader.address
+        )
+        assert capture.get("ordinal") == 0
+        assert capture.get("ports") == use.get("ports")[:2]
+        forged = dataclasses.replace(
+            description,
+            members=tuple(
+                (
+                    name,
+                    tuple(
+                        Record(r.address, (r.values[0], 7, r.values[2]))
+                        if r.address == capture.address
+                        else r
+                        for r in group
+                    ),
+                )
+                for name, group in description.members
+            ),
+        )
+        with pytest.raises(CompiledError, match="CAPTURE_ORDINALS"):
+            verify_description(forged)
     if retained == "let":
         import dataclasses
         from pietto._project.project_compiled_schema import (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
@@ -111,6 +111,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.IsNullExpr,
         ast.WindowExpr,
         ast.ParameterRefExpr,
+        ast.CapturedFieldExpr,
     }
 )
 QUERY_PARAMETER_TYPES = ("Bool", "Int", "Float", "Text")
@@ -495,14 +496,38 @@ def infer_row_expression(
     suppressed_unknown_names: set[str] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     relation_columns: Mapping[Expression, ValueType] | None = None,
+    captured_value_types: (
+        Mapping[ast.CapturedFieldExpr, ValueType | Diagnostic] | None
+    ) = None,
 ) -> ValueType:
     """Infer one row-level expression with optional bare-only local bindings.
 
     ``relation_columns`` holds the known column type of each ``in`` relation
     read, keyed by its expression; its left value must pair with it.
+
+    Each captured outer field below ``expression`` takes its type from
+    ``captured_value_types``, the capture environment of its let; a field its
+    outer input lacks maps to that environment's own diagnostic instead.
     """
 
-    return _infer(
+    refused: list[Diagnostic] = []
+    if captured_value_types:
+        pending: list[Expression] = [expression]
+        while pending:
+            node = pending.pop()
+            if type(node) is not ast.CapturedFieldExpr:
+                pending.extend(reversed(_captured_field_children(node)))
+                continue
+            if node in value_types:
+                continue
+            captured = captured_value_types[node]
+            if type(captured) is Diagnostic:
+                if report_unknown_name:
+                    refused.append(captured)
+                captured = _UNKNOWN_VALUE_TYPE
+            value_types[node] = cast(ValueType, captured)
+    start = len(diagnostics)
+    value_type = _infer(
         expression,
         row_schema,
         value_types,
@@ -515,6 +540,50 @@ def infer_row_expression(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    if refused:
+        # A refused captured field reports in source order with the
+        # expression's other diagnostics, which keep their own order.
+        inferred = diagnostics[start:]
+        del diagnostics[start:]
+        for diagnostic in inferred:
+            while refused and _source_before(refused[0], diagnostic):
+                diagnostics.append(refused.pop(0))
+            diagnostics.append(diagnostic)
+        diagnostics.extend(refused)
+    return value_type
+
+
+def _source_before(first: Diagnostic, second: Diagnostic) -> bool:
+    if first.location is None or second.location is None:
+        return False
+    return (first.location.line, first.location.column) < (
+        second.location.line,
+        second.location.column,
+    )
+
+
+def _captured_field_children(expression: Expression) -> tuple[Expression, ...]:
+    """Direct value children where a captured field read may be written."""
+
+    if isinstance(expression, CallExpr):
+        return expression.arguments
+    if isinstance(expression, UnaryExpr):
+        return (expression.operand,)
+    if isinstance(expression, ConditionalExpr):
+        return (expression.when_true, expression.condition, expression.when_false)
+    if isinstance(expression, MembershipExpr):
+        return (expression.value, *expression.options)
+    if isinstance(expression, (CastExpr, ast.RelationMembershipExpr)):
+        return (expression.value,)
+    if isinstance(expression, (BinaryExpr, ComparisonExpr)):
+        return (expression.left, expression.right)
+    if isinstance(expression, BetweenExpr):
+        return (expression.value, expression.lower, expression.upper)
+    if isinstance(expression, IsNullExpr):
+        return (expression.value,)
+    if type(expression) in _KNOWN_EXPRESSIONS:
+        return ()
+    raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 
 
 def _callable_row_schema(
@@ -687,6 +756,9 @@ def _infer(
             type_expansions=type_expansions,
             relation_columns=relation_columns,
         )
+    elif isinstance(expression, ast.CapturedFieldExpr):
+        # A captured field is typed only by its let's capture environment.
+        raise AssertionError("Captured field read lacks its capture environment.")
     elif isinstance(expression, ast.RelationExistsExpr):
         # An existence test is never NULL; its relation is resolved, scheduled
         # and checked by the owner of the relation name, not by this kernel.

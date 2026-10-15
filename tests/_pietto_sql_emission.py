@@ -42,8 +42,9 @@ VARIANTS = {
     # let joined with the published relation, with rows or with none, runs on
     # both targets.
     "Q_values_rows": ("top", "rejected", "let_join", "zero_left_join"),
-    # Phase70 S08: closed EXISTS / NOT EXISTS reads in WHERE.
-    "L_relation_exists": ("kept",),
+    # Phase70 S08: closed EXISTS / NOT EXISTS reads in WHERE; S10: lets with
+    # capture lines read by them.
+    "L_relation_exists": ("kept", "correlated"),
     # Phase70 S07: closed scalar reads in WHERE.
     "L_relation_scalar": ("kept",),
     # Phase70 S09: closed `[not] in` reads; one three-valued SELECT table over
@@ -2106,9 +2107,24 @@ def exists_fixture(target, variant):
     reads are true, no new physical scan is added and the chain oracle states
     the kept rows independently.
     """
-    _need(variant == "kept", "unknown existence variant")
+    _need(variant in ("kept", "correlated"), "unknown existence variant")
     item = chain_fixture(target, "M_named_chain", "query_bag")
     head, final = item["source"].split("query result:\n    from second\n", 1)
+    if variant == "correlated":
+        # Each `second` row has its own `first` row (same Key) and none with a
+        # smaller Key equal to it, so both correlated reads keep every row.
+        item["source"] = (
+            head
+            + "query result:\n    let same:\n        capture second\n"
+            + "        from first\n        where first.Key == second.id2\n"
+            + "        select:\n            Key\n"
+            + "    let smaller:\n        capture second\n        from first\n"
+            + "        where first.Key == second.id2 and first.Key < second.again\n"
+            + "        select:\n            Key\n"
+            + "    from second\n    where exists same and not exists smaller\n"
+            + final
+        )
+        return item
     item["source"] = (
         head
         + "query none:\n    from first\n    where Key < Key\n"
@@ -4191,6 +4207,8 @@ def _named_range_provenance(document, descriptors):
         "values_column": ["values_column"],
         # Phase70: one expression block use per relation read.
         "expression_block_use": ["expression_block_use"],
+        # Phase70 S10: one capture record per capture line.
+        "capture": ["capture"],
     }
     associations = {
         "authored_cause",
@@ -5630,6 +5648,10 @@ def _decode_fixed_public(document, limits):
     row_rules: dict[int, str] = {}
     row_filters: list[Any] = []
     row_block: list[Any] = [None]
+    # Phase70 S10: the reading body row each inline let's captured fields read,
+    # and the definitions of the inline lets a reading body renders.
+    capture_frames: list[dict[str, Any]] = []
+    inline_owners: list[Any] = []
     ROW_OPERATORS = {
         " + ": "+",
         " - ": "-",
@@ -5732,6 +5754,25 @@ def _decode_fixed_public(document, limits):
                     "slot": None,
                     "requirements": [("literal", expression, evidence["tag"])],
                 },
+            }
+        if role == "capture_scope":
+            # A captured field: the reading body's own row, named by its alias.
+            capture = lexical[cursor][0]["subject"]
+            _need(capture["kind"] == "capture", "captured reference record")
+            _, alias = take("identifier", "capture_scope", subject=capture)
+            original = expression_ref(False, repeated)
+            take("syntax", "capture_qualifier", ".", original)
+            seen_expressions.add(original["position"])
+            token, name = take("identifier", "capture_column")
+            expected_ranges.append(("capture", original, start, token["end"]))
+            return {
+                "kind": "capture",
+                "expression": original,
+                "capture": capture,
+                "name": name,
+                "terminal": token["subject"],
+                "alias": alias,
+                "duplicate": repeated,
             }
         if role == "value_scope":
             port = lexical[cursor][0]["subject"]
@@ -6061,8 +6102,21 @@ def _decode_fixed_public(document, limits):
             take("literal", "exists_sentinel", "1", original)
             take("syntax", "exists_from", " FROM ", original)
             producer = lexical[cursor][0]["subject"]
-            _, name = take("identifier", "exists_reference", subject=producer)
-            source_body = row_ctes.get(name)
+            inline = None
+            if peek() == "inline_open":
+                # Phase70 S10: a let with capture lines is the derived relation
+                # of its own read; its obligations follow the read's own.
+                _need(bool(capture_frames), "a correlated read outside its row")
+                take("syntax", "inline_open", "(", producer)
+                mark, outer_block = len(row_generated), row_block[0]
+                source_body = row_select(producer, False, None, inline=True)
+                row_block[0] = outer_block
+                inline = row_generated[mark:]
+                del row_generated[mark:]
+                take("syntax", "inline_close", ")", producer)
+            else:
+                _, name = take("identifier", "exists_reference", subject=producer)
+                source_body = row_ctes.get(name)
             _need(
                 source_body is not None
                 and source_body["block"] == producer
@@ -6076,7 +6130,12 @@ def _decode_fixed_public(document, limits):
             _need(alias == f"e{use['position']}", "existence read alias")
             closed, _ = take("syntax", "exists_close", ")", original)
             expected_ranges.append(("exists", original, start, closed["end"]))
-            return {"kind": "exists", "expression": original, "use": use}
+            return {
+                "kind": "exists",
+                "expression": original,
+                "use": use,
+                "inline": inline,
+            }
         if role == "scalar_open":
             # A scalar read of one output of one complete named producer
             # terminal; a physical source target is not part of this grammar.
@@ -6282,6 +6341,35 @@ def _decode_fixed_public(document, limits):
                 "proof": read.get("proof", False)
                 or read["realization"]["nullable"] is False,
             }
+        if node["kind"] == "capture":
+            _need(bool(capture_frames), "a captured field outside its reading row")
+            frame = capture_frames[-1]
+            _need(node["alias"] == frame["alias"], "captured reference scope")
+            matches = [
+                c
+                for c in frame["incoming"]
+                if c["name"] == node["name"] and c["terminal"] == node["terminal"]
+            ]
+            _need(len(matches) == 1, "captured reference outside its reading row")
+            read = matches[0]
+            _need(within(cause(node["expression"]), cause(owner)))
+            if not node.get("duplicate"):
+                # Like an existence read, the public subject is its own record.
+                row_generated.append(
+                    (
+                        "capture",
+                        ("opaque", "capture"),
+                        "R11",
+                        row_node_premises(read["realization"]["tag"], (), "capture"),
+                        None,
+                    )
+                )
+            row_rules[node["expression"]["position"]] = "R01"
+            return {
+                **read["realization"],
+                "root": node["expression"],
+                "strict": read["realization"]["nullable"] is not True,
+            }
         original = node["expression"]
         if node["kind"] == "exists":
             # Existence is never NULL; the read keeps its own block use.
@@ -6295,6 +6383,7 @@ def _decode_fixed_public(document, limits):
                     None,
                 )
             )
+            row_generated.extend(node.get("inline") or ())
             row_rules[original["position"]] = "R11"
             return {
                 **row_bool(False),
@@ -7829,8 +7918,12 @@ def _decode_fixed_public(document, limits):
         )
         return realization
 
-    def row_select(block, final, cte_terminals):
-        """One stage body: parse its columns, bind its scan, then realize them."""
+    def row_select(block, final, cte_terminals, inline=False):
+        """One stage body: parse its columns, bind its scan, then realize them.
+
+        An inline body (Phase70 S10) is a let with capture lines nested in its
+        reading body's existence read; it is never a CTE.
+        """
         take("syntax", "select", "SELECT ", block)
         parsed = []
         windows_seen: list[dict[str, Any]] = []
@@ -7945,6 +8038,17 @@ def _decode_fixed_public(document, limits):
             assert source_body is not None
             incoming = source_body["outgoing"]
             scan = {"kind": "named", "body": source_body}
+        elif peek() == "inline_open":
+            _need(inline and producer["kind"] == "select_block", "inline stage use")
+            take("syntax", "inline_open", "(", producer)
+            source_body = row_select(producer, False, None, inline=True)
+            take("syntax", "inline_close", ")", producer)
+            _need(
+                source_body["block"] == producer and not source_body["projection"],
+                "an inline stage reads its own inline predecessor",
+            )
+            incoming = source_body["outgoing"]
+            scan = {"kind": "stage", "body": source_body, "inline": True}
         else:
             _need(producer["kind"] == "select_block", "stage producer kind")
             _, name = take("identifier", "stage_reference", subject=producer)
@@ -7975,11 +8079,28 @@ def _decode_fixed_public(document, limits):
             _need(alias == f"s{binding['position']}", "relation scope spelling")
             scan["use"] = binding
         _need(within(cause(binding), cause(block)))
-        owner = (
-            scan["body"]["definition"]
-            if scan["kind"] == "stage"
-            else next_row_definition()
-        )
+        if scan["kind"] == "stage":
+            owner = scan["body"]["definition"]
+        elif inline:
+            _need(bool(inline_owners), "an inline let outside its reading body")
+            owner = inline_owners.pop(0)
+        else:
+            # The inline lets this body reads are planned before it.
+            body_end = next(
+                (
+                    i
+                    for i in range(cursor, len(lexical))
+                    if lexical[i][0]["role"] == "cte_body_close"
+                ),
+                len(lexical),
+            )
+            inline_owners.extend(
+                next_row_definition()
+                for i in range(cursor, body_end - 1)
+                if lexical[i][0]["role"] == "exists_from"
+                and lexical[i + 1][0]["role"] == "inline_open"
+            )
+            owner = next_row_definition()
         row_block[0] = block
         determinants = []
         if peek() == "group_by":
@@ -8030,6 +8151,16 @@ def _decode_fixed_public(document, limits):
                 row_generated.append(
                     ("immediate_terminal", column["terminal"], "R03", "naming", None)
                 )
+        elif scan.get("inline"):
+            row_generated.append(
+                (
+                    "inline_stage_use",
+                    ("opaque", "inline_stage_use"),
+                    "R11",
+                    "naming",
+                    None,
+                )
+            )
         else:
             row_generated.append(("stage_use", block, "R03", "naming", None))
             for column in scan["body"]["header"]:
@@ -8510,7 +8641,6 @@ def _decode_fixed_public(document, limits):
             _need(predicate["kind"] == "filter", "filter root kind")
             _need(projection_body is False, "a filter body carries its rows")
             _need(not aggregate_body, "a filter is its own stage, not the grouping")
-            row_filters.append(predicate)
             row_generated.append(
                 (
                     "satisfying_root" if satisfying else "predicate_root",
@@ -8525,7 +8655,14 @@ def _decode_fixed_public(document, limits):
                 )
             )
             specialized[0] = satisfying
-            root = row_resolve(row_parse(block), incoming, alias, predicate)
+            if not inline:
+                capture_frames.append({"alias": alias, "incoming": incoming})
+            parsed_predicate = row_parse(block)
+            # An inline let's own filters are planned before its reader's.
+            row_filters.append(predicate)
+            root = row_resolve(parsed_predicate, incoming, alias, predicate)
+            if not inline:
+                capture_frames.pop()
             specialized[0] = False
             _need(
                 root["tag"] == "Bool" and root["domain"]["kind"] == "bool01",

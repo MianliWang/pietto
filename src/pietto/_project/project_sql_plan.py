@@ -86,6 +86,7 @@ from pietto._project.project_completed_semantics import (
     ProjectConcreteCompletedSemanticResult,
 )
 from pietto._project.project_completion import (
+    ProjectCaptureUse,
     ProjectCompletionDependency,
     ProjectExpressionBlockUse,
 )
@@ -98,6 +99,8 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputFieldOccurrence,
 )
 from pietto._project.project_query_block_ir import (
+    ProjectIRCaptureStage,
+    ProjectIRCaptureUse,
     ProjectIRExpressionBlockUse,
     ProjectIRQueryBlockEntry,
     ProjectIRConcreteQueryBlockEntry,
@@ -119,6 +122,8 @@ from pietto import ast_nodes as ast
 from pietto.ast_nodes import GroupByItem
 from pietto.ast_nodes import (
     AuthoredJoinKind,
+    CaptureClause,
+    CapturedFieldExpr,
     JoinOnClause,
     Expression,
     UnaryExpr,
@@ -399,6 +404,12 @@ def _blockers(
         block_reads.setdefault(id(edge.use.consumer), set()).add(
             id(edge.use.expression)
         )
+    # A captured field read is lowered only through its imaged capture edge.
+    captured_reads: dict[int, set[int]] = {}
+    for captured in bundle.root.captured_fields:
+        captured_reads.setdefault(id(captured.capture.capture.inner), set()).add(
+            id(captured.expression)
+        )
     for entry in _closure(bundle, selected):
         owner, definition = entry.owner, entry.owner.definition
         if type(definition) not in _KNOWN_DEFINITIONS:
@@ -529,13 +540,16 @@ def _blockers(
                         add(K.IR_STAGE, owner, entry, operator)
             if not isinstance(entry, ProjectIRQueryBlockTerminal):
                 for kind, site in _row_blockers(
-                    completed, entry, frozenset(block_reads.get(id(owner), ()))
+                    completed,
+                    entry,
+                    frozenset(block_reads.get(id(owner), ())),
+                    frozenset(captured_reads.get(id(owner), ())),
                 ):
                     add(kind, owner, entry, site)
     return tuple(result)
 
 
-def _row_blockers(completed, entry, block_reads=frozenset()):
+def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset()):
     K = ProjectSQLPlanBlockerKind
     authority = row.row_authority(completed, entry)
     definition = entry.owner.definition
@@ -619,12 +633,20 @@ def _row_blockers(completed, entry, block_reads=frozenset()):
             type(n) in _BLOCK_READS
             and (isinstance(site, LetBinding) or id(n) not in block_reads)
             for n in nodes
+        ) or any(
+            type(n) is CapturedFieldExpr
+            and (isinstance(site, LetBinding) or id(n) not in captured)
+            for n in nodes
         ):
-            # A block read needs its own retained expression block use, and a
-            # row let stays a value of its input row only.
+            # A block read needs its own retained expression block use, a
+            # captured field its imaged capture edge, and a row let stays a
+            # value of its input row only.
             blockers.append((K.EXPRESSION_EVIDENCE, site))
         elif evidence is None or any(
-            type(n) not in supported and type(n) not in _BLOCK_READS for n in nodes
+            type(n) not in supported
+            and type(n) not in _BLOCK_READS
+            and type(n) is not CapturedFieldExpr
+            for n in nodes
         ):
             blockers.append((K.EXPRESSION_EVIDENCE, site))
         else:
@@ -1115,6 +1137,7 @@ class ProjectSQLPlanRefKind(StrEnum):
     PROJECTION = "projection"
     BOUNDARY = "boundary"
     EXPRESSION_BLOCK_USE = "expression_block_use"
+    CAPTURE = "capture"
     SYMBOL = "symbol"
     ORIGIN = "origin"
     DEMAND = "demand"
@@ -1210,6 +1233,70 @@ class ProjectSQLExpressionBlockUse:
     @property
     def expression(self) -> Expression:
         return self.edge.use.expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLCapture:
+    """CaptureV1 in the plan: one capture line of ``inner`` reads the current
+    row of ``outer`` at the outer's single EXISTS read of ``inner``.
+
+    ``read`` is that read's expression value, ``block`` its SELECT block and
+    ``ports`` the block's stage ports of the captured input's fields, in the
+    order of ``edge.fields``. It is never an input use, boundary or port.
+    """
+
+    ref: ProjectSQLPlanRef
+    inner: ProjectSQLPlanRef
+    outer: ProjectSQLPlanRef
+    read: ProjectSQLPlanRef
+    block: ProjectSQLPlanRef
+    ports: tuple[ProjectSQLPlanRef, ...]
+    edge: ProjectIRCaptureUse
+
+    @property
+    def use(self) -> ProjectCaptureUse:
+        return self.edge.capture
+
+
+def capture_stage_ports(
+    edge: ProjectIRCaptureUse, ports: tuple[row.ProjectSQLStagePort, ...]
+) -> tuple[row.ProjectSQLStagePort, ...] | None:
+    """The read block's stage ports of one capture's outer row fields.
+
+    An unjoined outer body carries its input row first, in input order; a
+    joined body carries each visible field keyed by its joined position.
+    """
+    fields = edge.checkpoint.output.row_shape.fields
+    found: list[row.ProjectSQLStagePort] = []
+    for position in edge.fields:
+        if edge.checkpoint.stage is ProjectIRCaptureStage.INPUT:
+            port = ports[position] if 0 <= position < len(ports) else None
+            valid = (
+                port is not None
+                and type(port.key) is ProjectRowField
+                and port.key.name == fields[position].evidence.name
+            )
+        else:
+            matches = tuple(
+                item
+                for item in ports
+                if type(item.key) is row.ProjectScalarEnvironmentField
+                and item.key.position == position
+            )
+            port = matches[0] if len(matches) == 1 else None
+            key = None if port is None else port.key
+            valid = (
+                type(key) is row.ProjectScalarEnvironmentField
+                and key.evidence is fields[position].evidence
+            )
+        if (
+            not valid
+            or port is None
+            or port.kind is not row.ProjectSQLStagePortKind.INPUT
+        ):
+            return None
+        found.append(port)
+    return tuple(found)
 
 
 class ProjectSQLSymbolNamespace(StrEnum):
@@ -1314,6 +1401,7 @@ class ProjectSQLOriginRole(StrEnum):
     EXPORT = "export"
     BOUNDARY = "boundary"
     EXPRESSION_BLOCK_USE = "expression_block_use"
+    CAPTURE = "capture"
     SYMBOL = "symbol"
     DEMAND = "demand"
 
@@ -1347,6 +1435,7 @@ type ProjectSQLCause = (
     | Expression
     | aggregation.SatisfyingClause
     | GroupByItem
+    | CaptureClause
 )
 
 type ProjectSQLOriginEvidence = (
@@ -1367,6 +1456,7 @@ type ProjectSQLOriginEvidence = (
     | ProjectIRQueryBlockEntry
     | ProjectCompletionDependency
     | ProjectExpressionBlockUse
+    | ProjectCaptureUse
     | ProjectModuleSelectFact
     | ProjectIROutputFieldOccurrence
     | ProjectModuleLetBindingFact
@@ -1464,6 +1554,7 @@ class ProjectSQLPlan:
     projections: tuple[ProjectSQLProjection, ...]
     boundaries: tuple[ProjectSQLBoundary, ...]
     expression_block_uses: tuple[ProjectSQLExpressionBlockUse, ...]
+    captures: tuple[ProjectSQLCapture, ...]
     symbols: tuple[ProjectSQLSymbol, ...]
     origins: tuple[ProjectSQLOrigin, ...]
     demands: tuple[ProjectSQLDemand, ...]
@@ -2319,6 +2410,20 @@ def build_project_sql_plan(
         id(u.expression): u for u in bindings.expression_block_uses
     }
     uses_by_image = {id(u.edge): u for u in bindings.input_uses}
+    # Every imaged capture of the statement keeps its plan ref in IR order; the
+    # record itself is completed at the outer body's EXISTS read of the let.
+    capture_edges = tuple(
+        edge
+        for edge in analysis_bundle.root.capture_uses
+        if id(edge.capture.inner) in definitions_by_owner
+        and id(edge.capture.outer) in definitions_by_owner
+    )
+    captured_by_expression = {
+        id(item.expression): item
+        for item in analysis_bundle.root.captured_fields
+        if any(item.capture is edge for edge in capture_edges)
+    }
+    captures: list[ProjectSQLCapture] = []
     joins_by_image = {}
     join_ports_by_ref = {}
 
@@ -2326,6 +2431,8 @@ def build_project_sql_plan(
         position = counters.get(kind, 0)
         counters[kind] = position + 1
         return ProjectSQLPlanRef(scope=bindings.scope, kind=kind, position=position)
+
+    capture_refs = {id(edge): ref(K.CAPTURE) for edge in capture_edges}
 
     def stage_port(block, kind, key, source, evidence, local_symbols):
         port = row.ProjectSQLStagePort(
@@ -2621,6 +2728,39 @@ def build_project_sql_plan(
                         value=children[0],
                         use=block_use.ref,
                     )
+                for edge in capture_edges:
+                    if edge.checkpoint.read is not block_use.edge:
+                        continue
+                    found = capture_stage_ports(edge, stage_context.ports)
+                    if found is None:
+                        raise ValueError("Capture read lacks its outer row ports.")
+                    captures.append(
+                        ProjectSQLCapture(
+                            ref=capture_refs[id(edge)],
+                            inner=definitions_by_owner[id(edge.capture.inner)].ref,
+                            outer=definitions_by_owner[id(edge.capture.outer)].ref,
+                            read=node_ref,
+                            block=site.block,
+                            ports=tuple(port.ref for port in found),
+                            edge=edge,
+                        )
+                    )
+            elif isinstance(node, CapturedFieldExpr):
+                captured = captured_by_expression.get(id(node))
+                if (
+                    captured is None
+                    or captured.capture.capture.inner is not site.owner
+                    or captured.capture.capture.ordinal != node.ordinal
+                ):
+                    raise ValueError("Captured field read lacks its capture edge.")
+                value = row.ProjectSQLCapturedField(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    capture=capture_refs[id(captured.capture)],
+                    position=captured.position,
+                )
             elif isinstance(node, CastExpr):
                 value = row.ProjectSQLCast(
                     ref=node_ref,
@@ -3716,6 +3856,8 @@ def build_project_sql_plan(
                     row.ProjectSQLRelationMembership,
                 ),
             )
+            else (value.capture,)
+            if isinstance(value, row.ProjectSQLCapturedField)
             else ()
         )
         origin(
@@ -3726,6 +3868,18 @@ def build_project_sql_plan(
             value.expression,
             value.value_type,
             (value.site.ref, *dependencies),
+        )
+    if len(captures) != len(capture_edges):
+        raise ValueError("Every imaged capture needs its single outer read.")
+    for capture in sorted(captures, key=lambda item: item.ref.position):
+        origin(
+            capture.ref,
+            R.CAPTURE,
+            P.GENERATED_STRUCTURE,
+            capture.use.inner,
+            capture.use.clause,
+            capture.use,
+            (capture.read, *capture.ports),
         )
     for operand in operands:
         parent = expression_by_ref[operand.parent]
@@ -4213,6 +4367,7 @@ def build_project_sql_plan(
         projections=tuple(projections),
         boundaries=bindings.boundaries,
         expression_block_uses=bindings.expression_block_uses,
+        captures=tuple(sorted(captures, key=lambda item: item.ref.position)),
         symbols=tuple(symbols),
         origins=tuple(origins),
         demands=tuple(demands),

@@ -12,7 +12,13 @@ from pietto._project.model import (
     ProjectRowFieldNullability,
     ProjectRowSchema,
 )
-from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr, RelationScalarExpr
+from pietto.ast_nodes import (
+    CapturedFieldExpr,
+    DottedNameExpr,
+    Expression,
+    NameExpr,
+    RelationScalarExpr,
+)
 from pietto.errors import Diagnostic
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
@@ -106,6 +112,9 @@ def build_project_row_expression_value_types(
     relation_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None = None,
     read_types: Mapping[Expression, ValueType] | None = None,
+    captured_value_types: (
+        Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None
+    ) = None,
 ) -> Mapping[Expression, ValueType]:
     """Infer known row expression value types from a concrete project schema.
 
@@ -133,6 +142,7 @@ def build_project_row_expression_value_types(
             field_qualifier=relation_qualifier,
             bare_value_types=bare_value_types,
             relation_columns=read_types,
+            captured_value_types=captured_value_types,
         )
         if (
             diagnostics

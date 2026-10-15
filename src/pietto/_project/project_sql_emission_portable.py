@@ -104,6 +104,7 @@ KINDS: dict[type, str] = {
     rows.SQLOperation: "sql_operation",
     rows.SQLBlockRead: "sql_block_read",
     rows.SQLBlockTarget: "sql_block_target",
+    rows.SQLCapturedReference: "sql_captured_reference",
     joining.JoinBody: "join_body",
     joining.JoinInput: "join_input",
     joining.JoinEquality: "join_equality",

@@ -17,6 +17,7 @@ from pietto._project.project_sql_emission_ast import (
     RowCarryColumn,
     SQLRowQuery,
     CompiledSQLQuery,
+    inline_body,
     resource_limits,
 )
 from pietto._project.project_sql_emission_aggregation import (
@@ -377,6 +378,12 @@ class _Writer:
             self.identifier(target.producer.namespace, f"{kind}_namespace", relation)
             self.emit(".", "syntax", f"{kind}_qualifier", relation)
             self.identifier(target.producer.name, f"{kind}_relation", relation)
+        elif inline_body(target.producer):
+            # A capturing let is the derived relation of its own read.
+            producer = target.producer.block.ref
+            self.emit("(", "syntax", "inline_open", producer)
+            _row_select(self, target.producer)
+            self.emit(")", "syntax", "inline_close", producer)
         else:
             producer = target.producer.block.ref
             self.identifier(target.producer.symbol.name, f"{kind}_reference", producer)
@@ -430,6 +437,13 @@ class _Writer:
         start = self.offset
         if type(value) is rows.SQLBlockRead:
             self.block_read(value, alias)
+            return
+        if type(value) is rows.SQLCapturedReference:
+            reference = value.original.ref
+            self.identifier(value.scope.name, "capture_scope", value.capture.ref)
+            self.emit(".", "syntax", "capture_qualifier", reference)
+            self.identifier(value.column.name, "capture_column", value.column.terminal)
+            self.enclose("capture", reference, start)
             return
         if type(value) is rows.SQLStageReference:
             reference = value.original.ref
@@ -955,7 +969,12 @@ def _row_select(w: _Writer, body) -> None:
         assert type(scan) is RowStageUse
         reference = scan.body.block.ref
         w.emit(" FROM ", "syntax", "from", reference)
-        w.identifier(scan.body.symbol.name, "stage_reference", reference)
+        if inline_body(scan.body):
+            w.emit("(", "syntax", "inline_open", reference)
+            _row_select(w, scan.body)
+            w.emit(")", "syntax", "inline_close", reference)
+        else:
+            w.identifier(scan.body.symbol.name, "stage_reference", reference)
         w.emit(" AS ", "syntax", "alias", scan.block.ref)
         w.identifier(alias, "stage_scope", scan.block.ref)
     stage = body.aggregation

@@ -2747,3 +2747,990 @@ def test_read_kinds_combine_through_compile_bundle_and_load(
     ] == expected
     loaded = load(bundle)
     assert bound(run(loaded)) == bound(run(query))
+
+
+# Phase70 S10: a let with capture lines reads the current row of its reader's
+# FROM input; it is compiled inline at the existence read that renders it.
+CAPTURE_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table matched_items:
+    let same_label:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > items.id
+        select:
+            tag_id = id
+    from items
+    where exists same_label and not exists tags
+    select:
+        id = items.id
+        label = items.label
+"""
+
+
+def _matched(directory, dialect="postgres"):
+    return execution.compile_query(
+        let_example(directory, CAPTURE_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="matched_items",
+        dialect=dialect,
+        emission_contract="contract.json",
+    )
+
+
+def _records_changed(description, targets):
+    return dataclasses.replace(
+        description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    Record(r.address, targets[r.address]) if r.address in targets else r
+                    for r in rs
+                    if targets.get(r.address, ()) is not None
+                ),
+            )
+            for name, rs in description.members
+        ),
+    )
+
+
+def test_a_compiled_capture_names_the_outer_ports_of_its_read(tmp_path):
+    query = _matched(tmp_path)
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    assert tuple(description.compatibility[:4]) == VERSIONS == (5, 1, 5, 1)
+    (capture,) = [r for r in description.records if r.address.kind == "capture_use"]
+    block = records[capture.get("read")]
+    assert block.address.kind == "expression_block_use"
+    assert block.address.position == 0 and capture.get("ordinal") == 0
+    # The reading body's own use carries the captured ports: every field of the
+    # captured input, in its field order.
+    reader = records[block.get("consumer")]
+    (use,) = [
+        r
+        for r in description.records
+        if r.address.kind == "use" and r.get("consumer") == reader.address
+    ]
+    assert all(port in use.get("ports") for port in capture.get("ports"))
+    assert [records[p].get("ordinal") for p in capture.get("ports")] == [0, 1]
+    reads = [
+        r
+        for r in description.records
+        if r.address.kind == "read" and r.get("role") == "capture"
+    ]
+    assert len(reads) == 2 and {r.get("port") for r in reads} == set(
+        capture.get("ports")
+    )
+    assert {r.get("use") for r in reads} == {use.address}
+    # The capturing let is an inline unit without a unit position; the read of
+    # the capture-free source keeps no capture record.
+    inline = records[block.get("producer")]
+    assert inline.address.kind == "row" and inline.get("layout")[-1] is None
+    assert inline.get("layout")[:2] == (None, ()) and inline.get("layout")[3] is False
+    assert sorted(
+        r.get("name") for r in records.values() if r.address.kind == "source"
+    ) == ["items", "tags"]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    sql = loaded._template.artifact.rendered.sql
+    assert sql == query._template.artifact.rendered.sql
+    # The capture-free source stays a plain read; the capturing let renders
+    # inline over the reading body's alias "s1".
+    assert sql == (
+        b'WITH "p0" ("c0", "c1") AS (SELECT "s1"."item_id" AS "c0", '
+        b'"s1"."item_label" AS "c1" FROM "fixture"."items" AS "s1" '
+        b'WHERE (EXISTS (SELECT 1 FROM (SELECT "t1"."c0" AS "c0" FROM '
+        b'(SELECT "s0"."item_id" AS "c0", "s0"."item_label" AS "c1" '
+        b'FROM "fixture"."tags" AS "s0" WHERE (("s0"."item_label" = '
+        b'"s1"."item_label") AND ("s0"."item_id" > "s1"."item_id"))) AS "t1") '
+        b'AS "e0") AND (NOT EXISTS (SELECT 1 FROM "fixture"."tags" AS "e1")))) '
+        b'SELECT "t3"."c0" AS "id", "t3"."c1" AS "label" FROM "p0" AS "t3"'
+    )
+
+    first = capture.values
+    port_id, port_label = first[2]
+    other = next(
+        r.address
+        for r in description.records
+        if r.address.kind == "port"
+        and r.address not in use.get("ports")
+        and r.get("owner") == inline.address
+    )
+    for forged in (
+        # Ports outside the reading use, a repeated port, a capture of the
+        # capture-free source read, a missing capture record.
+        _records_changed(description, {capture.address: (*first[:2], (other,))}),
+        _records_changed(
+            description, {capture.address: (*first[:2], (port_id, port_id))}
+        ),
+        _records_changed(
+            description,
+            {
+                capture.address: (
+                    Address("expression_block_use", 1),
+                    *first[1:],
+                )
+            },
+        ),
+        _records_changed(description, {capture.address: None}),
+        # An inline unit that claims a unit position.
+        _records_changed(
+            description,
+            {inline.address: (*inline.values[:-1], (*inline.get("layout")[:-1], 0))},
+        ),
+    ):
+        with pytest.raises(CompiledError):
+            verify_description(forged)
+    # Without the source: line ordinals count from 0, and the ports are the
+    # whole captured input row in port order.
+    # A layout that is no layout is refused, never an internal error.
+    for target, values, word in (
+        (capture, (first[0], 7, first[2]), "CAPTURE_ORDINALS"),
+        (capture, (*first[:2], (port_label, port_id)), "CAPTURE_PORTS"),
+        (capture, (*first[:2], (port_id,)), "CAPTURE_PORTS"),
+        (inline, (*inline.values[:-1], 5), "LAYOUT"),
+    ):
+        forged = _records_changed(description, {target.address: values})
+        with pytest.raises(CompiledError, match=word):
+            verify_description(forged)
+        raw = encode(forged)
+        assert refused(
+            execution.load_bundle,
+            raw,
+            expected_pin=content_pin(raw),
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+        ) == ("PIE-R1008", "COMPILED_" + word)
+    # Valid-looking alternatives describe another consistent capture; the export
+    # verifier re-derives every capture from the live statement and refuses them.
+    outcome, _ = emit_project(
+        let_example(tmp_path / "live", CAPTURE_TAGS),
+        "main.pietto",
+        "table",
+        "matched_items",
+        "postgres",
+        "contract.json",
+        POLICIES["bind-safe"],
+    )
+    live = decode(build_compiled(outcome.artifact).payload)
+    verify_export(live, outcome.artifact)
+    (live_capture,) = [r for r in live.records if r.address.kind == "capture_use"]
+    ident, label = live_capture.get("ports")
+    captured = sorted(
+        (
+            r
+            for r in live.records
+            if r.address.kind == "read" and r.get("role") == "capture"
+        ),
+        key=lambda r: r.get("port") == ident,
+    )
+    names = FIELDS["read"]
+
+    def read_values(record, **changes):
+        values = dict(zip(names, record.values, strict=True)) | changes
+        return tuple(values[name] for name in names)
+
+    for targets, coherent in (
+        # Both captured reads swapped to the other field: a coherent description.
+        (
+            {
+                captured[0].address: read_values(captured[0], port=ident),
+                captured[1].address: read_values(captured[1], port=label),
+            },
+            True,
+        ),
+        # A captured read relabelled as an ordinary read of the same port.
+        ({captured[0].address: read_values(captured[0], role="value")}, False),
+    ):
+        forged = _records_changed(live, targets)
+        if coherent:
+            verify_description(forged)
+        with pytest.raises(CompiledError):
+            verify_export(forged, outcome.artifact)
+
+
+@pytest.mark.parametrize(
+    "operator",
+    (
+        ("relation_membership", "in"),
+        ("relation_membership", "not_in"),
+        ("scalar", "scalar"),
+    ),
+)
+def test_a_capturing_let_read_other_than_exists_is_refused_on_load(tmp_path, operator):
+    # A membership or scalar read of the single-column capturing let is a
+    # valid block read elsewhere; only an existence read executes the let.
+    bundle = execution.export_bundle(_matched(tmp_path))
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    (capture,) = [r for r in description.records if r.address.kind == "capture_use"]
+    block = records[capture.get("read")]
+    operation = records[block.get("operation")]
+    (use,) = [
+        r.address
+        for r in description.records
+        if r.address.kind == "use" and r.get("consumer") == block.get("consumer")
+    ]
+    value = next(
+        r.address
+        for r in description.records
+        if r.address.kind == "read" and r.get("use") == use and r.get("role") == "value"
+    )
+    forged = _records_changed(
+        description,
+        {
+            operation.address: (
+                operator,
+                () if operator[0] == "scalar" else (value,),
+                ("Int" if operator[0] == "scalar" else "Bool", "nullable"),
+                None,
+            ),
+            block.address: (*block.values[:3], 0),
+        },
+    )
+    with pytest.raises(CompiledError, match="CAPTURE_USE"):
+        verify_description(forged)
+    raw = encode(forged)
+    assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+        "PIE-R1008",
+        "COMPILED_CAPTURE_USE",
+    )
+
+
+JOINED_CAPTURES = (
+    "query result:\n    let matched:\n        capture r\n        capture lhs\n"
+    "        from rhs\n        where rhs.key == r.key and rhs.id == lhs.id\n"
+    "        select:\n            id\n    from lhs\n    left join rhs as r:\n"
+    "        from lhs\n        on lhs.id == r.id\n    where exists matched\n"
+    "    select:\n        a = lhs.id\n        b = r.key\n"
+)
+
+
+def test_compiled_captures_of_a_joined_row_are_whole_bindings(tmp_path):
+    import _pietto_sql_emission as probe
+
+    item = probe.join_witness("postgres", JOINED_CAPTURES)
+    (tmp_path / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (tmp_path / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (tmp_path / "contract.json").write_text(item["contract"], encoding="utf-8")
+    query = execution.compile_query(
+        tmp_path,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    first, second = [r for r in description.records if r.address.kind == "capture_use"]
+    (use,) = [
+        r
+        for r in description.records
+        if r.address.kind == "use"
+        and r.get("consumer") == records[first.get("read")].get("consumer")
+    ]
+    # The reading body reads the JOIN row (lhs.id, lhs.key, r.id, r.key):
+    # line 0 captures the JOIN target r, line 1 the FROM input lhs. Only r.key
+    # and lhs.id are read.
+    lhs_id, lhs_key, r_id, r_key = use.get("ports")
+    read = first.get("read")
+    assert (first.values, second.values) == (
+        (read, 0, (r_id, r_key)),
+        (read, 1, (lhs_id, lhs_key)),
+    )
+    for targets, word in (
+        ({first.address: (read, 7, (r_id, r_key))}, "CAPTURE_ORDINALS"),
+        (
+            {
+                first.address: (read, 1, (r_id, r_key)),
+                second.address: (read, 0, (lhs_id, lhs_key)),
+            },
+            "CAPTURE_ORDINALS",
+        ),
+        # An extra unread outer port, a missing unread port, swapped ports.
+        ({first.address: (read, 0, (r_id, r_key, lhs_key))}, "CAPTURE_PORTS"),
+        ({first.address: (read, 0, (r_key,))}, "CAPTURE_PORTS"),
+        ({first.address: (read, 0, (r_key, r_id))}, "CAPTURE_PORTS"),
+    ):
+        forged = _records_changed(description, targets)
+        with pytest.raises(CompiledError, match=word):
+            verify_description(forged)
+        raw = encode(forged)
+        assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+            "PIE-R1008",
+            "COMPILED_" + word,
+        )
+    # The two lines exchanging their bindings is a coherent description; only
+    # the source says which input each line names.
+    swapped = _records_changed(
+        description,
+        {
+            first.address: (read, 0, (lhs_id, lhs_key)),
+            second.address: (read, 1, (r_id, r_key)),
+        },
+    )
+    verify_description(swapped)
+    outcome, _ = emit_project(
+        tmp_path,
+        "main.pietto",
+        "query",
+        "result",
+        "postgres",
+        "contract.json",
+        POLICIES["bind-safe"],
+    )
+    live = decode(build_compiled(outcome.artifact).payload)
+    verify_export(live, outcome.artifact)
+    live_first, live_second = [
+        r for r in live.records if r.address.kind == "capture_use"
+    ]
+    with pytest.raises(CompiledError, match="EXPORT_CAPTURE"):
+        verify_export(
+            _records_changed(
+                live,
+                {
+                    live_first.address: (
+                        *live_first.values[:2],
+                        live_second.get("ports"),
+                    ),
+                    live_second.address: (
+                        *live_second.values[:2],
+                        live_first.get("ports"),
+                    ),
+                },
+            ),
+            outcome.artifact,
+        )
+
+
+def _witness(directory, body, dialect="postgres", policy="preserve"):
+    import _pietto_sql_emission as probe
+
+    literals = "bind_safe_literals" if policy == "bind-safe" else "preserve_literals"
+    item = probe.join_witness(dialect, body, policy=literals)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (directory / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (directory / "contract.json").write_text(item["contract"], encoding="utf-8")
+    return directory
+
+
+def _witness_round_trip(project, dialect, policy):
+    """emit-sql VERIFIED, then compile, export and load to the same statement."""
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "query",
+        "result",
+        dialect,
+        "contract.json",
+        POLICIES[policy],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None, outcome
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect=dialect,
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+    sql = query._template.artifact.rendered.sql
+    assert sql == outcome.artifact.rendered.sql
+    bundle = execution.export_bundle(query)
+    loaded = load(bundle)
+    assert loaded._template.artifact.rendered.sql == sql
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    return query, bundle
+
+
+TWO_CAPTURES = (
+    "query result:\n    let m1:\n        capture lhs\n        from rhs\n"
+    "        where rhs.key == lhs.key\n        select:\n            id\n"
+    "    let m2:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            id\n"
+    "    from lhs\n"
+)
+REVERSED_READS = {
+    "where": "    where exists m2 and exists m1\n    select:\n        a = lhs.id\n",
+    "where_select": (
+        "    where exists m2\n    select:\n        a = lhs.id\n        e = exists m1\n"
+    ),
+    "select": (
+        "    select:\n        a = lhs.id\n        f = exists m2\n        e = exists m1\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("shape", sorted(REVERSED_READS))
+def test_capturing_lets_read_out_of_declaration_order_compile_and_load(
+    tmp_path, dialect, shape
+):
+    # The second let is read first: its capture is ordered by the plan, not by
+    # the order the reads are discovered in.
+    q = '"' if dialect == "postgres" else "`"
+    for policy in ("preserve", "bind-safe"):
+        body = TWO_CAPTURES + REVERSED_READS[shape]
+        project = _witness(tmp_path / policy, body, dialect, policy)
+        query, _ = _witness_round_trip(project, dialect, policy)
+        sql = query._template.artifact.rendered.sql.decode()
+        assert sql.index(f"{q}order.id{q} = ") < sql.index(f"{q}key value{q} = ")
+
+
+MATCHED = (
+    "query result:\n    let matched:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            id\n"
+)
+MATCHED_JOIN = (
+    "query result:\n    let matched:\n        capture r\n        capture lhs\n"
+    "        from rhs\n        where rhs.key == r.key and rhs.id == lhs.id\n"
+    "        select:\n            id\n    from lhs\n    left join rhs as r:\n"
+    "        from lhs\n        on lhs.id == r.id\n"
+)
+STAGED_READS = {
+    "let_where": MATCHED
+    + "    from lhs\n    let:\n        k2 = lhs.id == 1\n"
+    + "    where exists matched\n    select:\n        a = lhs.id\n",
+    "let_select": MATCHED
+    + "    from lhs\n    let:\n        k2 = lhs.id == 1\n"
+    + "    select:\n        a = lhs.id\n        e = exists matched\n",
+    "join_where_select": MATCHED_JOIN
+    + "    where lhs.id > 0\n    select:\n        a = lhs.id\n"
+    + "        e = exists matched\n",
+    "join_copy_let_where": MATCHED_JOIN
+    + "    let:\n        k2 = lhs.id\n    where exists matched\n"
+    + "    select:\n        a = lhs.id\n",
+    "window_select": MATCHED
+    + "    from lhs\n    select:\n        id\n        e = exists matched\n"
+    + "        rn = row_number() window:\n            order by:\n"
+    + "                id\n",
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("shape", sorted(STAGED_READS))
+def test_a_capture_read_after_row_stages_compiles_and_loads(tmp_path, dialect, shape):
+    # The reading body reads a let, WHERE or window stage of its own
+    # declaration: a carried column stays in its binding, a computed or copied
+    # one belongs to none.
+    for policy in ("preserve", "bind-safe"):
+        project = _witness(tmp_path / policy, STAGED_READS[shape], dialect, policy)
+        _, bundle = _witness_round_trip(project, dialect, policy)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    captures = [r for r in description.records if r.address.kind == "capture_use"]
+    (use,) = [
+        r
+        for r in description.records
+        if r.address.kind == "use"
+        and r.get("consumer") == records[captures[0].get("read")].get("consumer")
+    ]
+    captured = {p for c in captures for p in c.get("ports")}
+    assert len(captured) == 2 * len(captures)
+    # Any other port of the reading use in a line's place, a valid port of the
+    # same row, describes no binding.
+    for capture in captures:
+        read, ordinal, ports = capture.values
+        for other in [p for p in use.get("ports") if p not in ports]:
+            forged = _records_changed(
+                description, {capture.address: (read, ordinal, (*ports[:-1], other))}
+            )
+            with pytest.raises(CompiledError, match="CAPTURE_PORTS"):
+                verify_description(forged)
+            raw = encode(forged)
+            assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+                "PIE-R1008",
+                "COMPILED_CAPTURE_PORTS",
+            )
+
+
+INNER_ON = "    inner join rhs as r:\n        from lhs\n        on lhs.key == r.key\n"
+NARROWED_CAPTURES = {
+    "join_target": (
+        "query result:\n    let matched:\n        capture r\n        from rhs\n"
+        "        where rhs.id == r.key\n        select:\n            id\n"
+        "            k = r.key\n    from lhs\n"
+        + INNER_ON
+        + "    where exists matched\n    select:\n        a = lhs.id\n"
+    ),
+    "from_input": (
+        "query result:\n    let matched:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        "            k = lhs.key\n    from lhs\n"
+        + INNER_ON
+        + "    select:\n        a = lhs.id\n        e = exists matched\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("shape", sorted(NARROWED_CAPTURES))
+def test_a_captured_field_an_on_condition_narrows_stays_nullable_through_load(
+    tmp_path, dialect, shape
+):
+    # The INNER JOIN ON narrows the read port; the captured field keeps its
+    # input field's nullable type, and the loader re-derives that rule.
+    for policy in ("preserve", "bind-safe"):
+        project = _witness(tmp_path / policy, NARROWED_CAPTURES[shape], dialect, policy)
+        _, bundle = _witness_round_trip(project, dialect, policy)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    captured = {
+        r.address
+        for r in description.records
+        if r.address.kind == "read" and r.get("role") == "capture"
+    }
+    assert {records[records[a].get("port")].get("logical") for a in captured} == {
+        ("Int", "non_null")
+    }
+    (column,) = [
+        r
+        for r in description.records
+        if r.address.kind == "port" and r.get("source") in captured
+    ]
+    assert column.get("logical") == ("Int", "nullable")
+    forged = _records_changed(
+        description, {column.address: (*column.values[:4], ("Int", "non_null"))}
+    )
+    raw = encode(forged)
+    assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+        "PIE-R1004",
+        "COMPILED_PORT_TYPE",
+    )
+
+
+BOUND_CAPTURES = {
+    "let_where_select": (
+        "query result:\n    let m1:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key and rhs.id > 11\n        select:\n"
+        "            id\n            k = lhs.id > 12\n    from lhs\n"
+        "    where exists m1\n    select:\n        a = lhs.id\n"
+    ),
+    "two_lets_and_outer": (
+        "query result:\n    let m1:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key and rhs.id > 11\n        select:\n"
+        "            id\n            k = lhs.id > 12\n    let m2:\n"
+        "        capture lhs\n        from rhs\n"
+        "        where rhs.id < 13 and rhs.id == lhs.id\n        select:\n"
+        "            id\n    from lhs\n"
+        "    where lhs.id > 14 and exists m1 and lhs.id < 15\n    select:\n"
+        "        a = lhs.id > 16\n        e = not exists m2\n        f = lhs.id > 17\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("shape", sorted(BOUND_CAPTURES))
+def test_bind_safe_literals_of_a_capturing_let_bind_in_rendered_order(
+    tmp_path, dialect, shape
+):
+    # An inline let's SELECT renders before its WHERE: each native placeholder
+    # binds the slot of the literal written at its place in the statement.
+    project = _witness(tmp_path / "bind", BOUND_CAPTURES[shape], dialect, "bind-safe")
+    query, bundle = _witness_round_trip(project, dialect, "bind-safe")
+    inline, _ = _witness_round_trip(
+        _witness(tmp_path / "inline", BOUND_CAPTURES[shape], dialect),
+        dialect,
+        "preserve",
+    )
+    written = tuple(
+        int(value)
+        for value in re.findall(
+            r"CAST\((\d+) AS", inline._template.artifact.rendered.sql.decode()
+        )
+    )
+    loaded = load(bundle)
+    for template in (query._template, loaded._template):
+        fixed = tuple(v.value for v in template.artifact.fixed_values)
+        assert sorted(fixed) == sorted(written) and fixed != written
+        assert bind_values(template, tuple(zip(template.slots, fixed))).arguments == (
+            written
+        )
+        if shape == "let_where_select":
+            assert fixed == (11, 12)
+            assert bind_values(
+                template, tuple(zip(template.slots, (101, 202)))
+            ).arguments == (202, 101)
+    # Native uses naming the slots in the other order are another binding.
+    description = decode(bundle.payload)
+    first, second, *_ = [
+        r for r in description.records if r.address.kind == "native_use"
+    ]
+    forged = _records_changed(
+        description,
+        {
+            first.address: (second.get("slot"), *first.values[1:]),
+            second.address: (first.get("slot"), *second.values[1:]),
+        },
+    )
+    raw = encode(forged)
+    assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+        "PIE-R1004",
+        "COMPILED_EMISSION_PARAMETER_INVENTORY",
+    )
+
+
+def _aliased(record, alias):
+    layout = record.get("layout")
+    return {record.address: (*record.values[:-1], (*layout[:2], alias, *layout[3:]))}
+
+
+def test_a_loaded_inline_let_alias_names_no_relation_of_its_reader(tmp_path):
+    # A correlated reference names its reading body's alias: an inline let's
+    # unit named like it (or the reverse) would read the let's own row.
+    bundle = execution.export_bundle(_matched(tmp_path / "exists"))
+    description = decode(bundle.payload)
+    units = [r for r in description.records if "layout" in FIELDS[r.address.kind]]
+    scan = next(r for r in units if r.get("layout")[-1] is None)
+    reader = next(r for r in units if r.get("layout")[-1] == 0)
+    assert (scan.get("layout")[2], reader.get("layout")[2]) == ("s0", "s1")
+    joined = execution.export_bundle(
+        execution.compile_query(
+            _witness(tmp_path / "join", JOINED_CAPTURES),
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+    )
+    joined_description = decode(joined.payload)
+    (join,) = [r for r in joined_description.records if r.address.kind == "join"]
+    inline = next(
+        r.get("layout")[2]
+        for r in joined_description.records
+        if "layout" in FIELDS[r.address.kind] and r.get("layout")[-1] is None
+    )
+    assert join.get("layout")[2] == ("m0", "m1")
+    joined_records = {r.address: r for r in joined_description.records}
+    (block,) = [
+        r
+        for r in joined_description.records
+        if r.address.kind == "expression_block_use"
+    ]
+    # The let's SELECT reads its WHERE body; both read the reader's row.
+    projection = joined_records[block.get("producer")]
+    joined_reader = joined_records[block.get("consumer")].get("layout")[2]
+    for source, described, targets in (
+        (bundle, description, _aliased(scan, "s1")),
+        (bundle, description, _aliased(reader, "s0")),
+        (bundle, description, _aliased(scan, "e0")),
+        (bundle, description, _aliased(reader, ("s1",))),
+        (joined, joined_description, _aliased(projection, joined_reader)),
+        (joined, joined_description, _aliased(projection, inline)),
+        (joined, joined_description, _aliased(join, ("m0", "m0"))),
+        (joined, joined_description, _aliased(join, "m0")),
+        (joined, joined_description, _aliased(join, ("m0",))),
+    ):
+        forged = _records_changed(described, targets)
+        with pytest.raises(CompiledError, match="ALIASES"):
+            verify_description(forged)
+        raw = encode(forged)
+        assert refused(load, source, raw, expected_pin=content_pin(raw)) == (
+            "PIE-R1008",
+            "COMPILED_ALIASES",
+        )
+    # A fresh name, or the name of a relation in another unit's scope,
+    # renames one relation of the same statement.
+    raw = encode(_records_changed(description, _aliased(scan, "zz")))
+    renamed = load(bundle, raw, expected_pin=content_pin(raw))
+    assert b'AS "zz"' in renamed._template.artifact.rendered.sql
+    raw = encode(_records_changed(joined_description, _aliased(join, ("m0", inline))))
+    renamed = load(joined, raw, expected_pin=content_pin(raw))
+    assert f'LEFT JOIN "public"."phase66 rhs é" AS "{inline}"'.encode() in (
+        renamed._template.artifact.rendered.sql
+    )
+
+
+DEFERRED_CAPTURES = {
+    "set_let": (
+        "query result:\n    let codes:\n        union all:\n            from lhs\n"
+        "            from rhs\n    let m:\n        capture codes\n"
+        "        from rhs\n        where rhs.key == codes.key\n        select:\n"
+        "            id\n    from codes\n    where exists m\n    select:\n"
+        "        a = codes.id\n"
+    ),
+    "join_table": (
+        "table codes:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
+        "        on lhs.id == r.id\n    select:\n        id = lhs.id\n"
+        "        key = r.key\nquery result:\n    let m:\n        capture codes\n"
+        "        from rhs\n        where rhs.key == codes.key\n        select:\n"
+        "            id\n    from codes\n    where exists m\n    select:\n"
+        "        a = codes.id\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("shape", sorted(DEFERRED_CAPTURES))
+def test_a_capture_of_columns_known_only_after_completion_is_refused(
+    tmp_path, dialect, shape
+):
+    # The semantic check refuses the field read; emission and compilation
+    # stop on it instead of rejecting their own input.
+    project = _witness(tmp_path, DEFERRED_CAPTURES[shape], dialect)
+    lines = (project / "main.pietto").read_text(encoding="utf-8").splitlines()
+    expected = [
+        (
+            "PIE-S2369",
+            "Captured field codes.key is not yet available: the columns of codes "
+            "are not known before completion.",
+            lines.index("        where rhs.key == codes.key") + 1,
+            26,
+        )
+    ]
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "query",
+        "result",
+        dialect,
+        "contract.json",
+        POLICIES["preserve"],
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    with pytest.raises(execution.CompileRejected) as error:
+        execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect=dialect,
+            emission_contract="contract.json",
+        )
+    document = json.loads(error.value.emission)
+    assert error.value.status == document["status"] == "BLOCKED"
+    assert [
+        (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+        for d in document["diagnostics"]
+    ] == expected
+
+
+def test_each_route_prepares_a_correlated_read_with_its_inner_source(
+    tmp_path, unconnected
+):
+    query = _matched(tmp_path)
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+        assert [
+            s.name for s in handle._owner.request.binding.artifact.request.sources
+        ] == ["items", "tags"]
+    import _pietto_sql_emission as probe
+
+    item = probe.join_witness(
+        "mysql",
+        # Two lets capture the same row input and are read in one predicate.
+        "query result:\n    let matched:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        "    let other:\n        capture lhs\n        from rhs\n"
+        "        where rhs.id == lhs.id\n        select:\n            id\n"
+        "    from lhs\n    where exists matched or not exists other\n"
+        "    select:\n        a = lhs.id\n",
+    )
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    mysql_query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    reloaded = execution.export_bundle(mysql_query)
+    assert (
+        execution.export_bundle(
+            execution.load_bundle(
+                reloaded.payload,
+                expected_pin=reloaded.pin,
+                accepted_producer=reloaded.producer,
+                accepted_compatibility=reloaded.compatibility,
+            )
+        ).payload
+        == reloaded.payload
+    )
+    handle = execution.execute(
+        mysql_query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+    )
+    assert handle.route == "mysql_rows" and handle.outcome.end == "NOT_STARTED"
+    assert [s.name for s in handle._owner.request.artifact.request.sources] == [
+        "phase66 lhs é",
+        "phase66 rhs é",
+    ]
+
+
+TWINS = """
+table twins:
+    let others:
+        from items
+        select:
+            id
+            label
+    let same_label:
+        capture items
+        from others
+        where others.label == items.label and others.id != items.id
+        select:
+            id
+    from items
+    where exists same_label
+    select:
+        id = items.id
+"""
+
+
+def test_a_self_correlation_reads_its_input_through_another_let(tmp_path):
+    # The documented rename: the let reads `items` through `others`, so it may
+    # capture `items`; the other declaration of the module still compiles alone.
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + TWINS, encoding="utf-8")
+    kinds = {}
+    for name in ("active_items", "twins"):
+        query = execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="table",
+            name=name,
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+        bundle = execution.export_bundle(query)
+        loaded = execution.load_bundle(
+            bundle.payload,
+            expected_pin=bundle.pin,
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+        )
+        assert execution.export_bundle(loaded).payload == bundle.payload
+        kinds[name] = [
+            r.address.kind
+            for r in decode(bundle.payload).records
+            if r.address.kind == "capture_use"
+        ]
+    assert kinds == {"active_items": [], "twins": ["capture_use"]}
+
+
+# An entry query with header parameters may read a table whose let has capture
+# lines (the parameters themselves stay unavailable beside lets): its inline
+# literal binds first, then the one parameter PostgreSQL reads twice as $2.
+PARAMETER_OVER_CAPTURE = """
+source tags: Item is postgres.table("fixture.tags")
+
+table matched_tags:
+    let same_label:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > 5
+        select:
+            tag_id = id
+    from items
+    where exists same_label
+    select:
+        id = items.id
+        label = items.label
+
+query picked_items(cut: Int not null):
+    from matched_tags
+    where id > cut and id != cut
+    select:
+        id
+"""
+
+
+def test_a_parameter_after_a_capturing_let_binds_in_text_order(tmp_path, unconnected):
+    query = execution.compile_query(
+        let_example(tmp_path, PARAMETER_OVER_CAPTURE),
+        module="main.pietto",
+        kind="query",
+        name="picked_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+    assert query.parameters == (("cut", "Int", False),)
+    sql, arguments = bound(run(query, parameters={"cut": 7}))
+    assert arguments == (5, 7)
+    assert sql.count(b"$2") == 2
+    assert sql.index(b"$1") < sql.index(b'AS "e0"') < sql.index(b"$2")
+
+
+# Lets are reused and read forward (Phase70 S05): the capturing let reads a let
+# written after it, which reads a third let the body also reads.
+CAPTURE_CHAIN = """
+source tags: Item is postgres.table("fixture.tags")
+
+table chained_items:
+    let same_label:
+        capture items
+        from others
+        where others.label == items.label and others.id > 2
+        select:
+            tag_id = id
+    let others:
+        from base
+        where id > 1
+        select:
+            id
+            label
+    let base:
+        from tags
+        select:
+            id
+            label
+    from items
+    where exists same_label and exists base and items.id > 3
+    select:
+        id = items.id
+"""
+
+
+def test_a_capturing_let_over_a_forward_let_chain_binds_slots_in_text_order(
+    tmp_path, unconnected
+):
+    query = execution.compile_query(
+        let_example(tmp_path, CAPTURE_CHAIN),
+        module="main.pietto",
+        kind="table",
+        name="chained_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+    bundle = execution.export_bundle(query)
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    sql, arguments = bound(run(query))
+    # $1 is the forward let's literal, $2 the inline let's, $3 the body's own.
+    assert arguments == (1, 2, 3)
+    assert sql.index(b"$1") < sql.index(b"EXISTS (SELECT 1 FROM (SELECT ")
+    assert sql.index(b"$2") < sql.index(b'AS "e0"') < sql.index(b"$3")
+    assert bound(run(loaded, values=(4, 5, 6))) == (sql, (4, 5, 6))

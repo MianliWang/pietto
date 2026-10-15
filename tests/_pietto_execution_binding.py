@@ -54,6 +54,13 @@ query result:
                 + textwrap.indent(unused, "    ")
                 + "    from j\n    select:\n        value\n"
             )
+        elif retained == "capture":
+            # The unselected request owner reads a capturing let by EXISTS.
+            unused = (
+                "\n    let m:\n        capture lhs\n        from rhs\n"
+                "        where rhs.id == lhs.id\n        select:\n            id"
+                + unused.replace("    select:\n", "    where exists m\n    select:\n")
+            )
         source += "query unused:" + unused
     if not proved:
         source = source.replace("    limit 1\n", "")

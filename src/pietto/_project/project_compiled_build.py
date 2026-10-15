@@ -79,6 +79,10 @@ class _Export:
         self.sites, self.literals, self.slots, self.reads = {}, {}, {}, {}
         self.contexts, self.field_refs = {}, {}
         self.block_uses = None
+        # The body whose values are being exported, and for an inline let's
+        # bodies the reading body's (producer, use) its captured reads name.
+        self.current_unit = None
+        self.capture_context = None
         self.values = {}
         self.requirement_anchors = {}
         self.compatibility = supported_compatibility()
@@ -403,6 +407,8 @@ class _Export:
             or target.symbol.name != f"e{address.position}"
         ):
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
+        if target.source is None and sql.inline_body(target.producer):
+            self.inline_let(value, use, address)
         operation = self.add(
             "operation",
             (value.kind, value.kind)
@@ -423,7 +429,73 @@ class _Export:
         )
         return operation
 
+    def port_of(self, read, producer):
+        """The producer port one stage column read carries."""
+        if isinstance(producer, BoundSource):
+            indexes = tuple(i for i, f in enumerate(producer.fields) if read.field is f)
+        else:
+            indexes = tuple(
+                i
+                for i, c in enumerate(producer.columns)
+                if c.column.terminal is read.terminal
+            )
+        if len(indexes) != 1:
+            raise CompiledError("COMPILED_EXPORT_READ")
+        return self.producer_ports(producer)[indexes[0]]
+
+    def inline_let(self, value, use, block_use):
+        """A capturing let's bodies, exported at the read that renders them.
+
+        Each body is an ordinary unit without a unit position; one
+        ``capture_use`` record per capture line names the reading body's
+        producer ports of the captured input, in capture field order.
+        """
+        outer = self.current_unit
+        if outer is None or type(outer) is not sql.RowBody:
+            raise CompiledError("COMPILED_EXPORT_CAPTURE")
+        producer = self.producer(outer.scan)
+        chain = [value.target.producer]
+        while type(chain[-1].scan) is sql.RowStageUse and sql.inline_body(
+            chain[-1].scan.body
+        ):
+            chain.append(chain[-1].scan.body)
+        previous = self.capture_context
+        self.capture_context = (producer, use)
+        try:
+            for body in reversed(chain):
+                self.ordinary_unit(body, {}, None)
+                self.requirement_unit_anchors(body)
+        finally:
+            self.capture_context = previous
+        captures = tuple(
+            c for c in self.request.plan.captures if c.read is value.original.ref
+        )
+        if not captures:
+            raise CompiledError("COMPILED_EXPORT_CAPTURE")
+        for capture in captures:
+            ports = []
+            for reference in capture.ports:
+                position = outer.block.inputs.index(reference)
+                read = sql._stage_read(self.request, outer.scan, position, reference)
+                if read is None:
+                    raise CompiledError("COMPILED_EXPORT_CAPTURE")
+                ports.append(self.port_of(read, producer))
+            self.anchor(
+                capture.ref,
+                self.add("capture_use", block_use, capture.use.ordinal, tuple(ports)),
+            )
+
     def scalar_value(self, value, producer, use, join_inputs=None):
+        if type(value) is rows.SQLCapturedReference:
+            if join_inputs is not None or self.capture_context is None:
+                raise CompiledError("COMPILED_EXPORT_CAPTURE")
+            outer_producer, outer_use = self.capture_context
+            return self.add(
+                "read",
+                self.port_of(value.column, outer_producer),
+                outer_use,
+                "capture",
+            )
         if type(value) is rows.SQLBlockRead:
             if join_inputs is not None:
                 raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
@@ -770,6 +842,15 @@ class _Export:
         )
         address = self.reserve(kind)
         self.units[id(unit)] = address
+        outer, self.current_unit = self.current_unit, unit
+        try:
+            return self.unit_body(unit, ctes, position, owner, kind, address)
+        finally:
+            self.current_unit = outer
+
+    def unit_body(self, unit, ctes, position, owner, kind, address):
+        aggregation = getattr(unit, "aggregation", None)
+        window = getattr(unit, "window", None)
         producer = self.producer(unit.scan)
         use = self.add(
             "use",
@@ -1442,6 +1523,9 @@ class _LogicalExport(_Export):
         self.stage_ports = {p.ref: p for p in self.plan.stage_ports}
         self.result_ports = {p.ref: p for p in self.plan.result_ports}
         self.join_ports = {p.ref: p for p in self.plan.join_ports}
+        # While a capturing let is exported: its reading body's use and the
+        # capture records of its read.
+        self.logical_capture = None
 
     def port(self, reference):
         seen = set()
@@ -1572,8 +1656,20 @@ class _LogicalExport(_Export):
                 ),
                 (original.value,),
             )
+        elif type(original) is expressions.ProjectSQLCapturedField:
+            return self.logical_captured_read(original)
         else:
             raise CompiledError("COMPILED_RETAINED_EXPRESSION")
+        block_reads = (
+            expressions.ProjectSQLRelationExists,
+            expressions.ProjectSQLRelationScalar,
+            expressions.ProjectSQLRelationMembership,
+        )
+        captures = (
+            self.logical_capturing_let(original, uses)
+            if isinstance(original, block_reads)
+            else ()
+        )
         operation = self.add(
             "operation",
             token,
@@ -1581,14 +1677,7 @@ class _LogicalExport(_Export):
             _logical(original.value_type),
             None,
         )
-        if isinstance(
-            original,
-            (
-                expressions.ProjectSQLRelationExists,
-                expressions.ProjectSQLRelationScalar,
-                expressions.ProjectSQLRelationMembership,
-            ),
-        ):
+        if isinstance(original, block_reads):
             # The read's actual plan edge names its whole producer block and
             # read column; the consumer is the relation these uses enter.
             edges = tuple(
@@ -1601,14 +1690,62 @@ class _LogicalExport(_Export):
                 or edges[0].producer not in self.terminals
             ):
                 raise CompiledError("COMPILED_RETAINED_BLOCK_READ")
-            self.add(
+            block = self.add(
                 "expression_block_use",
                 operation,
                 consumers.pop(),
                 self.terminals[edges[0].producer],
                 edges[0].edge.column,
             )
+            for capture in captures:
+                self.add(
+                    "capture_use",
+                    block,
+                    capture.use.ordinal,
+                    tuple(self.port(reference) for reference in capture.ports),
+                )
         return operation
+
+    def logical_capturing_let(self, original, uses):
+        """The capture lines of a block read of a capturing let, whose units
+        are exported here, inline, over the reading body's one use."""
+        captures = tuple(c for c in self.plan.captures if c.read is original.ref)
+        if not captures:
+            return ()
+        reads = tuple(
+            u for u in self.plan.expression_block_uses if u.ref is original.use
+        )
+        definitions = tuple(
+            d
+            for d in self.plan.bindings.definitions
+            if len(reads) == 1 and d.ref is reads[0].producer
+        )
+        if (
+            len(uses) != 1
+            or len(definitions) != 1
+            or definitions[0].ref in self.terminals
+        ):
+            raise CompiledError("COMPILED_RETAINED_CAPTURE")
+        previous, self.logical_capture = self.logical_capture, (uses[0], captures)
+        try:
+            self.logical_definition(definitions[0], inline=True)
+        finally:
+            self.logical_capture = previous
+        return captures
+
+    def logical_captured_read(self, original):
+        """A captured field: the reading body's input port, through its use."""
+        if self.logical_capture is None:
+            raise CompiledError("COMPILED_RETAINED_CAPTURE")
+        use, captures = self.logical_capture
+        matches = tuple(c for c in captures if c.ref is original.capture)
+        if len(matches) != 1 or original.position not in matches[0].edge.fields:
+            raise CompiledError("COMPILED_RETAINED_CAPTURE")
+        capture = matches[0]
+        port = self.port(capture.ports[capture.edge.fields.index(original.position)])
+        if port not in self.records[use].get("ports"):
+            raise CompiledError("COMPILED_RETAINED_CAPTURE")
+        return self.add("read", port, use, "capture")
 
     def inputs(self, address, producers):
         return tuple(
@@ -2160,132 +2297,138 @@ class _LogicalExport(_Export):
             self.references[boundary.ref] = address
         return address
 
+    def logical_definition(self, definition, inline=False):
+        """One definition's units; an inline let's units have no unit position."""
+        if inline and (
+            any(v.definition is definition.ref for v in self.plan.set_bodies)
+            or any(j.definition is definition.ref for j in self.plan.joins)
+            or any(
+                b.definition is definition.ref
+                and b.kind.value in ("aggregate", "window")
+                for b in self.plan.blocks
+            )
+            or any(b.definition is definition.ref for b in self.plan.result_boundaries)
+        ):
+            raise CompiledError("COMPILED_RETAINED_CAPTURE")
+        set_bodies = tuple(
+            v for v in self.plan.set_bodies if v.definition is definition.ref
+        )
+        if set_bodies:
+            if len(set_bodies) != 1:
+                raise CompiledError("COMPILED_RETAINED_SET")
+            self.terminals[definition.ref] = self.logical_set(definition, set_bodies[0])
+            return
+        previous = None
+        for join in self.plan.joins:
+            if join.definition is definition.ref:
+                previous = self.logical_join(definition, join)
+        if previous is None:
+            inputs = tuple(
+                u for u in self.plan.input_uses if u.consumer is definition.ref
+            )
+            if len(inputs) != 1:
+                raise CompiledError("COMPILED_RETAINED_INPUT")
+            previous = self.terminals[inputs[0].producer]
+            for port in inputs[0].ports:
+                self.aliases[port.ref] = port.producer_port
+        blocks = tuple(b for b in self.plan.blocks if b.definition is definition.ref)
+        for block in blocks:
+            if block.kind.value == "aggregate":
+                previous = self.logical_aggregate(definition, block, previous)
+                continue
+            if block.kind.value == "window":
+                previous = self.logical_window(definition, block, previous)
+                continue
+            address = self.reserve("row")
+            uses = self.inputs(address, (previous,))
+            for reference, port in zip(
+                block.inputs, self.records[uses[0]].get("ports"), strict=True
+            ):
+                self.ports[reference] = port
+            values, ports = [], []
+            projection = {
+                p.export: p for p in self.plan.projections if p.block is block.ref
+            }
+            result_projections = {
+                p.export: p
+                for p in (
+                    *self.plan.aggregate_projections,
+                    *self.plan.window_projections,
+                )
+                if p.block is block.ref
+            }
+            lets = {
+                p.port: p for p in self.plan.let_values if p.site.block is block.ref
+            }
+            for i, reference in enumerate(block.exports):
+                if reference in projection:
+                    original = projection[reference]
+                    value = self.expression(original.expression, uses)
+                    logical = _logical(self.expressions[original.expression].value_type)
+                    label = self.original_ports[reference].identity.name
+                elif reference in result_projections:
+                    original = result_projections[reference]
+                    value = self.read_port(original.input, uses)
+                    logical = self.records[self.records[value].get("port")].get(
+                        "logical"
+                    )
+                    label = self.original_ports[reference].identity.name
+                elif reference in lets:
+                    original = lets[reference]
+                    value = self.expression(original.expression, uses)
+                    logical = _logical(self.expressions[original.expression].value_type)
+                    label = f"c{i}"
+                else:
+                    value = self.read_port(self.stage_ports[reference].source, uses)
+                    logical = self.records[self.records[value].get("port")].get(
+                        "logical"
+                    )
+                    label = f"c{i}"
+                values.append(value)
+                port = self.add("port", address, i, label, value, logical)
+                ports.append(port)
+                self.ports[reference] = port
+            filters = tuple(f for f in self.plan.filters if f.site.block is block.ref)
+            predicate = (
+                None if not filters else self.expression(filters[0].predicate, uses)
+            )
+            self.finish(
+                address,
+                self.declaration(definition.entry.owner),
+                uses[0],
+                previous,
+                block.kind.value,
+                tuple(values),
+                predicate,
+                tuple(ports),
+                (None, (), "s0", False, None)
+                if inline
+                else self.layout(address, len(ports)),
+            )
+            self.references[block.ref] = address
+            previous = address
+        boundaries = tuple(
+            b for b in self.plan.result_boundaries if b.definition is definition.ref
+        )
+        if boundaries:
+            previous = self.logical_results(definition, boundaries, previous)
+        self.terminals[definition.ref] = previous
+        final_ports = tuple(
+            r.address
+            for r in self.records.values()
+            if r is not None and r.address.kind == "port" and r.get("owner") == previous
+        )
+        for old, port in zip(definition.exports, final_ports, strict=True):
+            self.ports[old.ref] = port
+
     def run(self):
         self.source_inputs()
         self.literal_records(plan=self.plan)
+        # A capturing let is exported at its single read, inline.
+        captured = {c.inner for c in self.plan.captures}
         for definition in self.plan.bindings.definitions:
-            if definition.ref in self.terminals:
-                continue
-            set_bodies = tuple(
-                v for v in self.plan.set_bodies if v.definition is definition.ref
-            )
-            if set_bodies:
-                if len(set_bodies) != 1:
-                    raise CompiledError("COMPILED_RETAINED_SET")
-                self.terminals[definition.ref] = self.logical_set(
-                    definition, set_bodies[0]
-                )
-                continue
-            previous = None
-            for join in self.plan.joins:
-                if join.definition is definition.ref:
-                    previous = self.logical_join(definition, join)
-            if previous is None:
-                inputs = tuple(
-                    u for u in self.plan.input_uses if u.consumer is definition.ref
-                )
-                if len(inputs) != 1:
-                    raise CompiledError("COMPILED_RETAINED_INPUT")
-                previous = self.terminals[inputs[0].producer]
-                for port in inputs[0].ports:
-                    self.aliases[port.ref] = port.producer_port
-            blocks = tuple(
-                b for b in self.plan.blocks if b.definition is definition.ref
-            )
-            for block in blocks:
-                if block.kind.value == "aggregate":
-                    previous = self.logical_aggregate(definition, block, previous)
-                    continue
-                if block.kind.value == "window":
-                    previous = self.logical_window(definition, block, previous)
-                    continue
-                address = self.reserve("row")
-                uses = self.inputs(address, (previous,))
-                for reference, port in zip(
-                    block.inputs, self.records[uses[0]].get("ports"), strict=True
-                ):
-                    self.ports[reference] = port
-                values, ports = [], []
-                projection = {
-                    p.export: p for p in self.plan.projections if p.block is block.ref
-                }
-                result_projections = {
-                    p.export: p
-                    for p in (
-                        *self.plan.aggregate_projections,
-                        *self.plan.window_projections,
-                    )
-                    if p.block is block.ref
-                }
-                lets = {
-                    p.port: p for p in self.plan.let_values if p.site.block is block.ref
-                }
-                for i, reference in enumerate(block.exports):
-                    if reference in projection:
-                        original = projection[reference]
-                        value = self.expression(original.expression, uses)
-                        logical = _logical(
-                            self.expressions[original.expression].value_type
-                        )
-                        label = self.original_ports[reference].identity.name
-                    elif reference in result_projections:
-                        original = result_projections[reference]
-                        value = self.read_port(original.input, uses)
-                        logical = self.records[self.records[value].get("port")].get(
-                            "logical"
-                        )
-                        label = self.original_ports[reference].identity.name
-                    elif reference in lets:
-                        original = lets[reference]
-                        value = self.expression(original.expression, uses)
-                        logical = _logical(
-                            self.expressions[original.expression].value_type
-                        )
-                        label = f"c{i}"
-                    else:
-                        value = self.read_port(self.stage_ports[reference].source, uses)
-                        logical = self.records[self.records[value].get("port")].get(
-                            "logical"
-                        )
-                        label = f"c{i}"
-                    values.append(value)
-                    port = self.add("port", address, i, label, value, logical)
-                    ports.append(port)
-                    self.ports[reference] = port
-                filters = tuple(
-                    f for f in self.plan.filters if f.site.block is block.ref
-                )
-                predicate = (
-                    None if not filters else self.expression(filters[0].predicate, uses)
-                )
-                self.finish(
-                    address,
-                    self.declaration(definition.entry.owner),
-                    uses[0],
-                    previous,
-                    block.kind.value,
-                    tuple(values),
-                    predicate,
-                    tuple(ports),
-                    self.layout(address, len(ports)),
-                )
-                self.references[block.ref] = address
-                previous = address
-            boundaries = tuple(
-                b for b in self.plan.result_boundaries if b.definition is definition.ref
-            )
-            if boundaries:
-                previous = self.logical_results(definition, boundaries, previous)
-            self.terminals[definition.ref] = previous
-            final_ports = tuple(
-                r.address
-                for r in self.records.values()
-                if r is not None
-                and r.address.kind == "port"
-                and r.get("owner") == previous
-            )
-            for old, port in zip(definition.exports, final_ports, strict=True):
-                self.ports[old.ref] = port
+            if definition.ref not in self.terminals and definition.ref not in captured:
+                self.logical_definition(definition)
         selected = next(
             d
             for d in self.plan.bindings.definitions
@@ -2486,12 +2629,20 @@ def merge_retained_components(components, requests):
                             keys[child] = ("child", parent, name, path, child.kind)
                         if child not in visited:
                             pending.append((child, keys[child]))
+        # An expression block use is the one of its existence operation, and a
+        # capture record is its read's line.
         for record in records.values():
             if record.address.kind == "expression_block_use":
-                # Exactly one block use names each read operation occurrence.
                 keys[record.address] = (
                     "expression_block_use",
                     keys[record.get("operation")],
+                )
+        for record in records.values():
+            if record.address.kind == "capture_use":
+                keys[record.address] = (
+                    "capture_use",
+                    keys[record.get("read")],
+                    record.get("ordinal"),
                 )
         kept = tuple(
             r
@@ -2529,7 +2680,11 @@ def merge_retained_components(components, requests):
             if record.address.kind == "site":
                 values[FIELDS["site"].index("ordinal")] = address.position
             if record.address in new:
-                if record.address.kind in RELATIONS - {"source"} and component_position:
+                if (
+                    record.address.kind in RELATIONS - {"source"}
+                    and component_position
+                    and values[-1][-1] is not None
+                ):
                     layout = list(values[-1])
                     layout[-1] = sum(
                         a.kind in RELATIONS - {"source"} for a in global_records

@@ -303,9 +303,10 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
 relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
-`in`/`not in` read and the header of an entry query whose FROM reads a relation
-and that declares no relation let are available, as described after the example;
-every other form is not available yet:
+`in`/`not in` read, a let with `capture` lines read by `exists` and the header
+of an entry query whose FROM reads a relation and that declares no relation let
+are available, as described after the example; every other form is not
+available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -409,7 +410,8 @@ is PIE-S2001 at the let, and inside the declaration a `from`, JOIN target or set
 operand with that name then resolves to no relation. A let never hides another
 name. The other lets and the body of its declaration may read a let any number
 of times, by `from`, a JOIN target, a set operand or a relation read (see
-below), whether the let is written before or after them. A let that no block of
+below), whether the let is written before or after them; only a let with
+`capture` lines is read exactly once (see below). A let that no block of
 its declaration reads is PIE-S2359 at the let. Reads must not form a cycle: a
 let reading itself, lets reading each other, or a let reading its own
 declaration while that declaration reads the let, directly or through other
@@ -533,17 +535,74 @@ document, and a body over either limit is BLOCKED with PIE-B1007
 long before PIE-S2365: a body of 1,000 rows and 64 columns is always BLOCKED,
 and 1,000 rows of short cells emit with only about a dozen columns.
 
-In EXPLICIT_MODULES the `let NAME:` line, a typed VALUES body and an `exists`,
-`scalar` or `in` read inside a relation body are admitted, so a let there never
-receives the temporary PIE-S2345, a VALUES body never receives PIE-S2347 and
-such a read never receives PIE-S2348, PIE-S2349 or PIE-S2350; a `capture` line
-or other form inside a let still receives its own code. Every other occurrence
-of these forms receives its temporary ERROR diagnostic in every check mode
-before any semantic reader runs: PIE-S2345 relation let, PIE-S2346 query header
-parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read, PIE-S2349 EXISTS
-reference, PIE-S2350 IN reference, PIE-S2351 capture line and PIE-S2352
-table-function FROM input. The one exception is a query header that an
-EXPLICIT_MODULES project admits (see below). That run then reports no other
+In the same projects a relation let may start with `capture NAME` lines, one
+name per line, and is then correlated: it reads the current row of one FROM or
+JOIN row input of its declaration body. `NAME` is that body's FROM relation
+name or a JOIN binding such as `r` in `left join rhs as r`; a SEMI or ANTI JOIN
+target never reaches the row and is not a row input. Inside the let body
+`NAME.field` reads that field of the outer row; bare names and every other
+qualified name keep naming the let's own input, so a captured input is never
+found by a bare name and adding a field to an outer input never changes what a
+bare name inside the let means. Only FROM and JOIN row fields are captured,
+never an outer row `let:` value, SELECT output, aggregate or window result. A
+captured field has the outer input field's type and is nullable when that field
+is or when an outer LEFT, RIGHT or FULL JOIN may null-extend its binding: a
+null-extended outer row is read as such. An outer JOIN ON condition does not
+narrow a captured field. The columns of a set, an authored JOIN, a typed VALUES
+body, a relation reading one of them and a relation whose own errors leave its
+columns unknown are not known before completion: a field read of such a captured
+input is PIE-S2369, whatever field it names, and a capture line whose fields are
+not read is accepted. The let's own FROM relation is not restricted so: a let
+over a set, an authored JOIN or a typed VALUES body reads captured fields in its
+WHERE and SELECT as usual. In the example above `recent` captures `customers`, the
+FROM input of `customers_with_recent_orders`.
+
+Unlike other lets, a let with capture lines is read exactly once, by `exists
+name` or `not exists name` written in the WHERE, or in the SELECT of an
+ungrouped declaration body (the positions of any EXISTS read, PIE-S2349
+elsewhere), and every outer row, duplicates included, gets its own result.
+Its body is a FROM relation with an
+optional WHERE and an ungrouped, window-free SELECT. Project SQL emits it inside
+that read as nested derived tables, `EXISTS (SELECT 1 FROM (SELECT ... FROM
+(SELECT ... WHERE ...) AS t<n>) AS e<n>)`, whose correlated references name the
+reading SELECT's own relation alias and column; a correlated block is never a
+CTE, while capture-free lets and relations stay top-level CTEs, including lets
+the correlated let reads. No let reads a let with capture lines (no nested
+correlation), so a correlated read nests at most the two derived tables of its
+let's body inside its EXISTS. A self-correlation, a capture of an input the
+let itself reads, is refused: read that relation through another let first and
+read the renamed let, for example `let inner: from orders` and then
+`capture orders` in a let that reads `from inner`. These forms report:
+
+- PIE-S2366 at a capture line whose name is not exactly one FROM or JOIN row
+  input of the declaration body;
+- PIE-S2367 at a capture line that repeats an earlier name of the same let;
+- PIE-S2368 at a capture line whose name is also an input of the let itself;
+- PIE-S2369 at a captured field the captured input does not have, and at each
+  field read of a captured input whose columns are not known before completion;
+- PIE-S2370 at the let when its body has a JOIN, row `let:`, GROUP BY, an
+  aggregate in WHERE or SELECT, a window, QUALIFY, SATISFYING, ORDER BY, LIMIT
+  or DISTINCT or is a set operation or VALUES body, and at every read of the
+  let other than its first `exists` in its declaration body, in source order:
+  a later `exists`, a FROM, JOIN target or set operand, a scalar or IN read,
+  or any read written in another let.
+
+All but PIE-S2369 are reported with the file's pre-admission diagnostics
+(below), in one (path, line, column, code) order with them and before the
+file's query header checks; semantic analysis then does not run.
+
+In EXPLICIT_MODULES the `let NAME:` line, a `capture` line, a typed VALUES
+body and an `exists`, `scalar` or `in` read inside a relation body are
+admitted, so a let there never receives the temporary PIE-S2345, a capture line
+never receives PIE-S2351, a VALUES body never receives PIE-S2347 and such a read
+never receives PIE-S2348, PIE-S2349 or PIE-S2350; any other unavailable form
+inside a let still receives its own code. Every other occurrence of these forms
+receives its temporary ERROR diagnostic in every check mode before any semantic
+reader runs: PIE-S2345 relation let, PIE-S2346 query header parameter,
+PIE-S2347 VALUES body, PIE-S2348 scalar read, PIE-S2349 EXISTS reference,
+PIE-S2350 IN reference, PIE-S2351 capture line and PIE-S2352 table-function
+FROM input. The one exception is a query header that an EXPLICIT_MODULES
+project admits (see below). That run then reports no other
 semantic diagnostic. Single-file `check`, `explain` and `emit-sql` report them
 from semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks, project
 `emit-sql` and `compile_query` report them with the owning file's parse

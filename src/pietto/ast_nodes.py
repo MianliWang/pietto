@@ -138,6 +138,20 @@ class ParameterRefExpr(Expression):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class CapturedFieldExpr(Expression):
+    """A qualified read ``capture.field`` of one captured outer row input.
+
+    Built only inside a let body whose capture lines name ``capture``;
+    ``ordinal`` is the position of the first such capture line. An outer input
+    is never a bare name, so bare and other qualified names keep their nodes.
+    """
+
+    capture: str
+    field: str
+    ordinal: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CastExpr(Expression):
     """An explicit source-level conversion to a parsed type expression."""
 

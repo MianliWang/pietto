@@ -24,6 +24,7 @@ from pietto.ast_nodes import (
     BinaryExpr,
     BlockRelationDef,
     CaptureClause,
+    CapturedFieldExpr,
     CastExpr,
     CallExpr,
     CheckDef,
@@ -143,6 +144,8 @@ class AstBuilder(PiettoVisitor):
         self.path = source_path(path)
         # Header parameters of the entry query whose body is being built.
         self._header: dict[str, tuple[int, QueryParameter]] = {}
+        # Capture names of the let body being built, with their line ordinals.
+        self._captures: dict[str, int] = {}
 
     def visitScript(self, ctx: _AntlrContext) -> Script:
         """Build the root script node."""
@@ -577,11 +580,18 @@ class AstBuilder(PiettoVisitor):
     def visitLetRelationDefinition(self, ctx: _AntlrContext) -> LetRelationDef:
         """Build one relation let without entering any namespace."""
 
+        captures = tuple(self.visit(item) for item in ctx.captureClause())
+        for ordinal, capture in enumerate(captures):
+            self._captures.setdefault(capture.name, ordinal)
+        try:
+            body = self._relation_body_node(ctx)
+        finally:
+            self._captures = {}
         return LetRelationDef(
             span=self._span(ctx),
             name=ctx.identifier().getText(),
-            captures=tuple(self.visit(item) for item in ctx.captureClause()),
-            body=self._relation_body_node(ctx),
+            captures=captures,
+            body=body,
         )
 
     def visitCaptureClause(self, ctx: _AntlrContext) -> CaptureClause:
@@ -1365,13 +1375,26 @@ class AstBuilder(PiettoVisitor):
 
     def _value_name(
         self, name: NameExpr | DottedNameExpr
-    ) -> NameExpr | DottedNameExpr | ParameterRefExpr:
+    ) -> NameExpr | DottedNameExpr | ParameterRefExpr | CapturedFieldExpr:
         """A bare value name equal to a header parameter reads that parameter.
 
         Names that also denote a field, let, relation, output or window are a
-        compile error, so this syntactic choice never changes meaning.
+        compile error, so this syntactic choice never changes meaning. Inside a
+        let body, a two-part name qualified by a capture line reads that
+        captured outer input; its capture name never binds an inner input.
         """
 
+        if (
+            type(name) is DottedNameExpr
+            and len(name.parts) == 2
+            and name.parts[0] in self._captures
+        ):
+            return CapturedFieldExpr(
+                span=name.span,
+                capture=name.parts[0],
+                field=name.parts[1],
+                ordinal=self._captures[name.parts[0]],
+            )
         if type(name) is not NameExpr or name.name not in self._header:
             return name
         ordinal, parameter = self._header[name.name]

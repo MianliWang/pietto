@@ -16,8 +16,9 @@ FORMAT = "pietto.compiled-execution.v1"
 # its transport, so decode refuses the tag until then.
 PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
-# 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch).
-VERSIONS = (4, 1, 4, 1)  # 4/4: expression_block_use records (Phase70 S08)
+# 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch);
+# 4/4: expression_block_use records (Phase70 S08).
+VERSIONS = (5, 1, 5, 1)  # 5/5: capture records (Phase70 batch 4, S10)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20
@@ -83,6 +84,12 @@ FIELDS = {
     # read). Records follow the statement's block use order, and record ``n``
     # renders the relation alias ``e<n>``.
     "expression_block_use": ("operation", "consumer", "producer", "column"),
+    # CaptureV1: capture line ``ordinal`` of the let an expression block use
+    # ``read`` executes inline reads the current row of that read's consumer;
+    # ``ports`` are the consumer input's producer ports of the captured fields.
+    # A captured field is a ``read`` (role "capture") of one of those ports
+    # through the consumer's own use; aliases and columns are derived.
+    "capture_use": ("read", "ordinal", "ports"),
     "port": ("owner", "ordinal", "label", "source", "logical"),
     "literal": ("tag", "value", "site"),
     "null_literal": ("site",),
@@ -593,6 +600,126 @@ def scalar_read_port(records, operation):
         and r.get("ordinal") == column
     )
     return ports[0] if len(ports) == 1 and type(column) is int else None
+
+
+def unit_position(record):
+    """A unit's layout position; an inline let's units have none."""
+    layout = record.get("layout")
+    if type(layout) is not tuple or len(layout) != 5:
+        raise CompiledError("COMPILED_LAYOUT")
+    return layout[-1]
+
+
+def inline_units(records, block_use):
+    """The inline let units one expression block use renders, outermost first."""
+    chain, current = [], records[block_use].get("producer")
+    while "layout" in FIELDS[current.kind] and unit_position(records[current]) is None:
+        producers = tuple(
+            r.get("producer")
+            for r in records.values()
+            if r.address.kind == "use" and r.get("consumer") == current
+        )
+        if current in chain or len(producers) != 1:
+            raise CompiledError("COMPILED_INLINE_CHAIN")
+        chain.append(current)
+        current = producers[0]
+    return tuple(chain)
+
+
+def row_bindings(records, use):
+    """The row bindings of one use's ports, each in port order.
+
+    A JOIN producer's output port belongs to the JOIN input it reads, through
+    the earlier JOINs of the same declaration; a row or window stage of the
+    reading declaration carries the port it reads into that port's binding
+    (the first port carrying each field) and computes a value of no binding;
+    any other producer's row is one binding.
+    """
+    owner = records[records[use].get("consumer")].get("owner")
+    groups: dict[Any, dict[Address, Address]] = {}
+    for port in records[use].get("ports"):
+        binding, chain = _carried(records, owner, port)
+        if chain:
+            groups.setdefault(binding, {}).setdefault(chain[-1].address, port)
+    return tuple(tuple(ports.values()) for ports in groups.values())
+
+
+def _carried(records, owner, port):
+    """One port's row binding and the ports that carry it from that binding's
+    input, the port first; no ports for a value a stage computes."""
+    binding, chain, seen = None, [records[port]], set()
+    while chain[-1].address not in seen:
+        current = chain[-1]
+        seen.add(current.address)
+        unit = records[current.get("owner")]
+        if unit.address.kind in ("row", "window") and unit.get("owner") == owner:
+            if current.get("source").kind != "read":
+                return None, []
+            chain.append(records[records[current.get("source")].get("port")])
+            continue
+        if unit.address.kind != "join":
+            break
+        value = records[current.get("source")]
+        if value.address.kind != "join_value":
+            raise CompiledError("COMPILED_CAPTURE_BINDING")
+        read = records[value.get("input")]
+        binding = read.get("use")
+        chain.append(records[read.get("port")])
+        producer = records[binding].get("producer")
+        if producer.kind != "join" or records[producer].get("owner") != unit.get(
+            "owner"
+        ):
+            break
+    return binding, chain
+
+
+def captured_logical(records, read):
+    """A captured field read's type: its port's, nullable when any port that
+    carries the field from its binding's input is. An outer JOIN may
+    null-extend the binding; neither a JOIN ON nor a WHERE narrows it."""
+    use = records[records[read].get("use")]
+    owner = records[use.get("consumer")].get("owner")
+    _, chain = _carried(records, owner, records[read].get("port"))
+    tag, nullability = records[records[read].get("port")].get("logical")
+    if any(p.get("logical")[1] == "nullable" for p in chain):
+        nullability = "nullable"
+    return tag, nullability
+
+
+def captured_reads(records):
+    """Each captured field read with the capturing read and record it names.
+
+    A captured read lies in the inline units of one capturing read; its record
+    is the one of that read whose ports, one row binding, hold its port (None
+    when no single record does). A read found twice is listed twice.
+    """
+    described: dict[Address, list[Record]] = {}
+    for record in records.values():
+        if record.address.kind == "capture_use":
+            described.setdefault(record.get("read"), []).append(record)
+    found: dict[Address, list[tuple[Address, Any]]] = {}
+    for block, captures in described.items():
+        for unit in inline_units(records, block):
+            seen, pending = set(), list(records[unit].values)
+            while pending:
+                value = pending.pop()
+                if type(value) is tuple:
+                    pending.extend(value)
+                    continue
+                if type(value) is not Address or value in seen:
+                    continue
+                seen.add(value)
+                if value.kind in _SCALAR_CONTAINERS:
+                    pending.extend(records[value].values)
+                elif value.kind == "read" and records[value].get("role") == "capture":
+                    port = records[value].get("port")
+                    owners = tuple(
+                        c.address for c in captures if port in c.get("ports")
+                    )
+                    found.setdefault(value, []).append(
+                        (block, owners[0] if len(owners) == 1 else None)
+                    )
+    return {read: tuple(pairs) for read, pairs in found.items()}
 
 
 def selected_relations(records, entry):

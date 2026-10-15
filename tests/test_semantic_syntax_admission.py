@@ -266,3 +266,20 @@ def test_an_admitted_query_header_still_gates_a_read_in_a_parameter_type() -> No
         ("PIE-S2349", exists, 1, 16),
         ("PIE-S2346", header, 1, 36),
     ]
+
+
+def test_explicit_modules_admit_capture_lines() -> None:
+    """Capture lines pass the gate only in EXPLICIT_MODULES; their structure is
+    checked by the project capture rules, not by the gate."""
+    parsed = parse_source(
+        "query q:\n    let l:\n        capture rows\n        from tags\n"
+        "        where tags.id == rows.id\n        select:\n            id\n"
+        "    from rows\n    select:\n        id\n",
+        path="gate.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert unadmitted_syntax_diagnostics(parsed.ast, explicit_modules=True) == ()
+    assert _located(unadmitted_syntax_diagnostics(parsed.ast)) == [
+        ("PIE-S2345", 2, 5),
+        ("PIE-S2351", 3, 9),
+    ]

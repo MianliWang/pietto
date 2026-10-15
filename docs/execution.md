@@ -286,14 +286,19 @@ is refused, and callers cannot manufacture a guard or refinement. Its
 in the compiled source order, including guarded and refined sources and sources
 read only inside a relation let or through an `exists`, `scalar` or `in`
 read; a partial, reordered or substituted tuple is refused. It is not an option
-on `compile_query`. After that source check, `save_recoverable` and `recover`
-refuse three shapes that are not R2 shapes yet with `PIE-R1004` before any
-workspace access or connection, in this order: first a statement in which the
-query, or a relation it reads, groups by a value that relation's own `let:`
-computes (detail `PUBLIC_R2_COMPUTED_GROUP_KEY`), then a query with a typed
-VALUES body, even one read beside a physical source
-(`PUBLIC_R2_VALUES_COORDINATE_BASIS`: a fixed row has no recovery coordinate),
-then a query with an `exists`, `scalar` or `in` read
+on `compile_query`. A source read only inside a let with `capture` lines is a
+compiled source like any other; the bundle records each capture line with
+every field of the outer row input it captures, and `load_bundle` refuses
+(`PIE-R1008`) capture records whose line numbers do not count 0, 1, ... or
+whose fields are not exactly one such input in field order. After that source
+check, `save_recoverable` and `recover` refuse three shapes that are not R2
+shapes yet with `PIE-R1004` before any workspace access or connection, in this
+order: first a statement in which the query, or a relation it reads, groups by
+a value that relation's own `let:` computes (detail
+`PUBLIC_R2_COMPUTED_GROUP_KEY`), then a query with a typed VALUES body, even
+one read beside a physical source (`PUBLIC_R2_VALUES_COORDINATE_BASIS`: a
+fixed row has no recovery coordinate), then a query with an `exists`, `scalar`
+or `in` read, including the `exists` read of a let with `capture` lines
 (`REFINEMENT_EXPRESSION_BLOCK_READ`). Ordinary execution, an ordinary `save`
 and bundles accept them.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,

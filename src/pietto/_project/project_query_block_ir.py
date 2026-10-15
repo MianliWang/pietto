@@ -73,7 +73,9 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.project_completed_semantics import (
     ProjectConcreteCompletedSemanticResult,
 )
+from pietto._project.relation_captures import captured_field_reads
 from pietto._project.project_completion import (
+    ProjectCaptureUse,
     ProjectCompletionDependency,
     ProjectEffectiveOutputTerminal,
     ProjectExistingEffectiveOutput,
@@ -215,7 +217,9 @@ from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
 )
 from pietto.ast_nodes import (
+    CapturedFieldExpr,
     DottedNameExpr,
+    LetRelationDef,
     NameExpr,
     QueryDef,
     RelationScalarExpr,
@@ -1929,6 +1933,172 @@ class ProjectIRExpressionBlockUse:
         return None if self.output is None else self.output.row_shape
 
 
+class ProjectIRCaptureStage(StrEnum):
+    """CaptureV1 stage checkpoint: the outer row a captured field reads.
+
+    INPUT is the relation-input row of an outer body without JOIN; JOINED is
+    the final JOIN row of an outer body with JOIN, whose fields keep their
+    null-extension identity. A WHERE read and an ungrouped SELECT read of the
+    capturing let both see that row: no outer let, SELECT output, aggregate or
+    window value is ever part of it.
+    """
+
+    INPUT = "input"
+    JOINED = "joined"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectIRCaptureCheckpoint:
+    """The exact outer row output one capturing let reads at its single read.
+
+    ``read`` is the outer body's expression block use of the capturing let;
+    ``output`` is the outer row at that read, ``bindings`` the output positions
+    of each outer row binding's fields (binding position 0 is FROM, ``k + 1``
+    JOIN ``k``).
+    """
+
+    outer: ProjectIRQueryBlockEntry = field(repr=False, compare=False, hash=False)
+    read: ProjectIRExpressionBlockUse = field(repr=False, compare=False, hash=False)
+    stage: ProjectIRCaptureStage
+    output: ProjectIRQueryBlockInputRowOutput = field(
+        repr=False, compare=False, hash=False
+    )
+    bindings: tuple[tuple[int, tuple[int, ...]], ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.stage) is not ProjectIRCaptureStage
+            or self.read.consumer is not self.outer
+            or capture_checkpoint_row(self.outer)
+            != (self.stage, self.output, self.bindings)
+        ):
+            raise ValueError("Capture checkpoint must image its exact outer row.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectIRCaptureUse:
+    """CaptureV1 in the IR: one capture line imaged onto its outer row.
+
+    ``fields`` are the checkpoint output positions of the captured binding's
+    fields. The edge is not an input, use, slot or schedule edge.
+    """
+
+    capture: ProjectCaptureUse = field(repr=False, compare=False, hash=False)
+    inner: ProjectIRQueryBlockEntry = field(repr=False, compare=False, hash=False)
+    checkpoint: ProjectIRCaptureCheckpoint
+    fields: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.capture) is not ProjectCaptureUse
+            or type(self.checkpoint) is not ProjectIRCaptureCheckpoint
+            or self.inner.owner is not self.capture.inner
+            or self.checkpoint.outer.owner is not self.capture.outer
+            or self.checkpoint.read.producer is not self.inner
+            or dict(self.checkpoint.bindings).get(
+                self.capture.dependency.dependency_ordinal
+            )
+            != self.fields
+        ):
+            raise ValueError("IR capture use requires its exact let and outer row.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectIRCapturedField:
+    """One captured field read imaged onto one exact outer row field."""
+
+    expression: CapturedFieldExpr = field(repr=False, compare=False, hash=False)
+    capture: ProjectIRCaptureUse
+    position: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.expression) is not CapturedFieldExpr
+            or type(self.capture) is not ProjectIRCaptureUse
+            or self.expression.ordinal != self.capture.capture.ordinal
+            or self.position not in self.capture.fields
+            or _row_field_name(self.capture.checkpoint.output, self.position)
+            != self.expression.field
+        ):
+            raise ValueError("Captured field must read its exact outer row field.")
+
+
+def _row_field_name(output: ProjectIRQueryBlockInputRowOutput, position: int) -> str:
+    return output.row_shape.fields[position].evidence.name
+
+
+def capture_checkpoint_row(
+    entry: ProjectIRQueryBlockEntry,
+) -> (
+    tuple[
+        ProjectIRCaptureStage,
+        ProjectIRQueryBlockInputRowOutput,
+        tuple[tuple[int, tuple[int, ...]], ...],
+    ]
+    | None
+):
+    """The outer row a capture of ``entry`` reads, or None when it has none."""
+
+    if isinstance(
+        entry, (ProjectIRReusedEffectiveOutput, ProjectIRReboundExistingOutput)
+    ):
+        fragment = (
+            entry.rebuilt_fragment
+            if isinstance(entry, ProjectIRReboundExistingOutput)
+            else entry.semantic_entry.fragment
+        )
+        operators = fragment.logical_stage.operators
+        if (
+            not operators
+            or operators[0].kind is not ProjectIRLogicalOperatorKind.RELATION_INPUT
+        ):
+            return None
+        output: ProjectIRQueryBlockInputRowOutput = _fragment_row_outputs(fragment)[0]
+        stage = ProjectIRCaptureStage.INPUT
+        bindings = ((0, tuple(range(len(output.row_shape.fields)))),)
+    elif type(entry) is ProjectIRCompletedQueryBlockOutput:
+        root = entry.semantic_entry.root
+        if type(root) is ProjectConcreteNoJoinReplay:
+            if (
+                entry.operators[0].kind
+                is not ProjectIRLogicalOperatorKind.RELATION_INPUT
+            ):
+                return None
+            output = entry.row_outputs[0]
+            stage = ProjectIRCaptureStage.INPUT
+            bindings = ((0, tuple(range(len(output.row_shape.fields)))),)
+        elif type(root) is ProjectConcreteJoinedQualify and entry.join_prefix:
+            output = entry.join_prefix.final_join.output
+            stage = ProjectIRCaptureStage.JOINED
+            environment = (
+                root.window_stage.input_aggregation.input_filter.joined_semantics
+            ).namespaces.binding_environment
+            bindings = tuple(
+                (
+                    visible.binding.identity.binding_position,
+                    tuple(item.position for item in visible.fields),
+                )
+                for visible in environment.bindings
+            )
+            fields = output.row_shape.fields
+            if any(
+                not 0 <= position < len(fields)
+                or fields[position].evidence is not item.evidence
+                for visible in environment.bindings
+                for item, position in zip(
+                    visible.fields,
+                    (item.position for item in visible.fields),
+                    strict=True,
+                )
+            ):
+                return None
+        else:
+            return None
+    else:
+        return None
+    return stage, output, bindings
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectIRQueryBlockSnapshot:
     """Complete active-output overlay over exact Phase-61 and Phase-62 snapshots."""
@@ -1953,6 +2123,8 @@ class ProjectIRQueryBlockSnapshot:
     requirements: tuple[ProjectIRSingleMatchRetention, ...] = ()
     retained_joins: tuple[ProjectIRComposedJoin, ...] = ()
     expression_uses: tuple[ProjectIRExpressionBlockUse, ...] = ()
+    capture_uses: tuple[ProjectIRCaptureUse, ...] = ()
+    captured_fields: tuple[ProjectIRCapturedField, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.completed) is not ProjectConcreteCompletedSemanticResult or (
@@ -2044,6 +2216,31 @@ class ProjectIRQueryBlockSnapshot:
             )
         ):
             raise ValueError("Query-block IR must retain every expression block use.")
+        captures = {id(item.capture) for item in self.capture_uses}
+        if (
+            type(self.capture_uses) is not tuple
+            or type(self.captured_fields) is not tuple
+            or len(captures) != len(self.capture_uses)
+            or any(
+                type(edge) is not ProjectIRCaptureUse
+                or edge.inner is not entries.get(id(edge.capture.inner))
+                or edge.checkpoint.outer is not entries.get(id(edge.capture.outer))
+                or not any(
+                    edge.checkpoint.read is read for read in self.expression_uses
+                )
+                or not any(
+                    edge.capture is use
+                    for use in self.completed.completion.capture_uses
+                )
+                for edge in self.capture_uses
+            )
+            or any(
+                type(item) is not ProjectIRCapturedField
+                or id(item.capture.capture) not in captures
+                for item in self.captured_fields
+            )
+        ):
+            raise ValueError("Query-block IR capture edges must use exact entries.")
 
     @property
     def starting_allocation(self) -> ProjectIRAllocationState:
@@ -4559,6 +4756,10 @@ def build_project_query_block_ir(
         built_by_owner=built_by_owner,
         ending_allocation=ending,
     )
+    expression_uses = _build_expression_uses(completed, entries)
+    capture_uses, captured_fields = _build_capture_uses(
+        completed, entries, expression_uses
+    )
     return ProjectIRQueryBlockSnapshot(
         completed=completed,
         base_plan=plan,
@@ -4571,7 +4772,9 @@ def build_project_query_block_ir(
         structural=structural,
         requirements=_build_requirement_images(completed, entries),
         retained_joins=_retain_historical_matches(completed, entries),
-        expression_uses=_build_expression_uses(completed, entries),
+        expression_uses=expression_uses,
+        capture_uses=capture_uses,
+        captured_fields=captured_fields,
     )
 
 
@@ -4669,6 +4872,89 @@ def expression_block_column(
     if type(expression) is RelationMembershipExpr and len(output.row_shape.fields) == 1:
         return 0
     return None
+
+
+def capture_read(
+    expression_uses: tuple[ProjectIRExpressionBlockUse, ...],
+    use: ProjectCaptureUse,
+) -> ProjectIRExpressionBlockUse | None:
+    """The single outer read of one capturing let (the S08 seam contact)."""
+    reads = tuple(
+        edge
+        for edge in expression_uses
+        if edge.use.consumer is use.outer and edge.use.target is use.inner
+    )
+    return reads[0] if len(reads) == 1 else None
+
+
+def _build_capture_uses(
+    completed: ProjectConcreteCompletedSemanticResult,
+    entries: tuple[ProjectIRQueryBlockEntry, ...],
+    expression_uses: tuple[ProjectIRExpressionBlockUse, ...],
+) -> tuple[tuple[ProjectIRCaptureUse, ...], tuple[ProjectIRCapturedField, ...]]:
+    """Image every capture edge onto its let and the outer row of its read.
+
+    A capture whose let or outer body has no active entry, whose outer body has
+    no single read of the let, or whose outer row is unavailable is not
+    imaged; plan and emission then refuse the let's captured reads.
+    """
+    by_owner = {id(entry.owner): entry for entry in entries}
+    checkpoints: dict[int, ProjectIRCaptureCheckpoint] = {}
+    uses: list[ProjectIRCaptureUse] = []
+    for use in completed.completion.capture_uses:
+        inner, outer = by_owner.get(id(use.inner)), by_owner.get(id(use.outer))
+        read = capture_read(expression_uses, use)
+        if (
+            inner is None
+            or outer is None
+            or read is None
+            or isinstance(inner, ProjectIRQueryBlockTerminal)
+            or isinstance(outer, ProjectIRQueryBlockTerminal)
+        ):
+            continue
+        checkpoint = checkpoints.get(id(read))
+        if checkpoint is None:
+            row = capture_checkpoint_row(outer)
+            if row is None:
+                continue
+            stage, output, bindings = row
+            checkpoint = checkpoints[id(read)] = ProjectIRCaptureCheckpoint(
+                outer=outer, read=read, stage=stage, output=output, bindings=bindings
+            )
+        fields = dict(checkpoint.bindings).get(use.dependency.dependency_ordinal)
+        if fields is None:
+            continue
+        uses.append(
+            ProjectIRCaptureUse(
+                capture=use, inner=inner, checkpoint=checkpoint, fields=fields
+            )
+        )
+    captured: list[ProjectIRCapturedField] = []
+    for edge in uses:
+        let = cast(LetRelationDef, edge.capture.inner.authored_block)
+        output = edge.checkpoint.output
+        for read in captured_field_reads(let):
+            if read.ordinal != edge.capture.ordinal:
+                continue
+            positions = tuple(
+                position
+                for position in edge.fields
+                if _row_field_name(output, position) == read.field
+            )
+            if len(positions) == 1:
+                captured.append(
+                    ProjectIRCapturedField(
+                        expression=read, capture=edge, position=positions[0]
+                    )
+                )
+    captured.sort(
+        key=lambda item: (
+            next(i for i, edge in enumerate(uses) if edge.inner is item.capture.inner),
+            item.expression.span.line,
+            item.expression.span.column,
+        )
+    )
+    return tuple(uses), tuple(captured)
 
 
 def _build_set_structure(
@@ -5316,8 +5602,11 @@ def compiled_relational_properties(
     source_classes = []
     for address in record.get("outputs"):
         source = records[records[address].get("source")]
+        # A captured field reads the outer row, never this unit's own input.
         source_classes.append(
-            class_by_port[source.get("port")] if source.address.kind == "read" else None
+            class_by_port[source.get("port")]
+            if source.address.kind == "read" and source.get("role") != "capture"
+            else None
         )
     classes, images = _projection_classes_from_sources(
         incoming, output, fields, tuple(source_classes)

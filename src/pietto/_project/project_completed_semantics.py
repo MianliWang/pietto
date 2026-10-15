@@ -945,6 +945,19 @@ class CompiledCompletedSemanticResult:
     parameters: tuple | None = field(default=None, repr=False)
 
 
+def _captured(records, read, typed, realized):
+    """A captured field read widened to nullable by the capture rule."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import captured_logical
+    from pietto.semantic.model import EffectiveNullability, ValueType
+
+    if captured_logical(records, read)[1] != "nullable":
+        return typed, realized
+    return ValueType(typed.resolved_type, EffectiveNullability.NULLABLE), (
+        None if realized is None else replace(realized, nullable=True)
+    )
+
+
 def _compiled_parameter_values(records, parameters, family):
     """Header records in order; a binding gives every one a valid value."""
     from pietto._project.project_compiled_schema import CompiledError
@@ -1521,6 +1534,8 @@ def derive_compiled_semantics(root, values, parameters=None):
                 realized = facts[operands[0]].realization
                 if kind == "port" and declared(get("logical")) != typed:
                     raise CompiledError("COMPILED_PORT_TYPE")
+                if kind == "read" and get("role") == "capture":
+                    typed, realized = _captured(records, ref, typed, realized)
             else:
                 operator = get("operator")
                 if type(operator) is not tuple or len(operator) != 2:
@@ -2550,6 +2565,8 @@ def verify_compiled_semantics(value):
                     else inputs[0].origin
                 )
                 typed, realization = inputs[0].value_type, inputs[0].realization
+                if kind == "read" and get("role") == "capture":
+                    typed, realization = _captured(records, current, typed, realization)
                 type_parameters = inputs[0].parameters
                 introduction, nulling = inputs[0].introduction, inputs[0].nulling
             else:

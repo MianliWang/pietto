@@ -98,6 +98,7 @@ PLAN_KINDS = frozenset(
         "projection",
         "boundary",
         "expression_block_use",
+        "capture",
         "symbol",
         "origin",
         "demand",
@@ -110,6 +111,7 @@ PLAN_CUTOFF = frozenset({"values_body", "values_column"})
 
 _VALUE = (
     "@sql_anchor|sql_unary|sql_null|sql_operation|sql_stage_reference|sql_block_read"
+    "|sql_captured_reference"
 )
 _UNIT = "row_body|row_result_body|join_body|set_body"
 _PRODUCER = "@bound_source|row_body|row_result_body|set_body|join_body"
@@ -368,6 +370,14 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("column", "@stage_column"),
         ("realization", "@realization"),
         ("scope", "?@sql_symbol"),
+    ),
+    # Phase70 S10: an inline let's read of its reading body's current row.
+    "sql_captured_reference": (
+        ("original", "plan"),
+        ("capture", "plan"),
+        ("column", "@stage_column"),
+        ("realization", "@realization"),
+        ("scope", "@sql_symbol"),
     ),
     "sql_operation": (
         ("original", "plan"),
@@ -981,12 +991,16 @@ SYNTAX = {
     "in_qualifier": ".",
     "in_alias": " AS ",
     "in_close": "))",
+    "inline_open": "(",
+    "inline_close": ")",
+    "capture_qualifier": ".",
 }
 # Expression overlay role -> (first token role(s), last token role(s)).
 OVERLAYS = {
     "unary": (("unary_open",), ("unary_close",)),
     "anchor": (("anchor_open",), ("anchor_close",)),
     "reference": (("value_scope",), ("value_column",)),
+    "capture": (("capture_scope",), ("capture_column",)),
     "binary": (("binary_open",), ("binary_close",)),
     "comparison": (("comparison_open",), ("comparison_close",)),
     "between": (("between_open",), ("between_close",)),

@@ -64,9 +64,13 @@ def emit_compiled(root, values, named=None):
 
     report = build_compiled_requirement_report(verification)
     records, refs = root.records, plan.references
-    from pietto._project.project_compiled_schema import selected_relations
+    from pietto._project.project_compiled_schema import (
+        captured_reads,
+        selected_relations,
+    )
 
     active = selected_relations(records, records[root.description.query])
+    captured = captured_reads(records)
     target = records[Address("target", 0)]
     contract = target.get("contract").encode()
     document = json.loads(contract)
@@ -226,6 +230,31 @@ def emit_compiled(root, values, named=None):
         record = records[address]
         fact = facts[address]
         original = plan.expressions[address]
+        if address.kind == "read" and record.get("role") == "capture":
+            # A captured field reads the input row of the body that reads the
+            # inline let, through that body's own use.
+            if not captures or join_contexts is not None:
+                raise CompiledError("COMPILED_CAPTURE_SCOPE")
+            outer_use, outer_producer, outer_symbol, block_use = captures[-1]
+            port = records[record.get("port")]
+            # The verified attribution: the read lies in the inline units of
+            # the read being built and names one record of that read.
+            attribution = captured.get(address, ())
+            if (
+                len(attribution) != 1
+                or attribution[0][0] != block_use
+                or attribution[0][1] is None
+                or record.get("use") != outer_use
+                or port.get("owner") != outer_producer
+            ):
+                raise CompiledError("COMPILED_CAPTURE_SCOPE")
+            return rows.SQLCapturedReference(
+                original,
+                CompiledSubject(refs[attribution[0][1]]),
+                columns_by_ref[outer_producer][port.get("ordinal")],
+                fact.realization,
+                outer_symbol,
+            )
         if address.kind == "read":
             port = records[record.get("port")]
             symbol = None
@@ -329,6 +358,32 @@ def emit_compiled(root, values, named=None):
             target = rows.SQLBlockTarget(
                 subject, bodies[producer_address], None, symbol
             )
+        elif producer_address in inline_units and scopes and kind == "exists":
+            # The capturing let renders inside this read: its units are built
+            # here, innermost first, over the reading body's input row.
+            chain = [producer_address]
+            while True:
+                inputs = tuple(
+                    r.get("producer")
+                    for r in records.values()
+                    if r.address.kind == "use" and r.get("consumer") == chain[-1]
+                )
+                if len(inputs) != 1:
+                    raise CompiledError("COMPILED_INLINE_USE")
+                if inputs[0] not in inline_units:
+                    break
+                chain.append(inputs[0])
+            captures.append((*scopes[-1], described.address))
+            try:
+                for position, unit_address in enumerate(reversed(chain)):
+                    if unit_address in inline_bodies:
+                        raise CompiledError("COMPILED_INLINE_REUSE")
+                    build(position, records[unit_address], inline=True)
+            finally:
+                captures.pop()
+            target = rows.SQLBlockTarget(
+                subject, inline_bodies[producer_address], None, symbol
+            )
         else:
             raise CompiledError("COMPILED_BLOCK_READ_PRODUCER")
         return rows.SQLBlockRead(
@@ -341,16 +396,27 @@ def emit_compiled(root, values, named=None):
             raise CompiledError("COMPILED_REQUIRED_READ")
         return value.column
 
+    kinds = ("row", "aggregate", "window", "result", "set", "join", "values")
     units = tuple(
         r
         for r in records.values()
-        if r.address.kind
-        in ("row", "aggregate", "window", "result", "set", "join", "values")
+        if r.address.kind in kinds
         and r.address in active
+        and r.get("layout")[-1] is not None
     )
-    for index, record in enumerate(units):
-        if record.get("layout")[-1] != index:
-            raise CompiledError("COMPILED_UNIT_ORDER")
+    # An inline let's units have no unit position; they are built at their read.
+    inline_units = {
+        r.address
+        for r in records.values()
+        if r.address.kind == "row" and r.get("layout")[-1] is None
+    }
+    # The reading body (use, producer, scan alias) of each body being built;
+    # an inline let's captured reads name the innermost one outside it.
+    scopes: list[tuple] = []
+    captures: list[tuple] = []
+    inline_bodies: dict = {}
+
+    def build(index, record, inline=False):
         if record.address.kind == "join":
             from pietto._project.project_sql_emission_joins import (
                 build_compiled_unit as build_join,
@@ -387,7 +453,7 @@ def emit_compiled(root, values, named=None):
                 replace(c.column, name=body.cte_columns[i].name)
                 for i, c in enumerate(body.columns)
             )
-            continue
+            return
         if record.address.kind == "values":
             from pietto._project import project_sql_emission_values as valuing
 
@@ -402,7 +468,7 @@ def emit_compiled(root, values, named=None):
                 replace(c.column, name=names[i] if names else c.label)
                 for i, c in enumerate(body.columns)
             )
-            continue
+            return
         if record.address.kind == "set":
             from pietto._project.project_sql_emission_sets import build_compiled_unit
 
@@ -436,7 +502,7 @@ def emit_compiled(root, values, named=None):
                 replace(c.column, name=names[i] if names else c.label)
                 for i, c in enumerate(body.columns)
             )
-            continue
+            return
         producer = record.get("input")
         name, native_names, alias, final, _position = record.get("layout")
         uses = tuple(
@@ -479,7 +545,12 @@ def emit_compiled(root, values, named=None):
                 bodies[producer], CompiledSubject(refs[use]), scan_symbol
             )
         else:
-            scan = ast.RowStageUse(bodies[producer], block, scan_symbol)
+            scan = ast.RowStageUse(
+                bodies[producer] if producer in bodies else inline_bodies[producer],
+                block,
+                scan_symbol,
+            )
+        scopes.append((use, producer, scan_symbol))
         columns, terminals = [], []
         aggregation = None
         window_stage = None
@@ -640,13 +711,22 @@ def emit_compiled(root, values, named=None):
                 aggregation=aggregation,
                 window=window_stage,
             )
-        bodies[record.address] = body
+        scopes.pop()
+        if inline:
+            inline_bodies[record.address] = body
+        else:
+            bodies[record.address] = body
         columns_by_ref[record.address] = tuple(
             replace(
                 c.column, position=i, name=native_names[i] if native_names else c.label
             )
             for i, c in enumerate(columns)
         )
+
+    for index, record in enumerate(units):
+        if record.get("layout")[-1] != index:
+            raise CompiledError("COMPILED_UNIT_ORDER")
+        build(index, record)
     if any(seen_uses.get(a, 0) != len(uses) for a, uses in native_by_literal.items()):
         raise CompiledError("COMPILED_PARAMETER_INVENTORY")
     query = ast.CompiledSQLQuery(request, tuple(bodies.values()), len(records))

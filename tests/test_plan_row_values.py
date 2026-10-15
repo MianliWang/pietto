@@ -1169,3 +1169,72 @@ def test_membership_leaves_cannot_be_swapped_or_retyped(
     )
     assert not verify_project_sql_plan(candidate, *roots).verified, mutation
     assert verify_project_sql_plan(plan, *roots).verified
+
+
+CAPTURE_SOURCE = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query result:
+    let matched:
+        capture r
+        capture rows
+        from tags
+        where tags.key == r.key and tags.id == rows.id
+        select:
+            id
+    from rows
+    left join tags as r:
+        from rows
+        on rows.id == r.id
+    where exists matched
+    select:
+        id = rows.id
+"""
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "deleted",
+        "swapped_ports",
+        "other_field_position",
+        "other_capture",
+        "forged_block",
+    ),
+)
+def test_capture_records_and_captured_reads_cannot_be_forged(
+    tmp_path: Path, mutation: str
+) -> None:
+    roots, plan, _view = _product(tmp_path, CAPTURE_SOURCE)
+    right, left = plan.captures
+    assert (right.use.clause.name, left.use.clause.name) == ("r", "rows")
+    reads = [e for e in plan.expressions if type(e) is row.ProjectSQLCapturedField]
+    assert [(e.expression.capture, e.position) for e in reads] == [
+        ("r", 3),
+        ("rows", 0),
+    ]
+    if mutation == "deleted":
+        candidate = _graft(plan, captures=(left,))
+    elif mutation == "swapped_ports":
+        candidate = _graft(
+            plan,
+            captures=(_graft(right, ports=left.ports), _graft(left, ports=right.ports)),
+        )
+    elif mutation == "other_field_position":
+        forged = _graft(reads[0], position=2)
+        candidate = _graft(
+            plan,
+            expressions=tuple(forged if e is reads[0] else e for e in plan.expressions),
+        )
+    elif mutation == "other_capture":
+        forged = _graft(reads[1], capture=right.ref)
+        candidate = _graft(
+            plan,
+            expressions=tuple(forged if e is reads[1] else e for e in plan.expressions),
+        )
+    else:
+        other = next(b.ref for b in plan.blocks if b.ref is not right.block)
+        candidate = _graft(plan, captures=(_graft(right, block=other), left))
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation

@@ -13,6 +13,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -123,7 +124,21 @@ DIAGNOSTICS = {
     "capture": (
         "query q:\n    let a:\n        capture lhs\n        from rhs\n"
         "        select:\n            id\n    from a\n    select:\n        id\n",
-        [("PIE-S2351", "Capture line semantics are not implemented.", 8, 9)],
+        [
+            (
+                "PIE-S2366",
+                "Capture lhs does not name one FROM or JOIN row input of q.",
+                8,
+                9,
+            ),
+            (
+                "PIE-S2370",
+                "Let a with capture lines can be read only once, by exists in the "
+                "body of q.",
+                12,
+                5,
+            ),
+        ],
     ),
 }
 
@@ -608,3 +623,551 @@ EXISTS_DIAGNOSTICS = {
 def test_an_existence_read_is_a_scoped_relation_read(tmp_path: Path, case: str) -> None:
     body, expected = EXISTS_DIAGNOSTICS[case]
     assert _check(tmp_path, body) == (1 if expected else 0, expected)
+
+
+# Phase70 S10: a let starting with capture lines reads the current row of one
+# FROM or JOIN input of its declaration body, by qualified names only.
+CAPTURE = (
+    "query q:\n    let m:\n        capture lhs\n        from rhs\n"
+    "        where rhs.key == lhs.key\n        select:\n            id\n"
+    "    from lhs\n    where exists m\n    select:\n        a = lhs.id\n"
+)
+READ_ONLY_BY_EXISTS = (
+    "Let m with capture lines can be read only once, by exists in the body of q."
+)
+BODY_SHAPE = (
+    "Let m with capture lines may use only FROM, WHERE and an ungrouped SELECT."
+)
+CAPTURE_DIAGNOSTICS = {
+    "accepted": (CAPTURE, []),
+    # A captured field may be the left value of an `in` read of another let.
+    "in_left_value": (
+        "query q:\n    let keys:\n        from rhs\n        select:\n"
+        "            key\n"
+        + CAPTURE.removeprefix("query q:\n").replace(
+            "rhs.key == lhs.key", "lhs.key in keys"
+        ),
+        [],
+    ),
+    # An outer field is read by its qualified name only: a bare name stays an
+    # inner field even when only the outer input has it.
+    "bare_name_stays_inner": (
+        "query q:\n    let ids:\n        from rhs\n        select:\n"
+        "            id\n    let m:\n        capture lhs\n        from ids\n"
+        "        where id == lhs.id and key == lhs.key\n        select:\n"
+        "            id\n    from lhs\n    where exists m\n    select:\n"
+        "        a = lhs.id\n",
+        [("PIE-S2102", "Unknown field: key", 14, 32)],
+    ),
+    "duplicate_and_unknown": (
+        CAPTURE.replace(
+            "        capture lhs\n",
+            "        capture lhs\n        capture lhs\n        capture nope\n",
+        ),
+        [
+            ("PIE-S2367", "Capture lhs is written more than once in let m.", 9, 9),
+            (
+                "PIE-S2366",
+                "Capture nope does not name one FROM or JOIN row input of q.",
+                10,
+                9,
+            ),
+        ],
+    ),
+    "self_correlation": (
+        CAPTURE.replace("capture lhs", "capture rhs").replace("lhs.key\n", "rhs.id\n"),
+        [
+            (
+                "PIE-S2368",
+                "Capture rhs is also an input of let m; rename that input through "
+                "another let.",
+                8,
+                9,
+            )
+        ],
+    ),
+    "renamed_self_correlation": (
+        "query q:\n    let inner:\n        from lhs\n        select:\n"
+        "            id\n            key\n    let m:\n        capture lhs\n"
+        "        from inner\n        where inner.key == lhs.key\n"
+        "        select:\n            id\n    from lhs\n    where exists m\n"
+        "    select:\n        a = lhs.id\n",
+        [],
+    ),
+    "unknown_field": (
+        CAPTURE.replace("lhs.key\n", "lhs.nope\n"),
+        [("PIE-S2369", "Captured input lhs has no row field nope.", 10, 26)],
+    ),
+    "semi_join_target": (
+        CAPTURE.replace("capture lhs", "capture r")
+        .replace("lhs.key\n", "r.key\n")
+        .replace(
+            "    from lhs\n    where",
+            "    from lhs\n    semi join rhs as r:\n        from lhs\n"
+            "        on lhs.id == r.id\n    where",
+        ),
+        [
+            (
+                "PIE-S2366",
+                "Capture r does not name one FROM or JOIN row input of q.",
+                8,
+                9,
+            )
+        ],
+    ),
+    "set_body_declaration": (
+        "query q:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        select:\n            id\n    union all:\n        from m\n"
+        "        from lhs\n",
+        [
+            (
+                "PIE-S2366",
+                "Capture lhs does not name one FROM or JOIN row input of q.",
+                8,
+                9,
+            ),
+            ("PIE-S2370", READ_ONLY_BY_EXISTS, 13, 9),
+        ],
+    ),
+    "body_shape": (
+        CAPTURE.replace(
+            "            id\n    from lhs",
+            "            id\n        order by:\n            id\n        limit 1\n"
+            "    from lhs",
+        ),
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    "where_aggregate": (
+        CAPTURE.replace("where rhs.key == lhs.key", "where count() > lhs.id"),
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    # Capture refusals take one source order with the file's pre-admission
+    # diagnostics; the query header checks follow them.
+    "pre_admission_order": (
+        "query p(x: Foo not null):\n    from lhs\n    where id > x\n    select:\n"
+        "        id\nquery q:\n    let m:\n        capture nope\n"
+        "        from rhs\n        select:\n            id\n    let t:\n"
+        "        from generate_series(1, 3, 1) as n\n        select:\n"
+        "            n\n    from lhs\n    where lhs.id in m\n    select:\n"
+        "        a = lhs.id\n",
+        [
+            (
+                "PIE-S2366",
+                "Capture nope does not name one FROM or JOIN row input of q.",
+                13,
+                9,
+            ),
+            (
+                "PIE-S2352",
+                "Table-function FROM input semantics are not implemented.",
+                18,
+                9,
+            ),
+            ("PIE-S2370", READ_ONLY_BY_EXISTS, 22, 11),
+            (
+                "PIE-S2353",
+                "Query parameter type must be Bool, Int, Float or Text.",
+                6,
+                9,
+            ),
+        ],
+    ),
+    "join_body": (
+        CAPTURE.replace(
+            "        from rhs\n        where",
+            "        from rhs\n        inner join rhs as y:\n            from rhs\n"
+            "            on rhs.id == y.id\n        where",
+        ),
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    "row_let_body": (
+        CAPTURE.replace(
+            "        from rhs\n        where",
+            "        from rhs\n        let:\n            k = key\n        where",
+        ),
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    # A typed VALUES body is admitted (S06), but never as a correlated body.
+    "values_body": (
+        "query q:\n    let m:\n        capture lhs\n"
+        "        values(id: Int not null):\n            1\n"
+        "    from lhs\n    where exists m\n    select:\n        a = lhs.id\n",
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    # Header parameters stay unavailable beside relation lets (PIE-S2346), so
+    # no header parameter is ever read inside a let with capture lines.
+    "header_parameter": (
+        CAPTURE.replace("query q:", "query q(cut: Int not null):").replace(
+            "rhs.key == lhs.key", "rhs.key == lhs.key and rhs.id > cut"
+        ),
+        [
+            (
+                "PIE-S2346",
+                "Query header parameter semantics are not implemented.",
+                6,
+                9,
+            )
+        ],
+    ),
+    "distinct_body": (
+        CAPTURE.replace(
+            "        select:\n            id\n    from lhs",
+            "        select distinct:\n            id\n    from lhs",
+        ),
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    # Only FROM and JOIN row fields are captured: never an outer row let value
+    # or SELECT output.
+    "outer_row_let_value": (
+        CAPTURE.replace("lhs.key\n", "lhs.bumped\n").replace(
+            "    from lhs\n    where exists m\n",
+            "    from lhs\n    let:\n        bumped = id + 1\n    where exists m\n",
+        ),
+        [("PIE-S2369", "Captured input lhs has no row field bumped.", 10, 26)],
+    ),
+    "outer_select_output": (
+        CAPTURE.replace("lhs.key\n", "lhs.a\n"),
+        [("PIE-S2369", "Captured input lhs has no row field a.", 10, 26)],
+    ),
+    "grouped_body": (
+        CAPTURE.replace(
+            "        select:\n            id\n    from lhs",
+            "        group by:\n            id\n        select:\n            id\n"
+            "    from lhs",
+        ),
+        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+    ),
+    "read_by_from": (
+        CAPTURE.replace("    from lhs\n    where exists m\n", "    from m\n"),
+        [
+            (
+                "PIE-S2366",
+                "Capture lhs does not name one FROM or JOIN row input of q.",
+                8,
+                9,
+            ),
+            ("PIE-S2370", READ_ONLY_BY_EXISTS, 13, 5),
+        ],
+    ),
+    "read_by_join": (
+        CAPTURE.replace(
+            "    where exists m\n",
+            "    inner join m as x:\n        from lhs\n        on lhs.id == x.id\n",
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 14, 5)],
+    ),
+    # Nested correlation: no let reads a let with capture lines.
+    "read_by_another_let": (
+        CAPTURE.replace(
+            "    from lhs\n    where exists m\n",
+            "    let other:\n        from rhs\n        where exists m\n"
+            "        select:\n            id\n    from lhs\n    where exists other\n",
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 15, 15)],
+    ),
+    # Other lets may be read any number of times (S05); a let with capture
+    # lines keeps exactly one read, the first in source order.
+    "read_twice": (
+        CAPTURE.replace("where exists m\n", "where exists m or exists m\n"),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 14, 23)],
+    ),
+    "read_in_where_and_select": (
+        CAPTURE.replace(
+            "        a = lhs.id\n", "        a = lhs.id\n        e = exists m\n"
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 17, 13)],
+    ),
+    "read_in_order_by": (
+        CAPTURE.replace("    where exists m\n", "")
+        + "    order by:\n        exists m\n",
+        [
+            (
+                "PIE-S2349",
+                "EXISTS relation reference is available only in WHERE and in the "
+                "SELECT of an ungrouped query, not in ORDER BY.",
+                17,
+                9,
+            )
+        ],
+    ),
+    "select_read": (
+        CAPTURE.replace("    where exists m\n", "").replace(
+            "        a = lhs.id\n", "        a = lhs.id\n        e = exists m\n"
+        ),
+        [],
+    ),
+    # Captured field refusals keep source order with the other field errors.
+    "unknown_fields_in_source_order": (
+        CAPTURE.replace(
+            "rhs.key == lhs.key", "rhs.zz == lhs.nope and lhs.a1 == lhs.a2"
+        ),
+        [
+            ("PIE-S2102", "Unknown field: rhs.zz", 10, 15),
+            ("PIE-S2369", "Captured input lhs has no row field nope.", 10, 25),
+            ("PIE-S2369", "Captured input lhs has no row field a1.", 10, 38),
+            ("PIE-S2369", "Captured input lhs has no row field a2.", 10, 48),
+        ],
+    ),
+    # The columns of a set, an authored JOIN or a relation reading one are not
+    # known before completion: each field read of such a captured input is
+    # refused, whatever field it names; a capture whose fields are not read is
+    # accepted.
+    "set_let_input": (
+        "query q:\n    let codes:\n        union all:\n            from lhs\n"
+        "            from rhs\n"
+        + CAPTURE.removeprefix("query q:\n")
+        .replace("lhs", "codes")
+        .replace("rhs.key == codes.key", "codes.nope == rhs.key and codes.id > 1"),
+        [
+            (
+                "PIE-S2369",
+                "Captured field codes.nope is not yet available: the columns of "
+                "codes are not known before completion.",
+                14,
+                15,
+            ),
+            (
+                "PIE-S2369",
+                "Captured field codes.id is not yet available: the columns of "
+                "codes are not known before completion.",
+                14,
+                41,
+            ),
+        ],
+    ),
+    "values_let_input": (
+        "query q:\n    let codes:\n        values(id: Int not null, key: Int nullable):\n"
+        "            1, 2\n"
+        + CAPTURE.removeprefix("query q:\n").replace("lhs", "codes"),
+        [
+            (
+                "PIE-S2369",
+                "Captured field codes.key is not yet available: the columns of "
+                "codes are not known before completion.",
+                13,
+                26,
+            ),
+        ],
+    ),
+    "erroneous_table_input": (
+        "table e:\n    from lhs\n    select:\n        id\n        key = nosuch\n"
+        + CAPTURE.replace("lhs", "e"),
+        [
+            ("PIE-S2102", "Unknown field: nosuch", 10, 15),
+            ("PIE-S2102", "Unknown field: nosuch", 10, 15),
+            (
+                "PIE-S2369",
+                "Captured field e.key is not yet available: the columns of e are "
+                "not known before completion.",
+                15,
+                26,
+            ),
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: q",
+                11,
+                1,
+            ),
+        ],
+    ),
+    # A grouped declaration body reads the let in its WHERE, before grouping.
+    "grouped_body_where_read": (
+        CAPTURE.replace(
+            "    select:\n        a = lhs.id\n",
+            "    group by:\n        id\n    select:\n        id\n        n = count()\n",
+        ),
+        [],
+    ),
+    "set_let_input_unread": (
+        "query q:\n    let codes:\n        union all:\n            from lhs\n"
+        "            from rhs\n"
+        + CAPTURE.removeprefix("query q:\n")
+        .replace("lhs", "codes")
+        .replace("rhs.key == codes.key", "rhs.key > 1"),
+        [],
+    ),
+    "join_table_input": (
+        "table pairs:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
+        "        on lhs.id == r.id\n    select:\n        id = lhs.id\n"
+        "        key = r.key\n" + CAPTURE.replace("lhs", "pairs"),
+        [
+            (
+                "PIE-S2369",
+                "Captured field pairs.key is not yet available: the columns of "
+                "pairs are not known before completion.",
+                18,
+                26,
+            ),
+        ],
+    ),
+    "table_over_set_input": (
+        "table codes:\n    union all:\n        from lhs\n        from rhs\n"
+        "table keyed:\n    from codes\n    select:\n        id\n        key\n"
+        + CAPTURE.replace("lhs", "keyed"),
+        [
+            (
+                "PIE-S2369",
+                "Captured field keyed.key is not yet available: the columns of "
+                "keyed are not known before completion.",
+                19,
+                26,
+            ),
+        ],
+    ),
+}
+# The let's own FROM relation may have columns known only after completion (a
+# typed VALUES body, a set, an authored JOIN, read through a let or a module
+# relation): its WHERE and SELECT are typed then, captured fields included,
+# and report their errors in source order.
+OWN_FROM_INPUTS = {
+    "values": "query q:\n    let s:\n        values(id: Int not null):\n"
+    "            1\n            2\n",
+    "set": "query q:\n    let s:\n        union all:\n            from lhs\n"
+    "            from rhs\n",
+    "join": "query q:\n    let s:\n        from lhs\n        inner join rhs as r:\n"
+    "            from lhs\n            on r.id == lhs.id\n        select:\n"
+    "            id = r.id\n",
+    "table": "table s:\n    values(id: Int not null):\n        1\nquery q:\n",
+}
+OWN_FROM = (
+    "    let m:\n        capture lhs\n        from s\n"
+    "        where s.id <= lhs.id\n        select:\n            id\n"
+    "            k = lhs.key\n    from lhs\n    where exists m\n    select:\n"
+    "        a = lhs.id\n"
+)
+for _name, _input in OWN_FROM_INPUTS.items():
+    _line = _input.count("\n") + 9
+    CAPTURE_DIAGNOSTICS["own_from_" + _name] = (_input + OWN_FROM, [])
+    CAPTURE_DIAGNOSTICS["own_from_" + _name + "_errors"] = (
+        _input + OWN_FROM.replace("s.id <= lhs.id", "s.zz <= lhs.id and lhs.nope > 1"),
+        [
+            ("PIE-S2102", "Unknown field: s.zz", _line, 15),
+            ("PIE-S2369", "Captured input lhs has no row field nope.", _line, 34),
+        ],
+    )
+
+
+@pytest.mark.parametrize("case", sorted(CAPTURE_DIAGNOSTICS))
+def test_capture_lines_bind_outer_row_inputs_by_qualified_name(
+    tmp_path: Path, case: str
+) -> None:
+    body, expected = CAPTURE_DIAGNOSTICS[case]
+    assert _check(tmp_path, body) == (1 if expected else 0, expected)
+
+
+@pytest.mark.parametrize(
+    ("read", "column"),
+    (("    where lhs.id in m\n", 11), ("    where lhs.id == scalar m.id\n", 21)),
+)
+def test_a_let_with_capture_lines_is_not_read_by_scalar_or_in(
+    tmp_path: Path, read: str, column: int
+) -> None:
+    # An admitted scalar or IN read still cannot read a correlated let
+    # (Phase70 S14); the capture refusal is the only diagnostic.
+    body = CAPTURE.replace("    where exists m\n", read)
+    assert _check(tmp_path, body) == (
+        1,
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 14, column)],
+    )
+
+
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_capture_lines_are_available_only_in_explicit_module_projects(
+    tmp_path: Path, schema_version: int
+) -> None:
+    config = probe.CONFIG.replace(
+        "schema_version = 2", f"schema_version = {schema_version}"
+    )
+    code, diagnostics = _check(tmp_path, CAPTURE, config=config)
+    if schema_version == 2:
+        assert (code, diagnostics) == (0, [])
+        return
+    assert (code, diagnostics) == (
+        1,
+        [
+            (
+                "PIE-S2345",
+                "Let relation declaration semantics are not implemented.",
+                7,
+                5,
+            ),
+            ("PIE-S2351", "Capture line semantics are not implemented.", 8, 9),
+            (
+                "PIE-S2349",
+                "EXISTS relation reference semantics are not implemented.",
+                14,
+                11,
+            ),
+        ],
+    )
+
+
+def test_a_single_file_keeps_capture_lines_gated(tmp_path: Path) -> None:
+    path = tmp_path / "single.pietto"
+    path.write_text(HEAD + CAPTURE, encoding="utf-8")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = cli.main(["check", str(path), "--format", "json"])
+    assert code == 1
+    assert [
+        (d["code"], d["location"]["line"], d["location"]["column"])
+        for d in json.loads(out.getvalue())["diagnostics"]
+    ] == [("PIE-S2345", 7, 5), ("PIE-S2351", 8, 9), ("PIE-S2349", 14, 11)]
+
+
+def _capture_facts(tmp_path: Path, body: str):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pietto.toml").write_text(probe.CONFIG)
+    (tmp_path / "main.pietto").write_text(HEAD + body)
+    semantic = build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    assert semantic.module_semantic_facts is not None
+    (environment,) = semantic.module_semantic_facts.environments
+    return {fact.owner.definition.name: fact for fact in environment.relation_facts}
+
+
+def _typed(values: Any) -> dict[Any, Any]:
+    """Captured field types; every value is a known type in these cases."""
+    return dict(values)
+
+
+def test_a_captured_field_keeps_the_outer_type_and_join_null_extension(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "query q:\n    let m:\n        capture lhs\n        capture r\n"
+        "        from rhs\n        where rhs.id == lhs.id and rhs.id == r.id\n"
+        "        select:\n            id\n    from lhs\n"
+        "    left join rhs as r:\n        from lhs\n        on lhs.id == r.id\n"
+        "    where exists m\n    select:\n        a = lhs.id\n"
+    )
+    assert _check(tmp_path / "check", body) == (0, [])
+    facts = _capture_facts(tmp_path / "facts", body)["m"]
+    types = {
+        (read.capture, read.field): (
+            value.resolved_type.name,
+            value.nullability.value,
+        )
+        for read, value in _typed(facts.captured_value_types).items()
+    }
+    # lhs.id keeps NOT NULL; r.id may be null-extended by the LEFT JOIN.
+    assert types == {
+        ("lhs", "id"): ("Int", "non_null"),
+        ("r", "id"): ("Int", "nullable"),
+    }
+    assert facts.where_fact is not None
+    assert {
+        type(node).__name__ for node in facts.where_fact.expression_value_types
+    } >= {"CapturedFieldExpr"}
+    # An INNER JOIN never null-extends, and its ON condition does not narrow a
+    # nullable captured field.
+    inner = (
+        body.replace("left join", "inner join")
+        .replace("on lhs.id == r.id", "on lhs.id == r.id and r.key is not null")
+        .replace("rhs.id == r.id\n", "rhs.id == r.id and rhs.key == r.key\n")
+    )
+    assert _check(tmp_path / "inner-check", inner) == (0, [])
+    facts = _capture_facts(tmp_path / "inner-facts", inner)["m"]
+    assert {
+        (read.capture, read.field): value.nullability.value
+        for read, value in _typed(facts.captured_value_types).items()
+    } == {("lhs", "id"): "non_null", ("r", "id"): "non_null", ("r", "key"): "nullable"}

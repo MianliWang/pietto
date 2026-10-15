@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 
 from pietto.ast_nodes import (
+    BinaryExpr,
     BlockRelationDef,
     CallExpr,
     CaptureClause,
+    CapturedFieldExpr,
+    ComparisonExpr,
+    DottedNameExpr,
     ConstraintDef,
     Definition,
     DeriveDef,
@@ -211,6 +215,48 @@ def test_capture_lines_start_only_a_let_body() -> None:
     assert latest.captures[0].span == Span(
         path="blocks.pietto", line=3, column=9, end_line=3, end_column=26
     )
+
+
+def test_a_capture_qualified_value_name_reads_the_captured_input() -> None:
+    """Only a two-part value name qualified by a capture line is rewritten."""
+    definition = _block(
+        "query q:\n"
+        "    let m:\n"
+        "        capture lhs\n"
+        "        capture lhs\n"
+        "        from rhs\n"
+        "        where rhs.key == lhs.key and key == lhs.id.x\n"
+        "        select:\n"
+        "            id\n"
+        "            v = lhs.key\n"
+        "    from lhs\n"
+        "    where lhs.key > 0\n"
+        "    select:\n"
+        "        id\n"
+    )
+
+    (let,) = definition.let_relations
+    body = let.body
+    assert type(body) is SelectBody and body.where_clause is not None
+    both = body.where_clause.expression
+    assert type(both) is BinaryExpr and both.operator == "and"
+    inner, outer = both.left, both.right
+    assert type(inner) is ComparisonExpr and type(outer) is ComparisonExpr
+    assert inner.left == DottedNameExpr(span=inner.left.span, parts=("rhs", "key"))
+    assert inner.right == CapturedFieldExpr(
+        span=Span(path="blocks.pietto", line=6, column=26, end_line=6, end_column=33),
+        capture="lhs",
+        field="key",
+        ordinal=0,
+    )
+    # A bare name and a three-part name keep their nodes.
+    assert type(outer.left) is NameExpr
+    assert type(outer.right) is DottedNameExpr
+    assert type(body.select_items[1].expression) is CapturedFieldExpr
+    # The declaration body has no capture line of its own.
+    declared: Any = definition.body
+    assert declared.where_clause is not None
+    assert type(declared.where_clause.expression.left) is DottedNameExpr
 
 
 def test_let_bodies_may_be_values_or_set_operations() -> None:

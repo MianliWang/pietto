@@ -102,6 +102,26 @@ query result:
 """
 
 
+# Phase70 S10: a correlated let read by EXISTS keeps its capture record.
+CAPTURE = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query result:
+    let matched:
+        capture rows
+        from tags
+        where tags.key == rows.key
+        select:
+            id
+    from rows
+    where exists matched
+    select:
+        id
+"""
+
+
 @pytest.fixture(scope="module")
 def corpus(tmp_path_factory):
     cases = {
@@ -134,6 +154,7 @@ def corpus(tmp_path_factory):
     )
     cases["shared_window"] = (shared, None)
     cases["exists"] = (EXISTS, None)
+    cases["capture"] = (CAPTURE, None)
     result = {}
     for name, (source, requests) in cases.items():
         roots = _roots(tmp_path_factory.mktemp("source-maps"), source, requests)

@@ -102,6 +102,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.IsNullExpr,
         ast.WindowExpr,
         ast.ParameterRefExpr,
+        ast.CapturedFieldExpr,
     }
 )
 
@@ -333,6 +334,19 @@ class ProjectSQLRelationMembership(ProjectSQLExpressionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLCapturedField(ProjectSQLExpressionBase):
+    """A read of one captured outer row field (CaptureV1); never an inner port.
+
+    ``capture`` is the plan capture record of the line the read names and
+    ``position`` the outer row position (IR capture checkpoint) it reads.
+    """
+
+    expression: ast.CapturedFieldExpr
+    capture: ProjectSQLPlanRef
+    position: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLCast(ProjectSQLExpressionBase):
     expression: CastExpr
     value: ProjectSQLPlanRef
@@ -362,6 +376,7 @@ type ProjectSQLExpression = (
     | ProjectSQLRelationExists
     | ProjectSQLRelationScalar
     | ProjectSQLRelationMembership
+    | ProjectSQLCapturedField
     | ProjectSQLCast
     | ProjectSQLScalarCall
     | aggregation.ProjectSQLResultReference

@@ -860,6 +860,7 @@ def original_rule(plan, entry, *, generated_scopes):
             row.ProjectSQLReference,
             row.ProjectSQLJoinedReference,
             row.ProjectSQLMatchReference,
+            row.ProjectSQLCapturedField,
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }
@@ -991,6 +992,7 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLRelationExists,
     row.ProjectSQLRelationScalar,
     row.ProjectSQLRelationMembership,
+    row.ProjectSQLCapturedField,
 )
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
@@ -1075,6 +1077,11 @@ class RowBody:
     """This body's own realized GROUPED/GLOBAL stage, when it has one."""
     window: Any = None
     """This body's own realized window stage, when it has one."""
+
+
+def inline_body(unit) -> bool:
+    """A capturing let's stage body, rendered inside its EXISTS read."""
+    return type(unit) is RowBody and unit.symbol is None and not unit.final
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1642,45 +1649,87 @@ def realize_rows(request, *, _guarded=None):
     result_groups = resulting.boundaries_by_definition(plan)
     set_groups = setting.bodies_by_definition(plan)
     values_groups = valuing.bodies_by_definition(plan)
-    ordered = []
-    for definition, blocks in groups:
+    # A capturing let is realized inline at its outer body's single EXISTS read
+    # (a correlated reference cannot live in a CTE: native probe S10-E).
+    inline = {capture.inner for capture in plan.captures}
+    blocks_by_definition = {
+        definition.original.ref: (definition, blocks) for definition, blocks in groups
+    }
+    producers = {use.ref: use.producer for use in plan.expression_block_uses}
+
+    def stage_roots(definition, blocks):
+        """Each stage body's (column roots, predicate roots) in stage order."""
         stage = stages.get(definition.original.ref)
-        for join in join_groups.get(definition.original.ref, ()):
-            if join.on is not None:
-                ordered.append(join.on)
+        result = []
         for block in blocks:
             kind = block.kind.value
             if kind == "let":
-                ordered.append(lets[block.ref].expression)
+                result.append(([lets[block.ref].expression], []))
             elif kind in {"where", "satisfying", "qualify"}:
-                ordered.append(filters[block.ref].predicate)
+                result.append(([], [filters[block.ref].predicate]))
             elif kind == "aggregate":
                 assert stage is not None
-                for value in aggregate_values.get(stage.ref, ()):
-                    ordered.extend(value.arguments)
+                result.append(
+                    (
+                        [
+                            argument
+                            for value in aggregate_values.get(stage.ref, ())
+                            for argument in value.arguments
+                        ],
+                        [],
+                    )
+                )
             elif kind == "window":
                 # Header-parameter window arguments, in column and call order.
-                ordered.extend(
-                    argument
-                    for window in window_blocks.get(block.ref, ())
-                    for argument in window_argument.get(window.ref, ())
-                    if argument.parameter is not None
+                result.append(
+                    (
+                        [
+                            argument
+                            for window in window_blocks.get(block.ref, ())
+                            for argument in window_argument.get(window.ref, ())
+                            if argument.parameter is not None
+                        ],
+                        [],
+                    )
                 )
             else:
-                ordered.extend(p.expression for p in projections.get(block.ref, ()))
+                result.append(
+                    ([p.expression for p in projections.get(block.ref, ())], [])
+                )
+        return result
+
+    def nested_roots(parts, last):
+        # An inline body renders its columns, its nested predecessor, then
+        # its own predicate.
+        if last < 0:
+            return []
+        columns, predicates = parts[last]
+        return [*columns, *nested_roots(parts, last - 1), *predicates]
+
+    ordered = []
+    for definition, blocks in groups:
+        if definition.original.ref in inline:
+            continue
+        for join in join_groups.get(definition.original.ref, ()):
+            if join.on is not None:
+                ordered.append(join.on)
+        for columns, predicates in stage_roots(definition, blocks):
+            ordered.extend((*columns, *predicates))
     occurrences = []
-    for reference in ordered:
+
+    def collect(reference):
         if type(reference) is windowing.plan_argument_type():
             physical = parameters.PHYSICAL[family][reference.parameter.tag]
             occurrences.append((reference, physical))
-            continue
+            return
         try:
             chains = rows.rendered_constant_chains(plan, reference)
             rendered = rows.rendered_tree_nodes(plan, reference)
         except ValueError:
             add("PIE-B1008", "expression_tree_structure", reference)
-            continue
-        # Parameter reads join the literal chains in the one rendering order.
+            return
+        # Parameter reads join the literal chains in the one rendering order;
+        # an inline let's own native occurrences render at its EXISTS read.
         order = {id(node): i for i, node in enumerate(rendered)}
         native = sorted(
             (
@@ -1689,11 +1738,21 @@ def realize_rows(request, *, _guarded=None):
                     (order[id(node)], None, node)
                     for node in rendered
                     if type(node) is row.ProjectSQLParameterRead
+                    or (
+                        type(node) is row.ProjectSQLRelationExists
+                        and producers.get(node.use) in inline
+                    )
                 ),
             ),
             key=lambda item: item[0],
         )
         for _, chain, leaf in native:
+            if type(leaf) is row.ProjectSQLRelationExists:
+                definition, blocks = blocks_by_definition[producers[leaf.use]]
+                parts = stage_roots(definition, blocks)
+                for inner in nested_roots(parts, len(parts) - 1):
+                    collect(inner)
+                continue
             if type(leaf) is row.ProjectSQLParameterRead:
                 occurrences.append(
                     (leaf, parameters.PHYSICAL[family][leaf.parameter.tag])
@@ -1706,6 +1765,9 @@ def realize_rows(request, *, _guarded=None):
                 tag = parameters.tag_of(leaf)
                 assert tag is not None
                 occurrences.append((leaf, parameters.PHYSICAL[family][tag]))
+
+    for reference in ordered:
+        collect(reference)
     if problems:
         return RowRealization(tuple(problems), None)
     try:
@@ -1723,7 +1785,484 @@ def realize_rows(request, *, _guarded=None):
     by_definition: dict[Any, RowBody | valuing.ValuesBody] = {}
     by_join: dict[Any, joining.JoinBody] = {}
     nodes = 0
+
+    def realize_stages(definition, blocks, joined, captures):
+        """Realize one definition's stage bodies; a capturing let is inline.
+
+        ``captures`` maps each capture record of an inline let to the outer
+        row scope of its single EXISTS read; its bodies are never CTEs and
+        never join ``units``: they are reachable only through that read.
+        """
+        nonlocal nodes
+        inline_bodies: list[Any] = []
+        binding = uses_by_consumer.get(definition.original.ref)
+        previous: RowBody | None = None
+        for index, block in enumerate(blocks):
+            if index == 0 and joined:
+                tail = tails[definition.original.ref]
+                scan: Any = RowJoinUse(
+                    by_join[joined[-1].ref],
+                    tail,
+                    SQLSymbol(0, tail.ref, f"t{tail.ref.position}"),
+                )
+            elif index == 0:
+                assert binding is not None
+                use = binding.original
+                alias = SQLSymbol(0, use.ref, f"s{use.ref.position}")
+                if use.producer in source_refs:
+                    source = source_refs[use.producer]
+                    matches = tuple(
+                        s for s in request.sources if s.owner is source.source.owner
+                    )
+                    if len(matches) != 1:
+                        add("PIE-B1001", "source_mapping_missing", source.ref)
+                        return None
+                    scan = RowScan(source, matches[0], use, alias, binding)
+                else:
+                    producer = by_definition.get(use.producer)
+                    if producer is None:
+                        add("PIE-B1001", "named_producer_not_realized", use.ref)
+                        return None
+                    scan = RowNamedUse(producer, use, alias, binding)
+            else:
+                assert previous is not None
+                scan = RowStageUse(
+                    previous, block, SQLSymbol(0, block.ref, f"t{block.ref.position}")
+                )
+            reference_type = (
+                row.ProjectSQLJoinedReference if joined else row.ProjectSQLReference
+            )
+            incoming = []
+            for position, port in enumerate(block.inputs):
+                read = _stage_read(request, scan, position, port)
+                if read is None:
+                    add("PIE-B1001", "stage_input_not_bound", port)
+                    return None
+                incoming.append(read)
+            columns: list[Any] = []
+            available = {
+                port: read for port, read in zip(block.inputs, incoming, strict=True)
+            }
+            # Row values may also read whole blocks through this definition's
+            # own expression block uses; stage columns never include them. An
+            # inline let's own captured fields read its outer row scopes.
+            readable = dict(available)
+            if captures is not None:
+                readable.update(captures)
+            for block_use in plan.expression_block_uses:
+                if block_use.consumer is not definition.original.ref:
+                    continue
+                if block_use.producer in inline:
+                    target = _inline_target(block_use, block, scan, available)
+                    if target is False:
+                        return None
+                    if target is not None:
+                        readable[block_use.ref] = target
+                    continue
+                target = _block_target(request, block_use, by_definition, source_refs)
+                if target is None:
+                    add(
+                        "PIE-B1001",
+                        "expression_block_producer_not_realized",
+                        block_use.ref,
+                    )
+                    return None
+                readable[block_use.ref] = target
+            kind = block.kind.value
+            # A definition with result boundaries ends in its result body, so
+            # its visible projection is a closed stage whose terminals are the
+            # PROJECTION-role result ports rather than the canonical terminals.
+            result_boundaries = result_groups.get(definition.original.ref, ())
+            selected = definition.original.entry.owner is plan.scope.selected_owner
+            final = kind == "projection" and selected and not result_boundaries
+            projection_terminals = (
+                resulting.projection_terminals(plan, block.ref)
+                if kind == "projection" and result_boundaries
+                else definition.terminals
+            )
+            stage = stages.get(definition.original.ref)
+            aggregate_stage = None
+            window_stage = None
+            block_exports: tuple[Any, ...] = ()
+            if kind != "projection":
+                resolved = [stage_ports.get(ref) for ref in block.exports]
+                if any(port is None for port in resolved):
+                    add("PIE-B1001", "stage_export_not_bound", block.ref)
+                    return None
+                block_exports = tuple(resolved)
+            if kind == "aggregate":
+                assert stage is not None
+                built, aggregate_stage, problem = grouping.build_stage(
+                    request,
+                    stage,
+                    block_exports,
+                    available,
+                    tuple(aggregate_keys.get(stage.ref, ())),
+                    tuple(aggregate_values.get(stage.ref, ())),
+                    uses,
+                    reference_type=reference_type,
+                    symbol=SQLSymbol,
+                )
+                if built is None:
+                    assert problem is not None
+                    add(*problem)
+                    return None
+                assert aggregate_stage is not None
+                columns.extend(built)
+                nodes += grouping.node_count(aggregate_stage, _value_node_count)
+                exports: tuple[Any, ...] = ()
+                items: tuple[Any, ...] = ()
+            elif (
+                kind == "projection"
+                and stage is not None
+                and not window_projection.get(block.ref)
+            ):
+                built, problem = grouping.build_projections(
+                    request,
+                    stage,
+                    block,
+                    definition.original.exports,
+                    projection_terminals[: len(definition.original.exports)],
+                    available,
+                    tuple(aggregate_projections.get(block.ref, ())),
+                    final,
+                    symbol=SQLSymbol,
+                )
+                if built is None:
+                    assert problem is not None
+                    add(*problem)
+                    return None
+                columns.extend(built)
+                exports = ()
+                items = ()
+            else:
+                if kind != "projection":
+                    for position, read in enumerate(incoming):
+                        label = f"c{position}"
+                        export = block_exports[position]
+                        if export.source is not block.inputs[position]:
+                            add("PIE-B1001", "stage_carry_port_drift", export)
+                            return None
+                        columns.append(
+                            RowCarryColumn(
+                                position,
+                                export,
+                                block.inputs[position],
+                                read,
+                                SQLSymbol(position + 1, export.ref, label),
+                                label,
+                                replace(
+                                    read,
+                                    position=position,
+                                    name=label,
+                                    terminal=export.ref,
+                                ),
+                            )
+                        )
+                if kind == "window":
+                    built, window_stage, problem = windowing.build_stage(
+                        request,
+                        block,
+                        block_exports[len(incoming) :],
+                        available,
+                        tuple(window_blocks.get(block.ref, ())),
+                        window_policy,
+                        window_argument,
+                        window_use,
+                        position_base=len(columns),
+                        symbol=SQLSymbol,
+                        native=uses,
+                    )
+                    if built is None:
+                        assert problem is not None
+                        add(*problem)
+                        return None
+                    assert window_stage is not None
+                    columns.extend(built)
+                    nodes += windowing.node_count(window_stage, _value_node_count)
+                exports = (
+                    definition.original.exports
+                    if kind == "projection"
+                    else ()
+                    if kind == "window"
+                    else block_exports[len(incoming) :]
+                )
+                if kind == "projection":
+                    # A visible projection may mix ordinary values with this
+                    # body's own window results, so each export takes exactly
+                    # the one item that claims it, in export order.
+                    claims: dict[Any, Any] = {}
+                    for entry in projections.get(block.ref, ()):
+                        claims[entry.export] = entry
+                    for entry in aggregate_projections.get(block.ref, ()):
+                        if entry.export in claims:
+                            add("PIE-B1001", "projection_export_conflict", entry.ref)
+                            return None
+                        claims[entry.export] = entry
+                    for entry in window_projection.get(block.ref, ()):
+                        if entry.export in claims:
+                            add("PIE-B1001", "projection_export_conflict", entry.ref)
+                            return None
+                        claims[entry.export] = entry
+                    items = tuple(claims.get(export.ref) for export in exports)
+                    if any(item is None for item in items):
+                        add("PIE-B1001", "stage_export_denominator", block.ref)
+                        return None
+                else:
+                    items = (lets[block.ref],) if kind == "let" else ()
+                    if len(items) != len(exports):
+                        add("PIE-B1001", "stage_export_denominator", block.ref)
+                        return None
+            for offset, (item, export) in enumerate(zip(items, exports, strict=True)):
+                position = len(columns)
+                label = export.identity.name if final else f"c{position}"
+                if type(item) is grouping.plan_projection_type():
+                    read = available.get(item.input)
+                    if (
+                        read is None
+                        or stage is None
+                        or item.aggregation is not stage.ref
+                    ):
+                        add("PIE-B1001", "aggregate_projection_drift", item.ref)
+                        return None
+                    terminal = projection_terminals[position]
+                    columns.append(
+                        grouping.AggregateProjectionColumn(
+                            position,
+                            export,
+                            item,
+                            item.input,
+                            read,
+                            SQLSymbol(position + 1, export.ref, label),
+                            label,
+                            replace(
+                                read,
+                                position=position,
+                                name=label,
+                                terminal=terminal.ref,
+                            ),
+                        )
+                    )
+                    continue
+                if type(item) is windowing.plan_projection_type():
+                    # This visible output IS an established window result port.
+                    built, problem = windowing.build_projection(
+                        block,
+                        item,
+                        export,
+                        projection_terminals[position],
+                        available,
+                        position,
+                        label,
+                        symbol=SQLSymbol,
+                    )
+                    if built is None:
+                        assert problem is not None
+                        add(*problem)
+                        return None
+                    columns.append(built)
+                    continue
+                value, problem = rows.build_row_value(
+                    request,
+                    readable,
+                    item.expression,
+                    uses,
+                    reference_type=reference_type,
+                )
+                if value is None:
+                    # Every unsupported value in this body keeps its own cause.
+                    assert problem is not None
+                    add(*problem, item.ref, item.site.occurrence.span)
+                    continue
+                if kind == "let" and export.source is not item.expression:
+                    add("PIE-B1001", "let_export_expression_drift", export)
+                    return None
+                terminal = (
+                    projection_terminals[position] if kind == "projection" else export
+                )
+                column = _value_column_image(
+                    request, value, position, label, export, terminal, family
+                )
+                link = None
+                if (
+                    index == 0
+                    and not joined
+                    and binding is not None
+                    and type(value) is rows.SQLStageReference
+                ):
+                    slot = block.inputs.index(value.port)
+                    link = binding.bindings[slot]
+                columns.append(
+                    RowValueColumn(
+                        position,
+                        export,
+                        item if kind == "projection" else None,
+                        item.site,
+                        item.expression,
+                        value,
+                        SQLSymbol(position + 1, export.ref, label),
+                        label,
+                        column,
+                        link,
+                    )
+                )
+                nodes += 1 + _value_node_count(value)
+            if problems:
+                return None
+            predicate = None
+            if kind in {"where", "satisfying", "qualify"}:
+                item = filters[block.ref]
+                value, problem = rows.build_row_value(
+                    request,
+                    readable,
+                    item.predicate,
+                    uses,
+                    reference_type=grouping.ProjectSQLResultReference
+                    if kind == "satisfying"
+                    else reference_type,
+                )
+                if value is None:
+                    assert problem is not None
+                    add(*problem, item.ref, item.site.occurrence.span)
+                    return None
+                realization = rows.realization_of(value, family)
+                if realization.tag != "Bool" or realization.domain.get("kind") != (
+                    "bool01"
+                ):
+                    add("PIE-B1002", "predicate_root_not_bool", item.ref)
+                    return None
+                if (
+                    tuple(
+                        (effect.truth.value, effect.retain_row)
+                        for effect in item.retention_effects
+                    )
+                    != RETENTION
+                ):
+                    add("PIE-B1005", "predicate_retention_effects_changed", item.ref)
+                    return None
+                predicate = RowPredicate(item, item.predicate, value)
+                nodes += _value_node_count(value)
+            if kind == "projection" and result_boundaries:
+                # ORDER without DISTINCT reads pre-projection values through
+                # hidden helper ports; each one is carried as its own column of
+                # this closed stage and never reaches the visible tuple.
+                for helper in projection_terminals[len(columns) :]:
+                    read = available.get(helper.source)
+                    if helper.canonical is not None or read is None:
+                        add("PIE-B1001", "result_helper_port_not_bound", helper.ref)
+                        return None
+                    position = len(columns)
+                    label = f"c{position}"
+                    columns.append(
+                        RowCarryColumn(
+                            position,
+                            helper,
+                            helper.source,
+                            read,
+                            SQLSymbol(position + 1, helper.ref, label),
+                            label,
+                            replace(
+                                read, position=position, name=label, terminal=helper.ref
+                            ),
+                        )
+                    )
+            terminals = projection_terminals if kind == "projection" else block_exports
+            if len(terminals) != len(columns):
+                add("PIE-B1001", "stage_terminal_denominator", block.ref)
+                return None
+            # An inline body is neither final nor a CTE: it has no unit name.
+            named = not final and captures is None
+            body = RowBody(
+                definition,
+                block,
+                index,
+                scan,
+                tuple(columns),
+                tuple(terminals),
+                predicate,
+                final,
+                SQLSymbol(len(units), block.ref, f"p{len(units)}") if named else None,
+                tuple(
+                    SQLSymbol(i, terminal.ref, f"c{i}")
+                    for i, terminal in enumerate(terminals)
+                )
+                if named
+                else (),
+                aggregate_stage,
+                window_stage,
+            )
+            previous = body
+            if captures is not None:
+                if result_boundaries:
+                    add("PIE-B1003", "inline_result_body_not_admitted", block.ref)
+                    return None
+                # An inline body's own structure counts like any other body.
+                nodes += 3 + 2 * len(body.columns)
+                inline_bodies.append(body)
+                continue
+            bodies.append(body)
+            units.append(body)
+            if kind == "projection" and result_boundaries:
+                result, problem = resulting.build_result_body(
+                    request,
+                    definition,
+                    result_boundaries,
+                    body,
+                    index=len(units),
+                    final=selected,
+                    symbol=SQLSymbol,
+                )
+                if result is None:
+                    assert problem is not None
+                    add(*problem)
+                    return None
+                nodes += resulting.node_count(result)
+                bodies.append(result)
+                units.append(result)
+                by_definition[definition.original.ref] = result
+            elif kind == "projection":
+                by_definition[definition.original.ref] = body
+        return inline_bodies
+
+    def _inline_target(block_use, block, scan, available):
+        """Realize a capturing let inside the block of its single read.
+
+        Returns the read's target, None in any other block of the reader, and
+        False when the let cannot be realized there.
+        """
+        local = tuple(
+            capture
+            for capture in plan.captures
+            if capture.edge.checkpoint.read is block_use.edge
+        )
+        if not local:
+            add("PIE-B1001", "inline_read_without_capture", block_use.ref)
+            return False
+        if local[0].block is not block.ref:
+            return None
+        scopes = {}
+        for capture in local:
+            reads = tuple(available.get(port) for port in capture.ports)
+            if capture.block is not block.ref or any(read is None for read in reads):
+                add("PIE-B1001", "capture_outside_read_scope", capture.ref)
+                return False
+            scopes[capture.ref] = rows.SQLCaptureScope(capture, scan.symbol, reads)
+        definition, blocks = blocks_by_definition[block_use.producer]
+        inner = realize_stages(definition, blocks, (), scopes)
+        if not inner:
+            if inner is not None:
+                add("PIE-B1001", "inline_let_without_body", block_use.ref)
+            return False
+        return rows.SQLBlockTarget(
+            block_use,
+            inner[-1],
+            None,
+            SQLSymbol(0, block_use.ref, f"e{block_use.ref.position}"),
+        )
+
     for definition, blocks in groups:
+        if definition.original.ref in inline:
+            continue
         values_body = values_groups.get(definition.original.ref)
         if values_body is not None:
             # A VALUES definition is one closed zero-input unit; it reads no use.
@@ -1788,413 +2327,8 @@ def realize_rows(request, *, _guarded=None):
             units.append(unit)
             by_join[join.ref] = unit
             nodes += _join_node_count(unit)
-        binding = uses_by_consumer.get(definition.original.ref)
-        previous: RowBody | None = None
-        for index, block in enumerate(blocks):
-            if index == 0 and joined:
-                tail = tails[definition.original.ref]
-                scan: Any = RowJoinUse(
-                    by_join[joined[-1].ref],
-                    tail,
-                    SQLSymbol(0, tail.ref, f"t{tail.ref.position}"),
-                )
-            elif index == 0:
-                assert binding is not None
-                use = binding.original
-                alias = SQLSymbol(0, use.ref, f"s{use.ref.position}")
-                if use.producer in source_refs:
-                    source = source_refs[use.producer]
-                    matches = tuple(
-                        s for s in request.sources if s.owner is source.source.owner
-                    )
-                    if len(matches) != 1:
-                        add("PIE-B1001", "source_mapping_missing", source.ref)
-                        return RowRealization(tuple(problems), None)
-                    scan = RowScan(source, matches[0], use, alias, binding)
-                else:
-                    producer = by_definition.get(use.producer)
-                    if producer is None:
-                        add("PIE-B1001", "named_producer_not_realized", use.ref)
-                        return RowRealization(tuple(problems), None)
-                    scan = RowNamedUse(producer, use, alias, binding)
-            else:
-                assert previous is not None
-                scan = RowStageUse(
-                    previous, block, SQLSymbol(0, block.ref, f"t{block.ref.position}")
-                )
-            reference_type = (
-                row.ProjectSQLJoinedReference if joined else row.ProjectSQLReference
-            )
-            incoming = []
-            for position, port in enumerate(block.inputs):
-                read = _stage_read(request, scan, position, port)
-                if read is None:
-                    add("PIE-B1001", "stage_input_not_bound", port)
-                    return RowRealization(tuple(problems), None)
-                incoming.append(read)
-            columns: list[Any] = []
-            available = {
-                port: read for port, read in zip(block.inputs, incoming, strict=True)
-            }
-            # Row values may also read whole blocks through this definition's
-            # own expression block uses; stage columns never include them.
-            readable = dict(available)
-            for block_use in plan.expression_block_uses:
-                if block_use.consumer is not definition.original.ref:
-                    continue
-                target = _block_target(request, block_use, by_definition, source_refs)
-                if target is None:
-                    add(
-                        "PIE-B1001",
-                        "expression_block_producer_not_realized",
-                        block_use.ref,
-                    )
-                    return RowRealization(tuple(problems), None)
-                readable[block_use.ref] = target
-            kind = block.kind.value
-            # A definition with result boundaries ends in its result body, so
-            # its visible projection is a closed stage whose terminals are the
-            # PROJECTION-role result ports rather than the canonical terminals.
-            result_boundaries = result_groups.get(definition.original.ref, ())
-            selected = definition.original.entry.owner is plan.scope.selected_owner
-            final = kind == "projection" and selected and not result_boundaries
-            projection_terminals = (
-                resulting.projection_terminals(plan, block.ref)
-                if kind == "projection" and result_boundaries
-                else definition.terminals
-            )
-            stage = stages.get(definition.original.ref)
-            aggregate_stage = None
-            window_stage = None
-            block_exports: tuple[Any, ...] = ()
-            if kind != "projection":
-                resolved = [stage_ports.get(ref) for ref in block.exports]
-                if any(port is None for port in resolved):
-                    add("PIE-B1001", "stage_export_not_bound", block.ref)
-                    return RowRealization(tuple(problems), None)
-                block_exports = tuple(resolved)
-            if kind == "aggregate":
-                assert stage is not None
-                built, aggregate_stage, problem = grouping.build_stage(
-                    request,
-                    stage,
-                    block_exports,
-                    available,
-                    tuple(aggregate_keys.get(stage.ref, ())),
-                    tuple(aggregate_values.get(stage.ref, ())),
-                    uses,
-                    reference_type=reference_type,
-                    symbol=SQLSymbol,
-                )
-                if built is None:
-                    assert problem is not None
-                    add(*problem)
-                    return RowRealization(tuple(problems), None)
-                assert aggregate_stage is not None
-                columns.extend(built)
-                nodes += grouping.node_count(aggregate_stage, _value_node_count)
-                exports: tuple[Any, ...] = ()
-                items: tuple[Any, ...] = ()
-            elif (
-                kind == "projection"
-                and stage is not None
-                and not window_projection.get(block.ref)
-            ):
-                built, problem = grouping.build_projections(
-                    request,
-                    stage,
-                    block,
-                    definition.original.exports,
-                    projection_terminals[: len(definition.original.exports)],
-                    available,
-                    tuple(aggregate_projections.get(block.ref, ())),
-                    final,
-                    symbol=SQLSymbol,
-                )
-                if built is None:
-                    assert problem is not None
-                    add(*problem)
-                    return RowRealization(tuple(problems), None)
-                columns.extend(built)
-                exports = ()
-                items = ()
-            else:
-                if kind != "projection":
-                    for position, read in enumerate(incoming):
-                        label = f"c{position}"
-                        export = block_exports[position]
-                        if export.source is not block.inputs[position]:
-                            add("PIE-B1001", "stage_carry_port_drift", export)
-                            return RowRealization(tuple(problems), None)
-                        columns.append(
-                            RowCarryColumn(
-                                position,
-                                export,
-                                block.inputs[position],
-                                read,
-                                SQLSymbol(position + 1, export.ref, label),
-                                label,
-                                replace(
-                                    read,
-                                    position=position,
-                                    name=label,
-                                    terminal=export.ref,
-                                ),
-                            )
-                        )
-                if kind == "window":
-                    built, window_stage, problem = windowing.build_stage(
-                        request,
-                        block,
-                        block_exports[len(incoming) :],
-                        available,
-                        tuple(window_blocks.get(block.ref, ())),
-                        window_policy,
-                        window_argument,
-                        window_use,
-                        position_base=len(columns),
-                        symbol=SQLSymbol,
-                        native=uses,
-                    )
-                    if built is None:
-                        assert problem is not None
-                        add(*problem)
-                        return RowRealization(tuple(problems), None)
-                    assert window_stage is not None
-                    columns.extend(built)
-                    nodes += windowing.node_count(window_stage, _value_node_count)
-                exports = (
-                    definition.original.exports
-                    if kind == "projection"
-                    else ()
-                    if kind == "window"
-                    else block_exports[len(incoming) :]
-                )
-                if kind == "projection":
-                    # A visible projection may mix ordinary values with this
-                    # body's own window results, so each export takes exactly
-                    # the one item that claims it, in export order.
-                    claims: dict[Any, Any] = {}
-                    for entry in projections.get(block.ref, ()):
-                        claims[entry.export] = entry
-                    for entry in aggregate_projections.get(block.ref, ()):
-                        if entry.export in claims:
-                            add("PIE-B1001", "projection_export_conflict", entry.ref)
-                            return RowRealization(tuple(problems), None)
-                        claims[entry.export] = entry
-                    for entry in window_projection.get(block.ref, ()):
-                        if entry.export in claims:
-                            add("PIE-B1001", "projection_export_conflict", entry.ref)
-                            return RowRealization(tuple(problems), None)
-                        claims[entry.export] = entry
-                    items = tuple(claims.get(export.ref) for export in exports)
-                    if any(item is None for item in items):
-                        add("PIE-B1001", "stage_export_denominator", block.ref)
-                        return RowRealization(tuple(problems), None)
-                else:
-                    items = (lets[block.ref],) if kind == "let" else ()
-                    if len(items) != len(exports):
-                        add("PIE-B1001", "stage_export_denominator", block.ref)
-                        return RowRealization(tuple(problems), None)
-            for offset, (item, export) in enumerate(zip(items, exports, strict=True)):
-                position = len(columns)
-                label = export.identity.name if final else f"c{position}"
-                if type(item) is grouping.plan_projection_type():
-                    read = available.get(item.input)
-                    if (
-                        read is None
-                        or stage is None
-                        or item.aggregation is not stage.ref
-                    ):
-                        add("PIE-B1001", "aggregate_projection_drift", item.ref)
-                        return RowRealization(tuple(problems), None)
-                    terminal = projection_terminals[position]
-                    columns.append(
-                        grouping.AggregateProjectionColumn(
-                            position,
-                            export,
-                            item,
-                            item.input,
-                            read,
-                            SQLSymbol(position + 1, export.ref, label),
-                            label,
-                            replace(
-                                read,
-                                position=position,
-                                name=label,
-                                terminal=terminal.ref,
-                            ),
-                        )
-                    )
-                    continue
-                if type(item) is windowing.plan_projection_type():
-                    # This visible output IS an established window result port.
-                    built, problem = windowing.build_projection(
-                        block,
-                        item,
-                        export,
-                        projection_terminals[position],
-                        available,
-                        position,
-                        label,
-                        symbol=SQLSymbol,
-                    )
-                    if built is None:
-                        assert problem is not None
-                        add(*problem)
-                        return RowRealization(tuple(problems), None)
-                    columns.append(built)
-                    continue
-                value, problem = rows.build_row_value(
-                    request,
-                    readable,
-                    item.expression,
-                    uses,
-                    reference_type=reference_type,
-                )
-                if value is None:
-                    # Every unsupported value in this body keeps its own cause.
-                    assert problem is not None
-                    add(*problem, item.ref, item.site.occurrence.span)
-                    continue
-                if kind == "let" and export.source is not item.expression:
-                    add("PIE-B1001", "let_export_expression_drift", export)
-                    return RowRealization(tuple(problems), None)
-                terminal = (
-                    projection_terminals[position] if kind == "projection" else export
-                )
-                column = _value_column_image(
-                    request, value, position, label, export, terminal, family
-                )
-                link = None
-                if (
-                    index == 0
-                    and not joined
-                    and binding is not None
-                    and type(value) is rows.SQLStageReference
-                ):
-                    slot = block.inputs.index(value.port)
-                    link = binding.bindings[slot]
-                columns.append(
-                    RowValueColumn(
-                        position,
-                        export,
-                        item if kind == "projection" else None,
-                        item.site,
-                        item.expression,
-                        value,
-                        SQLSymbol(position + 1, export.ref, label),
-                        label,
-                        column,
-                        link,
-                    )
-                )
-                nodes += 1 + _value_node_count(value)
-            if problems:
-                return RowRealization(tuple(problems), None)
-            predicate = None
-            if kind in {"where", "satisfying", "qualify"}:
-                item = filters[block.ref]
-                value, problem = rows.build_row_value(
-                    request,
-                    readable,
-                    item.predicate,
-                    uses,
-                    reference_type=grouping.ProjectSQLResultReference
-                    if kind == "satisfying"
-                    else reference_type,
-                )
-                if value is None:
-                    assert problem is not None
-                    add(*problem, item.ref, item.site.occurrence.span)
-                    return RowRealization(tuple(problems), None)
-                realization = rows.realization_of(value, family)
-                if realization.tag != "Bool" or realization.domain.get("kind") != (
-                    "bool01"
-                ):
-                    add("PIE-B1002", "predicate_root_not_bool", item.ref)
-                    return RowRealization(tuple(problems), None)
-                if (
-                    tuple(
-                        (effect.truth.value, effect.retain_row)
-                        for effect in item.retention_effects
-                    )
-                    != RETENTION
-                ):
-                    add("PIE-B1005", "predicate_retention_effects_changed", item.ref)
-                    return RowRealization(tuple(problems), None)
-                predicate = RowPredicate(item, item.predicate, value)
-                nodes += _value_node_count(value)
-            if kind == "projection" and result_boundaries:
-                # ORDER without DISTINCT reads pre-projection values through
-                # hidden helper ports; each one is carried as its own column of
-                # this closed stage and never reaches the visible tuple.
-                for helper in projection_terminals[len(columns) :]:
-                    read = available.get(helper.source)
-                    if helper.canonical is not None or read is None:
-                        add("PIE-B1001", "result_helper_port_not_bound", helper.ref)
-                        return RowRealization(tuple(problems), None)
-                    position = len(columns)
-                    label = f"c{position}"
-                    columns.append(
-                        RowCarryColumn(
-                            position,
-                            helper,
-                            helper.source,
-                            read,
-                            SQLSymbol(position + 1, helper.ref, label),
-                            label,
-                            replace(
-                                read, position=position, name=label, terminal=helper.ref
-                            ),
-                        )
-                    )
-            terminals = projection_terminals if kind == "projection" else block_exports
-            if len(terminals) != len(columns):
-                add("PIE-B1001", "stage_terminal_denominator", block.ref)
-                return RowRealization(tuple(problems), None)
-            body = RowBody(
-                definition,
-                block,
-                index,
-                scan,
-                tuple(columns),
-                tuple(terminals),
-                predicate,
-                final,
-                None if final else SQLSymbol(len(units), block.ref, f"p{len(units)}"),
-                ()
-                if final
-                else tuple(
-                    SQLSymbol(i, terminal.ref, f"c{i}")
-                    for i, terminal in enumerate(terminals)
-                ),
-                aggregate_stage,
-                window_stage,
-            )
-            bodies.append(body)
-            units.append(body)
-            previous = body
-            if kind == "projection" and result_boundaries:
-                result, problem = resulting.build_result_body(
-                    request,
-                    definition,
-                    result_boundaries,
-                    body,
-                    index=len(units),
-                    final=selected,
-                    symbol=SQLSymbol,
-                )
-                if result is None:
-                    assert problem is not None
-                    add(*problem)
-                    return RowRealization(tuple(problems), None)
-                nodes += resulting.node_count(result)
-                bodies.append(result)
-                units.append(result)
-                by_definition[definition.original.ref] = result
-            elif kind == "projection":
-                by_definition[definition.original.ref] = body
+        if realize_stages(definition, blocks, joined, None) is None:
+            return RowRealization(tuple(problems), None)
     if not units or not getattr(units[-1], "final", False):
         add("PIE-B1001", "selected_body_not_last", plan.scope)
         return RowRealization(tuple(problems), None)
@@ -2226,7 +2360,12 @@ def _value_node_count(value):
         total += (
             1
             if type(node)
-            in {rows.SQLStageReference, rows.SQLOperation, rows.SQLBlockRead}
+            in {
+                rows.SQLStageReference,
+                rows.SQLOperation,
+                rows.SQLBlockRead,
+                rows.SQLCapturedReference,
+            }
             # A read renders one anchor around one native placeholder.
             else 2
             if type(node) is rows.SQLParameterRead
@@ -2242,10 +2381,12 @@ def _value_column_image(request, value, position, label, export, terminal, famil
         return replace(
             value.column, position=position, name=label, terminal=terminal.ref
         )
+    # A captured outer field is computed per outer row, never a fixed value.
     if type(value) not in {
         rows.SQLOperation,
         rows.SQLParameterRead,
         rows.SQLBlockRead,
+        rows.SQLCapturedReference,
     }:
         return rows.StageColumn(
             position,
@@ -2286,12 +2427,16 @@ def value_requirements(request, value):
         if type(node) is rows.SQLBlockRead:
             result.extend(block_read_requirements(request, node))
             continue
-        if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
+        if type(node) in {
+            rows.SQLStageReference,
+            rows.SQLOperation,
+            rows.SQLCapturedReference,
+        }:
             kind = rows.requirement_kind(node)
             operands = (
-                ()
-                if type(node) is rows.SQLStageReference
-                else tuple(rows.realization_of(o, family) for o in node.operands)
+                tuple(rows.realization_of(o, family) for o in node.operands)
+                if type(node) is rows.SQLOperation
+                else ()
             )
             result.append(
                 GeneratedRequirement(
@@ -2364,7 +2509,28 @@ def block_read_requirements(request, node):
             )
             for field in producer.fields
         )
+    elif inline_body(target.producer):
+        # A capturing let read inline keeps every obligation of its own bodies.
+        result.extend(_inline_requirements(request, target.producer))
     return tuple(result)
+
+
+def _naming(request):
+    return tuple(
+        p
+        for p in request.premises
+        if p.scope == "statement" and p.key == "identifier_case"
+    )
+
+
+def _inline_requirements(request, body):
+    """An inline let's bodies, innermost first, each as its own derived table."""
+    result = []
+    scan = body.scan
+    if type(scan) is RowStageUse and inline_body(scan.body):
+        result.extend(_inline_requirements(request, scan.body))
+    result.extend(_row_body_requirements(request, body, _naming(request)))
+    return result
 
 
 def scan_requirements(request, producer):
@@ -2541,187 +2707,206 @@ def row_generated_requirements(request, query):
                 GeneratedRequirement("read_only_select_bytes", unit, "R23", ())
             )
             continue
-        body = unit
-        scan = body.scan
-        if type(scan) is RowScan:
-            generated.append(
-                GeneratedRequirement(
-                    "qualified_scan",
-                    scan,
-                    "R01",
-                    applicable_premises(request, scan.realization.owner),
-                )
-            )
-            generated.extend(
-                GeneratedRequirement(
-                    "source_representation",
-                    field,
-                    "R02",
-                    applicable_premises(request, scan.realization.owner, field),
-                )
-                for field in scan.realization.fields
-            )
-        elif type(scan) is RowNamedUse:
-            generated.append(
-                GeneratedRequirement("named_use", scan.use.ref, "R03", naming)
-            )
-            generated.extend(
-                GeneratedRequirement(
-                    "immediate_terminal", link.terminal.ref, "R03", naming
-                )
-                for link in scan.binding.bindings
-            )
-        elif type(scan) is RowJoinUse:
-            generated.append(
-                GeneratedRequirement("join_use", scan.tail.ref, "R07", naming)
-            )
-            generated.extend(
-                GeneratedRequirement("join_terminal", symbol.binding, "R07", naming)
-                for symbol in scan.body.cte_columns
-            )
-        else:
-            generated.append(
-                GeneratedRequirement("stage_use", scan.block.ref, "R03", naming)
-            )
-            generated.extend(
-                GeneratedRequirement("stage_terminal", symbol.binding, "R03", naming)
-                for symbol in scan.body.cte_columns
-            )
-        operators = tuple(
-            p
-            for p in request.premises
-            if p.scope == "statement" and p.key == "operator_environment"
-        )
-        if body.aggregation is not None:
-            generated.append(
-                GeneratedRequirement(
-                    "aggregation", body.aggregation.aggregation.ref, "R12", operators
-                )
-            )
-        for column in body.columns:
-            if type(column) is RowCarryColumn:
-                generated.append(
-                    GeneratedRequirement(
-                        "carry_projection", column.export.ref, "R05", ()
-                    )
-                )
-                continue
-            if type(column) is grouping.AggregateKeyColumn:
-                generated.append(
-                    GeneratedRequirement("group_key", column.key.ref, "R12", operators)
-                )
-                continue
-            if type(column) is grouping.AggregateValueColumn:
-                generated.append(
-                    GeneratedRequirement(
-                        "aggregate", column.aggregate.ref, "R13", operators
-                    )
-                )
-                if column.argument is not None:
-                    generated.extend(value_requirements(request, column.argument))
-                continue
-            if type(column) is grouping.AggregateProjectionColumn:
-                generated.append(
-                    GeneratedRequirement(
-                        "result_projection", column.projection.ref, "R12", ()
-                    )
-                )
-                continue
-            if type(column) is windowing.WindowColumn:
-                # R14 owns the computation, its input BAG and its result
-                # representation; R15 owns the realized frame and named
-                # components. Each generated structure keeps its own cause.
-                generated.append(
-                    GeneratedRequirement(
-                        "window_computation", column.window.ref, "R14", operators
-                    )
-                )
-                generated.append(
-                    GeneratedRequirement(
-                        "window_specification", column.window.policy, "R15", ()
-                    )
-                )
-                generated.extend(
-                    GeneratedRequirement(
-                        "query_parameter",
-                        argument.parameter.original.ref,
-                        rows.REQUIREMENT_RULES["query_parameter"],
-                        node_premises(
-                            request, argument.parameter.realization, (), "parameter"
-                        ),
-                    )
-                    for argument in column.arguments
-                    if argument.parameter is not None
-                )
-                # R15-INT-OFFSET-V1: a finite offset keeps its signed64 domain
-                # obligation, and a RANGE offset its threshold arithmetic, per use.
-                frame = column.specification.frame
-                if frame is not None and any(
-                    kind in windowing.OFFSET_BOUNDS
-                    for kind, _ in (frame.start, frame.end)
-                ):
-                    generated.append(
-                        GeneratedRequirement(
-                            "window_frame_offset_domain",
-                            column.window.policy,
-                            "R15",
-                            (),
-                        )
-                    )
-                    if frame.unit == "range":
-                        generated.append(
-                            GeneratedRequirement(
-                                "window_range_arithmetic",
-                                column.window.policy,
-                                "R15",
-                                operators,
-                            )
-                        )
-                for _binding, read in column.specification.partitions:
-                    generated.append(
-                        GeneratedRequirement(
-                            "window_partition_comparison", read.terminal, "R14", ()
-                        )
-                    )
-                for item in column.specification.orders:
-                    generated.append(
-                        GeneratedRequirement(
-                            "window_order_comparison", item.read.terminal, "R14", ()
-                        )
-                    )
-                continue
-            if type(column) is windowing.WindowProjectionColumn:
-                generated.append(
-                    GeneratedRequirement(
-                        "window_result_projection", column.projection.ref, "R17", ()
-                    )
-                )
-                continue
-            generated.append(
-                GeneratedRequirement(
-                    "computed_projection", column.export.ref, "R05", ()
-                )
-            )
-            generated.extend(value_requirements(request, column.value))
-        if body.predicate is not None:
-            satisfying = body.block.kind.value == "satisfying"
-            generated.append(
-                GeneratedRequirement(
-                    "satisfying_root" if satisfying else "predicate_root",
-                    body.predicate.original.ref,
-                    "R12" if satisfying else "R06",
-                    operators,
-                )
-            )
-            generated.extend(value_requirements(request, body.predicate.value))
-        generated.append(
-            GeneratedRequirement("read_only_select_bytes", body, "R23", ())
-        )
+        generated.extend(_row_body_requirements(request, unit, naming))
     if generated_scopes:
         generated.append(
             GeneratedRequirement("nonrecursive_with_bytes", query, "R23", ())
         )
     return tuple(generated)
+
+
+def _row_body_requirements(request, body, naming):
+    """Every requirement one stage body's own structure and values introduce."""
+    result = []
+    scan = body.scan
+    if type(scan) is RowScan:
+        result.append(
+            GeneratedRequirement(
+                "qualified_scan",
+                scan,
+                "R01",
+                applicable_premises(request, scan.realization.owner),
+            )
+        )
+        result.extend(
+            GeneratedRequirement(
+                "source_representation",
+                field,
+                "R02",
+                applicable_premises(request, scan.realization.owner, field),
+            )
+            for field in scan.realization.fields
+        )
+    elif type(scan) is RowNamedUse:
+        result.append(GeneratedRequirement("named_use", scan.use.ref, "R03", naming))
+        result.extend(
+            GeneratedRequirement("immediate_terminal", link.terminal.ref, "R03", naming)
+            for link in scan.binding.bindings
+        )
+    elif type(scan) is RowJoinUse:
+        result.append(GeneratedRequirement("join_use", scan.tail.ref, "R07", naming))
+        result.extend(
+            GeneratedRequirement("join_terminal", symbol.binding, "R07", naming)
+            for symbol in scan.body.cte_columns
+        )
+    elif inline_body(scan.body):
+        result.append(
+            GeneratedRequirement("inline_stage_use", scan.block.ref, "R11", naming)
+        )
+    else:
+        result.append(GeneratedRequirement("stage_use", scan.block.ref, "R03", naming))
+        result.extend(
+            GeneratedRequirement("stage_terminal", symbol.binding, "R03", naming)
+            for symbol in scan.body.cte_columns
+        )
+    operators = tuple(
+        p
+        for p in request.premises
+        if p.scope == "statement" and p.key == "operator_environment"
+    )
+    if body.aggregation is not None:
+        result.append(
+            GeneratedRequirement(
+                "aggregation", body.aggregation.aggregation.ref, "R12", operators
+            )
+        )
+    for column in body.columns:
+        if type(column) is RowCarryColumn:
+            result.append(
+                GeneratedRequirement("carry_projection", column.export.ref, "R05", ())
+            )
+            continue
+        if type(column) is grouping.AggregateKeyColumn:
+            result.append(
+                GeneratedRequirement("group_key", column.key.ref, "R12", operators)
+            )
+            continue
+        if type(column) is grouping.AggregateValueColumn:
+            result.append(
+                GeneratedRequirement(
+                    "aggregate", column.aggregate.ref, "R13", operators
+                )
+            )
+            if column.argument is not None:
+                result.extend(value_requirements(request, column.argument))
+            continue
+        if type(column) is grouping.AggregateProjectionColumn:
+            result.append(
+                GeneratedRequirement(
+                    "result_projection", column.projection.ref, "R12", ()
+                )
+            )
+            continue
+        if type(column) is windowing.WindowColumn:
+            # R14 owns the computation, its input BAG and its result
+            # representation; R15 owns the realized frame and named
+            # components. Each generated structure keeps its own cause.
+            result.append(
+                GeneratedRequirement(
+                    "window_computation", column.window.ref, "R14", operators
+                )
+            )
+            result.append(
+                GeneratedRequirement(
+                    "window_specification", column.window.policy, "R15", ()
+                )
+            )
+            result.extend(
+                GeneratedRequirement(
+                    "query_parameter",
+                    argument.parameter.original.ref,
+                    rows.REQUIREMENT_RULES["query_parameter"],
+                    node_premises(
+                        request, argument.parameter.realization, (), "parameter"
+                    ),
+                )
+                for argument in column.arguments
+                if argument.parameter is not None
+            )
+            # R15-INT-OFFSET-V1: a finite offset keeps its signed64 domain
+            # obligation, and a RANGE offset its threshold arithmetic, per use.
+            frame = column.specification.frame
+            if frame is not None and any(
+                kind in windowing.OFFSET_BOUNDS for kind, _ in (frame.start, frame.end)
+            ):
+                result.append(
+                    GeneratedRequirement(
+                        "window_frame_offset_domain",
+                        column.window.policy,
+                        "R15",
+                        (),
+                    )
+                )
+                if frame.unit == "range":
+                    result.append(
+                        GeneratedRequirement(
+                            "window_range_arithmetic",
+                            column.window.policy,
+                            "R15",
+                            operators,
+                        )
+                    )
+            for _binding, read in column.specification.partitions:
+                result.append(
+                    GeneratedRequirement(
+                        "window_partition_comparison", read.terminal, "R14", ()
+                    )
+                )
+            for item in column.specification.orders:
+                result.append(
+                    GeneratedRequirement(
+                        "window_order_comparison", item.read.terminal, "R14", ()
+                    )
+                )
+            continue
+        if type(column) is windowing.WindowProjectionColumn:
+            result.append(
+                GeneratedRequirement(
+                    "window_result_projection", column.projection.ref, "R17", ()
+                )
+            )
+            continue
+        result.append(
+            GeneratedRequirement("computed_projection", column.export.ref, "R05", ())
+        )
+        result.extend(value_requirements(request, column.value))
+    if body.predicate is not None:
+        satisfying = body.block.kind.value == "satisfying"
+        result.append(
+            GeneratedRequirement(
+                "satisfying_root" if satisfying else "predicate_root",
+                body.predicate.original.ref,
+                "R12" if satisfying else "R06",
+                operators,
+            )
+        )
+        result.extend(value_requirements(request, body.predicate.value))
+    result.append(GeneratedRequirement("read_only_select_bytes", body, "R23", ()))
+    return result
+
+
+def inline_values(body):
+    """An inline let body's value roots in rendering order: its own columns,
+    its inline predecessor, then its own predicate."""
+    values = [column.value for column in body.columns if type(column) is RowValueColumn]
+    scan = body.scan
+    if type(scan) is RowStageUse and inline_body(scan.body):
+        values.extend(inline_values(scan.body))
+    if body.predicate is not None:
+        values.append(body.predicate.value)
+    return tuple(values)
+
+
+def spliced_value_nodes(values):
+    """Every value node in exact SQL order; an inline let's own nodes follow
+    the EXISTS read that renders it."""
+    result = []
+    for value in values:
+        for node in rows.rendered_value_nodes(value):
+            result.append(node)
+            if type(node) is rows.SQLBlockRead and inline_body(node.target.producer):
+                result.extend(spliced_value_nodes(inline_values(node.target.producer)))
+    return tuple(result)
 
 
 def row_parameter_leaves(query):
@@ -2749,7 +2934,7 @@ def row_parameter_leaves(query):
                 if value.parameter is not None:
                     result.append(value.parameter)
                 continue
-            for node in rows.rendered_value_nodes(value):
+            for node in spliced_value_nodes((value,)):
                 if type(node) is rows.SQLParameterRead:
                     result.append(node)
                     continue
@@ -2757,6 +2942,7 @@ def row_parameter_leaves(query):
                     rows.SQLStageReference,
                     rows.SQLOperation,
                     rows.SQLBlockRead,
+                    rows.SQLCapturedReference,
                 }:
                     continue
                 result.extend(
@@ -2777,7 +2963,7 @@ def row_binding_obligations(query):
         else:
             nodes = tuple(
                 node
-                for node in rows.rendered_value_nodes(value)
+                for node in spliced_value_nodes((value,))
                 if type(node) is rows.SQLOperation
             )
         result.extend(node for node in nodes if node.realization.obligation is not None)

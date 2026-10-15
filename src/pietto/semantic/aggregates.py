@@ -99,6 +99,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.IsNullExpr,
         ast.WindowExpr,
         ast.ParameterRefExpr,
+        ast.CapturedFieldExpr,
     }
 )
 
@@ -280,6 +281,7 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
             ParameterRefExpr,
             ast.RelationExistsExpr,
             ast.RelationScalarExpr,
+            ast.CapturedFieldExpr,
         ),
     ):
         return ()

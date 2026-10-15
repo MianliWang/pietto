@@ -59,7 +59,15 @@ from pietto._project.project_scalar_references import (
     ProjectConcreteScalarEnvironment,
     build_project_scalar_environment,
 )
-from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from pietto.ast_nodes import (
+    BlockRelationDef,
+    CaptureClause,
+    LetRelationDef,
+    QueryDef,
+    SourceDef,
+    TableDef,
+)
+from pietto._project.relation_captures import outer_row_bindings
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
@@ -171,6 +179,54 @@ class ProjectExpressionBlockUse:
     @property
     def expression(self):
         return self.evidence.read.expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCaptureUse:
+    """CaptureV1 (completion): one capture line binds one outer row input.
+
+    ``inner`` is the let written with the line and ``outer`` its declaration
+    body; ``dependency`` is that body's FROM or JOIN dependency whose binding
+    the line names. The edge carries the outer current row into the inner
+    block: it never orders blocks (the outer reads the inner through its
+    expression block use), is never a relation input and shares no ordinal.
+    """
+
+    inner: ProjectDeclarationOccurrence = field(repr=False, compare=False, hash=False)
+    outer: ProjectDeclarationOccurrence = field(repr=False, compare=False, hash=False)
+    ordinal: int
+    dependency: ProjectCompletionDependency = field(
+        repr=False, compare=False, hash=False
+    )
+
+    def __post_init__(self) -> None:
+        inner, outer = self.inner, self.outer
+        if (
+            type(inner) is not ProjectDeclarationOccurrence
+            or type(outer) is not ProjectDeclarationOccurrence
+            or type(self.dependency) is not ProjectCompletionDependency
+            or type(self.ordinal) is not int
+        ):
+            raise TypeError("Capture use requires exact owners, line and use.")
+        let, block = inner.authored_block, outer.authored_block
+        if (
+            type(let) is not LetRelationDef
+            or type(block) is not BlockRelationDef
+            or inner.let_position is None
+            or outer.let_position is not None
+            or inner.identity.module_path != outer.identity.module_path
+            or inner.declaration_position != outer.declaration_position
+            or block.let_relations[inner.let_position] is not let
+            or not 0 <= self.ordinal < len(let.captures)
+            or self.dependency.consumer is not outer
+            or dict(outer_row_bindings(block)).get(let.captures[self.ordinal].name)
+            != self.dependency.dependency_ordinal
+        ):
+            raise ValueError("Capture use lost its exact let, line or outer input.")
+
+    @property
+    def clause(self) -> CaptureClause:
+        return cast(LetRelationDef, self.inner.authored_block).captures[self.ordinal]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -405,6 +461,7 @@ class ProjectCompletionTopology:
     set_operands: tuple[ProjectResolvedSetOperand, ...] = field(init=False, repr=False)
     dependencies: tuple[ProjectCompletionDependency, ...] = field(init=False)
     expression_uses: tuple[ProjectExpressionBlockUse, ...] = field(init=False)
+    capture_uses: tuple[ProjectCaptureUse, ...] = field(init=False)
     schedule: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
     cycles: tuple[ProjectCompletionCycle, ...] = field(init=False)
     blocked_owners: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
@@ -421,6 +478,7 @@ class ProjectCompletionTopology:
         set_operands = _set_operand_resolutions(self.verification)
         dependencies = _dependencies(self.verification, set_operands)
         expression_uses = _expression_uses(self.verification)
+        capture_uses = _capture_uses(owners, dependencies)
         schedule = _schedule(owners, dependencies, expression_uses)
         cycles = tuple(
             ProjectCompletionCycle(
@@ -439,6 +497,7 @@ class ProjectCompletionTopology:
             ("set_operands", set_operands),
             ("dependencies", dependencies),
             ("expression_uses", expression_uses),
+            ("capture_uses", capture_uses),
             ("schedule", schedule),
             ("cycles", cycles),
             (
@@ -505,6 +564,22 @@ class ProjectCompletionTopology:
             )
         ):
             raise ValueError("Completion topology lost an exact expression block use.")
+        expected_captures = _capture_uses(self.owners, self.dependencies)
+        if (
+            type(self.capture_uses) is not tuple
+            or len(self.capture_uses) != len(expected_captures)
+            or any(
+                type(edge) is not ProjectCaptureUse
+                or edge.inner is not expected.inner
+                or edge.outer is not expected.outer
+                or edge.ordinal != expected.ordinal
+                or edge.dependency is not expected.dependency
+                for edge, expected in zip(
+                    self.capture_uses, expected_captures, strict=True
+                )
+            )
+        ):
+            raise ValueError("Completion topology lost an exact capture use.")
         expected_schedule = _schedule(
             self.owners, self.dependencies, self.expression_uses
         )
@@ -812,6 +887,11 @@ class ProjectCompletion:
         """Expression-to-block edges; scheduled with, never inside, dependencies."""
         return self.topology.expression_uses
 
+    @property
+    def capture_uses(self) -> tuple[ProjectCaptureUse, ...]:
+        """Capture edges; outside the schedule, never relation inputs."""
+        return self.topology.capture_uses
+
     def __post_init__(self) -> None:
         if (
             type(self.verification) is not ProjectPhase62VerificationResult
@@ -1031,6 +1111,45 @@ def _expression_uses(
                         target=symbol.target_occurrence,
                         ordinal=item.read.ordinal,
                         evidence=item,
+                    )
+                )
+    return tuple(result)
+
+
+def _capture_uses(
+    owners: tuple[ProjectDeclarationOccurrence, ...],
+    dependencies: tuple[ProjectCompletionDependency, ...],
+) -> tuple[ProjectCaptureUse, ...]:
+    """Every capture line of an inventory let whose outer input resolved.
+
+    Lines follow their let in owner order. A line whose outer FROM or JOIN
+    input did not resolve has no edge; that input's own diagnostic is the root.
+    """
+    by_use = {
+        (id(edge.consumer), edge.dependency_ordinal): edge for edge in dependencies
+    }
+    outers = {
+        (owner.identity.module_path, owner.declaration_position): owner
+        for owner in owners
+        if owner.let_position is None
+    }
+    result: list[ProjectCaptureUse] = []
+    for owner in owners:
+        let = owner.authored_block
+        if type(let) is not LetRelationDef or not let.captures:
+            continue
+        outer = outers.get((owner.identity.module_path, owner.declaration_position))
+        if outer is None:
+            continue
+        positions = dict(
+            outer_row_bindings(cast(BlockRelationDef, outer.authored_block))
+        )
+        for ordinal, clause in enumerate(let.captures):
+            dependency = by_use.get((id(outer), positions[clause.name]))
+            if dependency is not None:
+                result.append(
+                    ProjectCaptureUse(
+                        inner=owner, outer=outer, ordinal=ordinal, dependency=dependency
                     )
                 )
     return tuple(result)
