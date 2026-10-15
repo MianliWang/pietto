@@ -1212,7 +1212,7 @@ LATERAL = (
     "    from lhs\n    {kind} join m as x:\n        from lhs\n{on}"
     "    select:\n        a = lhs.id\n"
 )
-JOIN_KIND = "Let m with capture lines can be joined only by cross or inner join."
+JOIN_KIND = "Let m with capture lines can be joined only by cross, inner or left join."
 
 
 def _lateral(kind: str, on: str = "        on true\n") -> str:
@@ -1243,7 +1243,9 @@ LATERAL_DIAGNOSTICS = {
     "cross": (_lateral("cross"), []),
     "inner_on_true": (_lateral("inner"), []),
     "inner_on_condition": (_lateral("inner", "        on x.id > lhs.id\n"), []),
-    "left": (_lateral("left"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
+    # Phase70 S13: LEFT keeps every left row and null-extends the let's.
+    "left": (_lateral("left"), []),
+    "left_on_condition": (_lateral("left", "        on x.id > lhs.id\n"), []),
     "right": (_lateral("right"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
     "full": (_lateral("full"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
     "semi": (_lateral("semi"), [("PIE-S2372", JOIN_KIND, 14, 5)]),
@@ -1323,6 +1325,7 @@ LATERAL_DIAGNOSTICS = {
     # rule and OFFSET stays outside the grammar.
     "top_k_cross": (_top_k("cross"), []),
     "top_k_inner": (_top_k("inner"), []),
+    "top_k_left": (_top_k("left", on="        on x.id > lhs.id\n"), []),
     "top_k_limit_only": (_top_k("cross", order=""), []),
     "top_k_order_only": (_top_k("cross", limit=""), []),
     "top_k_limit_maximum": (_top_k("cross", limit=f"        limit {2**63 - 1}\n"), []),
@@ -1444,3 +1447,28 @@ def test_a_lateral_capture_types_only_the_joins_left_of_it(tmp_path: Path) -> No
         "lateral": {("lhs", "id"): "non_null", ("r", "id"): "nullable"},
         "exists": {("lhs", "id"): "nullable", ("r", "id"): "nullable"},
     }
+
+
+def test_a_capture_of_a_left_lateral_binding_is_null_extended(tmp_path: Path) -> None:
+    # Phase70 S13: x may be null-extended by its own LEFT JOIN, so a later
+    # lateral let and an EXISTS read both read x.id as nullable although the
+    # let's id is NOT NULL.
+    body = (
+        "query q:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        "    let n:\n        capture x\n        from rhs\n"
+        "        where rhs.id == x.id\n        select:\n            id\n"
+        "    let e:\n        capture x\n        from rhs\n"
+        "        where rhs.id == x.id\n        select:\n            id\n"
+        "    from lhs\n    left join m as x:\n        from lhs\n        on true\n"
+        "    cross join n as y:\n        from lhs\n    where exists e\n"
+        "    select:\n        a = lhs.id\n        b = x.id\n"
+    )
+    assert _check(tmp_path / "check", body) == (0, [])
+    facts = _capture_facts(tmp_path / "facts", body)
+    for name in ("n", "e"):
+        assert {
+            (read.capture, read.field): value.nullability.value
+            for read, value in facts[name].captured_value_types.items()
+            if isinstance(value, ValueType)
+        } == {("x", "id"): "nullable"}, name

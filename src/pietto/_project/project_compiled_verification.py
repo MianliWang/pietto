@@ -520,10 +520,11 @@ def verify_description(value: Description) -> None:
                     and block.get("ordinal") == 1,
                     "CAPTURE_USE",
                 )
-                # Only a CROSS or INNER JOIN reads a let LATERAL, as at the
-                # source (PIE-S2372): each pair extends a left row.
+                # Only a CROSS, INNER or LEFT JOIN reads a let LATERAL, as at
+                # the source (PIE-S2372): each pair extends a left row.
                 need(
-                    records[block.get("consumer")].get("kind") in ("cross", "inner"),
+                    records[block.get("consumer")].get("kind")
+                    in ("cross", "inner", "left"),
                     "LATERAL_JOIN_KIND",
                 )
                 uses = tuple(u for u in uses if u.get("ordinal") == 0)

@@ -4068,3 +4068,45 @@ def test_a_lateral_let_over_a_forward_let_chain_binds_slots_in_text_order(
     assert sql.index(b"$1") < sql.index(b"CROSS JOIN LATERAL (")
     assert sql.index(b"$2") < sql.index(b'AS "m1"') < sql.index(b"$3")
     assert bound(run(loaded, values=(4, 5, 6))) == (sql, (4, 5, 6))
+
+
+def test_a_compiled_left_lateral_join_round_trips(tmp_path, unconnected):
+    # Phase70 S13: the LEFT JOIN keeps every item; the let's tag_id is
+    # null-extended in the compiled output and the bundle replays the bytes.
+    text = LATERAL_TAGS.replace(
+        "    cross join later_tags as t:\n        from items\n",
+        "    left join later_tags as t:\n        from items\n        on true\n",
+    )
+    query = execution.compile_query(
+        let_example(tmp_path, text),
+        module="main.pietto",
+        kind="table",
+        name="lateral_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    sql = query._template.artifact.rendered.sql
+    assert sql == LATERAL_SQL.replace(
+        b"CROSS JOIN LATERAL (", b"LEFT JOIN LATERAL ("
+    ).replace(b'AS "m1") SELECT', b'AS "m1" ON CAST(TRUE AS pg_catalog.bool)) SELECT')
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    (join,) = [r for r in description.records if r.address.kind == "join"]
+    assert join.get("kind") == "left"
+    (capture,) = [r for r in description.records if r.address.kind == "capture_use"]
+    assert capture.get("read") == join.get("inputs")[1]
+    outputs = [r for r in description.records if r.address.kind == "output"]
+    assert [(r.get("label"), r.get("logical")) for r in outputs] == [
+        ("id", ("Int", "non_null")),
+        ("tag_id", ("Int", "nullable")),
+    ]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert loaded._template.artifact.rendered.sql == sql
+    handle = run(loaded, route="postgres_rows")
+    assert handle.outcome.end == "NOT_STARTED"

@@ -291,7 +291,7 @@ compiled source like any other; the bundle records each capture line with
 every field of the outer row input it captures, and `load_bundle` refuses
 (`PIE-R1008`) capture records whose line numbers do not count 0, 1, ... or
 whose fields are not exactly one such input in field order, and a let read
-LATERAL by a JOIN other than CROSS or INNER. After that source
+LATERAL by a JOIN other than CROSS, INNER or LEFT. After that source
 check, `save_recoverable` and `recover` refuse four shapes that are not R2
 shapes yet with `PIE-R1004` before any workspace access or connection, in this
 order: first a statement in which the query, or a relation it reads, groups by

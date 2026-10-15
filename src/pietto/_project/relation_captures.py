@@ -5,10 +5,11 @@ body starts with ``capture NAME`` lines (D70.03, owner rule of 2026-10-14). Each
 line names one FROM or JOIN row input of the declaration body, whose current
 row the let reads through qualified names ``NAME.field`` only. The let is
 read once, by ``exists`` written in that declaration body (D70.04) or, LATERAL
-(Phase70 S12), as the target of a JOIN of that body whose capture lines name
-inputs left of it (D70.03); its body is a FROM relation with an optional WHERE
-and an ungrouped, window-free SELECT; a let read LATERAL may end in an
-ungrouped ORDER BY that reads no captured field, and LIMIT.
+(Phase70 S12, S13), as the target of a CROSS, INNER or LEFT JOIN of that body
+whose capture lines name inputs left of it (D70.03); its body is a FROM
+relation with an optional WHERE and an ungrouped, window-free SELECT; a let
+read LATERAL may end in an ungrouped ORDER BY that reads no captured field,
+and LIMIT.
 
 Everything here reads authored syntax only and runs before semantic analysis,
 like the query-header refusals: a refused capture stops that run's semantic
@@ -56,7 +57,7 @@ CAPTURE_DIAGNOSTICS: dict[str, str] = {
     "field": "PIE-S2369",
     "unsupported": "PIE-S2370",
 }
-# Phase70 S12 codes (LATERAL JOIN of a let with capture lines).
+# Phase70 S12/S13 codes (LATERAL JOIN of a let with capture lines).
 LATERAL_DIAGNOSTICS: dict[str, str] = {
     "prefix": "PIE-S2371",
     "kind": "PIE-S2372",
@@ -64,7 +65,9 @@ LATERAL_DIAGNOSTICS: dict[str, str] = {
 # JOIN kinds whose target fields never reach the joined row.
 _FILTERING_JOINS = frozenset({AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI})
 # JOIN kinds that may join a let with capture lines (LATERAL, D70.03).
-LATERAL_JOINS = frozenset({AuthoredJoinKind.CROSS, AuthoredJoinKind.INNER})
+LATERAL_JOINS = frozenset(
+    {AuthoredJoinKind.CROSS, AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+)
 _READS = (RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr)
 
 
@@ -416,7 +419,7 @@ def _lateral_diagnostics(
             _diagnostic(
                 "kind",
                 f"Let {let.name} with capture lines can be joined only by "
-                "cross or inner join.",
+                "cross, inner or left join.",
                 join.span,
             )
         ]

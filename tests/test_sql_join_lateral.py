@@ -5,8 +5,9 @@ capture lines reads it LATERAL. The let is never a CTE: it is the derived
 relation of that JOIN's right input, `<KIND> JOIN LATERAL (<let>) AS m<n>`,
 whose correlated references name the JOIN's own left input alias and column.
 Every capture-free block stays a top-level CTE and an INNER JOIN keeps its
-authored ON (`on true` for a pure LATERAL). Each artifact below is produced by
-the installed emission path from an ordinary authored project.
+authored ON (`on true` for a pure LATERAL); a LEFT JOIN (S13) keeps every left
+row and null-extends the let's columns. Each artifact below is produced by the
+installed emission path from an ordinary authored project.
 """
 
 from __future__ import annotations
@@ -740,6 +741,137 @@ def test_a_lateral_let_reads_a_relation_known_after_completion(
     assert document["sql"].count(" JOIN LATERAL (SELECT ") == 1
 
 
+# Phase70 S13: a LEFT JOIN reads the let LATERAL and keeps every left row: a
+# left row without a pair gets one row whose let fields are NULL, its ON only
+# chooses pairs, and every later reader sees the let's fields null-extended.
+LEFT_SHAPES = {
+    "left": LET
+    + "    left join m as m1:\n        from lhs\n        on m1.id > 3\n"
+    + "    select:\n        a = lhs.id\n        b = m1.v\n        c = m1.id\n",
+    # A later EXISTS let captures the null-extended m1 and a WHERE tests it.
+    "downstream": LET.replace(
+        "    from lhs\n",
+        "    let e:\n        capture m1\n        from rhs\n"
+        "        where rhs.id == m1.id\n        select:\n            id\n"
+        "    from lhs\n",
+    )
+    + "    left join m as m1:\n        from lhs\n        on true\n"
+    + "    where exists e or m1.id is null\n"
+    + "    select:\n        a = lhs.id\n        c = m1.id\n",
+}
+_PG_LEFT = (
+    'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."order.id" AS "c0", '
+    '"m0"."key value" AS "c1", "m1"."c0" AS "c2", "m1"."c1" AS "c3" '
+    'FROM "public"."phase66 lhs é" AS "m0" LEFT JOIN ' + _PG_LATERAL
+)
+_MY_LEFT = (
+    "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `m0`.`order.id` AS `c0`, "
+    "`m0`.`key value` AS `c1`, `m1`.`c0` AS `c2`, `m1`.`c1` AS `c3` "
+    "FROM `phase66`.`phase66 lhs é` AS `m0` LEFT JOIN " + _MY_LATERAL
+)
+LEFT_SQL = {
+    ("left", "postgres"): _PG_LEFT
+    + ' ON ("m1"."c0" > CAST($1 AS pg_catalog.int8))) SELECT "t0"."c0" AS "a", '
+    '"t0"."c3" AS "b", "t0"."c2" AS "c" FROM "p0" AS "t0"',
+    ("left", "mysql"): _MY_LEFT
+    + " ON (`m1`.`c0` > CAST(? AS SIGNED))) SELECT `t0`.`c0` AS `a`, "
+    "`t0`.`c3` AS `b`, `t0`.`c2` AS `c` FROM `p0` AS `t0`",
+    ("downstream", "postgres"): _PG_LEFT
+    + ' ON CAST($1 AS pg_catalog.bool)), "p1" ("c0", "c1", "c2", "c3") AS '
+    '(SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", '
+    '"t0"."c3" AS "c3" FROM "p0" AS "t0" WHERE (EXISTS (SELECT 1 FROM '
+    '(SELECT "t3"."c0" AS "c0" FROM (SELECT "s1"."order.id" AS "c0", '
+    '"s1"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s1" '
+    'WHERE ("s1"."order.id" = "t0"."c2")) AS "t3") AS "e0") OR '
+    '("t0"."c2" IS NULL))) SELECT "t5"."c0" AS "a", "t5"."c2" AS "c" '
+    'FROM "p1" AS "t5"',
+    ("downstream", "mysql"): _MY_LEFT
+    + " ON CAST(? AS SIGNED)), `p1` (`c0`, `c1`, `c2`, `c3`) AS "
+    "(SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, "
+    "`t0`.`c3` AS `c3` FROM `p0` AS `t0` WHERE (EXISTS (SELECT 1 FROM "
+    "(SELECT `t3`.`c0` AS `c0` FROM (SELECT `s1`.`order.id` AS `c0`, "
+    "`s1`.`key value` AS `c1` FROM `phase66`.`phase66 rhs é` AS `s1` "
+    "WHERE (`s1`.`order.id` = `t0`.`c2`)) AS `t3`) AS `e0`) OR "
+    "(`t0`.`c2` IS NULL))) SELECT `t5`.`c0` AS `a`, `t5`.`c2` AS `c` "
+    "FROM `p1` AS `t5`",
+}
+
+
+def _left(tmp_path: Path, target: str, shape: str):
+    item = probe.join_witness(target, LEFT_SHAPES[shape], policy="bind_safe_literals")
+    return probe.build_case(tmp_path, item["source"], item["contract"], item["policy"])
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(LEFT_SHAPES))
+def test_a_left_lateral_join_null_extends_the_lets_columns(
+    tmp_path: Path, target: str, shape: str
+) -> None:
+    checked, outcome = _left(tmp_path, target, shape)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == LEFT_SQL[shape, target]
+    assert document["sql"].count(" LEFT JOIN LATERAL (SELECT ") == 1
+    # The let's id is NOT NULL, yet the LEFT JOIN's output may null-extend it.
+    assert [(c["label"], c["nullable"]) for c in document["columns"]] == (
+        [("a", False), ("b", True), ("c", True)]
+        if shape == "left"
+        else [("a", False), ("c", True)]
+    )
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    (join,) = plan.joins
+    assert join.kind.value == "left" and join.on is not None
+    ports = {p.ref: p for p in plan.join_ports}
+    right = next(i for i in plan.join_inputs if i.ref is join.inputs[1])
+    nulled = [ports[ref].nulling for ref in join.outputs]
+    assert [bool(n) for n in nulled] == [False] * 2 + [True] * len(right.ports)
+    captured = {
+        (e.expression.capture, e.expression.field): e.value_type.nullability.value
+        for e in plan.expressions
+        if type(e) is row.ProjectSQLCapturedField
+    }
+    expected = {("lhs", "key"): "nullable"}
+    if shape == "downstream":
+        # The EXISTS let reads m1 after its LEFT JOIN: null-extended.
+        expected[("m1", "id")] = "nullable"
+    assert captured == expected
+    assert outcome.artifact is not None
+    kinds = [(r.kind, r.rule) for r in outcome.artifact.generated_requirements]
+    assert kinds.count(("lateral_input", "R11")) == 1
+    assert kinds.count(("join", "R08")) == 1
+    assert kinds.count(("null_extension", "R08")) == len(right.ports)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_forged_left_lateral_output_fails_the_independent_verifier(
+    tmp_path: Path, target: str
+) -> None:
+    _, outcome = _left(tmp_path, target, "left")
+    artifact = outcome.artifact
+    assert artifact is not None
+    query = artifact.ast
+    assert type(query) is SQLJoinQuery
+    (unit,) = [u for u in query.units if type(u) is JoinBody]
+    column = unit.columns[2]
+    assert column.column.realization.nullable is True
+    original = column.column
+    # The let's NOT NULL id claimed non-null after the LEFT JOIN.
+    object.__setattr__(
+        column,
+        "column",
+        dataclasses.replace(
+            original,
+            realization=dataclasses.replace(original.realization, nullable=False),
+        ),
+    )
+    try:
+        assert not verify_row_query(artifact.request, query)
+    finally:
+        object.__setattr__(column, "column", original)
+    assert verify_row_query(artifact.request, query)
+
+
 # Phase70 S12: a let joined LATERAL may end in ORDER BY and LIMIT, a top-k per
 # left row. They stay inside that JOIN's derived relation as one more unnamed
 # body over the let's projection, so every left row, duplicates included, gets
@@ -757,8 +889,11 @@ TOP_K_SHAPES = {
     "inner": TOP_K
     + "    inner join m as m1:\n        from lhs\n        on true\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n",
+    "left": TOP_K
+    + "    left join m as m1:\n        from lhs\n        on m1.id > 3\n"
+    + "    select:\n        a = lhs.id\n        b = m1.v\n        c = m1.id\n",
 }
-TOP_K_PRESERVED = {"cross": (), "inner": ("TRUE",)}
+TOP_K_PRESERVED = {"cross": (), "inner": ("TRUE",), "left": ("3",)}
 _PG_TOP_K = (
     'LATERAL (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1" FROM '
     '(SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c1" AS "c2", '
@@ -788,6 +923,16 @@ TOP_K_SQL = {
     + _MY_TOP_K
     + " ON CAST(? AS SIGNED)"
     + _MY_TAIL,
+    ("left", "postgres"): _PG_HEAD
+    + "LEFT JOIN "
+    + _PG_TOP_K
+    + ' ON ("m1"."c0" > CAST($1 AS pg_catalog.int8))) SELECT "t0"."c0" AS "a", '
+    '"t0"."c3" AS "b", "t0"."c2" AS "c" FROM "p0" AS "t0"',
+    ("left", "mysql"): _MY_HEAD
+    + "LEFT JOIN "
+    + _MY_TOP_K
+    + " ON (`m1`.`c0` > CAST(? AS SIGNED))) SELECT `t0`.`c0` AS `a`, "
+    "`t0`.`c3` AS `b`, `t0`.`c2` AS `c` FROM `p0` AS `t0`",
 }
 
 
@@ -864,7 +1009,7 @@ def test_a_lateral_lets_order_and_limit_stay_in_its_derived_relation(
 def test_a_forged_lateral_top_k_fails_the_independent_verifier(
     tmp_path: Path, target: str, mutation: str
 ) -> None:
-    _, outcome = _top_k(tmp_path, target, "inner")
+    _, outcome = _top_k(tmp_path, target, "left")
     artifact = outcome.artifact
     assert artifact is not None
     query = artifact.ast

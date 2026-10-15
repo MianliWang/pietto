@@ -304,9 +304,10 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
 relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
 `in`/`not in` read, a let with `capture` lines read by `exists` or joined
-LATERAL by `cross join` or `inner join` and the header of an entry query whose
-FROM reads a relation and that declares no relation let are available, as
-described after the example; every other form is not available yet:
+LATERAL by `cross join`, `inner join` or `left join` and the header of an entry
+query whose FROM reads a relation and that declares no relation let are
+available, as described after the example; every other form is not available
+yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -592,8 +593,8 @@ read the renamed let, for example `let inner: from orders` and then
   another let included;
 - PIE-S2371 at a capture line of a let joined LATERAL whose input is not left
   of that JOIN: the let's own JOIN binding or a later JOIN's binding;
-- PIE-S2372 at a RIGHT, FULL, SEMI, ANTI or LEFT JOIN whose target is a let
-  with capture lines.
+- PIE-S2372 at a RIGHT, FULL, SEMI or ANTI JOIN whose target is a let with
+  capture lines.
 
 All but PIE-S2369 are reported with the file's pre-admission diagnostics
 (below), in one (path, line, column, code) order with them and before the
@@ -622,16 +623,21 @@ query customers_with_their_orders:
 
 `cross join` pairs each left row with the let's rows for that row; `inner join
 ... on <condition>` keeps only the pairs for which the condition is true, and a
-pure LATERAL INNER JOIN writes `on true`. The JOIN's output, its later
-JOINs and its tail are those of any other JOIN. A captured field of a let
-joined LATERAL reads the row those earlier inputs built, so it is nullable when
-its field is or when an earlier LEFT, RIGHT or FULL JOIN may null-extend its
-binding; a later JOIN never changes it. Project SQL emits the let as that
-JOIN's own derived relation, `CROSS JOIN LATERAL (SELECT ... FROM (SELECT ...
-WHERE ...) AS t<n>) AS m<n>` or `INNER JOIN LATERAL (...) AS m<n> ON ...`,
-whose correlated references name the JOIN's left input alias and column; the
-let is never a CTE. A LEFT, RIGHT, FULL, SEMI or ANTI JOIN of such a let is
-not available yet (PIE-S2372).
+pure LATERAL INNER JOIN writes `on true`. `left join ... on <condition>` keeps
+those pairs and every left row without one, once, with every field of the let
+NULL; its ON chooses pairs and never removes a left row, unlike a later WHERE.
+The let's fields are then nullable in the JOIN's output, and a later JOIN
+condition, WHERE, SELECT or capture line reads them as null-extended, like the
+target of any LEFT JOIN. The JOIN's output, its later JOINs and its tail are
+those of any other JOIN. A captured field of a let joined LATERAL reads the row
+those earlier inputs built, so it is nullable when its field is or when an
+earlier LEFT, RIGHT or FULL JOIN may null-extend its binding; a later JOIN never
+changes it. Project SQL emits the let as that JOIN's own derived relation,
+`CROSS JOIN LATERAL (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS m<n>` or
+`INNER JOIN LATERAL (...) AS m<n> ON ...` (`LEFT JOIN LATERAL` for a LEFT JOIN),
+whose correlated references name the JOIN's left input alias and column; the let
+is never a CTE. A RIGHT, FULL, SEMI or ANTI JOIN of such a let is not available
+yet (PIE-S2372).
 
 The let body is limited as for an `exists` read, except that a let joined
 LATERAL may end in `order by` and `limit`, a top-k per left row:
@@ -649,15 +655,17 @@ query customers_with_their_last_orders:
             id desc
         limit 3
     from customers
-    cross join last_orders as o:
+    left join last_orders as o:
         from customers
+        on true
     select:
         id
         order_id = o.order_id
 ```
 
 Each left row, duplicates included, gets at most that many of the let's rows
-for it, the first ones in that order. The ORDER BY and LIMIT follow the rules of
+for it, the first ones in that order; with `left join` a left row without any
+keeps its one null-extended row. The ORDER BY and LIMIT follow the rules of
 any relation result: the limit is static, an ORDER BY key names a field of the
 let's input (a computed key is refused at emission with PIE-B1003
 `order_expression_requires_established_port`), and the database chooses which

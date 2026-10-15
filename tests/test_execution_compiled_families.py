@@ -2008,11 +2008,11 @@ def test_a_compiled_lateral_join_keeps_a_kind_that_extends_each_left_row(
     )
     from pietto._project.project_compiled_verification import verify_description
 
-    source = TOP_K_LATERAL.format(kind="inner", on="        on true\n")
+    source = TOP_K_LATERAL.format(kind="left", on="        on m1.id > 3\n")
     _, built, _ = _compiled_lateral(tmp_path, "postgres", source)
     description = built.root.description
     (join,) = (r for r in description.records if r.address.kind == "join")
-    assert join.get("kind") == "inner"
+    assert join.get("kind") == "left"
     # Otherwise valid: a SEMI or ANTI JOIN outputs only its left input.
     names = FIELDS["join"]
     values = list(join.values)
@@ -2030,7 +2030,7 @@ def test_a_compiled_lateral_join_keeps_a_kind_that_extends_each_left_row(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-@pytest.mark.parametrize("kind", ("cross", "inner"))
+@pytest.mark.parametrize("kind", ("cross", "inner", "left"))
 def test_a_lateral_top_k_replays_from_compiled_input(tmp_path, target, kind):
     from pietto._project.project_compiled_schema import (
         FIELDS,
@@ -2042,7 +2042,7 @@ def test_a_lateral_top_k_replays_from_compiled_input(tmp_path, target, kind):
         verify_export,
     )
 
-    on = {"cross": "", "inner": "        on true\n"}
+    on = {"cross": "", "inner": "        on true\n", "left": "        on m1.id > 3\n"}
     artifact, built, candidate = _compiled_lateral(
         tmp_path, target, TOP_K_LATERAL.format(kind=kind, on=on[kind])
     )
