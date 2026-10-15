@@ -1312,7 +1312,7 @@ NEGATIVE_CORPUS = (
         "global_satisfying",
         ORDINARY_PREFIX
         + "query result:\n    from rows\n    select:\n        total = count()\n    satisfying:\n        total > 0\n",
-        "PIE-S2333",
+        "PIE-S2323",
     ),
     ("qualify_without_window", CONTROL + "    qualify:\n        id > 0\n", "PIE-S2331"),
     (

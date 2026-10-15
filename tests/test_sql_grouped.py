@@ -1118,7 +1118,7 @@ def test_global_with_satisfying_stays_rejected_at_its_own_boundary(tmp_path, tar
 """,
     )
     assert outcome.status == "BLOCKED"
-    assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+    assert [item.code for item in outcome.diagnostics] == ["PIE-S2323"]
 
 
 # --------------------------------------------------------------------------

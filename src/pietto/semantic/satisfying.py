@@ -95,18 +95,11 @@ def check_satisfying_clauses(
         if definition.satisfying_clause is None:
             continue
 
-        expression = definition.satisfying_clause.expression
-        if definition.group_by_clause is None:
-            if contains_semantic_aggregate(expression):
-                diagnostics.append(
-                    invalid_context_diagnostic(
-                        expression,
-                        context="satisfying clause",
-                    )
-                )
-                continue
-            diagnostics.append(_no_group_diagnostic(definition))
+        no_group = no_group_satisfying_diagnostic(definition)
+        if no_group is not None:
+            diagnostics.append(no_group)
             continue
+        expression = definition.satisfying_clause.expression
 
         let_expansions = (
             {}
@@ -543,6 +536,20 @@ def _is_bool(value_type: ValueType) -> bool:
         value_type.resolved_type.kind is TypeKind.BUILTIN
         and value_type.resolved_type.name == "Bool"
     )
+
+
+def no_group_satisfying_diagnostic(definition: DerivedRelation) -> Diagnostic | None:
+    """Return the refusal of a ``satisfying`` clause without GROUP BY, if any."""
+
+    clause = definition.satisfying_clause
+    if clause is None or definition.group_by_clause is not None:
+        return None
+    if contains_semantic_aggregate(clause.expression):
+        return invalid_context_diagnostic(
+            clause.expression,
+            context="satisfying clause",
+        )
+    return _no_group_diagnostic(definition)
 
 
 def _no_group_diagnostic(definition: DerivedRelation) -> Diagnostic:

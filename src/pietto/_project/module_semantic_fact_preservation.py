@@ -166,6 +166,7 @@ from pietto.semantic.model import (
 )
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.predicate_checks import _check_bool_expression
+from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.nullability_formulas import SignatureResultFormula
 from pietto.semantic.window_analysis import (
     _CUME_DIST_RESULT_FORMULA,
@@ -3447,6 +3448,16 @@ def _build_derived_relation_facts(
                 else ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
             ),
         )
+    no_group = _no_group_satisfying_diagnostics(definition)
+    if no_group:
+        # IR has no result filter without GROUP BY: the relation is refused.
+        helper_diagnostics = (*helper_diagnostics, *no_group)
+        if base_state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+            base_state = ProjectRelationRowSchemaState(
+                status=ProjectRelationRowSchemaStatus.UNKNOWN,
+                schema=ProjectRowSchema(is_unknown=True),
+                reason=ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+            )
 
     let_bindings = _let_binding_facts(
         owner=owner,
@@ -3621,10 +3632,24 @@ def _nonconcrete_relation_facts(
         ),
         window_outputs=window_outputs,
         named_window_namespace=named_window_namespace,
-        helper_diagnostics=syntax_diagnostics(definition, allow_distinct=True),
+        helper_diagnostics=(
+            *syntax_diagnostics(definition, allow_distinct=True),
+            *_no_group_satisfying_diagnostics(definition),
+        ),
         scalar_reads=scalar_reads,
         captured_value_types=captures,
     )
+
+
+def _no_group_satisfying_diagnostics(
+    definition: _DerivedRelation,
+) -> tuple[Diagnostic, ...]:
+    """The analyzer's no-GROUP `satisfying` refusal; JOIN aggregation owns its own."""
+
+    if definition.join_clauses:
+        return ()
+    diagnostic = no_group_satisfying_diagnostic(definition)
+    return () if diagnostic is None else (diagnostic,)
 
 
 def _propagate_upstream_state(

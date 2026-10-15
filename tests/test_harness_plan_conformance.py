@@ -1476,7 +1476,7 @@ def test_registered_mutations_and_source_negatives_have_exact_distinct_outcomes(
         ),
         "global_satisfying": (
             "semantic",
-            ["PIE-S2333"],
+            ["PIE-S2323"],
             ["semantic_result_unsuccessful", "active_output_unavailable", "satisfying"],
         ),
         "qualify_without_window": (

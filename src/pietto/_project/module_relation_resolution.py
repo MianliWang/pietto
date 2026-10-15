@@ -2599,6 +2599,7 @@ def _relation_row_state(
     has_deferred_behavior = (
         relation_definition.let_clause is not None
         or relation_definition.group_by_clause is not None
+        or relation_definition.satisfying_clause is not None
         or any(
             type(item.expression) not in {NameExpr, DottedNameExpr}
             for item in relation_definition.select_items

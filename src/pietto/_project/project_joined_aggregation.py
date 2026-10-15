@@ -2394,15 +2394,8 @@ def _build_satisfying_analysis(
     clause = definition.satisfying_clause
     if clause is None:
         return None
-    if mode is not ProjectJoinedAggregationMode.GROUPED:
-        diagnostic = (
-            semantic_aggregates.invalid_context_diagnostic(
-                clause.expression,
-                context="satisfying clause",
-            )
-            if semantic_aggregates.contains_semantic_aggregate(clause.expression)
-            else semantic_satisfying._no_group_diagnostic(definition)
-        )
+    diagnostic = semantic_satisfying.no_group_satisfying_diagnostic(definition)
+    if diagnostic is not None:
         value_types = {clause.expression: semantic_satisfying._UNKNOWN_VALUE_TYPE}
         return ProjectJoinedSatisfyingAnalysis(
             input_filter=input_filter,

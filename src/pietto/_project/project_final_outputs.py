@@ -241,6 +241,7 @@ from pietto.semantic.relation_schemas import (
     _unnamed_projection_diagnostic,
 )
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, check_relation_limits
+from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.window_analysis import (
     _WindowComputationAdmissionFailure,
     analyze_window_computation,
@@ -5339,6 +5340,16 @@ def _complete_no_join_output(
         )
     if type(where) is not ProjectConcreteNoJoinWhere:
         raise AssertionError("No-JOIN WHERE lost its exact result variant.")
+    no_group = no_group_satisfying_diagnostic(definition)
+    if no_group is not None:
+        return _no_join_terminal(
+            semantic_facts=semantic,
+            base_entry=base_entry,
+            reason=ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
+            blocker=definition.satisfying_clause,
+            diagnostics=(no_group,),
+            upstream_entry=upstream_entry,
+        )
 
     upstream_symbol = _project_symbol_for_resolution(resolution)
     mode = _mode(definition)

@@ -74,7 +74,15 @@ COMPLETION = (
         (
             IDS + "query result:\n    from lhs\n    select:\n        a = lhs.id\n"
             "        n = count()\n    satisfying:\n        n in ids\n",
-            [("PIE-S2350", POSITION.format("SATISFYING"), 16, 9), COMPLETION],
+            [
+                ("PIE-S2350", POSITION.format("SATISFYING"), 16, 9),
+                (
+                    "PIE-S2323",
+                    "`satisfying` requires GROUP BY in the Phase 25 MVP",
+                    15,
+                    5,
+                ),
+            ],
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        id\n"

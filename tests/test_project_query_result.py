@@ -20,6 +20,7 @@ from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectRelationRowSchemaStatus,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
@@ -765,6 +766,318 @@ def test_project_and_single_file_checks_agree_on_alias_comparison_operands(
     ]
     assert project == expected
     assert single_file == expected
+
+
+_NO_GROUP = "`satisfying` requires GROUP BY in the Phase 25 MVP"
+_COUNT_IN_SATISFYING = (
+    "Aggregate count() is not allowed in satisfying clause; "
+    "use it only as a direct aliased select projection"
+)
+
+
+def _public_facts(items: object) -> list[tuple[object, ...]]:
+    return [
+        (
+            item["code"],
+            item["severity"],
+            item["message"],
+            cast(dict[str, object], item["location"])["line"],
+            cast(dict[str, object], item["location"])["column"],
+        )
+        for item in cast(list[dict[str, object]], items)
+    ]
+
+
+def test_project_and_single_file_checks_refuse_satisfying_without_group_by(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(
+        tmp_path / "no-group-satisfying",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    key: Int nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query plain:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query aggregate_call:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        count() > 0\n"
+        "query global_total:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        n = count()\n"
+        "    satisfying:\n"
+        "        n > 0\n"
+        "query windowed:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "        r = row_number() window:\n"
+        "            order by:\n"
+        "                rows.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query with_let:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        b = id + 1\n"
+        "    select:\n"
+        "        c = b\n"
+        "    satisfying:\n"
+        "        c > 0\n"
+        "query qualified:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "    qualify:\n"
+        "        row_number() window:\n"
+        "            order by:\n"
+        "                a\n"
+        "        <= 3\n"
+        "query grouped:\n"
+        "    from rows\n"
+        "    group by:\n"
+        "        rows.key\n"
+        "    select:\n"
+        "        k = rows.key\n"
+        "        n = count()\n"
+        "    satisfying:\n"
+        "        n > 0\n",
+    )
+    (root / "contract.json").write_text("{}", encoding="utf-8")
+    expected = [
+        ("PIE-S2323", "error", _NO_GROUP, 9, 5),
+        ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 16, 9),
+        ("PIE-S2323", "error", _NO_GROUP, 21, 5),
+        ("PIE-S2323", "error", _NO_GROUP, 30, 5),
+        ("PIE-S2323", "error", _NO_GROUP, 38, 5),
+        ("PIE-S2323", "error", _NO_GROUP, 44, 5),
+    ]
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == "".join(
+        f"main.pietto:{line}:{column} {code} error: {message}\n"
+        for code, _, message, line, column in expected
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert _public_facts(_read_json(capsys)["diagnostics"]) == expected
+    assert cli.main(["check", str(root / "main.pietto"), "--format", "json"]) == 1
+    assert _public_facts(_read_json(capsys)["diagnostics"]) == expected
+
+    emit = ["emit-sql", "--project", str(root), "--module", "main.pietto"]
+    emit += ["--kind", "query", "--name", "plain", "--dialect", "postgres"]
+    emit += ["--emission-contract", "contract.json", "--format", "json"]
+    assert cli.main(emit) == 1
+    emitted = _read_json(capsys)
+    assert (emitted["status"], emitted["artifact"]) == ("BLOCKED", None)
+    assert _public_facts(emitted["diagnostics"]) == expected
+
+    # Each refusal is the relation's own semantic fact, retained once.
+    built = _build(tmp_path / "builder", (root / "main.pietto").read_text())
+    plain = next(
+        entry
+        for entry in built.completed.effective_outputs.entries
+        if entry.owner.identity.declared_name == "plain"
+    )
+    assert type(plain) is ProjectEffectiveOutputTerminal
+    facts = plain.fragment.semantic_facts
+    assert facts.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    (refusal,) = facts.helper_diagnostics
+    assert refusal is built.completed.diagnostics[0]
+    assert type(_entry(built, "grouped")) is ProjectExistingEffectiveOutput
+
+
+def test_project_refuses_satisfying_without_group_by_in_every_no_join_body(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(
+        tmp_path / "no-group-satisfying-bodies",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    key: Int nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        'source others: Row is postgres.table("others")\n'
+        "query both:\n"
+        "    union all:\n"
+        "        from rows\n"
+        "        from others\n"
+        "query set_reader:\n"
+        "    from both\n"
+        "    select:\n"
+        "        a = both.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query seed:\n"
+        "    values(id: Int not null):\n"
+        "        1\n"
+        "query values_reader:\n"
+        "    from seed\n"
+        "    select:\n"
+        "        a = seed.id\n"
+        "    satisfying:\n"
+        "        count() > 0\n"
+        "query joined:\n"
+        "    from rows\n"
+        "    inner join others as o:\n"
+        "        from rows\n"
+        "        on rows.id == o.id\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "query joined_reader:\n"
+        "    from joined\n"
+        "    select:\n"
+        "        a = joined.a\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query let_body:\n"
+        "    let w1:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            a = rows.id\n"
+        "        satisfying:\n"
+        "            a > 0\n"
+        "    from w1\n"
+        "    select:\n"
+        "        a\n"
+        "query let_reader:\n"
+        "    let w2:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            id\n"
+        "    from w2\n"
+        "    select:\n"
+        "        a = w2.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query distinct_rows:\n"
+        "    from rows\n"
+        "    select distinct:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query ordered:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "    order by:\n"
+        "        a asc\n"
+        "    limit 3\n"
+        "query downstream:\n"
+        "    from ordered\n"
+        "    select:\n"
+        "        a\n",
+    )
+    unavailable = "Project relation semantic completion is unavailable: {}"
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = _read_json(capsys)
+    assert document["ok"] is False
+    assert _public_facts(document["diagnostics"]) == [
+        ("PIE-S2323", "error", _NO_GROUP, 14, 5),
+        ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 24, 9),
+        ("PIE-S2323", "error", _NO_GROUP, 36, 5),
+        ("PIE-S2323", "error", _NO_GROUP, 43, 9),
+        ("PIE-S2333", "error", unavailable.format("let_body"), 38, 1),
+        ("PIE-S2323", "error", _NO_GROUP, 56, 5),
+        ("PIE-S2323", "error", _NO_GROUP, 62, 5),
+        ("PIE-S2323", "error", _NO_GROUP, 68, 5),
+        ("PIE-S2333", "error", unavailable.format("downstream"), 73, 1),
+    ]
+
+
+def test_satisfying_without_group_by_beside_parameters_and_table_functions(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Header parameters and generate_series inputs reach the same refusal."""
+    root = _project(
+        tmp_path / "no-group-satisfying-phase70",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query param_plain(low: Int not null):\n"
+        "    from rows\n"
+        "    where id > low\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        a > low\n"
+        "query param_count(low: Int not null):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "    satisfying:\n"
+        "        count() > low\n"
+        "query param_let(low: Int not null):\n"
+        "    let w:\n"
+        "        from rows\n"
+        "        where id > low\n"
+        "        select:\n"
+        "            a = rows.id\n"
+        "        satisfying:\n"
+        "            a > low\n"
+        "    from w\n"
+        "    select:\n"
+        "        a\n"
+        "query series_plain:\n"
+        "    from generate_series(1, 5, 1) as n\n"
+        "    select:\n"
+        "        a = n\n"
+        "    satisfying:\n"
+        "        a > 0\n"
+        "query series_count:\n"
+        "    from generate_series(1, 5, 1) as n\n"
+        "    select:\n"
+        "        a = n\n"
+        "    satisfying:\n"
+        "        count() > 0\n"
+        "query series_let:\n"
+        "    let s:\n"
+        "        from generate_series(1, 5, 1) as n\n"
+        "        select:\n"
+        "            a = n\n"
+        "        satisfying:\n"
+        "            a > 0\n"
+        "    from s\n"
+        "    select:\n"
+        "        a\n",
+    )
+    (root / "contract.json").write_text("{}", encoding="utf-8")
+    unavailable = "Project relation semantic completion is unavailable: param_let"
+    expected = [
+        ("PIE-S2323", "error", _NO_GROUP, 9, 5),
+        ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 16, 9),
+        ("PIE-S2323", "error", _NO_GROUP, 23, 9),
+        ("PIE-S2333", "error", unavailable, 17, 1),
+        ("PIE-S2323", "error", _NO_GROUP, 32, 5),
+        ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 39, 9),
+        ("PIE-S2323", "error", _NO_GROUP, 45, 9),
+    ]
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert _public_facts(_read_json(capsys)["diagnostics"]) == expected
+    for name in ("param_plain", "series_plain"):
+        emit = ["emit-sql", "--project", str(root), "--module", "main.pietto"]
+        emit += ["--kind", "query", "--name", name, "--dialect", "postgres"]
+        emit += ["--emission-contract", "contract.json", "--format", "json"]
+        assert cli.main(emit) == 1
+        emitted = _read_json(capsys)
+        assert (emitted["status"], emitted["artifact"]) == ("BLOCKED", None)
+        assert _public_facts(emitted["diagnostics"]) == expected
 
 
 def test_parse_failure_runs_neither_semantic_builder(
