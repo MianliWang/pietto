@@ -315,3 +315,9 @@ let 列 min/max 与参数在聚合、窗口与结果位置的使用没有 owner�
 D70.01 的参数位置相应细化（U1）：LIMIT、窗口范围、要求固定值的函数实参与 VALUES 单元格仍不接受参数；参数头必须写明 `not null` 或 `nullable`（U2）；
 撞名集合包括入口查询的 SELECT 输出名与命名窗口名（U3）；参数类型只接受 Bool、Int、Float、Text 四个内建名（U4）。
 单文件模式不提供计算分组键，semantic metadata artifact v1 的 `group_keys` 不变。路线为 24 片、容量 25、余量 1（D70.09 修订）。
+
+## Phase70 addendum — owner decisions (2026-10-15)
+
+所有者确认：capture let 的外层 captured input 字段已知时，可从 own FROM 的完成后定型 relation 读取；若 captured outer input 自身的列在 completion 前未知，每个 captured-field read 仍为 `PIE-S2369`。capture let 直接 FROM table function 仍为 `PIE-S2370`，须先经另一 let。
+
+当前全期累计修复上限为 causal 150、focused 180、diagnostic 180、scope 9。该预算只恢复已授权工作并保留历史超限与 UNKNOWN 的核账；不自动批准新的公开语义，也不授权 S19 或发行。

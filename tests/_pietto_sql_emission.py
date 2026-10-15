@@ -4217,7 +4217,7 @@ def _scan_definitions(document, occurrences):
         for interval in sorted(
             _records(document["ranges"]), key=lambda item: (item["start"], item["end"])
         )
-        if interval.get("role") in {"namespace", "join_namespace"}
+        if interval.get("role") in {"namespace", "join_namespace", "set_namespace"}
     ]
     _need(len(naming) == len(occurrences), "scan occurrence and relation counts")
     paired, selectors = [], {}
@@ -5103,14 +5103,17 @@ def _decode_row_denominators(
     # Original demands: every family keeps its own re-derived rule and no premise.
     # A JOIN unit is its own generated scope, not an authored stage block, so the
     # retained scope demands cover exactly the emitted stage bodies.
-    blocks = [
-        body["block"]
-        for body in bodies
-        if not body.get("join")
-        and not body.get("result")
-        and not body.get("set")
-        and not body.get("values")
-    ]
+    blocks = sorted(
+        (
+            body["block"]
+            for body in bodies
+            if not body.get("join")
+            and not body.get("result")
+            and not body.get("set")
+            and not body.get("values")
+        ),
+        key=lambda block: block["position"],
+    )
     families: dict[str, list[dict[str, Any]]] = {}
     for item in originals:
         families.setdefault(item["kind"], []).append(item)
@@ -5120,7 +5123,8 @@ def _decode_row_denominators(
         "scope demands do not match the emitted stage bodies",
     )
     _need(
-        [item["subject"] for item in families.get("filter", ())] == walk["filters"],
+        [item["subject"] for item in families.get("filter", ())]
+        == sorted(walk["filters"], key=lambda filter_ref: filter_ref["position"]),
         "filter demands do not match the emitted predicate roots",
     )
     _need(
@@ -5208,7 +5212,11 @@ def _decode_fixed_public(document, limits):
         and r.get("kind") in {"values_rows", "table_function"}
         for r in document["requirements"]
     )
-    if not joined and not setted:
+    captured = any(
+        r.get("denominator") == "generated" and r.get("kind") == "capture"
+        for r in document["requirements"]
+    )
+    if not joined and not setted and not captured:
         _need(
             len(scan_occurrences) == 1 or valued and len(scan_occurrences) <= 1,
             "one physical scan without a JOIN",
@@ -5876,14 +5884,26 @@ def _decode_fixed_public(document, limits):
     def inline_read(producer):
         """A let with capture lines read inline: its parsed final body and its
         obligations, which follow the read's own (Phase70 S10, S14)."""
-        _need(bool(capture_frames), "a correlated read outside its row")
+        projection_frame = None
+        if not capture_frames:
+            reads, projection_frame = projection_inline_frame()
+            _need(bool(reads), "a correlated read outside its row")
+            assert projection_frame is not None
+            inline_owners.append(next_row_definition())
+            capture_frames.append(projection_frame)
         take("syntax", "inline_open", "(", producer)
         mark, outer_block = len(row_generated), row_block[0]
-        body = row_select(producer, False, None, inline=True)
+        body = (
+            result_select(producer, False, None, inline=True)
+            if producer["kind"] == "result_boundary"
+            else row_select(producer, False, None, inline=True)
+        )
         row_block[0] = outer_block
         inline = row_generated[mark:]
         del row_generated[mark:]
         take("syntax", "inline_close", ")", producer)
+        if projection_frame is not None:
+            _need(capture_frames.pop() is projection_frame)
         return body, inline
 
     def row_parse(block, port_kind="stage_port", repeated=False):
@@ -8126,6 +8146,7 @@ def _decode_fixed_public(document, limits):
         take("syntax", "select", "SELECT ", block)
         parsed = []
         windows_seen: list[dict[str, Any]] = []
+        _, projection_input = projection_inline_frame()
         while True:
             separator = None
             if parsed:
@@ -8254,7 +8275,11 @@ def _decode_fixed_public(document, limits):
             source_body = row_ctes.get(name)
             _need(
                 source_body is not None
-                and source_body is row_bodies[-1]
+                and (
+                    source_body is row_bodies[-1]
+                    or projection_input is not None
+                    and source_body is projection_input.get("body")
+                )
                 and source_body["block"] == producer
                 and not source_body["projection"],
                 "stage use must read its immediately preceding stage",
@@ -8895,7 +8920,7 @@ def _decode_fixed_public(document, limits):
         _need(len(columns) <= limits["columns"])
         return body
 
-    def result_select(block, final, cte_terminals):
+    def result_select(block, final, cte_terminals, inline=False):
         """One result body: DISTINCT, the carried visible tuple, ORDER BY, LIMIT.
 
         The stage law is re-derived from the token order alone: the body reads
@@ -8947,14 +8972,21 @@ def _decode_fixed_public(document, limits):
         from_token, _ = take("syntax", "from", " FROM ")
         producer = from_token["subject"]
         _need(producer["kind"] == "select_block", "result producer kind")
-        _, name = take("identifier", "stage_reference", subject=producer)
-        source_body = row_ctes.get(name)
+        inline_source = peek() == "inline_open"
+        if inline_source:
+            _need(inline)
+            take("syntax", "inline_open", "(", producer)
+            source_body = row_select(producer, False, None, inline=True)
+            take("syntax", "inline_close", ")", producer)
+        else:
+            _, name = take("identifier", "stage_reference", subject=producer)
+            source_body = row_ctes.get(name)
         _need(
             source_body is not None
-            and source_body is row_bodies[-1]
             and source_body["block"] == producer
             and source_body["projection"]
-            and not source_body["final"],
+            and not source_body["final"]
+            and (inline_source or source_body is row_bodies[-1]),
             "a result body reads its own immediately preceding closed projection",
         )
         assert source_body is not None
@@ -9088,11 +9120,22 @@ def _decode_fixed_public(document, limits):
         quotient_base = row_counts["quotient_field"]
         if distinct is not None:
             row_counts["quotient_field"] += len(visible)
-        row_generated.append(("stage_use", producer, "R03", "naming", None))
-        row_generated.extend(
-            ("stage_terminal", column, "R03", "naming", None)
-            for column in source_body["header"]
-        )
+        if inline_source:
+            row_generated.append(
+                (
+                    "inline_stage_use",
+                    ("opaque", "inline_stage_use"),
+                    "R11",
+                    "naming",
+                    None,
+                )
+            )
+        else:
+            row_generated.append(("stage_use", producer, "R03", "naming", None))
+            row_generated.extend(
+                ("stage_terminal", column, "R03", "naming", None)
+                for column in source_body["header"]
+            )
         if distinct is not None:
             _need(
                 all(
@@ -9120,17 +9163,21 @@ def _decode_fixed_public(document, limits):
                     order_ref,
                     "R19",
                     [],
-                    ("result", {"items": len(order_items)}),
+                    None if inline else ("result", {"items": len(order_items)}),
                 )
             )
             for entry in order_items:
                 evidence = (
-                    "result",
-                    {
-                        "direction": entry["direction"],
-                        "nulls": "target_defined",
-                        "value_port": entry["port"],
-                    },
+                    None
+                    if inline
+                    else (
+                        "result",
+                        {
+                            "direction": entry["direction"],
+                            "nulls": "target_defined",
+                            "value_port": entry["port"],
+                        },
+                    )
                 )
                 row_generated.append(
                     (
@@ -9159,7 +9206,13 @@ def _decode_fixed_public(document, limits):
                     )
         if limit is not None:
             row_generated.append(
-                ("static_limit", limit["limit"], "R21", [], {"value": limit["value"]})
+                (
+                    "static_limit",
+                    limit["limit"],
+                    "R21",
+                    [],
+                    None if inline else {"value": limit["value"]},
+                )
             )
         if not final and (order_ref is not None or limit is not None):
             row_generated.append(
@@ -10184,6 +10237,89 @@ def _decode_fixed_public(document, limits):
         base = source_port_base[definition["position"]]
         return ref("source_port", base + field["ordinal"])
 
+    def projection_inline_frame():
+        """Read one SELECT's own outer row before its inline bytes."""
+        depth = 0
+        reads = int(peek() == "inline_open")
+        for index in range(cursor, len(lexical)):
+            token, _ = lexical[index]
+            role = token["role"]
+            if depth == 0 and role in {"exists_from", "scalar_from", "in_from"}:
+                reads += int(lexical[index + 1][0]["role"] == "inline_open")
+            if role == "inline_open":
+                depth += 1
+                continue
+            if role == "inline_close":
+                depth -= 1
+                continue
+            if depth or role != "from":
+                continue
+            if not reads:
+                return 0, None
+            producer = token["subject"]
+            lookahead = index + 1
+            next_token, name = lexical[lookahead]
+            next_role = next_token["role"]
+            if next_role in {"cte_reference", "stage_reference"}:
+                lookahead += 1
+                body = row_ctes.get(name)
+                _need(lexical[lookahead][0]["role"] == "alias")
+                lookahead += 1
+                alias_token, alias = lexical[lookahead]
+                _need(
+                    body is not None
+                    and alias_token["role"]
+                    == (
+                        "relation_scope"
+                        if next_role == "cte_reference"
+                        else "stage_scope"
+                    ),
+                    "projected correlated named row",
+                )
+                assert body is not None
+                return reads, {
+                    "alias": alias,
+                    "incoming": body["outgoing"],
+                    "body": body,
+                }
+            _need(
+                producer["kind"] == "definition" and next_role == "namespace",
+                "a projected correlated read needs its physical row",
+            )
+            owners = [
+                description
+                for position, description in scan_definitions
+                if position == producer["position"]
+            ]
+            _need(bool(owners) and all(item == owners[0] for item in owners))
+            lookahead += 1
+            _need(lexical[lookahead][0]["role"] == "qualifier")
+            lookahead += 1
+            _need(lexical[lookahead][0]["role"] == "relation")
+            lookahead += 1
+            _need(lexical[lookahead][0]["role"] == "alias")
+            lookahead += 1
+            alias_token, alias = lexical[lookahead]
+            _need(
+                alias_token["role"] == "relation_scope",
+                "projected correlated row alias",
+            )
+            return reads, {
+                "alias": alias,
+                "incoming": [
+                    {
+                        "name": field["column"],
+                        "terminal": source_port(producer, field),
+                        "source_port": source_port(producer, field),
+                        "realization": row_field_realization(field),
+                        "field": field,
+                        "literal": None,
+                    }
+                    for field in owners[0]["fields"]
+                ],
+            }
+        return 0, None
+
     def scanned_source(read):
         """The declared source a read reaches, resolved through its OWN port.
 
@@ -10231,7 +10367,7 @@ def _decode_fixed_public(document, limits):
 
     join_aliases: set[str] = set()
 
-    def join_relation(expected_kind):
+    def join_relation(expected_kind, lateral_frame=None):
         """One JOIN input relation, its capture-free alias and pre-match columns."""
         role = peek()
         if role == "join_namespace":
@@ -10256,6 +10392,44 @@ def _decode_fixed_public(document, limits):
                 for field in item["fields"]
             ]
             record = {"kind": "scan", "description": item, "index": index, "body": None}
+        elif role == "lateral_open":
+            _need(expected_kind == "right" and lateral_frame is not None)
+            assert lateral_frame is not None
+            producer = lexical[cursor][0]["subject"]
+            _need(producer["kind"] == "join_input", "LATERAL input subject kind")
+            take("syntax", "lateral_open", "LATERAL (", producer)
+            block = lexical[cursor][0]["subject"]
+            _need(
+                block["kind"] in {"select_block", "result_boundary"},
+                "LATERAL body scope",
+            )
+            inline_owners.append(next_row_definition())
+            frame = {
+                "alias": lateral_frame["alias"],
+                "incoming": lateral_frame["columns"],
+            }
+            capture_frames.append(frame)
+            mark = len(row_generated)
+            body = (
+                result_select(block, False, None, inline=True)
+                if block["kind"] == "result_boundary"
+                else row_select(block, False, None, inline=True)
+            )
+            generated = row_generated[mark:]
+            del row_generated[mark:]
+            _need(capture_frames.pop() is frame)
+            take("syntax", "lateral_close", ")", producer)
+            columns = [
+                {**column, "nulled": column.get("nulled", False)}
+                for column in body["outgoing"]
+            ]
+            record = {
+                "kind": "lateral",
+                "description": None,
+                "index": None,
+                "body": body,
+                "generated": generated,
+            }
         else:
             _need(role == "join_reference", "JOIN input relation role")
             producer = lexical[cursor][0]["subject"]
@@ -10443,7 +10617,9 @@ def _decode_fixed_public(document, limits):
             _, token = take("syntax", "join_kind", subject=join_ref)
             _need(token in NATIVE_JOIN_KINDS, "native JOIN kind spelling")
             kind = NATIVE_JOIN_KINDS[token]
-            right = join_relation("right")
+            right = join_relation(
+                "right", left if kind in {"cross", "inner", "left"} else None
+            )
             if kind == "cross":
                 equalities, predicate, scopes = (
                     [],
@@ -10577,6 +10753,17 @@ def _decode_fixed_public(document, limits):
                             None,
                         )
                     )
+            elif item["kind"] == "lateral":
+                row_generated.append(
+                    (
+                        "lateral_input",
+                        ("opaque", "lateral_input"),
+                        "R11",
+                        "naming",
+                        None,
+                    )
+                )
+                row_generated.extend(item["generated"])
         for item in equalities:
             row_generated.append(
                 ("relationship_equality", item["match"], "R07", "naming", None)

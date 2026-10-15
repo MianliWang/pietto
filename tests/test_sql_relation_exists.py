@@ -979,7 +979,8 @@ def test_a_capturing_let_reads_a_relation_known_after_completion(
     _, outcome = probe.build_case(
         tmp_path, item["source"], item["contract"], item["policy"]
     )
-    document = json.loads(serialize_project_sql_emission(outcome))
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
     assert document["status"] == "VERIFIED", document
     expected = CORRELATED_OWN_FROM_SQL[shape, target]
     if policy == "preserve_literals":
@@ -988,6 +989,7 @@ def test_a_capturing_let_reads_a_relation_known_after_completion(
         )
     assert document["sql"] == expected
     assert document["sql"].count("EXISTS (SELECT 1 FROM (SELECT ") == 1
+    assert probe.decode_public(raw) == document
 
 
 # An entry query with parameters may also read a table whose let has capture

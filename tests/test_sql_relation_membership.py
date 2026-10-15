@@ -857,9 +857,11 @@ def test_a_membership_read_let_reads_a_relation_known_after_completion(
     _, outcome = _emit(
         tmp_path, target, OWN_FROM_MEMBERSHIP[shape], policy="bind_safe_literals"
     )
-    document = json.loads(serialize_project_sql_emission(outcome))
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
     assert document["status"] == "VERIFIED", document
     assert document["sql"] == OWN_FROM_MEMBERSHIP_SQL[shape, target]
+    assert probe.decode_public(raw) == document
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1172,7 +1174,8 @@ def test_ordered_reads_of_lets_capturing_join_inputs_wrap_on_postgres_only(
     _, outcome = probe.build_case(
         tmp_path, item["source"], item["contract"], item["policy"]
     )
-    document = json.loads(serialize_project_sql_emission(outcome))
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
     if target == "mysql":
         lines = item["source"].splitlines()
         assert (document["status"], document["diagnostics"]) == ("BLOCKED", [])
@@ -1206,3 +1209,71 @@ def test_ordered_reads_of_lets_capturing_join_inputs_wrap_on_postgres_only(
         ("a", False),
         ("k", True),
     ]
+    assert probe.decode_public(raw) == document
+
+
+# A projection scalar and a WHERE EXISTS may each read a different captured
+# let from the same outer row.  The public decoder must retain both frames.
+SCALAR_AND_EXISTS = """query result:
+    let selected:
+        capture lhs
+        from rhs
+        where rhs.id == lhs.id
+        select:
+            id
+    let filtered:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key
+        select:
+            id
+    from lhs
+    where exists filtered
+    select:
+        id = lhs.id
+        value = scalar selected.id
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_scalar_and_exists_reads_keep_their_own_captured_filters(
+    tmp_path: Path, target: str
+) -> None:
+    _, outcome = _emit(tmp_path, target, SCALAR_AND_EXISTS)
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    plain = document["sql"].replace('"', "").replace("`", "")
+    assert "s0.order.id = t5.c0" in plain
+    assert "key value = s2.key value" in plain
+    assert "WHERE EXISTS (SELECT 1 FROM" in plain
+    assert "AS value" in plain
+    assert probe.decode_public(raw) == document
+
+
+def test_projection_correlated_read_cannot_use_an_earlier_compatible_stage(
+    tmp_path: Path,
+) -> None:
+    _, outcome = _emit(tmp_path, "postgres", ORDERED_OVER_JOIN)
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    sql = document["sql"].encode()
+    reference = [
+        interval
+        for interval in document["ranges"]
+        if interval["role"] == "stage_reference"
+        and sql[interval["start"] : interval["end"]] == b'"p1"'
+    ]
+    assert len(reference) == 1
+    reference = reference[0]
+    assert reference["subject"] == {"kind": "select_block", "position": 4}
+    # p0 has the same visible header as p1; only the required predecessor is
+    # changed, including its range subject, so this is not malformed JSON or
+    # an offset-only corruption.
+    document["sql"] = document["sql"].replace(
+        ' FROM "p1" AS "t5"', ' FROM "p0" AS "t5"', 1
+    )
+    reference["subject"] = {"kind": "select_block", "position": 0}
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(document))

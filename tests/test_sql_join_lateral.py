@@ -958,7 +958,8 @@ def test_a_lateral_lets_order_and_limit_stay_in_its_derived_relation(
     tmp_path: Path, target: str, kind: str, policy: str
 ) -> None:
     checked, outcome = _top_k(tmp_path, target, kind, policy)
-    document = json.loads(serialize_project_sql_emission(outcome))
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
     assert document["status"] == "VERIFIED", document
     expected = TOP_K_SQL[kind, target]
     for index, value in enumerate(TOP_K_PRESERVED[kind], start=1):
@@ -971,6 +972,7 @@ def test_a_lateral_lets_order_and_limit_stay_in_its_derived_relation(
     assert document["sql"] == expected
     assert document["sql"].count("JOIN LATERAL (SELECT ") == 1
     assert document["sql"].count(" LIMIT 2) AS ") == 1
+    assert probe.decode_public(raw) == document
     plan = checked.plan
     assert type(plan) is ProjectSQLPlan
     (capture,) = plan.captures
@@ -1294,10 +1296,88 @@ def test_the_outer_body_groups_by_a_null_extended_lateral_column(
     _, outcome = probe.build_case(
         tmp_path, item["source"], item["contract"], item["policy"]
     )
-    document = json.loads(serialize_project_sql_emission(outcome))
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
     assert document["status"] == "VERIFIED", document
     assert document["sql"] == GROUPED_LEFT_SQL[target]
     assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
         ("later_id", True),
         ("n", False),
     ]
+    assert probe.decode_public(raw) == document
+    with pytest.raises(ValueError):
+        probe.decode_public(raw.replace(b"LATERAL (", b"NOTLATER", 1))
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(("shape", "forged"), (("inner", "RIGHT"), ("left", "FULL")))
+def test_lateral_is_rejected_for_other_native_join_kinds(
+    tmp_path: Path, target: str, shape: str, forged: str
+) -> None:
+    _, outcome = _top_k(tmp_path, target, shape)
+    raw = serialize_project_sql_emission(outcome)
+    original = f" {shape.upper()} JOIN LATERAL ".encode()
+    replacement = f" {forged} JOIN LATERAL ".encode()
+    assert len(original) == len(replacement) and raw.count(original) == 1
+    with pytest.raises(ValueError):
+        probe.decode_public(raw.replace(original, replacement, 1))
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_lateral_capture_terminal_alias_cannot_be_substituted_at_the_same_length(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, GROUPED_LEFT)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    quote = b'"' if target == "postgres" else b"`"
+    original = (
+        " > "
+        + quote.decode()
+        + "m0"
+        + quote.decode()
+        + "."
+        + quote.decode()
+        + "order.id"
+        + quote.decode()
+    )
+    replacement = (
+        " > "
+        + quote.decode()
+        + "m1"
+        + quote.decode()
+        + "."
+        + quote.decode()
+        + "order.id"
+        + quote.decode()
+    )
+    assert len(original) == len(replacement) and document["sql"].count(original) == 1
+    with pytest.raises(ValueError):
+        probe.decode_public(
+            probe.encoded(
+                {**document, "sql": document["sql"].replace(original, replacement, 1)}
+            )
+        )
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("rule", ("R19", "R21"))
+def test_lateral_top_k_order_and_limit_evidence_is_exact(
+    tmp_path: Path, target: str, rule: str
+) -> None:
+    _, outcome = _top_k(tmp_path, target, "left")
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert probe.decode_public(raw) == document
+    checks = [
+        requirement
+        for requirement in document["requirements"]
+        if requirement["denominator"] == "generated" and requirement["rule"] == rule
+    ]
+    assert checks and all(requirement["evidence"] == [] for requirement in checks)
+    checks[0]["evidence"] = [["unmapped_proposition"]]
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(document))
