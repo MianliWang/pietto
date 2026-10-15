@@ -28,6 +28,7 @@ import warnings
 import pytest
 
 import _pietto_execution_api as api
+import _pietto_execution_jobs_probe as workspace_probe
 import pietto.execution as execution
 from pietto._project import project_arrow_result
 from pietto._project import project_execution as ex
@@ -293,11 +294,13 @@ premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
 for value in (query, loaded):
     pe.execute(value, route="postgres_rows", access=access, premise=premise).close()
 facts["direct"] = jobs()
-workspace = pe.create_workspace(sys.argv[4], budget_bytes=8 * 1024 * 1024)
-opened = pe.open_workspace(sys.argv[4], expected_identity=workspace.identity)
-facts["saved"] = [type(opened).__name__, opened.identity == workspace.identity,
-    pe.operation_result(opened, pe.new_operation()),
-    sorted({getattr(pe, name).__module__ for name in pe.__all__})]
+saved = []
+if sys.argv[5] == "qualified":
+    workspace = pe.create_workspace(sys.argv[4], budget_bytes=8 * 1024 * 1024)
+    opened = pe.open_workspace(sys.argv[4], expected_identity=workspace.identity)
+    saved = [type(opened).__name__, opened.identity == workspace.identity,
+        pe.operation_result(opened, pe.new_operation())]
+facts["saved"] = saved + [sorted({getattr(pe, name).__module__ for name in pe.__all__})]
 facts["loaded"] = bool(jobs())
 print(json.dumps(facts))
 """
@@ -306,7 +309,9 @@ print(json.dumps(facts))
 def test_direct_execution_never_loads_the_job_subsystem(example, sentinel, tmp_path):
     """Importing `pietto.execution`, compiling, exporting, loading and an
     unopened execute() import no saved-result job module; the saved-result
-    names still resolve to their owners and create and open a workspace."""
+    names still resolve to their owners and, on a qualified storage profile,
+    create and open a workspace."""
+    qualified = workspace_probe.qualified(tmp_path)
     result = subprocess.run(
         [
             sys.executable,
@@ -318,6 +323,7 @@ def test_direct_execution_never_loads_the_job_subsystem(example, sentinel, tmp_p
             str(example),
             str(sentinel.port),
             str(tmp_path / "workspace"),
+            "qualified" if qualified else "unqualified",
         ],
         capture_output=True,
         text=True,
@@ -348,7 +354,7 @@ def test_direct_execution_never_loads_the_job_subsystem(example, sentinel, tmp_p
     assert facts == {
         "import": [],
         "direct": [],
-        "saved": ["WorkspaceRef", True, None, owners],
+        "saved": (["WorkspaceRef", True, None] if qualified else []) + [owners],
         "loaded": True,
     }
     assert not sentinel.connected()

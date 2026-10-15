@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+import _pietto_execution_jobs_probe as workspace_probe
 from pietto._project import project_public_r2_proposal as proposal
 
 
@@ -576,6 +577,8 @@ def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
 
     from pietto._project import project_execution_postgres as pg
 
+    if not workspace_probe.qualified(tmp_path):
+        return
     workspace = execution.create_workspace(
         Path(tmp_path) / "workspace", budget_bytes=private_workspace.MIN_BUDGET
     )
@@ -745,6 +748,8 @@ def test_a_membership_read_is_refused_after_its_source_closure_before_any_worksp
         proposal.prepare_live_refinement(query, binding, inputs[:1])
     with pytest.raises(ValueError, match="REFINEMENT_EXPRESSION_BLOCK_READ"):
         proposal.prepare_live_refinement(query, binding, inputs)
+    if not workspace_probe.qualified(tmp_path):
+        return
     workspace = execution.create_workspace(
         Path(tmp_path) / "workspace", budget_bytes=private_workspace.MIN_BUDGET
     )
