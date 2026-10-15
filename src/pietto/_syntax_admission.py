@@ -65,6 +65,7 @@ _EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset(
     {
         LetRelationDef,
         ValuesBody,
+        TableFunctionFromClause,
         RelationExistsExpr,
         RelationScalarExpr,
         RelationMembershipExpr,
@@ -116,9 +117,11 @@ def source_order(item: Diagnostic) -> tuple[str, int, int, str, int, int]:
     )
 
 
-def _admitted_header(definition: Node) -> bool:
+def admitted_header(definition: Node) -> bool:
     """An entry query whose own body reads a relation with ``from``; its
-    relation lets may read the header too (Phase70 S11)."""
+    relation lets may read the header too (Phase70 S11), unless one of them
+    reads a table function: like a table-function body of its own, such a
+    query keeps its header unadmitted."""
 
     if type(definition) is QueryDef:
         return True
@@ -129,6 +132,11 @@ def _admitted_header(definition: Node) -> bool:
         block.kind is ModuleDeclarationKind.QUERY
         and type(block.body) is SelectBody
         and type(cast(SelectBody, block.body).from_clause) is FromClause
+        and not any(
+            type(let.body) is SelectBody
+            and type(cast(SelectBody, let.body).from_clause) is TableFunctionFromClause
+            for let in block.let_relations
+        )
     )
 
 
@@ -141,9 +149,9 @@ def unadmitted_syntax_diagnostics(
     EXPLICIT_MODULES caller admits the families its readers implement, up to
     ``_MAX_RELATION_LETS`` relation lets per table or query, and the header of
     an entry query whose own body reads a relation with ``from``, with or
-    without relation lets, whose parameter types are still read; headers of
-    any other body stay unadmitted. An EXISTS, scalar or IN read is admitted
-    only inside a relation body.
+    without relation lets (none reading a table function), whose parameter
+    types are still read; headers of any other body stay unadmitted. An
+    EXISTS, scalar or IN read is admitted only inside a relation body.
     """
 
     found: list[Diagnostic] = []
@@ -185,7 +193,7 @@ def unadmitted_syntax_diagnostics(
             if (
                 explicit_modules
                 and item.name == "parameters"
-                and _admitted_header(cast(Node, value))
+                and admitted_header(cast(Node, value))
             ):
                 # The header is admitted; a form inside a parameter type is not.
                 child = tuple(

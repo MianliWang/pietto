@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pietto import ast_nodes as ast
-from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
+from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
+from pietto._project.project_table_function import table_function_diagnostics
 from pietto._project.project_values import ProjectValuesRelation, values_diagnostics
 
 from collections.abc import Mapping
@@ -237,7 +238,12 @@ type _CaptureEnvironment = Mapping[CapturedFieldExpr, ValueType | Diagnostic]
 _NO_CAPTURES: _CaptureEnvironment = MappingProxyType({})
 _CAPTURE_PENDING = object()
 _RelationDefinition = (
-    SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
+    SourceDef
+    | TableDef
+    | QueryDef
+    | SetRelationDef
+    | ValuesRelationDef
+    | TableFunctionRelationDef
 )
 _WindowAnalysis = WindowExpressionAnalysis | WindowExpressionUnsupported
 _NAMED_WINDOW_DIAGNOSTIC_CODES = frozenset(
@@ -1506,7 +1512,11 @@ class ProjectModuleRelationSemanticFacts:
                 "Non-concrete semantic facts cannot publish aggregate results."
             )
         definition = self.owner.definition
-        if type(definition) in {SetRelationDef, ValuesRelationDef}:
+        if type(definition) in {
+            SetRelationDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+        }:
             if (
                 self.state is not self.base_row_fact.state
                 or self.state.schema is not None
@@ -1531,6 +1541,8 @@ class ProjectModuleRelationSemanticFacts:
                 != (
                     values_diagnostics(definition)
                     if isinstance(definition, ValuesRelationDef)
+                    else table_function_diagnostics(definition)
+                    if isinstance(definition, TableFunctionRelationDef)
                     else syntax_diagnostics(definition, allow_distinct=True)
                 )
             ):
@@ -1822,7 +1834,12 @@ class ProjectModuleSemanticFactEnvironment:
         for fact in self.relation_facts:
             definition = fact.owner.definition
             expected_resolution: ProjectResolvedModuleRelationReference | None
-            if type(definition) in {SourceDef, SetRelationDef, ValuesRelationDef}:
+            if type(definition) in {
+                SourceDef,
+                SetRelationDef,
+                ValuesRelationDef,
+                TableFunctionRelationDef,
+            }:
                 expected_resolution = None
             elif type(definition) in {TableDef, QueryDef}:
                 derived = cast(_DerivedRelation, definition)
@@ -1870,6 +1887,7 @@ class ProjectModuleSemanticFactEnvironment:
             QueryDef,
             SetRelationDef,
             ValuesRelationDef,
+            TableFunctionRelationDef,
         }:
             raise TypeError("Semantic fact lookup requires a relation definition.")
         return tuple(
@@ -2354,7 +2372,11 @@ def _validate_relation_window_fact_set_closure(
     pre_window_state: ProjectRelationRowSchemaState,
 ) -> None:
     definition = relation.owner.definition
-    if type(definition) in {SetRelationDef, ValuesRelationDef}:
+    if type(definition) in {
+        SetRelationDef,
+        ValuesRelationDef,
+        TableFunctionRelationDef,
+    }:
         relation.__post_init__()
         if upstream is not None or relation.state is not pre_window_state:
             raise ValueError("Unavailable set body must retain its exact base state.")
@@ -2750,6 +2772,18 @@ def _build_project_module_semantic_fact_set(
                         helper_diagnostics=values_diagnostics(definition),
                     )
                     pre_window_state = base_row_fact.state
+                elif type(definition) is TableFunctionRelationDef:
+                    semantic_fact = ProjectModuleRelationSemanticFacts(
+                        owner=owner,
+                        base_row_fact=base_row_fact,
+                        resolution=None,
+                        input_state=None,
+                        base_result_state=None,
+                        state=base_row_fact.state,
+                        let_scope_facts=None,
+                        helper_diagnostics=table_function_diagnostics(definition),
+                    )
+                    pre_window_state = base_row_fact.state
                 elif type(definition) is SourceDef:
                     semantic_fact = ProjectModuleRelationSemanticFacts(
                         owner=owner,
@@ -2860,7 +2894,14 @@ def _build_project_module_semantic_fact_set(
             occurrence
             for occurrence in catalog.relation_owners
             if type(occurrence.definition)
-            in {SourceDef, TableDef, QueryDef, SetRelationDef, ValuesRelationDef}
+            in {
+                SourceDef,
+                TableDef,
+                QueryDef,
+                SetRelationDef,
+                ValuesRelationDef,
+                TableFunctionRelationDef,
+            }
         )
         ordered = tuple(
             next(fact for fact in built_for_module if fact.owner is owner)
@@ -2972,9 +3013,9 @@ def _capture_environment(
     that field is, or when an outer JOIN may null-extend its binding. An outer
     input that does not resolve yields unknown types (its own diagnostic is the
     root); one not yet built makes the let wait; a field of one whose row is
-    not concrete here (a set, an authored JOIN, a typed VALUES body, a relation
-    reading one of them, or one whose own errors leave its row unknown) is
-    refused, like a scalar read.
+    not concrete here (a set, an authored JOIN, a typed VALUES body, a table
+    function, a relation reading one of them, or one whose own errors leave
+    its row unknown) is refused, like a scalar read.
     """
 
     let = owner.authored_block
@@ -3176,9 +3217,9 @@ def _scalar_read_facts(
                 value_type = typed if typed.kind is ValueTypeKind.KNOWN else None
         elif target is not None:
             # A read block whose row is not concrete here (a set, an authored
-            # JOIN, a relation over one of them or a VALUES body, or one whose
-            # own errors leave its row unknown) has no column type, so the read
-            # is never left untyped.
+            # JOIN, a relation over one of them, a VALUES body or a table
+            # function, or one whose own errors leave its row unknown) has no
+            # column type, so the read is never left untyped.
             diagnostic = _scalar_read_diagnostic(
                 expression,
                 "PIE-S2348",
@@ -3352,7 +3393,10 @@ def _build_derived_relation_facts(
         _RelationDefinition,
         resolution.target_symbol.target_occurrence.definition,
     )
-    if isinstance(upstream_definition, (SetRelationDef, ValuesRelationDef)):
+    if isinstance(
+        upstream_definition,
+        (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef),
+    ):
         raise ValueError("Set input cannot supply a concrete semantic row.")
     upstream_symbol = _project_symbol_for_resolution(resolution)
     let_scope = build_project_relation_let_scope_facts(

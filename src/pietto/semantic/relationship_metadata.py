@@ -11,6 +11,7 @@ from pietto.ast_nodes import (
     Script,
     SourceDef,
     TableDef,
+    TableFunctionRelationDef,
     ValuesRelationDef,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -22,7 +23,9 @@ from pietto.semantic.model import (
 
 def check_relationship_metadata(
     script: Script,
-    relation_symbols: Mapping[str, Definition | ValuesRelationDef],
+    relation_symbols: Mapping[
+        str, Definition | ValuesRelationDef | TableFunctionRelationDef
+    ],
 ) -> tuple[tuple[RelationshipSemanticInfo, ...], tuple[Diagnostic, ...]]:
     """Validate relationship metadata and build readonly semantic facts."""
 

@@ -28,6 +28,7 @@ from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
 from pietto._project.project_final_outputs import ProjectCompletedValuesOutput
+from pietto._project.project_values import ProjectValuesRelation
 from pietto.ast_nodes import ValuesRelationDef
 
 HEAD = """shape Row:
@@ -120,6 +121,7 @@ def test_a_values_body_is_a_typed_zero_input_relation(tmp_path: Path) -> None:
         ),
     ]
     # Rows keep source order and duplicates; a signed number is one literal.
+    assert isinstance(entry.root, ProjectValuesRelation)
     assert entry.root.rows == (
         (-(1 << 63), -2.5, True, "it's"),
         (1, None, False, None),
@@ -138,6 +140,7 @@ def test_a_zero_row_header_keeps_its_complete_typed_schema(tmp_path: Path) -> No
         for e in completed.effective_outputs.entries
         if type(e) is ProjectCompletedValuesOutput
     )
+    assert isinstance(entry.root, ProjectValuesRelation)
     assert entry.root.rows == ()
     assert tuple(entry.schema.fields) == ("id", "t")
 

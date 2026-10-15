@@ -699,7 +699,7 @@ class _Export:
         """One zero-input typed VALUES unit with its fixed cells inline."""
         from pietto._project.project_sql_emission_contract import canonical
 
-        address = self.reserve("values")
+        address = self.reserve("values" if unit.function is None else "table_function")
         self.units[id(unit)] = address
         fields, ports = [], []
         for column in unit.columns:
@@ -731,19 +731,29 @@ class _Export:
                 self.add("port", address, column.ordinal, column.label, field, logical)
             )
         self.unit_ports[id(unit)] = tuple(ports)
-        cells = tuple(
-            tuple(
-                None if value is None else Scalar(column.realization.tag, value)
-                for column, value in zip(unit.columns, row, strict=True)
-            )
-            for row in unit.rows
-        )
         layout = (
             None if unit.symbol is None else unit.symbol.name,
             tuple(c.name for c in unit.cte_columns),
             unit.scope.name,
             unit.final,
             position,
+        )
+        if unit.function is not None:
+            return self.finish(
+                address,
+                self.declaration(unit.definition.original.entry.owner),
+                unit.function,
+                tuple(Scalar("Int", value) for value in unit.arguments),
+                tuple(fields),
+                tuple(ports),
+                layout,
+            )
+        cells = tuple(
+            tuple(
+                None if value is None else Scalar(column.realization.tag, value)
+                for column, value in zip(unit.columns, row, strict=True)
+            )
+            for row in unit.rows
         )
         return self.finish(
             address,

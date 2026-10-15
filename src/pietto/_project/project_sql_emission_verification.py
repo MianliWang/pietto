@@ -70,6 +70,7 @@ from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
 from pietto import ast_nodes
 from pietto.ast_nodes import (
+    TableFunctionRelationDef,
     AuthoredJoinKind,
     BinaryExpr,
     BetweenExpr,
@@ -3955,6 +3956,11 @@ def _verify_values_unit(request, unit, definition, body, position, last, state):
         (c for c in plan.values_columns if c.body is body.ref),
         key=lambda c: c.position,
     )
+    if type(authored) is TableFunctionRelationDef or body.function is not None:
+        _verify_function_unit(
+            request, unit, definition, body, columns, position, last, state
+        )
+        return
     if (
         type(unit) is not valuing.ValuesBody
         or unit.definition is not definition
@@ -3965,6 +3971,11 @@ def _verify_values_unit(request, unit, definition, body, position, last, state):
         or unit.predicate is not None
         or unit.aggregation is not None
         or unit.window is not None
+        # A VALUES unit is never a table function, whatever its rows look like.
+        or unit.function is not None
+        or unit.arguments != ()
+        or body.arguments != ()
+        or body.row_count is not None
         or authored is not definition.original.entry.owner.definition
         or relation.diagnostics
         or unit.rows is not body.rows
@@ -4040,6 +4051,97 @@ def _verify_values_unit(request, unit, definition, body, position, last, state):
         raise ValueError("values terminals")
     _verify_body_scope(unit, position, state)
     state["nodes"] += 2 + len(unit.columns) * (1 + len(unit.rows))
+
+
+def _verify_function_unit(
+    request, unit, definition, body, columns, position, last, state
+):
+    """Independent table-function correspondence from the authored call.
+
+    The function identity, three values and row bound are re-derived from the
+    AST; the unit is one PostgreSQL CTE of exactly one non-null Int column.
+    """
+    from pietto._project.project_query_block_ir_verification import (
+        table_function_facts,
+    )
+
+    authored = body.relation.definition
+    facts = table_function_facts(authored)
+    exports = definition.original.exports
+    if (
+        facts is None
+        or authored is not definition.original.entry.owner.definition
+        or request.family != "postgres"
+        or type(unit) is not valuing.ValuesBody
+        or unit.definition is not definition
+        or unit.body is not body
+        or unit.index != position
+        or unit.final
+        or last
+        or definition.original.entry.owner is request.plan.scope.selected_owner
+        or unit.predicate is not None
+        or unit.aggregation is not None
+        or unit.window is not None
+        or unit.rows != ()
+        or body.rows != ()
+        or unit.function != facts[0]
+        or body.function != facts[0]
+        or unit.function != valuing.SERIES_IDENTITY
+        or unit.arguments != facts[1]
+        or body.arguments != facts[1]
+        or any(type(value) is not int for value in unit.arguments)
+        or body.row_count != facts[2]
+        or tuple(c.ref for c in columns) != tuple(body.columns)
+        or len(columns) != 1
+        or len(unit.columns) != 1
+        or len(exports) != 1
+        or len(definition.terminals) != 1
+        or any(
+            u.original.consumer is definition.original.ref for u in request.layout.uses
+        )
+        or type(unit.scope) is not SQLSymbol
+        or unit.scope.position != 0
+        or unit.scope.binding is not body.ref
+        or unit.scope.name != authored.name
+        or not identifier_valid(authored.name, "postgres")
+    ):
+        raise ValueError("table function unit placement")
+    realized, column, export, terminal = (
+        unit.columns[0],
+        columns[0],
+        exports[0],
+        definition.terminals[0],
+    )
+    storage, realization = _values_column_realization("Int", False, (), "postgres")
+    if (
+        type(realized) is not valuing.ValuesOutputColumn
+        or realized.ordinal != 0
+        or realized.source is not column
+        or realized.export is not export
+        or realized.output is not terminal
+        or column.output is not terminal.ref
+        or terminal.canonical is not export
+        or column.position != 0
+        or column.source.name != authored.name
+        or column.source.logical_type != "Int"
+        or column.source.nullable
+        or storage != valuing.SERIES_PHYSICAL
+        or realized.physical != storage
+        or not _same_realization(realized.realization, realization)
+        or realized.label != "c0"
+        or realized.symbol.position != 1
+        or realized.symbol.binding is not export.ref
+        or realized.symbol.name != "c0"
+        or not _same_read(
+            realized.column, rows.StageColumn(0, "c0", terminal.ref, realization)
+        )
+    ):
+        raise ValueError("table function column")
+    state["symbols"].append(realized.symbol)
+    if unit.terminals != tuple(definition.terminals):
+        raise ValueError("table function terminals")
+    _verify_body_scope(unit, position, state)
+    state["nodes"] += 2 + len(unit.columns) + len(unit.arguments)
 
 
 def verify_row_query(request, query, *, _guarded=None):
@@ -6033,9 +6135,44 @@ def verify_row_bytes(query, rendered):
                 if position < count - 1:
                     take("syntax", "set_fold_close", reference, ")")
 
+        def function_select(unit):
+            reference = unit.body.ref
+            (column,) = unit.columns
+            subject = column.source.ref
+            binding = unit.scope.name
+            take("syntax", "select", reference, "SELECT ")
+            take("identifier", "function_scope", subject, binding, identifier=True)
+            take("syntax", "function_qualifier", subject, ".")
+            take("identifier", "function_column", subject, binding, identifier=True)
+            take("syntax", "from", reference, " FROM ")
+            take("syntax", "function", reference, "pg_catalog.generate_series")
+            take("syntax", "function_open", reference, "(")
+            if len(unit.arguments) != 3:
+                raise ValueError("table function arity")
+            for position, value in enumerate(unit.arguments):
+                if position:
+                    take("syntax", "separator", reference, ", ")
+                take("syntax", "anchor_open", reference, "CAST(")
+                take("literal", "Int", reference, str(value))
+                take("syntax", "anchor_close", reference, " AS pg_catalog.int8)")
+            take("syntax", "function_close", reference, ") AS ")
+            take("identifier", "function_alias", reference, binding, identifier=True)
+            take("syntax", "function_columns_open", reference, "(")
+            take(
+                "identifier",
+                "function_column_alias",
+                subject,
+                binding,
+                identifier=True,
+            )
+            take("syntax", "function_columns_close", reference, ")")
+
         def values_select(unit):
             reference = unit.body.ref
             pg = request.family == "postgres"
+            if unit.function is not None:
+                function_select(unit)
+                return
             labelled = not unit.rows or unit.final
             if labelled:
                 take("syntax", "select", reference, "SELECT ")
@@ -6862,6 +6999,12 @@ def verify_row_generated_requirements(request, query, generated):
 
     def values_expectations(unit):
         """Independently list what one VALUES unit's own structures introduce."""
+        if unit.function is not None:
+            expected.append(("table_function", unit.body.ref, "R04", naming))
+            for column in unit.columns:
+                expected.append(("values_column", column.source.ref, "R02", ()))
+            expected.append(("read_only_select_bytes", unit, "R23", ()))
+            return
         expected.append(("values_rows", unit.body.ref, "R04", naming))
         for column in unit.columns:
             expected.append(

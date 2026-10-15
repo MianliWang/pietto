@@ -738,3 +738,118 @@ def test_values_rows_save_ordinarily_but_have_no_recovery_coordinates(
             "PIE-R1004",
             "PUBLIC_R2_VALUES_COORDINATE_BASIS",
         )
+
+
+SERIES_JOIN = """
+query tagged:
+    let steps:
+        from generate_series(1, 3, 1) as n
+        select:
+            n
+    from items
+    inner join steps as s:
+        from items
+        on items.id == s.n
+    select:
+        id
+        step = s.n
+"""
+SERIES_ONLY = """
+query tagged:
+    from generate_series(3, 1, -1) as n
+    select:
+        n
+"""
+
+
+@pytest.mark.parametrize("case", ("postgres_join", "postgres_only"))
+def test_series_rows_save_ordinarily_but_have_no_recovery_coordinates(
+    tmp_path, monkeypatch, case
+):
+    """A generated series row has no source position or token column: an
+    ordinary save is admitted, and save_recoverable and recover are refused
+    before any workspace is opened, even beside a physical source."""
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    body = SERIES_JOIN if case == "postgres_join" else SERIES_ONLY
+    main.write_text(main.read_text(encoding="utf-8") + body, encoding="utf-8")
+    if case == "postgres_only":
+        contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+        contract["sources"] = []
+        (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="tagged",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "4" * 32)
+
+    class Opened(Exception):
+        pass
+
+    def opened(*arguments, **keywords):
+        raise Opened
+
+    monkeypatch.setattr(private_workspace, "open_workspace", opened)
+    monkeypatch.setattr(store, "register_job", opened)
+    request: dict[str, Any] = dict(
+        route="postgres_rows",
+        access=execution.PostgresAccess("127.0.0.1", 5432, "db", "u", "pw"),
+        premise=execution.PostgresDeploymentPremise(
+            ("pg_catalog",) if case == "postgres_only" else ("fixture", "pg_catalog")
+        ),
+    )
+    with pytest.raises(execution.RequestRejected) as reached:
+        execution.save(workspace, query, operation=execution.new_operation(), **request)
+    assert reached.value.code == "PIE-R1009" and "cause=Opened" in str(reached.value)
+    inputs = tuple(
+        execution.R2SourceInput(
+            source.namespace,
+            source.name,
+            "provider",
+            "v1",
+            "r1",
+            source.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for source in query._template.artifact.request.sources
+    )
+    assert len(inputs) == (0 if case == "postgres_only" else 1)
+    r2: dict[str, Any] = dict(
+        query=query,
+        source_requirements=inputs,
+        operation=execution.new_operation(),
+        limits=execution.ExecutionLimits(),
+        **request,
+    )
+    for call in (
+        lambda: execution.save_recoverable(workspace, **r2),
+        lambda: execution.recover(
+            workspace,
+            job="job-" + "5" * 32,
+            generation="gen-" + "6" * 32,
+            checkpoint=None,
+            expected_pin=bundle.pin,
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+            purpose="series recovery",
+            seconds=1,
+            **r2,
+        ),
+    ):
+        with pytest.raises(execution.RequestRejected) as refused:
+            call()
+        assert (refused.value.code, refused.value.detail) == (
+            "PIE-R1004",
+            "PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS",
+        )

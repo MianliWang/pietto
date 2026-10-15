@@ -32,6 +32,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeExpr,
     UnaryExpr,
+    TableFunctionRelationDef,
     ValuesRelationDef,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -49,12 +50,21 @@ from pietto.semantic.model import (
 
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = (
-    SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
+    SourceDef
+    | TableDef
+    | QueryDef
+    | SetRelationDef
+    | ValuesRelationDef
+    | TableFunctionRelationDef
 )
 RelationInputSchemas = (
     Mapping[DerivedRelation, RowSchema]
     | Mapping[DerivedRelation | SetRelationDef, RowSchema]
     | Mapping[DerivedRelation | SetRelationDef | ValuesRelationDef, RowSchema]
+    | Mapping[
+        DerivedRelation | SetRelationDef | ValuesRelationDef | TableFunctionRelationDef,
+        RowSchema,
+    ]
 )
 
 
@@ -334,9 +344,24 @@ def _input_schema(
     target = from_resolutions.get(definition.from_clause)
     if isinstance(target, SourceDef):
         return source_row_schemas[target]
-    if isinstance(target, (TableDef, QueryDef, SetRelationDef, ValuesRelationDef)):
+    if isinstance(
+        target,
+        (
+            TableDef,
+            QueryDef,
+            SetRelationDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+        ),
+    ):
         return cast(
-            Mapping[DerivedRelation | SetRelationDef | ValuesRelationDef, RowSchema],
+            Mapping[
+                DerivedRelation
+                | SetRelationDef
+                | ValuesRelationDef
+                | TableFunctionRelationDef,
+                RowSchema,
+            ],
             relation_row_schemas,
         ).get(target, RowSchema(is_unknown=True))
     return RowSchema(is_unknown=True)

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, SetOperand, ValuesRelationDef
+from pietto.ast_nodes import (
+    SetOperand,
+    SetRelationDef,
+    TableFunctionRelationDef,
+    ValuesRelationDef,
+)
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields as _dataclass_fields, is_dataclass
@@ -44,6 +49,7 @@ from pietto._project.module_catalog import (
     RelationReadExpression,
     relation_read_expressions,
     relation_reads,
+    table_function_input,
 )
 from pietto._project.module_exports import (
     ProjectModuleExportIssue,
@@ -104,7 +110,14 @@ _COLLISION_ISSUE_STATUSES = frozenset(
         ProjectModuleBindingIssueStatus.IMPORT_BINDING_COLLISION,
     }
 )
-_DefinitionT = SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef
+_DefinitionT = (
+    SourceDef
+    | TableDef
+    | QueryDef
+    | SetRelationDef
+    | ValuesRelationDef
+    | TableFunctionRelationDef
+)
 _KeyT = TypeVar("_KeyT")
 _ObjectT = TypeVar("_ObjectT")
 _ValueT = TypeVar("_ValueT")
@@ -612,6 +625,8 @@ class ProjectModuleRelationResolutionEnvironment:
     let_symbols: tuple[ProjectResolvedModuleRelationSymbol, ...] = ()
     blocked_let_scopes: tuple[tuple[int, str], ...] = ()
     expression_reads: tuple[ProjectResolvedExpressionBlockRead, ...] = ()
+    # One symbol per table-function occurrence, bound only to its own reader.
+    table_function_symbols: tuple[ProjectResolvedModuleRelationSymbol, ...] = ()
     _symbols_by_name: Mapping[str, tuple[ProjectResolvedModuleRelationSymbol, ...]] = (
         field(init=False, repr=False, compare=False, hash=False)
     )
@@ -675,6 +690,22 @@ class ProjectModuleRelationResolutionEnvironment:
             for item in self.expression_reads
         ):
             raise ValueError("Expression reads must be module-local.")
+        _require_tuple_items(
+            self.table_function_symbols,
+            ProjectResolvedModuleRelationSymbol,
+            "Relation environment table-function symbols",
+        )
+        if any(
+            symbol.local_occurrence is None
+            or symbol.local_occurrence.table_function is None
+            or symbol.owning_module_path != self.module.path
+            for symbol in self.table_function_symbols
+        ) or len({id(s.local_occurrence) for s in self.table_function_symbols}) != len(
+            self.table_function_symbols
+        ):
+            raise ValueError(
+                "Table-function symbols must retain their module-local occurrence."
+            )
         if type(self.blocked_let_scopes) is not tuple or any(
             type(item) is not tuple
             or len(item) != 2
@@ -741,6 +772,7 @@ class ProjectModuleRelationResolutionEnvironment:
                 QueryDef,
                 SetRelationDef,
                 ValuesRelationDef,
+                TableFunctionRelationDef,
             }:
                 raise ValueError("Relation row fact requires a relation definition.")
             row_facts.setdefault(cast(_DefinitionT, definition), []).append(fact)
@@ -837,6 +869,7 @@ class ProjectModuleRelationResolutionEnvironment:
             QueryDef,
             SetRelationDef,
             ValuesRelationDef,
+            TableFunctionRelationDef,
         }:
             raise TypeError("Row-fact lookup requires a relation definition.")
         return self._row_facts_by_definition.get(definition, ())
@@ -948,6 +981,9 @@ class _RelationResolutionDraft:
     let_symbols: list[ProjectResolvedModuleRelationSymbol] = field(default_factory=list)
     blocked_let_scopes: set[tuple[int, str]] = field(default_factory=set)
     expression_reads: list[ProjectResolvedExpressionBlockRead] = field(
+        default_factory=list
+    )
+    table_function_symbols: list[ProjectResolvedModuleRelationSymbol] = field(
         default_factory=list
     )
 
@@ -1062,6 +1098,7 @@ def _build_project_module_relation_resolution_set(
             let_symbols=tuple(draft.let_symbols),
             blocked_let_scopes=tuple(sorted(draft.blocked_let_scopes)),
             expression_reads=tuple(draft.expression_reads),
+            table_function_symbols=tuple(draft.table_function_symbols),
         )
         environments.append(environment)
         environment_by_path[module.path] = environment
@@ -1241,9 +1278,7 @@ def _let_scope_reads(
 ) -> tuple[tuple[ProjectDeclarationOccurrence, str], ...]:
     """Return every relation-name read written in one declaration scope."""
 
-    return tuple(
-        (owner, name) for owner in owners for name in relation_reads(owner.definition)
-    )
+    return tuple((owner, name) for owner in owners for name in relation_reads(owner))
 
 
 def _let_nesting_depths(
@@ -1330,6 +1365,14 @@ def _collect_let_symbols(draft: _RelationResolutionDraft) -> None:
                 for join in cast(TableDef | QueryDef, owner.definition).join_clauses
                 if join.target_binding_name == name
                 and join.target_relation_name != name
+            )
+            # A table-function binding names rows of its body like a JOIN
+            # binding, so it shares this scope too.
+            others += tuple(
+                _location(clause.span, fallback_path=draft.module.path)
+                for owner in (*lets, occurrence)
+                if (clause := table_function_input(owner.authored)) is not None
+                and clause.binding_name == name
             )
             others += tuple(imported.get(name, ()))
             if len(items) > 1 or others:
@@ -1578,6 +1621,18 @@ def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
         )
         draft.references.append(reference)
         local_name = relation_definition.from_clause.source_name
+        function = draft.catalog.find_table_function(occurrence)
+        if function is not None:
+            # The reader of a table-function input is bound to that exact
+            # occurrence; its binding is never looked up in any scope.
+            symbol = _local_relation_symbol(draft.module.path, function)
+            draft.table_function_symbols.append(symbol)
+            draft.resolutions.append(
+                ProjectResolvedModuleRelationReference(
+                    reference=reference, target_symbol=symbol
+                )
+            )
+            continue
         scope = (occurrence.declaration_position, local_name)
         if scope in draft.blocked_let_scopes:
             continue
@@ -2080,7 +2135,11 @@ def _build_module_row_facts(
         )
 
     for occurrence in draft.catalog.relation_owners:
-        if type(occurrence.definition) in {SetRelationDef, ValuesRelationDef}:
+        if type(occurrence.definition) in {
+            SetRelationDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+        }:
             draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
                 owner=occurrence,
                 state=_blocked_state(

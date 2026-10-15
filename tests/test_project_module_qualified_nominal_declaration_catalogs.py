@@ -393,6 +393,7 @@ def test_module_catalog_is_frozen_slotted_tuple_backed_and_retains_exact_owner()
         "module",
         "occurrences",
         "lets",
+        "table_functions",
     )
     assert not hasattr(catalog, "__dict__")
     assert catalog.module is module
@@ -882,6 +883,7 @@ def test_private_catalog_surface_and_package_version_remain_exact() -> None:
         "definition",
         "let_position",
         "authored_block",
+        "table_function",
     )
     assert tuple(
         field.name for field in fields(module_catalog.ProjectModuleCatalog)
@@ -889,6 +891,7 @@ def test_private_catalog_surface_and_package_version_remain_exact() -> None:
         "module",
         "occurrences",
         "lets",
+        "table_functions",
     )
     assert tuple(
         field.name for field in fields(module_catalog.ProjectModuleCatalogSet)

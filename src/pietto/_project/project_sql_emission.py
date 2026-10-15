@@ -888,7 +888,7 @@ def _document(outcome, artifact, request, columns, source_map, slots):
             evidence = resulting.requirement_evidence(artifact.ast, item)
         elif item.kind in {"set_operation", "set_row_equivalence", "set_column"}:
             evidence = setting.requirement_evidence(artifact.ast, item)
-        elif item.kind in {"values_rows", "values_column"}:
+        elif item.kind in {"values_rows", "values_column", "table_function"}:
             evidence = valuing.requirement_evidence(artifact.ast, item)
         requirements.append(
             {
@@ -949,6 +949,7 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "set_row_equivalence",
                     "values_rows",
                     "values_column",
+                    "table_function",
                 }
                 else {"kind": item.kind, "position": i},
                 "rule": item.rule,

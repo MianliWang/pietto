@@ -63,8 +63,24 @@ MEMBER_KINDS = {
     "outputs": frozenset({"output"}),
 }
 RELATIONS = frozenset(
-    {"source", "scan", "row", "join", "aggregate", "window", "result", "set", "values"}
+    {
+        "source",
+        "scan",
+        "row",
+        "join",
+        "aggregate",
+        "window",
+        "result",
+        "set",
+        "values",
+        "table_function",
+    }
 )
+# The one admitted table function and its static row bound (D70.05, D70.07).
+SERIES_IDENTITY = (
+    "pg_catalog.generate_series(pg_catalog.int8,pg_catalog.int8,pg_catalog.int8)"
+)
+SERIES_MAX_ROWS = 1_048_576
 VALUES_LOGICAL = tuple(
     (tag, nullability)
     for tag in ("Int", "Bool", "Float", "Text")
@@ -426,7 +442,7 @@ def verify_description(value: Description) -> None:
                 "SOURCE_UNIQUE",
             )
         elif kind == "field":
-            holder = ref(get("source"), {"source", "values"})
+            holder = ref(get("source"), {"source", "values", "table_function"})
             need(type(get("ordinal")) is int and get("ordinal") >= 0, "FIELD")
             need(type(get("label")) is str, "FIELD")
             physical_mapping = get("physical") is not None
@@ -468,7 +484,7 @@ def verify_description(value: Description) -> None:
                 "FIELD_MEANING",
             )
 
-            if holder.address.kind == "values":
+            if holder.address.kind in ("values", "table_function"):
                 # A VALUES column is no contract source field: its values record
                 # re-derives its whole representation from the fixed cells.
                 columns = holder.get("fields")
@@ -989,6 +1005,8 @@ def verify_description(value: Description) -> None:
                 and type(layout[4]) is int,
                 "VALUES_LAYOUT",
             )
+        elif kind == "table_function":
+            _verify_table_function_record(record, ref, refs, family)
         elif kind == "window":
             ref(get("owner"), {"declaration"})
             ref(get("input"), RELATIONS)
@@ -1619,10 +1637,20 @@ def verify_description(value: Description) -> None:
     def coordinates(record):
         return tuple(record.get(n) for n in ("module", "module_position", "position"))
 
+    # A table-function declaration shares its reader's coordinates and `let`:
+    # it is no block or let of its own, and only that reader reads it: every
+    # unit reading its call is the reader's.
+    functions = {records[a].get("owner") for a in records if a.kind == "table_function"}
+    calls = {
+        records[producer].get("owner"): records[consumer].get("owner")
+        for consumer, producers in incoming.items()
+        for producer in producers
+        if producer.kind == "table_function"
+    }
     blocks: dict[tuple, list[Record]] = {}
     lets: dict[tuple, set[Address]] = {}
     for record in records.values():
-        if record.address.kind == "declaration":
+        if record.address.kind == "declaration" and record.address not in functions:
             if record.get("let") is None:
                 blocks.setdefault(coordinates(record), []).append(record)
             else:
@@ -1657,7 +1685,23 @@ def verify_description(value: Description) -> None:
         for owner in owners:
             record = records[owner]
             place = coordinates(record)
-            if record.get("let") is None:
+            if owner in functions:
+                readers = [
+                    a
+                    for a in (
+                        [p.address for p in blocks.get(place, ())]
+                        if record.get("let") is None
+                        else lets.get(place, ())
+                    )
+                    if records[a].get("let") == record.get("let")
+                ]
+                need(
+                    len(readers) == 1
+                    and readers[0] in owners
+                    and calls.get(owner) == readers[0],
+                    "DECLARATION",
+                )
+            elif record.get("let") is None:
                 need(lets.get(place, set()) <= owners, "DECLARATION")
             else:
                 parents = blocks.get(place, [])
@@ -2748,6 +2792,35 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         producer,
                         address,
                     )
+            return
+        if record.address.kind == "table_function":
+            from pietto._project.project_query_block_ir_verification import (
+                table_function_facts,
+            )
+
+            authored = unit.definition.original.entry.owner.definition
+            facts = table_function_facts(authored)
+            (field,) = (records[a] for a in record.get("fields"))
+            (column,) = unit.columns
+            need(
+                type(unit) is valuing.ValuesBody
+                and facts is not None
+                and unit.function == facts[0] == record.get("function")
+                and unit.arguments == facts[1]
+                and tuple(cell.value for cell in record.get("arguments")) == facts[1]
+                and field.get("label") == authored.name == unit.scope.name
+                and records[record.get("outputs")[0]].get("label") == column.label
+                and not any(r.get("consumer") == record.address for r in grouped["use"])
+                and record.get("layout")
+                == (
+                    None if unit.symbol is None else unit.symbol.name,
+                    tuple(c.name for c in unit.cte_columns),
+                    unit.scope.name,
+                    unit.final,
+                    index_of[id(unit)],
+                ),
+                "EXPORT_TABLE_FUNCTION",
+            )
             return
         if record.address.kind == "values":
             from pietto._project.project_sql_emission_contract import canonical
@@ -3877,6 +3950,10 @@ def _verify_compiled_emission(artifact, request):
             )
             observed_bodies[record.address] = body
             return
+        if record.address.kind == "table_function":
+            verify_compiled_function_unit(body, record, request)
+            observed_bodies[record.address] = body
+            return
         if record.address.kind == "values":
             verify_compiled_values_unit(body, record, request)
             observed_bodies[record.address] = body
@@ -4685,6 +4762,133 @@ def verify_compiled_set_unit(body, record, request, produced, sources, bindings)
         )
 
 
+def _series_rows(arguments):
+    """Rows of one admitted series from its three record values alone."""
+    start, stop, step = arguments
+    if (step > 0 and start > stop) or (step < 0 and start < stop):
+        return 0
+    return abs(stop - start) // abs(step) + 1
+
+
+def _verify_table_function_record(record, ref, refs, family):
+    """Identity, three values, row bound, its one column and layout, re-derived."""
+    from pietto._project.project_sql_emission_contract import canonical
+    from pietto._project.project_sql_emission_verification import (
+        _values_column_realization,
+    )
+
+    get = record.get
+    owner = ref(get("owner"), {"declaration"})
+    fields = refs(get("fields"), {"field"})
+    outputs = refs(get("outputs"), {"port"})
+    arguments = get("arguments")
+    need(
+        family == "postgres"
+        and get("function") == SERIES_IDENTITY
+        and type(arguments) is tuple
+        and len(arguments) == 3
+        and all(
+            type(cell) is Scalar
+            and cell.tag == "Int"
+            and type(cell.value) is int
+            and -(2**63) <= cell.value <= 2**63 - 1
+            for cell in arguments
+        ),
+        "TABLE_FUNCTION",
+    )
+    values = tuple(cast(Scalar, cell).value for cell in arguments)
+    need(
+        values[2] != 0 and _series_rows(values) <= SERIES_MAX_ROWS,
+        "TABLE_FUNCTION_ROWS",
+    )
+    _, derived = _values_column_realization("Int", False, (), family)
+    layout = get("layout")
+    need(
+        len(fields) == len(outputs) == 1
+        and fields[0].get("source") == record.address
+        and fields[0].get("ordinal") == 0
+        and fields[0].get("column") == "c0"
+        and fields[0].get("label") == owner.get("label")
+        and fields[0].get("logical") == ("Int", "non_null")
+        and fields[0].get("decimal") is None
+        and fields[0].get("meaning") is None
+        and fields[0].get("physical")
+        == canonical(
+            {
+                "storage": derived.storage,
+                "nullable": derived.nullable,
+                "domain": derived.domain,
+            }
+        ).decode("utf-8")
+        and outputs[0].get("owner") == record.address
+        and outputs[0].get("ordinal") == 0
+        and outputs[0].get("source") == fields[0].address
+        and outputs[0].get("logical") == ("Int", "non_null")
+        and (owner.get("namespace"), owner.get("kind")) == ("relation", "query")
+        and type(layout) is tuple
+        and len(layout) == 5
+        and type(layout[0]) is str
+        and layout[1] == ("c0",)
+        and layout[2] == owner.get("label")
+        and layout[3] is False
+        and type(layout[4]) is int,
+        "TABLE_FUNCTION_LAYOUT",
+    )
+
+
+def verify_compiled_function_unit(body, record, request):
+    """A compiled table-function unit renders exactly its record's call."""
+    from pietto._project import project_sql_emission_values as valuing
+
+    plan = request.plan
+    records, refs = plan.ir.completed.root.records, plan.references
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    name, labels, alias, final, index = record.get("layout")
+    arguments = tuple(cell.value for cell in record.get("arguments"))
+    (field,) = record.get("fields")
+    (address,) = record.get("outputs")
+    port, fact = plan.ports[address], facts[address]
+    need(
+        request.family == "postgres"
+        and type(body) is valuing.ValuesBody
+        and type(body.body) is valuing.CompiledValuesSubject
+        and body.body.ref is refs[record.address]
+        and body.function == record.get("function") == SERIES_IDENTITY
+        and body.arguments == arguments
+        and len(arguments) == 3
+        and arguments[2] != 0
+        and _series_rows(arguments) <= SERIES_MAX_ROWS
+        and body.rows == ()
+        and body.index == index
+        and body.final is final is False
+        and body.symbol is not None
+        and body.symbol.name == name
+        and tuple(c.name for c in body.cte_columns) == labels == ("c0",)
+        and body.scope.name == alias == records[field].get("label")
+        and body.scope.binding is refs[record.address]
+        and len(body.columns) == len(body.terminals) == 1,
+        "TABLE_FUNCTION_UNIT",
+    )
+    (column,) = body.columns
+    need(
+        type(column) is valuing.ValuesOutputColumn
+        and column.ordinal == 0
+        and column.source.ref is refs[field]
+        and column.source.name == records[field].get("label")
+        and column.export is column.output is body.terminals[0] is port
+        and column.label == port.identity.name
+        and column.symbol.name == column.label
+        and column.symbol.binding is port.ref
+        and column.column.terminal is port.ref
+        and column.realization is column.column.realization is fact.realization
+        and column.physical == valuing.SERIES_PHYSICAL
+        and column.physical == fact.realization.storage.get("kind")
+        and fact.realization.tag == "Int"
+        and fact.realization.nullable is False,
+        "TABLE_FUNCTION_COLUMN",
+    )
+
+
 def verify_compiled_values_unit(body, record, request):
     """A compiled VALUES unit renders exactly its record's typed fixed rows."""
     from pietto._project import project_sql_emission_values as valuing
@@ -4698,6 +4902,8 @@ def verify_compiled_values_unit(body, record, request):
         type(body) is valuing.ValuesBody
         and type(body.body) is valuing.CompiledValuesSubject
         and body.body.ref is refs[record.address]
+        and body.function is None
+        and body.arguments == ()
         and body.index == index
         and body.final is final
         and (None if body.symbol is None else body.symbol.name) == name

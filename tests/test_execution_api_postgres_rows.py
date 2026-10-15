@@ -438,14 +438,15 @@ def test_compile_refusals_are_the_project_command_documents(tmp_path):
 def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
     tmp_path,
 ):
-    """A relation let whose table-function FROM input is not yet admitted,
-    anywhere in the project, blocks compilation with the command's own BLOCKED
-    document, never an internal PIE-R1999 refusal."""
+    """A query header that is not yet admitted beside a relation let reading a
+    table function, anywhere in the project, blocks compilation with the
+    command's own BLOCKED document, never an internal PIE-R1999 refusal."""
     project = api.write_example(tmp_path)
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + "\nquery gated:\n    let l:\n        from generate_series(1, 3, 1) as n\n"
+        + "\nquery gated(k: Int not null):\n    let l:\n"
+        "        from generate_series(1, 3, 1) as n\n"
         "        select:\n            n\n    from l\n    select:\n        n\n"
     )
     with pytest.raises(execution.CompileRejected) as refused:
@@ -453,7 +454,7 @@ def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
     assert refused.value.status == "BLOCKED"
     assert refused.value.emission == emit(project).stdout
     document = json.loads(refused.value.emission)
-    assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2352"]
+    assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2346"]
 
 
 SINCE = """

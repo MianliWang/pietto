@@ -88,7 +88,7 @@ def test_only_an_explicit_module_project_admits_a_header(tmp_path: Path) -> None
         ),
         (
             "    from generate_series(1, 31, 1) as n\n    select:\n        n\n",
-            [("PIE-S2346", 1), ("PIE-S2352", 2)],
+            [("PIE-S2346", 1)],
         ),
     ),
     ids=("let_set_operation", "set_operation", "values", "table_function"),
@@ -101,6 +101,41 @@ def test_a_header_without_a_relation_from_body_stays_unadmitted(
     assert [
         (d.code, d.location.line - FIRST + 1) for d in parsed.diagnostics
     ] == expected
+
+
+SERIES_LET_READS = (
+    "        where n > cutoff\n"
+    "        select:\n"
+    "            n\n"
+    "            cutoff\n"
+    "        limit cutoff\n"
+)
+
+
+@pytest.mark.parametrize(
+    "series",
+    (SERIES_LET_READS, "        select:\n            n\n"),
+    ids=("reads_the_header", "reads_no_parameter"),
+)
+def test_a_let_reading_a_table_function_keeps_the_header_unadmitted(
+    tmp_path: Path, series: str
+) -> None:
+    """Like a table-function body of its own, a let that reads one keeps every
+    parameter PIE-S2346, whether or not the let reads it, and no other
+    parameter diagnostic is reported beside it."""
+    body = (
+        "query q(cutoff: Int not null, label2: Text nullable):\n"
+        "    let s:\n        from generate_series(1, 5, 1) as n\n"
+        + series
+        + "    let a:\n        from rows\n        where label == label2\n"
+        "        select:\n            id\n"
+        "    from a\n    where id in s\n    select:\n        id\n"
+    )
+    unadmitted = "Query header parameter semantics are not implemented."
+    assert _check(_project(tmp_path, body), messages=True) == (
+        1,
+        [("PIE-S2346", unadmitted, 1, 9), ("PIE-S2346", unadmitted, 1, 31)],
+    )
 
 
 @pytest.mark.parametrize(

@@ -196,10 +196,17 @@ class SourceQualification:
     # root and no relation catalog was checked.
     relation_roots: str = field(init=False)
     relation_catalog: str = field(init=False)
+    # A table function's identity is fixed by its schema-qualified, explicitly
+    # cast emission; no catalog check repeats it (D70.05).
+    function_identity: str = field(init=False)
+    function_catalog: str = field(init=False)
 
     def __post_init__(self):
         object.__setattr__(self, "relation_roots", _relation_roots(self.roots))
         object.__setattr__(self, "relation_catalog", _relation_catalog(self.roots))
+        functions = _table_functions(self.request)
+        object.__setattr__(self, "function_identity", _function_identity(functions))
+        object.__setattr__(self, "function_catalog", _function_catalog(functions))
 
     def verify(self, owner):
         from pietto._project.project_execution_postgres_adbc import (
@@ -223,6 +230,10 @@ class SourceQualification:
             or self.native_lifetime_protection != "NOT_DEMONSTRATED"
             or self.relation_roots != _relation_roots(self.roots)
             or self.relation_catalog != _relation_catalog(self.roots)
+            or self.function_identity
+            != _function_identity(_table_functions(owner.request))
+            or self.function_catalog
+            != _function_catalog(_table_functions(owner.request))
         ):
             raise ExecutionError("POSTGRES_SOURCE_QUALIFICATION_IDENTITY")
         owner._checkpoint()
@@ -249,6 +260,31 @@ def _relation_roots(roots) -> str:
 
 def _relation_catalog(roots) -> str:
     return "CHECKED" if roots else "NOT_CATALOG_CHECKED"
+
+
+def _table_functions(request) -> bool:
+    """Whether the statement reads a table function: a compiled one by its
+    records, an original one by its verified plan. verify() compares this with
+    the owner's own request, so a detached record never passes."""
+    from pietto._project.project_sql_emission_contract import (
+        CompiledPreparedEmission,
+    )
+
+    if request is None:
+        return False
+    emission = request.artifact.request
+    if type(emission) is CompiledPreparedEmission:
+        records = emission.verification.completed.root.records
+        return any(address.kind == "table_function" for address in records)
+    return any(body.function is not None for body in emission.plan.values_bodies)
+
+
+def _function_identity(functions: bool) -> str:
+    return "FIXED_BY_QUALIFIED_EMISSION" if functions else "NONE"
+
+
+def _function_catalog(functions: bool) -> str:
+    return "NOT_CATALOG_CHECKED" if functions else "NONE"
 
 
 def qualify_sources(owner):

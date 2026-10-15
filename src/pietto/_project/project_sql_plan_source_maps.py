@@ -11,6 +11,7 @@ from typing import Never, TypedDict
 from pietto import ast_nodes as ast
 from pietto.errors import Diagnostic, SourceLocation
 from pietto._project import project_sql_plan as sql
+from pietto._project.module_catalog import table_function_input
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_literals as literals
 from pietto._project.model import ProjectParsedInput, ProjectRowField
@@ -116,6 +117,8 @@ _KNOWN_NODES = frozenset(
         ast.ValuesRow,
         ast.ValuesRelationDef,
         ast.CaptureClause,
+        ast.TableFunctionFromClause,
+        ast.TableFunctionRelationDef,
         ast.SelectBody,
         ast.Script,
     }
@@ -457,7 +460,11 @@ def membership(plan):
                         declaration=owner,
                     )
                 )
-                if declaration is not None and declaration.authored_block is value:
+                if (
+                    declaration is not None
+                    and declaration.authored is value
+                    and declaration.definition is not value
+                ):
                     view = declaration.definition
                     members.setdefault((module.position, id(view)), []).append(
                         _Member(
@@ -467,6 +474,18 @@ def membership(plan):
                             declaration=owner,
                         )
                     )
+                    if table_function_input(value) is not None:
+                        # The body reads its table-function input through the
+                        # FROM view written at that input's own span.
+                        read = getattr(view, "from_clause")
+                        members.setdefault((module.position, id(read)), []).append(
+                            _Member(
+                                module=module,
+                                node=read,
+                                container=view,
+                                declaration=owner,
+                            )
+                        )
             pending.extend(
                 (child, owner, container) for child in reversed(_children(value))
             )
@@ -573,7 +592,7 @@ def source_tables(plan, members) -> _SourceTables:
             **{
                 _declaration_identity(let): let
                 for catalog in attribution._authority.catalogs.catalogs
-                for let in catalog.lets
+                for let in (*catalog.lets, *catalog.table_functions)
             },
         },
         imports=_buckets(attribution.imports, lambda value: value.identity),

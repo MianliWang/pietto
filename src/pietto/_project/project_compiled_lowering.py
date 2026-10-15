@@ -396,7 +396,16 @@ def emit_compiled(root, values, named=None):
             raise CompiledError("COMPILED_REQUIRED_READ")
         return value.column
 
-    kinds = ("row", "aggregate", "window", "result", "set", "join", "values")
+    kinds = (
+        "row",
+        "aggregate",
+        "window",
+        "result",
+        "set",
+        "join",
+        "values",
+        "table_function",
+    )
     units = tuple(
         r
         for r in records.values()
@@ -490,7 +499,7 @@ def emit_compiled(root, values, named=None):
                 for i, c in enumerate(body.columns)
             )
             return
-        if record.address.kind == "values":
+        if record.address.kind in ("values", "table_function"):
             from pietto._project import project_sql_emission_values as valuing
 
             definition = ScopeDefinition(

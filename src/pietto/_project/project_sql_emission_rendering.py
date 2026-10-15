@@ -1129,6 +1129,9 @@ def _values_select(w: _Writer, unit) -> None:
     """
     reference = unit.body.ref
     family = w.request.family
+    if unit.function is not None:
+        _function_select(w, unit)
+        return
     if not unit.rows or unit.final:
         w.emit("SELECT ", "syntax", "select", reference)
         for position, column in enumerate(unit.columns):
@@ -1191,6 +1194,47 @@ def _values_select(w: _Writer, unit) -> None:
                 w.emit(", ", "syntax", "separator", column.source.ref)
             w.identifier(f"c{position}", "values_column_alias", column.source.ref)
         w.emit(")", "syntax", "values_columns_close", reference)
+
+
+def _function_select(w: _Writer, unit) -> None:
+    """One table-function CTE body: its column read from the qualified call.
+
+    ``SELECT "n"."n" FROM pg_catalog.generate_series(CAST(a AS pg_catalog.int8),
+    ...) AS "n"("n")``: the call is alone in its FROM, so its binding is its
+    alias and its one column name.
+    """
+    reference = unit.body.ref
+    (column,) = unit.columns
+    subject = column.source.ref
+    binding = unit.scope.name
+    w.emit("SELECT ", "syntax", "select", reference)
+    w.identifier(binding, "function_scope", subject)
+    w.emit(".", "syntax", "function_qualifier", subject)
+    w.identifier(binding, "function_column", subject)
+    w.emit(" FROM ", "syntax", "from", reference)
+    w.emit(valuing.SERIES_FUNCTION, "syntax", "function", reference)
+    w.emit("(", "syntax", "function_open", reference)
+    for position, value in enumerate(unit.arguments):
+        if position:
+            w.emit(", ", "syntax", "separator", reference)
+        w.emit("CAST(", "syntax", "anchor_open", reference)
+        w.emit(
+            parameters.scalar_token("Int", value, "postgres"),
+            "literal",
+            "Int",
+            reference,
+        )
+        w.emit(
+            parameters.anchor_suffix(valuing.SERIES_PHYSICAL),
+            "syntax",
+            "anchor_close",
+            reference,
+        )
+    w.emit(") AS ", "syntax", "function_close", reference)
+    w.identifier(binding, "function_alias", reference)
+    w.emit("(", "syntax", "function_columns_open", reference)
+    w.identifier(binding, "function_column_alias", subject)
+    w.emit(")", "syntax", "function_columns_close", reference)
 
 
 def _unit_select(w: _Writer, unit) -> None:

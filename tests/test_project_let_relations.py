@@ -749,14 +749,17 @@ CAPTURE_DIAGNOSTICS = {
         [("PIE-S2370", BODY_SHAPE, 7, 5)],
     ),
     # Capture refusals take one source order with the file's pre-admission
-    # diagnostics; the query header checks follow them.
+    # diagnostics (here the header of a set-operation body); the query header
+    # checks follow them.
     "pre_admission_order": (
         "query p(x: Foo not null):\n    from lhs\n    where id > x\n    select:\n"
         "        id\nquery q:\n    let m:\n        capture nope\n"
-        "        from rhs\n        select:\n            id\n    let t:\n"
-        "        from generate_series(1, 3, 1) as n\n        select:\n"
-        "            n\n    from m\n    where id > 0\n    select:\n"
-        "        a = id\n",
+        "        from rhs\n        select:\n            id\n    from lhs\n"
+        "    where exists m\n    select:\n        a = id\n"
+        "query s(y: Int not null):\n    union all:\n        from lhs\n"
+        "        from rhs\nquery r:\n    let m:\n        capture lhs\n"
+        "        from rhs\n        select:\n            id\n    from m\n"
+        "    select:\n        a = id\n",
         [
             (
                 "PIE-S2366",
@@ -765,12 +768,18 @@ CAPTURE_DIAGNOSTICS = {
                 9,
             ),
             (
-                "PIE-S2352",
-                "Table-function FROM input semantics are not implemented.",
-                18,
+                "PIE-S2346",
+                "Query header parameter semantics are not implemented.",
+                21,
                 9,
             ),
-            ("PIE-S2370", READ_ONLY_BY_EXISTS, 21, 5),
+            (
+                "PIE-S2366",
+                "Capture lhs does not name one FROM or JOIN row input of r.",
+                27,
+                9,
+            ),
+            ("PIE-S2370", READ_ONLY_BY_EXISTS.replace("of q.", "of r."), 31, 5),
             (
                 "PIE-S2353",
                 "Query parameter type must be Bool, Int, Float or Text.",
@@ -1073,6 +1082,80 @@ for _name, _input in OWN_FROM_INPUTS.items():
             ("PIE-S2369", "Captured input lhs has no row field nope.", _line, 34),
         ],
     )
+
+
+# Phase70 S15: a let with capture lines reads a table function through another
+# let; a table function's columns are known only after completion, so a field
+# read of a captured input over one is refused; its binding is no row input,
+# while the JOINs of its body are.
+SERIES_LET = (
+    "    let s:\n        from generate_series(1, 3, 1) as n\n        select:\n"
+    "            id = n\n            key = n\n"
+)
+SERIES_FROM = "    from generate_series(1, 3, 1) as n\n"
+CAPTURE_DIAGNOSTICS |= {
+    "own_from_series": ("query q:\n" + SERIES_LET + OWN_FROM, []),
+    "series_input": (
+        "query q:\n" + SERIES_LET + "    let m:\n        capture s\n        from rhs\n"
+        "        where rhs.key == s.key and rhs.id > s.id\n        select:\n"
+        "            id\n    from s\n    where exists m\n    select:\n        id\n",
+        [
+            (
+                "PIE-S2369",
+                "Captured field s.key is not yet available: the columns of s are "
+                "not known before completion.",
+                15,
+                26,
+            ),
+            (
+                "PIE-S2369",
+                "Captured field s.id is not yet available: the columns of s are "
+                "not known before completion.",
+                15,
+                45,
+            ),
+        ],
+    ),
+    "series_join_binding": (
+        CAPTURE.replace("capture lhs", "capture l")
+        .replace("rhs.key == lhs.key", "rhs.id == l.id")
+        .replace(
+            "    from lhs\n",
+            SERIES_FROM
+            + "    inner join lhs as l:\n        from n\n        on n.n == l.id\n",
+        )
+        .replace("a = lhs.id", "a = n.n"),
+        [],
+    ),
+    "series_binding": (
+        CAPTURE.replace("capture lhs", "capture n")
+        .replace("rhs.key == lhs.key", "rhs.id == n.n")
+        .replace("    from lhs\n", SERIES_FROM)
+        .replace("a = lhs.id", "a = n.n"),
+        [
+            (
+                "PIE-S2366",
+                "Capture n does not name one FROM or JOIN row input of q.",
+                8,
+                9,
+            )
+        ],
+    ),
+    "series_capture_body": (
+        CAPTURE.replace("        from rhs\n", "    " + SERIES_FROM)
+        .replace("rhs.key == lhs.key", "n.n <= lhs.id")
+        .replace("            id\n", "            n\n", 1),
+        [
+            (
+                "PIE-S2370",
+                "Let m with capture lines reads a table function; read it through "
+                "another let.",
+                7,
+                5,
+            )
+        ],
+    ),
+}
 
 
 @pytest.mark.parametrize("case", sorted(CAPTURE_DIAGNOSTICS))

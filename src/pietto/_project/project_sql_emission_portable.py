@@ -302,10 +302,12 @@ def _occurrence(occurrence):
         "module_position": occurrence.module_position,
         "declaration_position": occurrence.declaration_position,
     }
-    # A relation let stays apart from its declaration; a declaration's own
-    # occurrence keeps its existing encoding.
+    # A relation let and a table-function input stay apart from their
+    # declaration; a declaration's own occurrence keeps its existing encoding.
     if occurrence.let_position is not None:
         encoded["let_position"] = occurrence.let_position
+    if occurrence.table_function:
+        encoded["table_function"] = True
     return encoded
 
 

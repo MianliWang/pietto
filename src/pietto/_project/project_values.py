@@ -136,7 +136,7 @@ def _diagnostic(span: Span, code: str, message: str) -> Diagnostic:
     )
 
 
-def _fixed_literal(expression: Expression) -> tuple[bool, ProjectValuesLiteral]:
+def fixed_literal(expression: Expression) -> tuple[bool, ProjectValuesLiteral]:
     """Fold one authored cell: a literal, or a sign directly on a number literal."""
 
     if type(expression) is LiteralExpr:
@@ -232,7 +232,7 @@ def _analyze(
             continue
         values: list[ProjectValuesLiteral] = []
         for cell, column in zip(row.values, columns, strict=True):
-            fixed, value = _fixed_literal(cell)
+            fixed, value = fixed_literal(cell)
             if not fixed:
                 diagnostics.append(
                     _diagnostic(

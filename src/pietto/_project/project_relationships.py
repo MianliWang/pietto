@@ -22,6 +22,7 @@ from pietto.ast_nodes import (
     RelationshipEndpoint,
     RelationshipMetadata,
     Span,
+    TableFunctionRelationDef,
     ValuesRelationDef,
 )
 from pietto.errors import Diagnostic, SourceLocation
@@ -620,7 +621,9 @@ def build_project_relationships(
         if len(matches) != 1 or matches[0].module is not module:
             raise ValueError("Relationship construction requires one module authority.")
         relation_environment = matches[0]
-        relation_symbols: dict[str, Definition | ValuesRelationDef] = {
+        relation_symbols: dict[
+            str, Definition | ValuesRelationDef | TableFunctionRelationDef
+        ] = {
             symbol.local_name: symbol.target_occurrence.definition
             for symbol in relation_environment.symbols
         }

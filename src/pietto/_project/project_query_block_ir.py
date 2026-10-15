@@ -5619,8 +5619,9 @@ def compiled_relational_properties(
             witness=record,
         )
         return properties(classes, retained, _key_fds(output, classes, retained), grain)
-    if kind == "values":
-        # Fixed literal rows carry no row identity: no key, FD or grain claim.
+    if kind in ("values", "table_function"):
+        # Fixed literal or generated rows carry no row identity: no key, FD or
+        # grain claim.
         classes = _singleton_classes(output, fields)
         grain = ProjectIRProvidedIntrinsicGrain(
             output=output,

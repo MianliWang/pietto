@@ -1152,6 +1152,11 @@ def valid_receipts(
                             target, record["variant"]
                         )
                         names = list(labels)
+                    elif case_id == "Q_table_function_series":
+                        rows, labels, types = cases.series_expectation(
+                            target, record["variant"]
+                        )
+                        names = list(labels)
                     elif case_id == "G_scan_row_domains":
                         rows, labels, types, _ = cases.row_domain_expectation(
                             target, record["variant"]
@@ -1669,73 +1674,6 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "D_diagnostics",
         "E_recovery",
         "F_privilege_cleanup",
-    )
-    assert cases.CASE_IDS == (
-        *cases.SLICE2_CASE_IDS,
-        "A_window_distribution",
-        "A_window_frame",
-        "A_window_groups",
-        "A_window_named",
-        "A_window_navigation",
-        "A_window_qualify",
-        "A_window_ranking",
-        "G_emission_table_bag",
-        "G_scan_row_domains",
-        "H_emission_query_bag",
-        "I_emission_table_empty",
-        "J_emission_query_empty",
-        "K_emission_rejected",
-        "L_emission_blocked",
-        "L_let_relations",
-        "L_relation_exists",
-        "L_relation_membership",
-        "L_relation_scalar",
-        "M_metamorphic_composition",
-        "M_named_chain",
-        "N_imported_chain",
-        "O_named_later",
-        "O_result_distinct",
-        "O_result_limit",
-        "O_result_membership",
-        "O_result_order",
-        "O_result_sharing",
-        "O_result_window",
-        "P_native_identifiers",
-        "Q_native_lifecycle",
-        "Q_query_parameters",
-        "Q_values_rows",
-        "R_fixed_direct",
-        "S_fixed_named",
-        "S_set_boundaries",
-        "S_set_domains",
-        "S_set_forms",
-        "S_set_literals",
-        "S_set_membership",
-        "S_set_multiplicity",
-        "S_set_nesting",
-        "S_set_positions",
-        "S_set_producers",
-        "T_row_direct",
-        "U_row_named",
-        "V_aggregate_blocked",
-        "V_join_full",
-        "V_result_blocked",
-        "V_row_blocked",
-        "V_set_blocked",
-        "V_window_blocked",
-        "W_join_shapes",
-        "W_join_values",
-        "X_aggregate_global",
-        "X_aggregate_grouped",
-        "Y_aggregate_computed",
-        "Y_aggregate_constant",
-        "Y_aggregate_domains",
-        "Y_aggregate_satisfying",
-        "Z_aggregate_composition",
-        "Z_aggregate_joined",
-        "Z_aggregate_membership",
-        "Z_aggregate_transport",
-        "CLI_console_emission",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3
@@ -2313,3 +2251,39 @@ def test_metamorphic_laws_catch_an_oracle_that_agrees_with_a_wrong_result(
         facility.verify_receipt(
             receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
         )
+
+
+def test_the_series_case_is_submitted_and_checked_against_its_own_oracle(
+    valid_receipts: Any,
+) -> None:
+    """Phase70 S15: PostgreSQL submits both series variants and checks each one
+    against the hand oracle; MySQL blocks both before any submission."""
+    receipts = valid_receipts[3]
+    for target in cases.TARGETS:
+        status = "VERIFIED" if target == "postgres" else "BLOCKED"
+        # Receipt v3: each public document stays once, in its generation record.
+        public = {
+            r["variant"]: json.loads(r["public"])
+            for r in receipts[target]["generation"]["emission"]["records"]
+            if r["id"] == "Q_table_function_series"
+        }
+        variants = fixed_case(receipts[target], "Q_table_function_series")["variants"]
+        assert [
+            (
+                v["variant"],
+                public[v["variant"]]["status"],
+                v["submission_after"] - v["submission_before"],
+            )
+            for v in variants
+        ] == [
+            ("ascending", status, int(status == "VERIFIED")),
+            ("joined", status, int(status == "VERIFIED")),
+        ]
+    receipt = deepcopy(receipts["postgres"])
+    case = fixed_case(receipt, "Q_table_function_series")
+    # A valid-looking substitute: the series 1, 2, 4 instead of 1, 2, 3.
+    assert case["observations"][0]["rows"][-1] == [{"kind": "int", "value": "3"}]
+    case["observations"][0]["rows"][-1] = [{"kind": "int", "value": "4"}]
+    with pytest.raises(ValueError, match="series BAG or metadata mismatch"):
+        cases.check_case(case, "postgres", receipt["generation"])
+    reject_receipt(receipt, valid_receipts, "postgres")

@@ -19,7 +19,7 @@ PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
 # 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch);
 # 4/4: expression_block_use records (Phase70 S08).
-VERSIONS = (5, 1, 5, 1)  # 5/5: capture records (Phase70 batch 4, S10)
+VERSIONS = (5, 1, 5, 1)  # 5/5: capture and table_function records (batch 4)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20
@@ -167,6 +167,9 @@ FIELDS = {
     # columns (``field.source`` is this record), ``rows`` hold the fixed cells
     # inline as scalars or null, in source order.
     "values": ("owner", "fields", "rows", "outputs", "layout"),
+    # A zero-input table-function input: ``function`` is its closed identity,
+    # ``arguments`` its three fixed Int scalars; its one field is its binding.
+    "table_function": ("owner", "function", "arguments", "fields", "outputs", "layout"),
     "request": ("owner", "use", "scope", "unit", "path", "hop", "pairs"),
     "match_use": ("owner", "position", "boundaries", "path"),
     "match_path": ("steps",),

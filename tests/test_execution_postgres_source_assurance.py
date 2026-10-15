@@ -366,3 +366,90 @@ def test_an_adbc_premise_for_a_zero_source_statement_names_pg_catalog():
     ex.verify_postgres_adbc_deployment(request(("pg_catalog",)))
     with pytest.raises(ExecutionError, match="POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE"):
         ex.verify_postgres_adbc_deployment(request(("public",)))
+
+
+def test_a_series_qualification_says_its_function_identity_is_fixed_by_emission(
+    tmp_path,
+):
+    """D70.05: a statement reading generate_series records that the function's
+    identity is fixed by its qualified emission and that no catalog check
+    repeats it; without one the record names no function. Both a compiled and
+    a private original ADBC request carry the fact, and beside a physical root
+    the relation facts are unchanged."""
+    from _pietto_execution_rows_cases import build
+    from pietto._project import project_postgres_source_assurance as source
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_execution import (
+        PostgresAccess,
+        PostgresADBCDeploymentPremise,
+        prepare_compiled_execution,
+        prepare_execution,
+    )
+    from pietto._project.project_execution_postgres_adbc import (
+        PostgresADBCExecution,
+    )
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    context, _, _ = catalog()
+    access = PostgresAccess("127.0.0.1", 5432, "app", "reader", "pw", "disable")
+
+    def premise(artifact):
+        return PostgresADBCDeploymentPremise(
+            access, artifact.request.sources, ("public", "pg_catalog")
+        )
+
+    def original(artifact):
+        return prepare_execution(
+            artifact,
+            access,
+            route="postgres_adbc",
+            postgres_adbc_deployment=premise(artifact),
+        )
+
+    def compiled(artifact):
+        template = prepare_compiled_template(build_compiled(artifact).root)
+        slots = template.slots
+        values = tuple(slot.original.site.position.literal.value for slot in slots)
+        binding = bind_values(template, tuple(zip(slots, values, strict=True)))
+        return prepare_compiled_execution(
+            binding,
+            access,
+            route="postgres_adbc",
+            postgres_adbc_deployment=premise(binding.artifact),
+        )
+
+    series = build(tmp_path / "series", "postgres", "Q_table_function_series", "joined")
+    bag = build(tmp_path / "bag", "postgres", "G_emission_table_bag", "bag")
+    facts = []
+    for request, roots in (
+        (compiled(series.artifact), ()),
+        (original(series.artifact), (("public", "items"),)),
+        (original(bag.artifact), ()),
+        (compiled(bag.artifact), (("public", "items"),)),
+    ):
+        owner = PostgresADBCExecution(request)
+        record = source.SourceQualification(
+            owner, owner.request, context, roots, (), (), ((), (), ())
+        )
+        facts.append(
+            (
+                record.relation_roots,
+                record.relation_catalog,
+                record.function_identity,
+                record.function_catalog,
+            )
+        )
+    assert facts == [
+        (
+            "NONE",
+            "NOT_CATALOG_CHECKED",
+            "FIXED_BY_QUALIFIED_EMISSION",
+            "NOT_CATALOG_CHECKED",
+        ),
+        ("PRESENT", "CHECKED", "FIXED_BY_QUALIFIED_EMISSION", "NOT_CATALOG_CHECKED"),
+        ("NONE", "NOT_CATALOG_CHECKED", "NONE", "NONE"),
+        ("PRESENT", "CHECKED", "NONE", "NONE"),
+    ]

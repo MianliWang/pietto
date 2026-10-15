@@ -33,6 +33,7 @@ from pietto._project.project_completed_semantics import (
 )
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_query_block_ir_verification import (
+    table_function_facts,
     ProjectIRQueryBlockAnalysisBundle,
 )
 from pietto._project.project_query_block_ir import (
@@ -95,6 +96,7 @@ from pietto.ast_nodes import SelectItem, WindowExpr
 from pietto.ast_nodes import (
     SourceDef,
     SetRelationDef,
+    TableFunctionRelationDef,
     ValuesRelationDef,
     TableDef,
     QueryDef,
@@ -188,6 +190,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast_nodes.QueryDef,
         ast_nodes.SetRelationDef,
         ast_nodes.ValuesRelationDef,
+        ast_nodes.TableFunctionRelationDef,
     }
 )
 
@@ -2064,7 +2067,10 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
             windows.authority(d.entry),
         )
         for d in definitions
-        if not isinstance(d.entry.owner.definition, (SetRelationDef, ValuesRelationDef))
+        if not isinstance(
+            d.entry.owner.definition,
+            (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef),
+        )
     ):
         return (Issue.UNSUPPORTED_SHAPE,)
     if plan.scope is not bindings.scope or any(
@@ -2145,7 +2151,9 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
     root_by_site = {}
     for definition in definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
-        if isinstance(authored, (SetRelationDef, ValuesRelationDef)):
+        if isinstance(
+            authored, (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef)
+        ):
             continue
         if not isinstance(authored, (TableDef, QueryDef)):
             return (Issue.UNSUPPORTED_SHAPE,)
@@ -4569,8 +4577,10 @@ def _result_structure(plan):
         entry, authored = definition.entry, definition.entry.owner.definition
         if type(authored) not in _KNOWN_DEFINITIONS:
             return False
-        if isinstance(authored, (SetRelationDef, ValuesRelationDef)):
-            if isinstance(authored, ValuesRelationDef):
+        if isinstance(
+            authored, (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef)
+        ):
+            if isinstance(authored, (ValuesRelationDef, TableFunctionRelationDef)):
                 if not isinstance(entry, ProjectIRCompletedValuesOutput):
                     return False
                 body = values_bodies[definition.ref]
@@ -5708,7 +5718,9 @@ def _values_structure(plan):
     definitions = tuple(
         d
         for d in plan.bindings.definitions
-        if isinstance(d.entry.owner.definition, ValuesRelationDef)
+        if isinstance(
+            d.entry.owner.definition, (ValuesRelationDef, TableFunctionRelationDef)
+        )
     )
     if len(definitions) != len(plan.values_bodies):
         return False
@@ -5721,13 +5733,23 @@ def _values_structure(plan):
             return False
         semantic = entry.semantic_entry
         relation = semantic.root
+        function = isinstance(entry.owner.definition, TableFunctionRelationDef)
         if (
             body.definition is not definition.ref
             or body.source is not entry
             or body.relation is not relation
             or relation.definition is not entry.owner.definition
             or relation.diagnostics
-            or body.rows is not relation.rows
+            or (
+                not _table_function_body(body, entry.owner.definition)
+                if function
+                else (
+                    body.rows is not getattr(relation, "rows", None)
+                    or body.function is not None
+                    or body.arguments
+                    or body.row_count is not None
+                )
+            )
             or body.properties is not entry.active_properties
             or definition.ref in uses
             or len(body.columns) != len(relation.columns)
@@ -5763,6 +5785,22 @@ def _values_structure(plan):
             ):
                 return False
     return column_cursor == len(plan.values_columns)
+
+
+def _table_function_body(body, authored):
+    """Independently re-derive identity, the three values and the row bound."""
+    facts = table_function_facts(authored)
+    return (
+        facts is not None
+        and body.function == facts[0]
+        and type(body.arguments) is tuple
+        and all(type(a) is int for a in body.arguments)
+        and body.arguments == facts[1]
+        and type(body.row_count) is int
+        and body.row_count == facts[2]
+        and body.rows == ()
+        and len(body.columns) == 1
+    )
 
 
 def _literal_schema(plan, policy):

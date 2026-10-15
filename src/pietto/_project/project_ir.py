@@ -113,6 +113,7 @@ def _declaration_identity(
         module_position=occurrence.module_position,
         declaration_position=occurrence.declaration_position,
         let_position=occurrence.let_position,
+        table_function=occurrence.table_function is not None,
     )
 
 

@@ -238,6 +238,9 @@ def _live_shape(artifact, requirements):
         # A fixed VALUES row has no source position or token column, so no
         # recovery coordinate can identify it, even beside a physical source.
         raise ValueError("PUBLIC_R2_VALUES_COORDINATE_BASIS")
+    if any(address.kind == "table_function" for address in records):
+        # A generated series row has no source position or token column either.
+        raise ValueError("PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS")
     policy = records[Address("policy", 0)]
     if policy.get("refinement") is not None:
         expected = compiled_source_requirements(artifact)

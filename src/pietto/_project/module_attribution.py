@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
+from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -168,6 +168,8 @@ class ProjectDeclarationOccurrenceIdentity:
     module_position: int
     declaration_position: int
     let_position: int | None = None
+    # True for the table-function input of the body at these positions.
+    table_function: bool = False
 
     def __post_init__(self) -> None:
         if type(self.identity) is not ProjectNominalDeclarationIdentity:
@@ -176,6 +178,14 @@ class ProjectDeclarationOccurrenceIdentity:
         _validate_position(self.declaration_position, "declaration")
         if self.let_position is not None:
             _validate_position(self.let_position, "let")
+        if type(self.table_function) is not bool:
+            raise TypeError("Declaration occurrence table-function flag is a bool.")
+
+    @property
+    def block_local(self) -> bool:
+        """A relation let or table-function input, never a declaration."""
+
+        return self.let_position is not None or self.table_function
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1116,7 +1126,7 @@ class ProjectModuleAttributionFactSet:
         declaration_ids = {item.identity for item in self.declarations} | {
             _declaration_identity(let)
             for catalog in self._authority.catalogs.catalogs
-            for let in catalog.lets
+            for let in (*catalog.lets, *catalog.table_functions)
         }
         import_ids = {item.identity for item in self.imports}
         facades_by_id = {item.identity: item for item in self.facades}
@@ -1515,7 +1525,7 @@ def _derive_project_module_attribution_fact_collections(
             *(
                 _declaration_identity(let)
                 for catalog in catalogs.catalogs
-                for let in catalog.lets
+                for let in (*catalog.lets, *catalog.table_functions)
             ),
         )
     )
@@ -2274,7 +2284,11 @@ def _build_row_facts(
     pending: list[ProjectModuleRelationRowFact] = []
     for fact in facts:
         definition = fact.owner.definition
-        if type(definition) in {SetRelationDef, ValuesRelationDef}:
+        if type(definition) in {
+            SetRelationDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+        }:
             if fact.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
                 raise ValueError("Set syntax cannot publish concrete lineage.")
             lineage_by_owner[_declaration_identity(fact.owner)] = _empty_lineage(fact)
@@ -3008,8 +3022,13 @@ def _validate_relation_identity_closure(
         symbols: tuple[object, ...] = (
             *environment.symbols,
             *environment.let_symbols,
+            *environment.table_function_symbols,
         )
-        for symbol in (*environment.symbols, *environment.let_symbols):
+        for symbol in (
+            *environment.symbols,
+            *environment.let_symbols,
+            *environment.table_function_symbols,
+        ):
             if (
                 not _is_exact_member(symbol.target_occurrence, occurrences)
                 or symbol.target_identity is not symbol.target_occurrence.identity
@@ -3299,6 +3318,7 @@ def _declaration_identity(
         module_position=occurrence.module_position,
         declaration_position=occurrence.declaration_position,
         let_position=occurrence.let_position,
+        table_function=occurrence.table_function is not None,
     )
 
 

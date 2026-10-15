@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
+from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
 
 from collections import deque
 from dataclasses import dataclass, field
@@ -1056,7 +1056,7 @@ def _dependencies(
                         )
                     )
             continue
-        if type(definition) in {SourceDef, ValuesRelationDef}:
+        if type(definition) in {SourceDef, ValuesRelationDef, TableFunctionRelationDef}:
             continue
         if type(definition) not in {TableDef, QueryDef}:
             raise TypeError("Completion inventory requires relation-producing owners.")

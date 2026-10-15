@@ -326,7 +326,7 @@ def emit_project(
         owners = [
             owner
             for owner in ir.owners
-            if owner.let_position is None
+            if not owner.block_local
             and modules[owner.module_position].path == module
             and owner.identity.declaration_kind.value == kind
             and owner.definition.name == name

@@ -280,6 +280,13 @@ REFUSED = {
         "    select:\n        id\n",
         [_later("o.id", 16, 17)],
     ),
+    # A relation over a table function has no columns before completion.
+    "let_over_table_function": (
+        "query q:\n    let s:\n        from generate_series(1, 3, 1) as n\n"
+        "        select:\n            n\n    from lhs\n    where id == scalar s.n\n"
+        "    select:\n        id\n",
+        [_later("s.n", 12, 17)],
+    ),
     "unresolved_block": (
         "query t:\n    from nowhere\n    select:\n        rid = id\n"
         "query q:\n    from lhs\n    where id == scalar t.rid\n    select:\n"

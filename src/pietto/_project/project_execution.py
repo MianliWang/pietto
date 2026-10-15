@@ -9,7 +9,7 @@ import importlib.metadata
 import math
 import os
 import threading
-from typing import Any
+from typing import Any, cast
 
 from pietto._project.project_result_contract import (
     build_result_contract,
@@ -458,6 +458,10 @@ def _verify_compiled_premise(request):
             or request.postgres_adbc_deployment is not None
         ):
             raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_SCOPE")
+        root = cast(Any, request.artifact.request.verification.completed).root
+        if any(address.kind == "table_function" for address in root.records):
+            # D70.05: generate_series is PostgreSQL only, joined or not.
+            raise ExecutionError("MYSQL_TABLE_FUNCTION_ROUTE")
         if not request.artifact.request.sources:
             # D70.05: a statement reading no physical relation has no
             # non-vacuous MySQL source qualification in this phase.

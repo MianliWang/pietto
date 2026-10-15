@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, ValuesBody, ValuesRelationDef
+from pietto.ast_nodes import (
+    SetRelationDef,
+    TableFunctionFromClause,
+    TableFunctionRelationDef,
+    ValuesBody,
+    ValuesRelationDef,
+)
 
 from dataclasses import dataclass, field, fields, is_dataclass
 import heapq
@@ -47,6 +53,7 @@ __all__: tuple[str, ...] = ()
 _DEFINITION_TYPES = (
     SetRelationDef,
     ValuesRelationDef,
+    TableFunctionRelationDef,
     TypeDef,
     EnumDef,
     ShapeDef,
@@ -116,26 +123,50 @@ def _relation_block_view(
         return SetRelationDef(span=span, name=name, kind=kind, body=body)
     if type(body) is ValuesBody and not parameters:
         return ValuesRelationDef(span=span, name=name, kind=kind, body=body)
-    if type(body) is SelectBody and type(body.from_clause) is FromClause:
+    if type(body) is SelectBody and type(body.from_clause) in {
+        FromClause,
+        TableFunctionFromClause,
+    }:
+        clauses = {item: getattr(body, item) for item in _SELECT_FIELDS}
+        clauses["from_clause"] = _from_view(body.from_clause)
         if kind is ModuleDeclarationKind.TABLE:
             if parameters:
                 raise ValueError("Only an entry query declares parameters.")
-            return TableDef(
-                span=span,
-                name=name,
-                **{item: getattr(body, item) for item in _SELECT_FIELDS},
-            )
-        return QueryDef(
-            span=span,
-            name=name,
-            parameters=parameters,
-            **{item: getattr(body, item) for item in _SELECT_FIELDS},
-        )
+            return TableDef(span=span, name=name, **clauses)
+        return QueryDef(span=span, name=name, parameters=parameters, **clauses)
     raise ValueError(f"Unadmitted relation block body: {type(body).__name__}")
 
 
+def _from_view(clause: FromClause | TableFunctionFromClause) -> FromClause:
+    """A table-function input is read through its binding at its own span.
+
+    The binding is never looked up by name: the reader is bound to the
+    function occurrence of this exact clause (see ``table_function_input``).
+    """
+
+    if isinstance(clause, TableFunctionFromClause):
+        return FromClause(span=clause.span, source_name=clause.binding_name)
+    return clause
+
+
+def table_function_input(
+    authored: object,
+) -> TableFunctionFromClause | None:
+    """Return the table-function FROM input written by one authored body owner."""
+
+    body = getattr(authored, "body", None)
+    if (
+        type(authored) in {BlockRelationDef, LetRelationDef}
+        and type(body) is SelectBody
+    ):
+        clause = body.from_clause
+        if type(clause) is TableFunctionFromClause:
+            return clause
+    return None
+
+
 def _is_relation_block_view(
-    view: Definition | ValuesRelationDef,
+    view: Definition | ValuesRelationDef | TableFunctionRelationDef,
     *,
     span: Span,
     name: str,
@@ -163,7 +194,16 @@ def _is_relation_block_view(
     return (
         type(body) is SelectBody
         and type(view) is expected
-        and all(getattr(view, item) is getattr(body, item) for item in _SELECT_FIELDS)
+        and all(
+            getattr(view, item) is getattr(body, item)
+            for item in _SELECT_FIELDS
+            if item != "from_clause"
+        )
+        and (
+            view.from_clause is body.from_clause
+            if type(body.from_clause) is FromClause
+            else view.from_clause == _from_view(body.from_clause)
+        )
         and getattr(view, "parameters", ()) is parameters
     )
 
@@ -226,21 +266,27 @@ def relation_read_expressions(node: object) -> tuple[RelationReadExpression, ...
     return tuple(found)
 
 
-def relation_reads(definition: Definition | ValuesRelationDef) -> tuple[str, ...]:
+def relation_reads(owner: ProjectDeclarationOccurrence) -> tuple[str, ...]:
     """Every relation name one relation body reads.
 
     These are its FROM and JOIN targets, set operands and the relations of its
-    `exists`, `scalar` and `in` reads. A typed VALUES body is a zero-input
-    relation and reads none.
+    `exists`, `scalar` and `in` reads. A typed VALUES body or a table function
+    is a zero-input relation and reads none; a table-function FROM input is
+    bound by identity, never read by name.
     """
 
-    if type(definition) is ValuesRelationDef:
+    definition = owner.definition
+    if type(definition) in {ValuesRelationDef, TableFunctionRelationDef}:
         return ()
     if type(definition) is SetRelationDef:
         return tuple(operand.relation_name for operand in definition.body.operands)
     if type(definition) is TableDef or type(definition) is QueryDef:
         return (
-            definition.from_clause.source_name,
+            *(
+                ()
+                if table_function_input(owner.authored) is not None
+                else (definition.from_clause.source_name,)
+            ),
             *(join.target_relation_name for join in definition.join_clauses),
             *(read.relation_name for read in relation_read_expressions(definition)),
         )
@@ -261,7 +307,7 @@ def _read_ordered(
     readers: list[list[int]] = [[] for _ in lets]
     pending = [0] * len(lets)
     for i, let in enumerate(lets):
-        for j in {unique[n] for n in relation_reads(let.definition) if n in unique}:
+        for j in {unique[n] for n in relation_reads(let) if n in unique}:
             if j != i:
                 readers[j].append(i)
                 pending[i] += 1
@@ -301,16 +347,36 @@ class ProjectDeclarationOccurrence:
     identity: ProjectNominalDeclarationIdentity
     module_position: int
     declaration_position: int
-    definition: Definition | ValuesRelationDef
+    definition: Definition | ValuesRelationDef | TableFunctionRelationDef
     let_position: int | None = None
     authored_block: BlockRelationDef | LetRelationDef | None = field(
         default=None, compare=False, hash=False, repr=False
     )
+    # A table-function occurrence: the zero-input relation of one FROM input,
+    # in the body of the declaration at ``declaration_position`` or of its let
+    # at ``let_position``. Its nominal identity is display only.
+    table_function: TableFunctionFromClause | None = None
 
     @property
-    def authored(self) -> Definition | ValuesRelationDef | LetRelationDef:
+    def block_local(self) -> bool:
+        """A relation let or table-function occurrence, never a declaration."""
+
+        return self.let_position is not None or self.table_function is not None
+
+    @property
+    def authored(
+        self,
+    ) -> (
+        Definition
+        | ValuesRelationDef
+        | TableFunctionRelationDef
+        | LetRelationDef
+        | TableFunctionFromClause
+    ):
         """Return the exact source node this occurrence was built from."""
 
+        if self.table_function is not None:
+            return self.table_function
         return self.definition if self.authored_block is None else self.authored_block
 
     @property
@@ -345,6 +411,22 @@ class ProjectDeclarationOccurrence:
         ):
             raise ValueError("Declaration occurrence must match its nominal identity.")
         block = self.authored_block
+        if self.table_function is not None or (
+            type(self.definition) is TableFunctionRelationDef
+        ):
+            if (
+                type(self.definition) is not TableFunctionRelationDef
+                or self.definition.source is not self.table_function
+                or block is not None
+                or (
+                    self.let_position is not None
+                    and (type(self.let_position) is not int or self.let_position < 0)
+                )
+            ):
+                raise ValueError(
+                    "Table-function occurrence requires its exact FROM input."
+                )
+            return
         if self.let_position is not None and (
             type(self.let_position) is not int
             or self.let_position < 0
@@ -374,6 +456,7 @@ class ProjectModuleCatalog:
     module: ProjectLogicalModule
     occurrences: tuple[ProjectDeclarationOccurrence, ...] = ()
     lets: tuple[ProjectDeclarationOccurrence, ...] = ()
+    table_functions: tuple[ProjectDeclarationOccurrence, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject incomplete, reordered, or mismatched module catalogs."""
@@ -425,6 +508,37 @@ class ProjectModuleCatalog:
                 or occurrence.authored is not let
             ):
                 raise ValueError("Module catalog lets must match source-ordered lets.")
+        expected_functions = tuple(
+            (position, let_position, clause)
+            for position, definition in enumerate(definitions)
+            for let_position, authored in (
+                *enumerate(
+                    definition.let_relations
+                    if type(definition) is BlockRelationDef
+                    else ()
+                ),
+                (None, definition),
+            )
+            if (clause := table_function_input(authored)) is not None
+        )
+        if type(self.table_functions) is not tuple or len(self.table_functions) != len(
+            expected_functions
+        ):
+            raise ValueError("Module catalog must retain every table-function input.")
+        for occurrence, (position, let_position, clause) in zip(
+            self.table_functions, expected_functions, strict=True
+        ):
+            if (
+                type(occurrence) is not ProjectDeclarationOccurrence
+                or occurrence.identity.module_path != self.module.path
+                or occurrence.module_position != self.module.position
+                or occurrence.declaration_position != position
+                or occurrence.let_position != let_position
+                or occurrence.table_function is not clause
+            ):
+                raise ValueError(
+                    "Module catalog table functions must match their FROM inputs."
+                )
 
     @property
     def relation_owners(self) -> tuple[ProjectDeclarationOccurrence, ...]:
@@ -432,25 +546,56 @@ class ProjectModuleCatalog:
 
         A declaration's lets come in read order: each after every other let
         of the declaration it reads, otherwise (and inside a cycle) in source
-        order. Module-level readers (namespaces, exports, packages) keep
+        order. A table-function occurrence comes right before the body that
+        reads it. Module-level readers (namespaces, exports, packages) keep
         reading ``occurrences``; relation-body readers read this sequence.
         """
 
-        if not self.lets:
+        if not self.lets and not self.table_functions:
             return self.occurrences
         lets_by_position: dict[int, list[ProjectDeclarationOccurrence]] = {}
         for let in self.lets:
             lets_by_position.setdefault(let.declaration_position, []).append(let)
+        functions = {
+            (item.declaration_position, item.let_position): item
+            for item in self.table_functions
+        }
+
+        def with_function(
+            reader: ProjectDeclarationOccurrence, let_position: int | None
+        ) -> tuple[ProjectDeclarationOccurrence, ...]:
+            function = functions.get((reader.declaration_position, let_position))
+            return (reader,) if function is None else (function, reader)
+
         return tuple(
             owner
             for occurrence in self.occurrences
             for owner in (
-                *_read_ordered(
-                    lets_by_position.get(occurrence.declaration_position, [])
+                *(
+                    item
+                    for let in _read_ordered(
+                        lets_by_position.get(occurrence.declaration_position, [])
+                    )
+                    for item in with_function(let, let.let_position)
                 ),
-                occurrence,
+                *with_function(occurrence, None),
             )
         )
+
+    def find_table_function(
+        self, reader: ProjectDeclarationOccurrence
+    ) -> ProjectDeclarationOccurrence | None:
+        """Return the table-function occurrence one body reads, if it reads one."""
+
+        clause = table_function_input(reader.authored)
+        if clause is None:
+            return None
+        matches = tuple(
+            item for item in self.table_functions if item.table_function is clause
+        )
+        if len(matches) != 1:
+            raise ValueError("Table-function input requires one exact occurrence.")
+        return matches[0]
 
     def find_lets(
         self, declaration_position: int
@@ -565,6 +710,7 @@ def _build_project_module_catalog_set(
 
         occurrences: list[ProjectDeclarationOccurrence] = []
         lets: list[ProjectDeclarationOccurrence] = []
+        functions: list[ProjectDeclarationOccurrence] = []
         for declaration_position, definition in enumerate(
             module.parsed_input.script.definitions
         ):
@@ -585,6 +731,32 @@ def _build_project_module_catalog_set(
                     authored_block=block,
                 )
             )
+            for let_position, authored in (
+                *enumerate(() if block is None else block.let_relations),
+                (None, block),
+            ):
+                clause = table_function_input(authored)
+                if clause is not None:
+                    functions.append(
+                        ProjectDeclarationOccurrence(
+                            identity=ProjectNominalDeclarationIdentity(
+                                module_path=module.path,
+                                namespace=ProjectSymbolNamespace.RELATION,
+                                declaration_kind=ProjectSymbolKind.QUERY,
+                                declared_name=clause.binding_name,
+                            ),
+                            module_position=module.position,
+                            declaration_position=declaration_position,
+                            definition=TableFunctionRelationDef(
+                                span=clause.span,
+                                name=clause.binding_name,
+                                kind=ModuleDeclarationKind.QUERY,
+                                source=clause,
+                            ),
+                            let_position=let_position,
+                            table_function=clause,
+                        )
+                    )
             for let_position, let in enumerate(
                 () if block is None else block.let_relations
             ):
@@ -605,7 +777,10 @@ def _build_project_module_catalog_set(
                 )
         catalogs.append(
             ProjectModuleCatalog(
-                module=module, occurrences=tuple(occurrences), lets=tuple(lets)
+                module=module,
+                occurrences=tuple(occurrences),
+                lets=tuple(lets),
+                table_functions=tuple(functions),
             )
         )
 

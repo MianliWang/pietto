@@ -1479,11 +1479,11 @@ query seeded:
 """
 
 
-def values_example(directory):
+def values_example(directory, seed=VALUES_SEED):
     """The documented project plus a pure VALUES query and a source-free contract."""
     project = api.write_example(directory)
     main = project / "main.pietto"
-    main.write_text(main.read_text(encoding="utf-8") + VALUES_SEED, encoding="utf-8")
+    main.write_text(main.read_text(encoding="utf-8") + seed, encoding="utf-8")
     contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
     contract["sources"] = []
     (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
@@ -1901,9 +1901,13 @@ def test_export_and_compiled_emission_check_values_records_against_their_unit(
     )
     (body,) = artifact.ast.bodies
     verify_compiled_values_unit(body, record, request)
+    verify_compiled_values_unit(replace(body), record, request)
     first = body.columns[0]
     for category, changed in (
         ("VALUES_UNIT", replace(body, rows=body.rows[::-1])),
+        # A VALUES unit names no function and has no series values.
+        ("VALUES_UNIT", replace(body, function=SERIES_IDENTITY)),
+        ("VALUES_UNIT", replace(body, arguments=(1, 2, 1))),
         (
             "VALUES_COLUMN",
             replace(body, columns=(replace(first, label="x"), *body.columns[1:])),
@@ -4646,3 +4650,362 @@ def test_obligations_inside_capturing_lets_bind_on_every_route(tmp_path, unconne
                     route=route,
                     parameters={"low": 2**63 - 1, "note": None},
                 ) == ("PIE-R1004", "BINDING_INVALID")
+
+
+INT_VALUES_SEED = """
+query seeded:
+    values(id: Int not null):
+        7
+        8
+        9
+"""
+
+
+def test_load_refuses_a_values_unit_rebuilt_as_a_series(tmp_path, monkeypatch):
+    """One non-null Int column of fixed rows renders like a series CTE body
+    once its unit names the function, so the compiled VALUES check pins the
+    function fields; the unchanged rebuild through the same builder loads.
+    The bundle bytes are untouched, so the refusal is the rebuilt query's."""
+    from dataclasses import replace
+
+    from pietto._project import project_sql_emission_values as valuing
+
+    project = values_example(tmp_path, INT_VALUES_SEED)
+    bundle = execution.export_bundle(
+        execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name="seeded",
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+    )
+    original = valuing.build_compiled_unit
+
+    def rebuilt(change):
+        def build(plan, record, definition, family):
+            return replace(original(plan, record, definition, family), **change)
+
+        monkeypatch.setattr(valuing, "build_compiled_unit", build)
+
+    rebuilt({})
+    assert "VALUES" in load(bundle)._template.artifact.rendered.sql.decode()
+    for change in (
+        {"function": SERIES_IDENTITY, "arguments": (1, 1000, 1)},
+        {"arguments": (7, 9, 1)},
+    ):
+        rebuilt(change)
+        assert refused(load, bundle) == ("PIE-R1004", "COMPILED_VALUES_UNIT")
+
+
+SERIES_SEED = """
+query seeded:
+    from generate_series(10, 1, -3) as n
+    select:
+        n
+"""
+SERIES_IDENTITY = (
+    "pg_catalog.generate_series(pg_catalog.int8,pg_catalog.int8,pg_catalog.int8)"
+)
+
+
+def series_example(directory):
+    """The documented project plus a query whose only input is a series."""
+    project = api.write_example(directory)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + SERIES_SEED, encoding="utf-8")
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    contract["sources"] = []
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return project
+
+
+def compiled_series(directory):
+    return execution.compile_query(
+        series_example(directory),
+        module="main.pietto",
+        kind="query",
+        name="seeded",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+
+
+def test_a_compiled_series_carries_its_identity_and_three_values(tmp_path):
+    from pietto._project.project_compiled_schema import Scalar
+
+    query = compiled_series(tmp_path)
+    bundle = execution.export_bundle(query)
+    records = {r.address: r for r in decode(bundle.payload).records}
+    (series,) = (r for r in records.values() if r.address.kind == "table_function")
+    assert not any(a.kind in ("source", "values") for a in records)
+    assert series.get("function") == SERIES_IDENTITY
+    assert series.get("arguments") == (
+        Scalar("Int", 10),
+        Scalar("Int", 1),
+        Scalar("Int", -3),
+    )
+    assert [c.value for c in series.get("arguments")] == [10, 1, -3]
+    (field,) = (records[a] for a in series.get("fields"))
+    assert field.values[1:5] == (0, "n", "c0", ("Int", "non_null"))
+    assert json.loads(field.get("physical")) == {
+        "storage": {"kind": "pg_int8"},
+        "nullable": False,
+        "domain": {
+            "kind": "int_range",
+            "min": "-9223372036854775808",
+            "max": "9223372036854775807",
+        },
+    }
+    assert series.get("layout") == ("p0", ("c0",), "n", False, 0)
+    # The occurrence's declaration is the body it sits in, labelled by its
+    # binding; the selected query reads it through one use.
+    owner = records[series.get("owner")]
+    assert owner.values[3:] == ("relation", "query", "n", None)
+    (use,) = (r for r in records.values() if r.address.kind == "use")
+    assert use.get("producer") == series.address
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert query.emission is not None
+    live_sql = json.loads(query.emission)["sql"]
+    assert "pg_catalog.generate_series(CAST(10 AS pg_catalog.int8)" in live_sql
+    assert query._template.artifact.rendered.sql.decode() == live_sql
+    assert loaded._template.artifact.rendered.sql.decode() == live_sql
+
+
+def test_load_refuses_a_series_record_compile_query_never_writes(tmp_path):
+    """A self-pinned series record is refused when its identity, three values,
+    row bound, column or layout is one compile_query never writes, each value
+    still a well-formed Int scalar or name."""
+    from pietto._project.project_compiled_schema import Scalar
+
+    bundle = execution.export_bundle(compiled_series(tmp_path))
+    (series,) = (
+        r for r in decode(bundle.payload).records if r.address.kind == "table_function"
+    )
+    (field,) = series.get("fields")
+    (port,) = series.get("outputs")
+    at = _at
+    address = series.address
+
+    def arguments(*values):
+        return at(
+            address,
+            lambda r: _set(r, "arguments", tuple(Scalar("Int", v) for v in values)),
+        )
+
+    forgeries = {
+        "TABLE_FUNCTION": (
+            at(
+                address,
+                lambda r: _set(r, "function", SERIES_IDENTITY.replace("int8", "int4")),
+            ),
+            arguments(10, 1),
+            arguments(10, 1, -3, 1),
+            at(
+                address,
+                lambda r: _set(
+                    r,
+                    "arguments",
+                    (Scalar("Int", 10), Scalar("Float", 1.0), Scalar("Int", -3)),
+                ),
+            ),
+        ),
+        "TABLE_FUNCTION_ROWS": (
+            arguments(10, 1, 0),
+            arguments(1, 1048577, 1),
+            arguments(0, -1048576, -1),
+        ),
+        "TABLE_FUNCTION_LAYOUT": (
+            at(address, lambda r: _set(r, "layout", ("p0", ("c0",), "m", False, 0))),
+            at(address, lambda r: _set(r, "layout", ("p0", ("c0",), "n", True, 0))),
+            at(address, lambda r: _set(r, "layout", ("p0", ("c1",), "n", False, 0))),
+            at(field, lambda r: _set(r, "label", "m")),
+            at(field, lambda r: _set(r, "logical", ("Int", "nullable"))),
+            at(
+                field,
+                lambda r: _physical(r, lambda p: p["domain"].update(min="1", max="10")),
+            ),
+            at(port, lambda r: _set(r, "logical", ("Int", "nullable"))),
+        ),
+    }
+    for category, changes in forgeries.items():
+        for change in changes:
+            forged = _forged(bundle.payload, change)
+            assert refused(load, bundle, forged, expected_pin=content_pin(forged)) == (
+                "PIE-R1008",
+                "COMPILED_" + category,
+            ), category
+
+
+def test_export_and_compiled_emission_check_series_records_against_their_unit(
+    tmp_path,
+):
+    """A different but well-formed series is caught against the live plan by
+    the exporter, and against its record by the compiled emission check."""
+    from dataclasses import replace
+
+    from pietto._project.project_compiled_schema import Scalar
+    from pietto._project.project_compiled_verification import (
+        verify_compiled_function_unit,
+        verify_export,
+    )
+
+    project = series_example(tmp_path)
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "query",
+        "seeded",
+        "postgres",
+        "contract.json",
+        POLICIES["preserve"],
+    )
+    payload = build_compiled(outcome.artifact).payload
+    description = decode(payload)
+    verify_export(description, outcome.artifact)
+    (series,) = (r for r in description.records if r.address.kind == "table_function")
+    (field,) = series.get("fields")
+    # Well-formed values of another series; a renamed binding is refused by
+    # the description check that runs first.
+    for category, change in (
+        (
+            "EXPORT_TABLE_FUNCTION",
+            _at(
+                series.address,
+                lambda r: _set(
+                    r,
+                    "arguments",
+                    (Scalar("Int", 10), Scalar("Int", 2), Scalar("Int", -3)),
+                ),
+            ),
+        ),
+        (
+            "TABLE_FUNCTION_LAYOUT",
+            _at(field, lambda r: _set(r, "label", "m")),
+        ),
+    ):
+        changed = decode(_forged(payload, change))
+        with pytest.raises(CompiledError, match=f"^COMPILED_{category}$"):
+            verify_export(changed, outcome.artifact)
+    artifact = compiled_series(tmp_path / "compiled")._template.artifact
+    request = artifact.request
+    (record,) = (
+        r
+        for r in request.plan.ir.completed.root.records.values()
+        if r.address.kind == "table_function"
+    )
+    (body,) = (b for b in artifact.ast.units if getattr(b, "function", None))
+    verify_compiled_function_unit(body, record, request)
+    (column,) = body.columns
+    for category, changed in (
+        ("TABLE_FUNCTION_UNIT", replace(body, arguments=(10, 2, -3))),
+        ("TABLE_FUNCTION_UNIT", replace(body, function=None)),
+        ("TABLE_FUNCTION_UNIT", replace(body, scope=replace(body.scope, name="m"))),
+        ("TABLE_FUNCTION_COLUMN", replace(body, columns=(replace(column, label="x"),))),
+    ):
+        with pytest.raises(CompiledError, match=f"^COMPILED_{category}$"):
+            verify_compiled_function_unit(changed, record, request)
+
+
+def test_a_zero_source_series_prepares_on_postgres_with_pg_catalog(
+    tmp_path, unconnected
+):
+    """The series is qualified by its session context and the pg_catalog
+    premise only; a premise without pg_catalog is refused before connecting."""
+    query = compiled_series(tmp_path)
+    handle = run(query, premise=execution.PostgresDeploymentPremise(("pg_catalog",)))
+    assert handle.route == "postgres_rows" and handle.outcome.end == "NOT_STARTED"
+    assert handle._owner.request.artifact.request.sources == ()
+    assert refused(
+        run, query, premise=execution.PostgresDeploymentPremise(("fixture",))
+    ) == ("PIE-R1002", "POSTGRES_DEPLOYMENT_PREMISE_SCOPE")
+
+
+def test_a_series_bundle_retargeted_to_mysql_is_refused_at_load(tmp_path):
+    """MySQL has no generate_series: a series record under a MySQL target is
+    refused while loading, before any route could connect."""
+    bundle = execution.export_bundle(compiled_series(tmp_path))
+
+    def retarget(record):
+        if record.address.kind != "target":
+            return None
+        contract = json.loads(record.get("contract"))
+        contract["target"] = {"family": "mysql", "release": "8.4.12"}
+        return Record(
+            record.address,
+            ("mysql", "8.4.12", json.dumps(contract), "finite_mysql_v1"),
+        )
+
+    forged = _forged(bundle.payload, retarget)
+    code, detail = refused(load, bundle, forged, expected_pin=content_pin(forged))
+    assert (code, detail) == ("PIE-R1008", "COMPILED_TABLE_FUNCTION")
+
+
+TWO_SERIES = """
+query paired:
+    let a:
+        from generate_series(1, 3, 1) as n
+        select:
+            n
+    from generate_series(1, 2, 1) as n
+    inner join a as t:
+        from n
+        on n.n == t.n
+    select:
+        x = n.n
+"""
+
+
+def test_each_series_record_keeps_its_own_occurrence(tmp_path):
+    """Two series bound to `n` in one declaration are two occurrences with
+    their own declaration records; a record naming the other's is refused."""
+    project = series_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + TWO_SERIES, encoding="utf-8")
+    from pietto._project.project_compiled_verification import verify_export
+
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "query",
+        "paired",
+        "postgres",
+        "contract.json",
+        POLICIES["preserve"],
+    )
+    payload = build_compiled(outcome.artifact).payload
+    description = decode(payload)
+    verify_export(description, outcome.artifact)
+    records = {r.address: r for r in description.records}
+    first, second = (
+        r for r in description.records if r.address.kind == "table_function"
+    )
+    owners = [records[r.get("owner")].values for r in (first, second)]
+    assert [o[3:] for o in owners] == [
+        ("relation", "query", "n", 0),
+        ("relation", "query", "n", None),
+    ]
+    one_sided = decode(
+        _forged(
+            payload, _at(first.address, lambda r: _set(r, "owner", second.get("owner")))
+        )
+    )
+    # The let's series declaration, owning nothing, is a second let at 0.
+    with pytest.raises(CompiledError, match="^COMPILED_DECLARATION$"):
+        verify_description(one_sided)
+    owner = {first.address: second.get("owner"), second.address: first.get("owner")}
+    swapped = decode(
+        _forged(
+            payload,
+            lambda r: (
+                _set(r, "owner", owner[r.address]) if r.address in owner else None
+            ),
+        )
+    )
+    # The two trade owners: each series is then declared for a reader that
+    # never reads it, whatever the declarations' shared label.
+    for forged in (one_sided, swapped):
+        with pytest.raises(CompiledError, match="^COMPILED_DECLARATION$"):
+            verify_description(forged)

@@ -88,7 +88,13 @@ from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationResult,
     verify_project_phase62,
 )
-from pietto.ast_nodes import QueryDef, SourceDef, TableDef, ValuesRelationDef
+from pietto.ast_nodes import (
+    QueryDef,
+    SourceDef,
+    TableDef,
+    TableFunctionRelationDef,
+    ValuesRelationDef,
+)
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.source_connectors import check_source_connectors
@@ -727,7 +733,13 @@ def _fallback_diagnostic(
     }:
         raise TypeError("Project completion fallback requires an exact terminal.")
     definition = entry.owner.definition
-    if type(definition) not in {SourceDef, TableDef, QueryDef, ValuesRelationDef}:
+    if type(definition) not in {
+        SourceDef,
+        TableDef,
+        QueryDef,
+        ValuesRelationDef,
+        TableFunctionRelationDef,
+    }:
         raise TypeError("Project completion diagnostic requires a relation definition.")
     span = definition.span
     return Diagnostic(

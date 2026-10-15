@@ -4,7 +4,7 @@ import ast
 from copy import copy
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -955,3 +955,93 @@ def test_spec_records_exact_frozen_closure_budgets_and_slice_boundaries() -> Non
         "Phase 64 单独拥有 generic JOIN semantics",
     ):
         assert evidence in document
+
+
+def test_a_table_function_keeps_its_effects_on_its_own_occurrence(
+    tmp_path: Path,
+) -> None:
+    """D70.06/A08: the series occurrence carries its function's explicit
+    determinism and side-effect evidence; every output keeps unknown effects,
+    and the producer claims no key, FD or grain. An occurrence whose evidence
+    is not exactly the admitted function's is refused by the verifier."""
+    from pietto._project import project_table_function as functions
+    from pietto._project.check import check_project_parse_only
+    from pietto._project.model import build_empty_project_semantic_result
+    from pietto._project.project_completed_semantics import (
+        ProjectConcreteCompletedSemanticResult,
+        build_project_completed_semantic_result,
+    )
+    from pietto._project.project_ir_properties import (
+        ProjectIRDeterminismEvidence,
+        ProjectIRErrorBehaviorEvidence,
+        ProjectIREvaluationCountEvidence,
+        ProjectIRSideEffectEvidence,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedValuesOutput,
+        build_project_query_block_ir,
+    )
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(
+        "query q:\n    from generate_series(1, 9, 2) as n\n    where n > 1\n"
+        "    select:\n        n\n"
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    ir = build_project_query_block_ir(completed)
+    result = verify_project_query_block_ir(ir)
+    assert result.issues == ()
+    (series,) = (e for e in ir.entries if isinstance(e, ProjectIRCompletedValuesOutput))
+    root = series.semantic_entry.root
+    assert isinstance(root, functions.ProjectTableFunctionRelation)
+    signature = root.signature
+    assert signature is not None
+    assert (
+        signature.determinism,
+        signature.side_effects,
+        signature.error_behavior,
+        signature.evaluation_count,
+    ) == ("deterministic", "side_effect_free", "unknown", "unknown")
+    relational = series.active_properties.relational
+    assert (relational.keys, relational.fds, relational.grain.state.value) == (
+        (),
+        (),
+        "unknown",
+    )
+    effects = [
+        cast(Any, e).active_properties.effect
+        for e in ir.entries
+        if getattr(e, "active_properties", None) is not None
+    ]
+    assert len(effects) == 2
+    assert all(
+        (e.determinism, e.error_behavior, e.side_effects, e.evaluation_count)
+        == (
+            ProjectIRDeterminismEvidence.UNKNOWN,
+            ProjectIRErrorBehaviorEvidence.UNKNOWN,
+            ProjectIRSideEffectEvidence.UNKNOWN,
+            ProjectIREvaluationCountEvidence.UNKNOWN,
+        )
+        for e in effects
+    )
+    for change in (
+        {"determinism": "unknown"},
+        {"error_behavior": "cannot_error"},
+        {"identity": signature.identity.replace("int8", "int4")},
+    ):
+        object.__setattr__(root, "signature", replace(signature, **change))
+        assert verify_project_query_block_ir(ir).issues != ()
+    object.__setattr__(root, "signature", signature)
+    for arguments, rows in (((1, 9, 3), 3), ((1, 9, 2), 4)):
+        object.__setattr__(root, "arguments", arguments)
+        object.__setattr__(root, "row_count", rows)
+        assert verify_project_query_block_ir(ir).issues != ()
+    object.__setattr__(root, "arguments", (1, 9, 2))
+    object.__setattr__(root, "row_count", 5)
+    assert verify_project_query_block_ir(ir).issues == ()
+    assert functions.GENERATE_SERIES is signature

@@ -108,15 +108,17 @@ def outer_row_bindings(block: BlockRelationDef) -> tuple[tuple[str, int], ...]:
     """Row binding names of a declaration body with their binding positions.
 
     Position 0 is the FROM input and ``k + 1`` the target of JOIN ``k``; a SEMI
-    or ANTI target never reaches the row and a body without a FROM relation
-    has no row binding.
+    or ANTI target never reaches the row, and a body without a FROM relation
+    has no row binding: a table function's binding is not one, while the
+    JOINs of its body are.
     """
 
     body = block.body
-    if type(body) is not SelectBody or type(body.from_clause) is not FromClause:
+    if type(body) is not SelectBody:
         return ()
+    source = body.from_clause
     return (
-        (body.from_clause.source_name, 0),
+        *(((source.source_name, 0),) if type(source) is FromClause else ()),
         *(
             (join.target_binding_name, position + 1)
             for position, join in enumerate(body.join_clauses)
@@ -240,7 +242,8 @@ def takes_order_and_limit(block: BlockRelationDef, let: LetRelationDef) -> bool:
 
 
 def admitted_capture_body(let: LetRelationDef, ordered: bool = False) -> bool:
-    """FROM a relation, an optional WHERE and an ungrouped, window-free SELECT;
+    """FROM a relation (not a table function), an optional WHERE and an
+    ungrouped, window-free SELECT;
     when ``ordered`` (``takes_order_and_limit``) it may end in ORDER BY and
     LIMIT (a per-row top-k) whose ORDER BY reads no captured field and no
     aggregate."""
@@ -363,7 +366,11 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
             found.append(
                 _diagnostic(
                     "unsupported",
-                    f"Let {let.name} with capture lines may use only FROM, "
+                    f"Let {let.name} with capture lines reads a table function; "
+                    "read it through another let."
+                    if type(body) is SelectBody
+                    and type(body.from_clause) is TableFunctionFromClause
+                    else f"Let {let.name} with capture lines may use only FROM, "
                     + (
                         "WHERE, an ungrouped SELECT, an ungrouped ORDER BY "
                         "without captured fields and LIMIT."

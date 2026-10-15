@@ -49,6 +49,7 @@ from pietto.ast_nodes import (
     WindowExpr,
     WindowFrameBound,
 )
+from pietto._syntax_admission import admitted_header
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import SEMANTIC_AGGREGATE_NAMES
 from pietto.semantic.expressions import QUERY_PARAMETER_TYPES
@@ -176,7 +177,12 @@ def _header_bodies(definition: object) -> tuple[QueryDef, ...]:
 
     if type(definition) is QueryDef and definition.parameters:
         return (definition,)
-    if type(definition) is not BlockRelationDef or not definition.parameters:
+    if (
+        type(definition) is not BlockRelationDef
+        or not definition.parameters
+        or not admitted_header(definition)
+    ):
+        # An unadmitted header reports only PIE-S2346.
         return ()
     from pietto._project.module_catalog import _SELECT_FIELDS
 

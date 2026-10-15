@@ -1082,6 +1082,29 @@ class ValuesRelationDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TableFunctionRelationDef(Node):
+    """QUERY relation view of one table-function FROM input.
+
+    The parser never builds it: a project catalog presents each
+    ``TableFunctionFromClause`` as its own zero-input relation named by the
+    clause's binding and read only by the body that wrote it.
+    """
+
+    name: str
+    kind: ModuleDeclarationKind
+    source: TableFunctionFromClause
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind is not ModuleDeclarationKind.QUERY
+            or type(self.source) is not TableFunctionFromClause
+            or self.name != self.source.binding_name
+            or self.span != self.source.span
+        ):
+            raise TypeError("Table-function relation requires its exact FROM input")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LetRelationDef(Node):
     """A one-level ``let NAME:`` relation binding at the start of a body."""
 

@@ -143,6 +143,7 @@ def _owner_identity(
         module_position=owner.module_position,
         declaration_position=owner.declaration_position,
         let_position=owner.let_position,
+        table_function=owner.table_function is not None,
     )
 
 

@@ -788,6 +788,18 @@ def values_expectation(target, variant):
     )
 
 
+def series_expectation(target, variant):
+    """The series BAG, labels and bigint types, by hand from the authored call.
+
+    Only PostgreSQL executes it; `joined` matches the published relation's ids
+    0 and 1 (its two BIG rows have no partner) with the series 0, 1, 2.
+    """
+    del target
+    if variant == "ascending":
+        return [[_int("1")], [_int("2")], [_int("3")]], ("n",), [20]
+    return [[_int("0"), _int("0")], [_int("1"), _int("1")]], ("n", "id"), [20, 20]
+
+
 def join_rows(variant):
     """The exact typed BAG each authored JOIN publishes, by hand."""
     if variant == "cross":
@@ -1638,6 +1650,17 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             emission.TRUTH_LABELS
         ):
             raise ValueError("three-valued positional logical metadata mismatch")
+        return
+    if case_id == "Q_table_function_series":
+        expected_rows, labels, types = series_expectation(target, variant_name)
+        if (
+            Counter(json.dumps(row, sort_keys=True) for row in observation["rows"])
+            != Counter(json.dumps(row, sort_keys=True) for row in expected_rows)
+            or [m[0] for m in observation["metadata"]] != list(labels)
+            or [m[1] for m in observation["metadata"]] != types
+            or [c["label"] for c in document["columns"]] != list(labels)
+        ):
+            raise ValueError("series BAG or metadata mismatch")
         return
     if case_id == "Q_values_rows":
         expected_rows, labels, types = values_expectation(target, variant_name)

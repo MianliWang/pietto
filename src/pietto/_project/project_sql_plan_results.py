@@ -112,6 +112,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast.QueryDef,
         ast.SetRelationDef,
         ast.ValuesRelationDef,
+        ast.TableFunctionRelationDef,
     }
 )
 

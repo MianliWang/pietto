@@ -302,10 +302,11 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 ## Relation blocks and relation references
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
-relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
-`in`/`not in` read, a let with `capture` lines read by `exists`, `scalar` or
-`in`/`not in` or joined LATERAL by `cross join`, `inner join` or `left join` and
-the header of an entry query whose own body reads a relation with `from` are
+relation let, a typed VALUES body, a bounded `generate_series` table-function
+input, a closed `exists`/`not exists`, `scalar` or `in`/`not in` read, a let
+with `capture` lines read by `exists`, `scalar` or `in`/`not in` or joined
+LATERAL by `cross join`, `inner join` or `left join` and the header of an
+entry query whose own body reads a relation with `from` are
 available, as described after the example; every other form is not available
 yet:
 
@@ -463,9 +464,10 @@ no row is NULL, a read of one row is that row's value, and a read of more than
 one row is the database's own runtime error, PIE-R3003 with SQLSTATE 21000; no
 LIMIT is added. An ungrouped `count()` always has one row, so its read is never
 NULL at runtime, but the type stays nullable. A set, an authored JOIN, a
-relation reading one of them or a typed VALUES body (directly or through a let)
-and a relation whose own errors leave its columns unknown cannot be read by
-`scalar` yet, because their columns are not known before completion: the read
+relation reading one of them, a typed VALUES body or a table function (directly
+or through a let) and a relation whose own errors leave its columns unknown
+cannot be read by `scalar` yet, because their columns are not known before
+completion: the read
 is PIE-S2348, whatever column it names. A typed VALUES body itself declares its
 columns in its header and is read like any other relation. An unknown column of any other relation is PIE-S2102 at the read. A
 relation whose errors do not change its columns, for example an error in its
@@ -483,8 +485,9 @@ keeps the rows where the test is true. A `value` whose type the literal-list
 `in` would not accept against the column of `r` is PIE-S2105 at the test, and so
 is a read of a block whose columns are known and are not exactly one. A bare
 `null` value takes the type of that one column, like a NULL in a literal list.
-The columns of a set, an authored JOIN or a relation reading one of them or a
-typed VALUES body are not known before completion, so for such a block `check
+The columns of a set, an authored JOIN or a relation reading one of them, a
+typed VALUES body or a table function are not known before completion, so for
+such a block `check
 --project` reports none of these, and `emit-sql --project` and `compile_query`
 refuse the query with PIE-B1003 `relation_membership_width_not_one` when it does
 not have exactly one output column, with PIE-B1003
@@ -540,7 +543,8 @@ In the same projects a relation let may start with `capture NAME` lines, one
 name per line, and is then correlated: it reads the current row of one FROM or
 JOIN row input of its declaration body. `NAME` is that body's FROM relation
 name or a JOIN binding such as `r` in `left join rhs as r`; a SEMI or ANTI JOIN
-target never reaches the row and is not a row input. Inside the let body
+target never reaches the row and is not a row input, and neither is the binding
+of a table function the body reads (the bindings of its JOINs are). Inside the let body
 `NAME.field` reads that field of the outer row; bare names and every other
 qualified name keep naming the let's own input, so a captured input is never
 found by a bare name and adding a field to an outer input never changes what a
@@ -550,12 +554,12 @@ captured field has the outer input field's type and is nullable when that field
 is or when an outer LEFT, RIGHT or FULL JOIN may null-extend its binding: a
 null-extended outer row is read as such. An outer JOIN ON condition does not
 narrow a captured field. The columns of a set, an authored JOIN, a typed VALUES
-body, a relation reading one of them and a relation whose own errors leave its
-columns unknown are not known before completion: a field read of such a captured
+body, a table function, a relation reading one of them and a relation whose own
+errors leave its columns unknown are not known before completion: a field read of such a captured
 input is PIE-S2369, whatever field it names, and a capture line whose fields are
 not read is accepted. The let's own FROM relation is not restricted so: a let
-over a set, an authored JOIN or a typed VALUES body reads captured fields in its
-WHERE and SELECT as usual. In the example above `recent` captures `customers`, the
+over a set, an authored JOIN, a typed VALUES body or a let reading a table
+function reads captured fields in its WHERE and SELECT as usual. In the example above `recent` captures `customers`, the
 FROM input of `customers_with_recent_orders`.
 
 Unlike other lets, a let with capture lines is read exactly once, by `exists
@@ -595,7 +599,8 @@ read the renamed let, for example `let inner: from orders` and then
   field read of a captured input whose columns are not known before completion;
 - PIE-S2370 at the let when its body has a JOIN, row `let:`, GROUP BY, an
   aggregate in WHERE or SELECT, a window, QUALIFY, SATISFYING or DISTINCT, is
-  a set operation or VALUES body, or has ORDER BY or LIMIT without being joined
+  a set operation or VALUES body, reads a table function in its FROM (read it
+  through another let), or has ORDER BY or LIMIT without being joined
   LATERAL or read by `scalar`, `in` or `not in` (an `exists` read never takes
   them), or an ORDER BY that reads a captured field or an aggregate, and at
   every read of the let other than its first `exists`, `scalar`, `in`, `not in`
@@ -704,18 +709,68 @@ query with PIE-B1003 `mysql_correlated_order_or_limit_read_not_admitted` at
 each such read, in source order, before any connection; a let joined LATERAL
 keeps its ORDER BY and LIMIT on both targets.
 
+In an EXPLICIT_MODULES project a table or query body, or a let body, may read
+one bounded table function: `from generate_series(start, stop, step) as n`.
+The call is its own zero-input relation, read only by the body that wrote it;
+`n` names its rows and its only column, `Int not null`, inside that body (`n`
+or `n.n`, and a JOIN body reads it with `from n`). The binding is never looked
+up as a relation name: another body's `n` or a module relation `n` is a
+different thing, and a let of the declaration named like the binding is
+PIE-S2001, as for a JOIN binding. A let with capture lines
+reads a table function only through another let (PIE-S2370 otherwise), and no
+capture line names its binding (PIE-S2366). `generate_series` with exactly three
+arguments is the only admitted table function: any other name is PIE-S2373
+and another argument count PIE-S2374. Each argument is a fixed integer literal
+within the signed 64-bit range, a signed number included; `null`, a Float, a
+Bool, a Text, a name, a parameter or any other expression is PIE-S2375 at that
+argument. Only when all three are valid, a zero step is PIE-S2376 at the
+third argument, and a call whose rows exceed 1,048,576 is PIE-S2377 at the
+call; the rows are `abs(stop - start) // abs(step) + 1` (integer division)
+when the step points from start to stop, and zero otherwise. A descending series uses a negative step, and a
+step pointing away from `stop` gives zero rows. The rows have no key, no
+functional dependency and an unknown grain. The function's identity is a
+closed catalog entry with explicit determinism and side-effect evidence that
+admission consumes; it says nothing about error behavior or evaluation count,
+and it does not make the reading body, its other expressions or any scalar
+call pure or deterministic. As for a VALUES upstream, grouping or aggregating
+directly over a table-function input is PIE-S2333 for now; read it through a
+let or another relation first.
+
+Project SQL writes each table-function input as a CTE read by its body,
+`SELECT "n"."n" FROM pg_catalog.generate_series(CAST(start AS
+pg_catalog.int8), CAST(stop AS pg_catalog.int8), CAST(step AS pg_catalog.int8))
+AS "n"("n")`: the schema-qualified name and the bigint casts fix the one
+`bigint` overload in the SQL itself, and the three values are fixed literals,
+never bound parameters. The binding is written as that alias and column, so
+each binding longer than 63 UTF-8 bytes, which PostgreSQL cannot spell, is
+BLOCKED with `PIE-B1002` (`table_function_binding_unrepresentable`) at its own
+input. It is PostgreSQL only: MySQL `emit-sql` and `compile_query` report each
+table function BLOCKED with `PIE-B1003` (`table_function_not_admitted_on_target`)
+at its own input, whether or not the statement also reads a physical source.
+Either blocker is reported once per input, in source order, and a MySQL
+statement's `scalar` and `in` reads of lets ending in ORDER BY and LIMIT are
+refused beside them, in that one source order. PostgreSQL runs a
+statement whose only input is a table function under the session-context
+qualification of a VALUES-only statement (see [Execution](execution.md)); no
+runtime catalog check of the function is made. R2 refuses a query with a table
+function before connecting (`PIE-R1004`). PIE-S2377 bounds the series' static
+rows; an execution's own `max_rows` still applies. A query whose own body or
+one of whose lets reads a table function cannot declare header parameters:
+each one is PIE-S2346 (see below).
+
 In EXPLICIT_MODULES the `let NAME:` line, a `capture` line, a typed VALUES
-body and an `exists`, `scalar` or `in` read inside a relation body are
-admitted, so a let there never receives the temporary PIE-S2345, a capture line
-never receives PIE-S2351, a VALUES body never receives PIE-S2347 and such a read
-never receives PIE-S2348, PIE-S2349 or PIE-S2350; any other unavailable form
-inside a let still receives its own code. Every other occurrence of these forms
-receives its temporary ERROR diagnostic in every check mode before any semantic
-reader runs: PIE-S2345 relation let, PIE-S2346 query header parameter,
-PIE-S2347 VALUES body, PIE-S2348 scalar read, PIE-S2349 EXISTS reference,
-PIE-S2350 IN reference, PIE-S2351 capture line and PIE-S2352 table-function
-FROM input. The one exception is a query header that an EXPLICIT_MODULES
-project admits (see below). That run then reports no other
+body, a table-function FROM input and an `exists`, `scalar` or `in` read inside
+a relation body are admitted, so a let there never receives the temporary
+PIE-S2345, a capture line never receives PIE-S2351, a VALUES body never
+receives PIE-S2347, a table-function input never receives PIE-S2352 and such a
+read never receives PIE-S2348, PIE-S2349 or PIE-S2350; any other unavailable
+form inside a let still receives its own code. Every other occurrence of these
+forms receives its temporary ERROR diagnostic in every check mode before any
+semantic reader runs: PIE-S2345 relation let, PIE-S2346 query header
+parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read, PIE-S2349 EXISTS
+reference, PIE-S2350 IN reference, PIE-S2351 capture line and PIE-S2352
+table-function FROM input. The one exception is a query header that an
+EXPLICIT_MODULES project admits (see below). That run then reports no other
 semantic diagnostic. Single-file `check`, `explain` and `emit-sql` report them
 from semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks, project
 `emit-sql` and `compile_query` report them with the owning file's parse
@@ -731,7 +786,7 @@ available.
 
 An EXPLICIT_MODULES project admits the header of an entry query whose own body
 reads a relation with `from` (not a table function), with or without relation
-lets:
+lets, as long as no let reads a table function:
 
 ```pietto
 query orders_since(cutoff: Int not null, label: Text nullable):
@@ -809,8 +864,9 @@ the input field it may shadow. A position that a literal cannot use either keeps
 the literal's diagnostic. A query with parameters is never the input of another
 relation, a relation let or the body of a declaration with lets included, nor
 read by `exists`, `scalar` or `in` (PIE-S2356). Headers stay PIE-S2346 in
-single-file analysis, in LEGACY_FLAT projects and on a VALUES, set-operation or
-table-function FROM body.
+single-file analysis, in LEGACY_FLAT projects, on a VALUES, set-operation or
+table-function FROM body and beside a relation let whose FROM is a table
+function, whether or not that let reads a parameter.
 
 In a window call that is a SELECT item of a query without GROUP BY, SATISFYING
 or aggregates, a bare read is also available as a window argument: the value

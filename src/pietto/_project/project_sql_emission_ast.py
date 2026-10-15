@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import json
-from typing import Any
-from pietto.ast_nodes import AuthoredJoinKind, SourceDef
+from typing import Any, cast
+from pietto.ast_nodes import AuthoredJoinKind, SourceDef, ValuesRelationDef
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.model import ProjectResolvedTypeKind
@@ -493,14 +493,54 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
 
     if RELEASES.get(request.family) != request.release:
         add("PIE-B1003", "target_release_not_reviewed")
+    # D70.05: generate_series is PostgreSQL only, whatever else is read beside it.
+    # Every refused call is reported at its own input, in source order.
+    functions = sorted(
+        (b for b in plan.values_bodies if b.function is not None),
+        key=lambda b: b.source.owner.source_order,
+    )
+    refused_start = len(result)
+    for body in functions:
+        definition = body.relation.definition
+        if request.family != "postgres":
+            add(
+                "PIE-B1003",
+                "table_function_not_admitted_on_target",
+                body.ref,
+                definition.span,
+            )
+        elif not identifier_valid(definition.name, "postgres"):
+            # The binding is the call's alias and column: PostgreSQL cannot
+            # spell an identifier over 63 bytes.
+            add(
+                "PIE-B1002",
+                "table_function_binding_unrepresentable",
+                body.ref,
+                definition.span,
+            )
     admitted = projection_only
     realization = None
-    if not admitted and (
-        admitted_row_shape(plan) or joining.admitted_join_shape(plan, _guarded=_guarded)
+    refused = len(result) > refused_start
+    reads = ordered_inline_read_blockers(plan, request.family) if refused else ()
+    if reads:
+        # A refused call is not realized; the reads refused before any
+        # realization still are, each at its own read, in one source order.
+        def at(blocker):
+            span = cast(Any, blocker.location)
+            return (span.path or "", span.line, span.column)
+
+        result[refused_start:] = sorted((*result[refused_start:], *reads), key=at)
+    if (
+        not admitted
+        and not refused
+        and (
+            admitted_row_shape(plan)
+            or joining.admitted_join_shape(plan, _guarded=_guarded)
+        )
     ):
         realization = realize_rows(request, _guarded=_guarded)
         result.extend(realization.problems)
-    elif not admitted:
+    elif not admitted and not refused:
         shape_start = len(result)
         for block in plan.blocks:
             for operator in block.operators:
@@ -607,14 +647,15 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
             add("PIE-B1006", "negative_original_target_evidence", aspect.entry.subject)
     for obligation in request.report.report.summary.enforcement_required:
         add("PIE-B1006", "original_enforcement_not_fulfilled", obligation.entry.subject)
-    if request.family == "mysql" and not plan.sources:
+    if request.family == "mysql" and not plan.sources and not functions:
         # D70.05: a statement reading no physical relation (pure VALUES) needs a
-        # non-vacuous source qualification; MySQL offers none in this phase.
+        # non-vacuous source qualification; MySQL offers none in this phase. A
+        # table function already has its own refusal above.
         add(
             "PIE-B1003",
             "zero_physical_source_not_admitted_on_target",
             plan.scope,
-            plan.values_bodies[0].relation.definition.body.span
+            cast(ValuesRelationDef, plan.values_bodies[0].relation.definition).body.span
             if plan.values_bodies
             else None,
         )
@@ -1003,6 +1044,41 @@ INLINE_READS = (
 # Targets whose expression reads may render a capturing let's ORDER BY and
 # LIMIT inside the read (D70.05); MySQL takes them only LATERAL.
 ORDERED_INLINE_READ_TARGETS = frozenset({"postgres"})
+
+
+def ordered_inline_read_blockers(plan, family):
+    """D70.05: MySQL takes a capturing let's ORDER BY and LIMIT only LATERAL.
+
+    Every scalar or IN read of such a let is refused at its own read, in
+    source order, before anything is realized, whatever else is refused.
+    """
+
+    if family in ORDERED_INLINE_READ_TARGETS:
+        return ()
+    inline = {capture.inner for capture in plan.captures}
+    result_groups = resulting.boundaries_by_definition(plan)
+    return tuple(
+        Blocker(
+            "PIE-B1003",
+            "mysql_correlated_order_or_limit_read_not_admitted",
+            block_use.ref,
+            block_use.expression.span,
+        )
+        for block_use in sorted(
+            (
+                u
+                for u in plan.expression_block_uses
+                if u.producer in inline and result_groups.get(u.producer)
+            ),
+            key=lambda u: (
+                u.expression.span.path or "",
+                u.expression.span.line,
+                u.expression.span.column,
+            ),
+        )
+    )
+
+
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
     grouping.ProjectSQLResultReference,
@@ -1700,30 +1776,9 @@ def realize_rows(request, *, _guarded=None):
     # A capturing let is realized inline at its outer body's single read
     # (a correlated reference cannot live in a CTE: native probe S10-E).
     inline = {capture.inner for capture in plan.captures}
-    # D70.05: MySQL takes a capturing let's ORDER BY and LIMIT only LATERAL.
-    # Every scalar or IN read of such a let is refused at its own read, in
-    # source order, before anything is realized.
-    if family not in ORDERED_INLINE_READ_TARGETS:
-        for block_use in sorted(
-            (
-                u
-                for u in plan.expression_block_uses
-                if u.producer in inline and result_groups.get(u.producer)
-            ),
-            key=lambda u: (
-                u.expression.span.path or "",
-                u.expression.span.line,
-                u.expression.span.column,
-            ),
-        ):
-            add(
-                "PIE-B1003",
-                "mysql_correlated_order_or_limit_read_not_admitted",
-                block_use.ref,
-                block_use.expression.span,
-            )
-        if problems:
-            return RowRealization(tuple(problems), None)
+    problems.extend(ordered_inline_read_blockers(plan, family))
+    if problems:
+        return RowRealization(tuple(problems), None)
     blocks_by_definition = {
         definition.original.ref: (definition, blocks) for definition, blocks in groups
     }

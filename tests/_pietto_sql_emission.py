@@ -52,6 +52,9 @@ VARIANTS = {
     # over a closed LIMIT let emitted as a top-level CTE; S14: a correlated
     # `in` and a correlated `scalar` read in WHERE.
     "L_relation_membership": ("select_truth", "where_limit", "correlated"),
+    # Phase70 S15: PostgreSQL generate_series alone and joined with the
+    # published relation; MySQL has no table function in this phase.
+    "Q_table_function_series": ("ascending", "joined"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -474,6 +477,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return scalar_fixture(target, variant)
     if case == "L_relation_membership":
         return membership_fixture(target, variant)
+    if case == "Q_table_function_series":
+        return series_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
@@ -2266,6 +2271,32 @@ def membership_fixture(target, variant):
     return item
 
 
+SERIES_BODIES = {
+    "ascending": """query result:
+    from generate_series(1, 3, 1) as n
+    select:
+        n
+""",
+    "joined": """query result:
+    from generate_series(0, 2, 1) as n
+    inner join rows as r:
+        from n
+        on n.n == r.id
+    select:
+        n = n.n
+        id = r.id
+""",
+}
+SERIES_LABELS = {"ascending": ("n",), "joined": ("n", "id")}
+
+
+def series_fixture(target, variant):
+    """A bounded series alone, or joined with the published relation."""
+    item = join_fixture(target, "W_join_shapes", "inner")
+    header = item["source"].split("query result:", 1)[0]
+    return {**item, "source": header + SERIES_BODIES[variant]}
+
+
 ROW_DIRECT_BODY = """    from rows
     let:
         bumped = id + 1
@@ -3599,6 +3630,15 @@ PER_TARGET_STATUS = {
     ("V_join_full", "null_keys"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     # D70.05: a statement without a physical source is refused on MySQL.
     ("Q_values_rows", "top"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    # D70.05: generate_series is PostgreSQL only, alone or joined.
+    ("Q_table_function_series", "ascending"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
+    ("Q_table_function_series", "joined"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
 }
 
 
@@ -4825,7 +4865,8 @@ def _scan_occurrences(document, contract, premises, family):
             )
         occurrences.append((description, source_positions))
     valued = any(
-        r.get("denominator") == "generated" and r.get("kind") == "values_rows"
+        r.get("denominator") == "generated"
+        and r.get("kind") in {"values_rows", "table_function"}
         for r in document["requirements"]
     )
     _need(
@@ -5102,7 +5143,8 @@ def _decode_fixed_public(document, limits):
         for r in document["requirements"]
     )
     valued = any(
-        r.get("denominator") == "generated" and r.get("kind") == "values_rows"
+        r.get("denominator") == "generated"
+        and r.get("kind") in {"values_rows", "table_function"}
         for r in document["requirements"]
     )
     if not joined and not setted:
@@ -9627,6 +9669,129 @@ def _decode_fixed_public(document, limits):
         take("syntax", "anchor_close", close, column)
         return values_cell(tag, text)
 
+    function_evidence = {
+        encoded(r["subject"]): r["evidence"]
+        for r in document["requirements"]
+        if r.get("denominator") == "generated" and r.get("kind") == "table_function"
+    }
+
+    def function_select(block, final, cte_terminals):
+        """One table-function CTE: its one column read from the qualified call.
+
+        The identity, the three CAST values and the row bound are decoded from
+        the tokens alone and must equal the published requirement evidence.
+        """
+        _need(family == "postgres" and not final, "a PostgreSQL table-function CTE")
+        reference = ref("values_column", row_counts["values_column"])
+        _need(
+            values_evidence.get(encoded(reference))
+            == [{"position": 0, "tag": "Int", "nullable": False}],
+            "the table-function column is Int not null",
+        )
+        take("syntax", "select", "SELECT ", block)
+        _, binding = take("identifier", "function_scope", None, reference)
+        take("syntax", "function_qualifier", ".", reference)
+        take("identifier", "function_column", binding, reference)
+        take("syntax", "from", " FROM ", block)
+        take("syntax", "function", "pg_catalog.generate_series", block)
+        take("syntax", "function_open", "(", block)
+        values = []
+        for position in range(3):
+            if position:
+                take("syntax", "separator", ", ", block)
+            take("syntax", "anchor_open", "CAST(", block)
+            _, text = take("literal", "Int", None, block)
+            values.append(_fixed_payload("Int", text))
+            take("syntax", "anchor_close", " AS pg_catalog.int8)", block)
+        take("syntax", "function_close", ") AS ", block)
+        take("identifier", "function_alias", binding, block)
+        take("syntax", "function_columns_open", "(", block)
+        take("identifier", "function_column_alias", binding, reference)
+        take("syntax", "function_columns_close", ")", block)
+        start, stop, step = values
+        _need(step != 0, "a nonzero step")
+        rows = (
+            0
+            if (step > 0 and start > stop) or (step < 0 and start < stop)
+            else abs(stop - start) // abs(step) + 1
+        )
+        _need(rows <= 1 << 20, "the static row bound")
+        evidence = {
+            "function": "pg_catalog.generate_series("
+            "pg_catalog.int8,pg_catalog.int8,pg_catalog.int8)",
+            "arguments": [str(value) for value in values],
+            "rows": rows,
+        }
+        _need(
+            function_evidence.get(encoded(block)) == [evidence],
+            "published table-function evidence",
+        )
+        terminal = ref("result_port", row_counts["result"])
+        row_counts["result"] += 1
+        row_counts["values_column"] += 1
+        _need(cte_terminals == [terminal], "declared table-function terminal")
+        row_generated.append(("table_function", block, "R04", "naming", evidence))
+        row_generated.append(
+            (
+                "values_column",
+                reference,
+                "R02",
+                [],
+                {"position": 0, "tag": "Int", "nullable": False},
+            )
+        )
+        realization = {
+            "tag": "Int",
+            "storage": {"kind": "pg_int8"},
+            "nullable": False,
+            "domain": {
+                "kind": "int_range",
+                "min": str(-(1 << 63)),
+                "max": str((1 << 63) - 1),
+            },
+            "proven_int_range": (-(1 << 63), (1 << 63) - 1),
+        }
+        row_generated.append(("read_only_select_bytes", None, "R23", [], None))
+        result_nodes[0] += 2 + 1 + 3
+        body = {
+            "block": block,
+            "columns": [
+                {
+                    "label": "c0",
+                    "export": None,
+                    "terminal": terminal,
+                    "realization": realization,
+                    "field": None,
+                    "literal": None,
+                    "root": None,
+                    "position": 0,
+                    "origin": None,
+                }
+            ],
+            "outgoing": [
+                {
+                    "name": "c0",
+                    "terminal": terminal,
+                    "source_port": None,
+                    "realization": realization,
+                    "field": None,
+                    "literal": None,
+                    "origin": None,
+                    "helper": False,
+                }
+            ],
+            "projection": True,
+            "final": False,
+            "definition": next_row_definition(),
+            "scan": {"kind": "values"},
+            "header": cte_terminals,
+            "deferred": [],
+            "helpers": 0,
+            "values": True,
+        }
+        row_bodies.append(body)
+        return body
+
     def values_select(block, final, cte_terminals):
         """One VALUES unit: typed fixed rows, every alias written by the SQL.
 
@@ -9635,6 +9800,8 @@ def _decode_fixed_public(document, limits):
         of every column is re-derived from those cells alone.
         """
         _need(block["kind"] == "values_body", "VALUES body scope")
+        if encoded(block) in function_evidence:
+            return function_select(block, final, cte_terminals)
         base = row_counts["values_column"]
         columns_seen: list[dict[str, Any]] = []
         rows: list[list[Any]] = []

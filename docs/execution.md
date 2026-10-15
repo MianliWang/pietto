@@ -296,20 +296,23 @@ LATERAL by a JOIN other than CROSS, INNER or LEFT, and, in a MySQL bundle, a
 `scalar` or `in` read of a let that ends in ORDER BY or LIMIT: that read is
 PostgreSQL only, and `compile_query` for MySQL refuses it with `PIE-B1003`
 before any connection or workspace. After that source
-check, `save_recoverable` and `recover` refuse four shapes that are not R2
+check, `save_recoverable` and `recover` refuse five shapes that are not R2
 shapes yet with `PIE-R1004` before any workspace access or connection, in this
 order: first a statement in which the query, or a relation it reads, groups by
 a value that relation's own `let:` computes (detail
 `PUBLIC_R2_COMPUTED_GROUP_KEY`), then a query with a typed VALUES body, even
 one read beside a physical source (`PUBLIC_R2_VALUES_COORDINATE_BASIS`: a
-fixed row has no recovery coordinate), then a query with an `exists`, `scalar`
-or `in` read, including such a read of a let with `capture` lines, with or
-without its ORDER BY and LIMIT (`REFINEMENT_EXPRESSION_BLOCK_READ`), then a
-query with a JOIN that reads a let with `capture` lines LATERAL, with or
-without its ORDER BY and LIMIT (`REFINEMENT_LATERAL_JOIN`). These checks read
-the live query alone, so `recover` makes them in this order also when its
-restated `values` or `parameters` cannot bind. Ordinary
-execution on every route, an ordinary `save` and bundles accept them.
+fixed row has no recovery coordinate), then a query with a table-function
+input, even one read beside a physical source
+(`PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS`: a generated row has none
+either), then a query with an `exists`, `scalar` or `in` read, including such
+a read of a let with `capture` lines, with or without its ORDER BY and LIMIT
+(`REFINEMENT_EXPRESSION_BLOCK_READ`), then a query with a JOIN that reads a
+let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
+(`REFINEMENT_LATERAL_JOIN`). These checks read the live query alone, so
+`recover` makes them in this order also when its restated `values` or
+`parameters` cannot bind. Ordinary execution on every route, an ordinary
+`save` and bundles accept them.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,
 access, premise, limits, isolation="stable", values=None, job=None,
 parameters=None) -> SaveReply` records R2 retention before progress. `recover(workspace, *, job,
@@ -563,11 +566,15 @@ and fresh trust, source, value and deployment inputs.
   of the query and must include `pg_catalog`, because qualification checks
   built-in definitions there; other `pg_*` schemas and `information_schema` are
   refused. Pietto binds it to the compiled query's own sources on every call.
-  A query whose only inputs are typed VALUES bodies has no source relation: its
-  qualification still verifies the session context (server version,
-  `search_path`, isolation level and read-only transaction) under a premise
-  that includes `pg_catalog`, and records that it has no relation root and
-  checked no relation catalog.
+  A query whose only inputs are typed VALUES bodies or table functions has no
+  source relation: its qualification still verifies the session context
+  (server version, `search_path`, isolation level and read-only transaction)
+  under a premise that includes `pg_catalog`, and records that it has no
+  relation root and checked no relation catalog. A query with a
+  `generate_series` input, alone or beside a physical source, also records that
+  the function's identity is fixed by its schema-qualified emission with
+  explicit `pg_catalog.int8` casts and that no catalog check was made for it:
+  Pietto does not look the function up at run time.
 - `MySQLAccess(host, port, database, user, password, ca_file, account,
   roles="NONE")` is the explicit MySQL connection input. It redacts its
   password and cannot be pickled or copied. `ca_file` is required; Pietto
@@ -579,7 +586,11 @@ and fresh trust, source, value and deployment inputs.
   that reads no physical relation, because its only inputs are typed VALUES
   bodies, is BLOCKED by `compile_query` (`PIE-B1003`), and the MySQL route also
   refuses any compiled query that reads no physical relation before connecting
-  (`PIE-R1003`); a VALUES body read beside a physical source is neither.
+  (`PIE-R1003`); a VALUES body read beside a physical source is neither. A
+  MySQL query with a table-function input is BLOCKED by `compile_query`
+  (`PIE-B1003`) even beside a physical source, and a bundle whose compiled
+  table function claims a MySQL target is refused by `load_bundle`
+  (`PIE-R1008`).
 - `ExecutionLimits(batch_rows=256, batch_bytes=1 MiB, max_rows=1048576,
   max_bytes=64 MiB, seconds=20.0)` bounds one attempt; `seconds` is its
   deadline, `max_bytes` also counts the route's qualifying profile and catalog
@@ -859,7 +870,7 @@ before the workspace opens.
   the query declares parameters or `parameters` names any. The other inputs
   are still checked first, in the same order as for a value that binds: the
   access, premise, limits and isolation and, for R2, the live query, its
-  `source_requirements` and the four shapes R2 refuses (see above) before the
+  `source_requirements` and the five shapes R2 refuses (see above) before the
   workspace opens, then
   the workspace's own checks; then the saved binding refuses the
   restatement. Only a `recover` without parameters still refuses a `values`

@@ -133,6 +133,7 @@ from pietto._project.project_grain import (
 )
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto._project.project_values import ProjectValuesColumn, ProjectValuesRelation
+from pietto._project.project_table_function import ProjectTableFunctionRelation
 from pietto._project.project_set_operations import (
     ProjectSetInputScope,
     ProjectSetOperandUse,
@@ -203,6 +204,7 @@ from pietto.ast_nodes import (
     CapturedFieldExpr,
     DistinctClause,
     SetRelationDef,
+    TableFunctionRelationDef,
     ValuesRelationDef,
     SetOperationKind,
     SetOperationQuantifier,
@@ -1796,21 +1798,23 @@ class ProjectCompletedValuesOutputField:
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectValuesGrainOrigin(ProjectGrainOriginAuthority):
-    """VALUES rows are fixed literal tuples with no row identity of their own."""
+    """VALUES or generated series rows have no row identity of their own."""
 
-    witness: ProjectValuesRelation = field(repr=False)
+    witness: ProjectValuesRelation | ProjectTableFunctionRelation = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCompletedValuesOutput:
-    """The zero-input typed VALUES variant in the canonical effective-output ledger.
+    """The zero-input typed variant in the canonical effective-output ledger.
 
-    It reads no relation: its schema is the header and its rows are fixed literal
-    tuples, so it has no dependencies, keys, functional dependencies or grain.
+    It reads no relation: its schema is a VALUES header and its rows fixed
+    literal tuples, or its root is one bounded table-function input whose one
+    ``Int not null`` column is its binding. It has no dependencies, keys,
+    functional dependencies or grain.
     """
 
     base_entry: ProjectEffectiveOutputTerminal = field(repr=False)
-    root: ProjectValuesRelation = field(repr=False)
+    root: ProjectValuesRelation | ProjectTableFunctionRelation = field(repr=False)
     fields: tuple[ProjectCompletedValuesOutputField, ...] = field(init=False)
     schema: ProjectRowSchema = field(init=False)
     row_domain: ProjectCompletedRowDomain = field(init=False)
@@ -1822,7 +1826,8 @@ class ProjectCompletedValuesOutput:
     def __post_init__(self) -> None:
         if (
             type(self.base_entry) is not ProjectEffectiveOutputTerminal
-            or type(self.root) is not ProjectValuesRelation
+            or type(self.root)
+            not in {ProjectValuesRelation, ProjectTableFunctionRelation}
             or self.root.definition is not self.base_entry.owner.definition
             or self.root.diagnostics
         ):
@@ -1854,7 +1859,9 @@ class ProjectCompletedValuesOutput:
     def validate(self) -> None:
         if (
             self.base_entry.dependencies
-            or not isinstance(self.owner.definition, ValuesRelationDef)
+            or not isinstance(
+                self.owner.definition, (ValuesRelationDef, TableFunctionRelationDef)
+            )
             or len(self.fields) != len(self.root.columns)
             or any(
                 f.owner is not self.owner
@@ -5145,7 +5152,7 @@ def _complete_values_output(
     """
     owner = base_entry.owner
     definition = owner.definition
-    assert isinstance(definition, ValuesRelationDef)
+    assert isinstance(definition, (ValuesRelationDef, TableFunctionRelationDef))
     if (
         type(base_entry) is not ProjectEffectiveOutputTerminal
         or base_entry.dependencies
@@ -5153,7 +5160,11 @@ def _complete_values_output(
         raise ValueError(
             "VALUES completion requires its dependency-free base terminal."
         )
-    root = ProjectValuesRelation(definition=definition)
+    root = (
+        ProjectValuesRelation(definition=definition)
+        if isinstance(definition, ValuesRelationDef)
+        else ProjectTableFunctionRelation(definition=definition)
+    )
     if _semantic_facts(completion, owner).helper_diagnostics != root.diagnostics:
         raise ValueError("VALUES completion lost its exact semantic diagnostics.")
     if root.diagnostics:
@@ -5283,13 +5294,19 @@ def _complete_no_join_output(
         QueryDef,
         SetRelationDef,
         ValuesRelationDef,
+        TableFunctionRelationDef,
     }:
         raise TypeError("No-JOIN replay upstream must produce rows.")
     let_scope = build_project_relation_let_scope_facts(
         definition=definition,
         input_schema=input_schema,
         upstream_definition=cast(
-            SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef,
+            SourceDef
+            | TableDef
+            | QueryDef
+            | SetRelationDef
+            | ValuesRelationDef
+            | TableFunctionRelationDef,
             upstream_definition,
         ),
     )
@@ -5333,7 +5350,12 @@ def _complete_no_join_output(
             source_schema=input_schema,
             source_symbol=upstream_symbol,
             upstream_definition=cast(
-                SourceDef | TableDef | QueryDef | SetRelationDef | ValuesRelationDef,
+                SourceDef
+                | TableDef
+                | QueryDef
+                | SetRelationDef
+                | ValuesRelationDef
+                | TableFunctionRelationDef,
                 upstream_definition,
             ),
             fallback_path=owner.identity.module_path,
@@ -6411,7 +6433,7 @@ def build_project_effective_output_completion(
             built_by_owner[id(owner)] = entry
             changed_current.add(id(owner))
             continue
-        if isinstance(definition, ValuesRelationDef):
+        if isinstance(definition, (ValuesRelationDef, TableFunctionRelationDef)):
             entry = _complete_values_output(completion, base_entry)
             built_by_owner[id(owner)] = entry
             if entry is not base_entry:
@@ -6605,7 +6627,7 @@ def completed_set_admission_diagnostics(
             facts = _semantic_facts(overlay.base, entry.owner)
             definition = entry.owner.definition
             if isinstance(
-                definition, ValuesRelationDef
+                definition, (ValuesRelationDef, TableFunctionRelationDef)
             ) or facts.helper_diagnostics != syntax_diagnostics(definition):
                 raise ValueError(
                     "Set admission requires its exact owner-held temporary cause."

@@ -175,6 +175,7 @@ from pietto.ast_nodes import (
     BlockRelationDef,
     DottedNameExpr,
     LetRelationDef,
+    LiteralExpr,
     NameExpr,
     QueryDef,
     RelationExistsExpr,
@@ -183,6 +184,8 @@ from pietto.ast_nodes import (
     SelectBody,
     Span,
     TableDef,
+    TableFunctionRelationDef,
+    UnaryExpr,
 )
 from dataclasses import fields as _dataclass_fields, is_dataclass
 
@@ -3657,6 +3660,7 @@ def _verify_values(
             and not result.grain.dependencies
             and result.grain.origin_set is root.grain_origins
             and result.grain.witness is semantic.origin
+            and _zero_input_root_valid(semantic, entry)
         )
         for position, (actual, expected) in enumerate(
             zip(entry.active_output.row_shape.fields, semantic.fields, strict=True)
@@ -3677,6 +3681,94 @@ def _verify_values(
                 ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
                 entry.active_output.occurrence,
             )
+
+
+# The one admitted table function, re-derived here without the semantic owner.
+GENERATE_SERIES = (
+    "pg_catalog.generate_series(pg_catalog.int8,pg_catalog.int8,pg_catalog.int8)"
+)
+GENERATE_SERIES_ROWS = 1_048_576
+
+
+def _authored_int(expression):
+    """A fixed int64 literal written directly, or with one sign on it."""
+    sign = 1
+    if type(expression) is UnaryExpr and expression.operator in {"-", "+"}:
+        sign = -1 if expression.operator == "-" else 1
+        expression = expression.operand
+    if type(expression) is not LiteralExpr:
+        return None
+    value = expression.value
+    if type(value) is not int:
+        return None
+    value *= sign
+    return value if -(2**63) <= value <= 2**63 - 1 else None
+
+
+def table_function_facts(authored):
+    """Identity, three values and rows of one admitted call, from its AST alone.
+
+    None unless the call is exactly the admitted ``generate_series`` with three
+    fixed int64 values, a nonzero step and at most the D70.07 row bound.
+    """
+    if type(authored) is not TableFunctionRelationDef:
+        return None
+    call = authored.source.call
+    values = tuple(_authored_int(argument) for argument in call.arguments)
+    if (
+        type(call.callee) is not NameExpr
+        or call.callee.name != "generate_series"
+        or authored.name != authored.source.binding_name
+        or len(values) != 3
+        or any(value is None for value in values)
+    ):
+        return None
+    start, stop, step = cast(tuple[int, int, int], values)
+    if step == 0:
+        return None
+    rows = (
+        0
+        if (step > 0 and start > stop) or (step < 0 and start < stop)
+        else (abs(stop - start) // abs(step)) + 1
+    )
+    if rows > GENERATE_SERIES_ROWS:
+        return None
+    return GENERATE_SERIES, (start, stop, step), rows
+
+
+def _zero_input_root_valid(semantic, entry) -> bool:
+    """A table-function root is re-derived from its call; effects stay local.
+
+    Its occurrence evidence is exactly the admitted function's: deterministic
+    and side-effect free, with error behavior and evaluation count unknown.
+    The output-level effect evidence stays unknown on every axis.
+    """
+    from pietto._project.project_table_function import ProjectTableFunctionRelation
+
+    root = semantic.root
+    if type(root) is not ProjectTableFunctionRelation:
+        return type(semantic.owner.definition) is not TableFunctionRelationDef
+    facts = table_function_facts(semantic.owner.definition)
+    signature = root.signature
+    effect = entry.active_properties.effect
+    return (
+        facts is not None
+        and signature is not None
+        and not root.diagnostics
+        and (signature.identity, root.arguments, root.row_count) == facts
+        and signature.determinism == ProjectIRDeterminismEvidence.DETERMINISTIC.value
+        and signature.side_effects == ProjectIRSideEffectEvidence.SIDE_EFFECT_FREE.value
+        and signature.error_behavior == ProjectIRErrorBehaviorEvidence.UNKNOWN.value
+        and signature.evaluation_count == ProjectIREvaluationCountEvidence.UNKNOWN.value
+        and len(root.columns) == 1
+        and root.columns[0].name == semantic.owner.definition.name
+        and root.columns[0].logical_type == "Int"
+        and root.columns[0].nullable is False
+        and effect.determinism is ProjectIRDeterminismEvidence.UNKNOWN
+        and effect.error_behavior is ProjectIRErrorBehaviorEvidence.UNKNOWN
+        and effect.side_effects is ProjectIRSideEffectEvidence.UNKNOWN
+        and effect.evaluation_count is ProjectIREvaluationCountEvidence.UNKNOWN
+    )
 
 
 def _verify_set_operations(
@@ -4534,7 +4626,7 @@ def verify_compiled_property_laws(root):
         elif kind == "join":
             keys, fds = compiled_join_property_signatures(root, operator, built)
             verify_compiled_join_grain(root, operator, built)
-        elif kind == "values":
+        elif kind in ("values", "table_function"):
             need(
                 operator.inputs == ()
                 and _class_signatures(actual)

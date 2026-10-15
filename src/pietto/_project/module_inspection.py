@@ -1477,11 +1477,12 @@ def _derive_inspection(
         package_identity.declaration_assets
     )
 
-    # Relation lets are block-local owners, not declarations: this
-    # declaration-level projection leaves every fact a let owns or targets out.
+    # Relation lets and table-function inputs are block-local owners, not
+    # declarations: this declaration-level projection leaves every fact one
+    # owns or targets out.
     origins_by_path: dict[str, list[ProjectModuleOriginPath]] = {}
     for origin_path in attribution.origins:
-        if origin_path.target_occurrence.let_position is not None:
+        if origin_path.target_occurrence.block_local:
             continue
         origins_by_path.setdefault(origin_path.owning_module_path, []).append(
             origin_path
@@ -1495,7 +1496,7 @@ def _derive_inspection(
         ).append(dependency_fact)
     lineages_by_path: dict[str, list[ProjectModuleRelationLineage]] = {}
     for relation_lineage in attribution.row_lineages:
-        if relation_lineage.owner.let_position is not None:
+        if relation_lineage.owner.block_local:
             continue
         lineages_by_path.setdefault(
             relation_lineage.owner.identity.module_path, []
@@ -1925,8 +1926,8 @@ def _derive_relation_resolutions(
             resolution=resolution,
         )
         for resolution in environments[0].resolutions
-        if resolution.reference.owner.let_position is None
-        and resolution.target_symbol.target_occurrence.let_position is None
+        if not resolution.reference.owner.block_local
+        and not resolution.target_symbol.target_occurrence.block_local
     )
 
 
@@ -1934,9 +1935,9 @@ def _touches_let(dependency_fact: ProjectModuleDependencyFact) -> bool:
     target = dependency_fact.target_declaration
     row_field = dependency_fact.target_row_field
     return (
-        dependency_fact.reference.owner.let_position is not None
-        or (target is not None and target.let_position is not None)
-        or (row_field is not None and row_field.owner.let_position is not None)
+        dependency_fact.reference.owner.block_local
+        or (target is not None and target.block_local)
+        or (row_field is not None and row_field.owner.block_local)
     )
 
 
@@ -1987,7 +1988,7 @@ def _derive_semantic_facts(
             facts=relation_facts,
         )
         for relation_facts in environments[0].relation_facts
-        if relation_facts.owner.let_position is None
+        if not relation_facts.owner.block_local
     )
 
 

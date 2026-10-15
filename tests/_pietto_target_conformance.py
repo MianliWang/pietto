@@ -714,6 +714,9 @@ def verify_emission_generation(value, target, expected):
                     # source; a rejected VALUES body never reaches a plan.
                     "top": "PIE-B1003",
                     "rejected": "PIE-B1003",
+                    # Phase70 S15: MySQL refuses generate_series, joined or not.
+                    "ascending": "PIE-B1003",
+                    "joined": "PIE-B1003",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:
