@@ -307,3 +307,134 @@ def test_slice7_scope_dependency_and_contract_are_exact() -> None:
             name.endswith(".project_completion")
             for name in REPOSITORY_FACTS.python(REPO_ROOT / relative).imported_modules
         )
+
+
+EXISTS_HEAD = """shape Row:
+    id: Int not null
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+"""
+# `flagged` is declared after its reader, so only the read orders it first.
+EXISTS_READS = """query result:
+    let picked:
+        from tags
+        select:
+            id
+    from rows
+    where exists picked and not exists flagged
+    select:
+        id
+query flagged:
+    from tags
+    select:
+        id
+"""
+
+
+def _exists_completed(tmp_path, body: str):
+    from _pietto_project_join import _completed
+
+    return _completed(tmp_path, EXISTS_HEAD + body)
+
+
+def test_expression_reads_order_their_targets_without_input_slots(
+    tmp_path,
+) -> None:
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+
+    completed = _exists_completed(tmp_path, EXISTS_READS)
+    assert completed.ok, completed.diagnostics
+    result = completed.completion
+    uses = result.expression_uses
+    assert [
+        (u.consumer.definition.name, u.target.definition.name, u.ordinal) for u in uses
+    ] == [("result", "picked", 0), ("result", "flagged", 1)]
+    assert [u.evidence.read.position.value for u in uses] == ["where", "where"]
+    positions = {id(owner): i for i, owner in enumerate(result.schedule)}
+    assert all(positions[id(u.target)] < positions[id(u.consumer)] for u in uses)
+    # A read is never one of its consumer's relation-input dependencies.
+    consumer = uses[0].consumer
+    assert [
+        d.target.definition.name for d in result.dependencies if d.consumer is consumer
+    ] == ["rows"]
+    snapshot = build_project_query_block_ir(completed)
+    assert verify_project_query_block_ir(snapshot).verified
+    for edge, use in zip(snapshot.expression_uses, uses, strict=True):
+        assert edge.use is use and edge.column is None
+        assert edge.consumer.owner is use.consumer
+        assert edge.producer.owner is use.target
+        assert edge.output is edge.producer.output and edge.schema is not None
+
+
+def test_the_ir_rejects_a_deleted_forged_or_swapped_expression_edge(
+    tmp_path,
+) -> None:
+    from copy import copy
+
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        ProjectIRQueryBlockVerificationIssueKind,
+        verify_project_query_block_ir,
+    )
+
+    def graft(value, **changes):
+        changed = copy(value)
+        for name, item in changes.items():
+            object.__setattr__(changed, name, item)
+        return changed
+
+    snapshot = build_project_query_block_ir(_exists_completed(tmp_path, EXISTS_READS))
+    first, second = snapshot.expression_uses
+    rows = next(e for e in snapshot.entries if e.owner.definition.name == "rows")
+    for edges in (
+        (),
+        (first,),
+        (second, first),
+        (graft(first, producer=rows, output=rows.output), second),
+        (graft(first, use=second.use), second),
+    ):
+        issues = verify_project_query_block_ir(
+            graft(snapshot, expression_uses=edges)
+        ).issues
+        assert ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE in {
+            issue.kind for issue in issues
+        }
+
+
+def test_a_read_that_closes_a_relation_cycle_is_reported_and_unresolved(
+    tmp_path,
+) -> None:
+    body = """query a:
+    from rows
+    where exists b
+    select:
+        id
+query b:
+    from tags
+    where exists a
+    select:
+        id
+query self:
+    from rows
+    where exists self
+    select:
+        id
+"""
+    completed = _exists_completed(tmp_path, body)
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        ("PIE-S2302", "Relation cycle detected: a -> b -> a", 12, 11),
+        ("PIE-S2302", "Relation cycle detected: self -> self", 17, 11),
+    ]
+    result = completed.completion
+    # Only the accepted read remains an edge; nothing is cycle-blocked.
+    assert [
+        (u.consumer.definition.name, u.target.definition.name)
+        for u in result.expression_uses
+    ] == [("a", "b")]
+    assert not result.topology.blocked_owners and not result.topology.cycles

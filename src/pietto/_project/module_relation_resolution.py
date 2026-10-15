@@ -5,7 +5,7 @@ from __future__ import annotations
 from pietto.ast_nodes import SetRelationDef, SetOperand, ValuesRelationDef
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as _dataclass_fields, is_dataclass
 from enum import StrEnum
 from types import MappingProxyType
 from typing import TypeVar, cast
@@ -40,6 +40,9 @@ from pietto._project.module_catalog import (
     ProjectModuleCatalog,
     ProjectModuleCatalogSet,
     ProjectNominalDeclarationIdentity,
+    RELATION_READ_EXPRESSIONS,
+    RelationReadExpression,
+    relation_read_expressions,
     relation_reads,
 )
 from pietto._project.module_exports import (
@@ -69,16 +72,22 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
     NameExpr,
+    Node,
     Nullability,
     QueryDef,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
     SelectItem,
     ShapeDef,
     SourceDef,
     Span,
     TableDef,
     TypeExpr,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.aggregates import contains_semantic_aggregate
 
 __all__: tuple[str, ...] = ()
 
@@ -119,6 +128,180 @@ class ProjectModuleRelationResolutionIssueStatus(StrEnum):
     LET_RELATION_NAME_COLLISION = "let_relation_name_collision"
     LET_RELATION_UNREAD = "let_relation_unread"
     LET_RELATION_NESTING_LIMIT = "let_relation_nesting_limit"
+    UNKNOWN_RELATION_EXPRESSION_READ = "unknown_relation_expression_read"
+    RELATION_EXPRESSION_READ_POSITION = "relation_expression_read_position"
+
+
+class ProjectExpressionBlockPosition(StrEnum):
+    """Closed clause family that contains one expression-to-block read."""
+
+    FROM = "from"
+    JOIN_ON = "join_on"
+    LET = "let"
+    WHERE = "where"
+    GROUP_BY = "group_by"
+    SELECT = "select"
+    SATISFYING = "satisfying"
+    WINDOW = "window"
+    QUALIFY = "qualify"
+    ORDER_BY = "order_by"
+    LIMIT = "limit"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectExpressionBlockRead:
+    """One authored relation read inside an expression of one block owner.
+
+    The read names a whole relation block; it is never a FROM, JOIN or set
+    input of its owner and never occupies one of their input slots.
+    """
+
+    owner: ProjectDeclarationOccurrence
+    expression: RelationReadExpression
+    position: ProjectExpressionBlockPosition
+    container_ordinal: int
+    ordinal: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.owner) is not ProjectDeclarationOccurrence
+            or type(self.expression) not in RELATION_READ_EXPRESSIONS
+            or type(self.position) is not ProjectExpressionBlockPosition
+            or type(self.container_ordinal) is not int
+            or type(self.ordinal) is not int
+            or self.container_ordinal < 0
+            or self.ordinal < 0
+        ):
+            raise TypeError("Expression block read requires exact occurrence facts.")
+
+    @property
+    def relation_name(self) -> str:
+        return self.expression.relation_name
+
+
+# Every field of a relation body, in source clause order; a field outside this
+# closed map fails closed instead of hiding a read.
+_CLAUSE_FIELDS = frozenset(
+    {
+        "span",
+        "name",
+        "from_clause",
+        "join_clauses",
+        "let_clause",
+        "where_clause",
+        "group_by_clause",
+        "select_items",
+        "satisfying_clause",
+        "named_windows",
+        "qualify_clause",
+        "order_by_clause",
+        "limit_clause",
+        "distinct_clause",
+    }
+)
+
+
+def _expression_read_containers(
+    definition: TableDef | QueryDef,
+) -> tuple[tuple[ProjectExpressionBlockPosition, int, Node], ...]:
+    names = {item.name for item in _dataclass_fields(definition)}
+    if type(definition) is QueryDef:
+        # An entry-query header declares parameter types; it is not a clause.
+        names.discard("parameters")
+    if names != _CLAUSE_FIELDS:
+        raise ValueError("Expression reads require a closed relation body shape.")
+    P = ProjectExpressionBlockPosition
+    containers: list[tuple[ProjectExpressionBlockPosition, int, Node]] = [
+        (P.FROM, 0, definition.from_clause)
+    ]
+    containers.extend(
+        (P.JOIN_ON, i, join.on_clause)
+        for i, join in enumerate(definition.join_clauses)
+        if join.on_clause is not None
+    )
+    if definition.let_clause is not None:
+        containers.extend(
+            (P.LET, i, binding)
+            for i, binding in enumerate(definition.let_clause.bindings)
+        )
+    if definition.where_clause is not None:
+        containers.append((P.WHERE, 0, definition.where_clause))
+    if definition.group_by_clause is not None:
+        containers.append((P.GROUP_BY, 0, definition.group_by_clause))
+    containers.extend(
+        (P.SELECT, i, item) for i, item in enumerate(definition.select_items)
+    )
+    if definition.satisfying_clause is not None:
+        containers.append((P.SATISFYING, 0, definition.satisfying_clause))
+    containers.extend(
+        (P.WINDOW, i, window) for i, window in enumerate(definition.named_windows)
+    )
+    if definition.qualify_clause is not None:
+        containers.append((P.QUALIFY, 0, definition.qualify_clause))
+    if definition.order_by_clause is not None:
+        containers.extend(
+            (P.ORDER_BY, i, item)
+            for i, item in enumerate(definition.order_by_clause.items)
+        )
+    if definition.limit_clause is not None:
+        containers.append((P.LIMIT, 0, definition.limit_clause))
+    return tuple(containers)
+
+
+def expression_block_reads(
+    owner: ProjectDeclarationOccurrence,
+) -> tuple[ProjectExpressionBlockRead, ...]:
+    """Every relation read written in one owner's own clauses, in source order.
+
+    Each occurrence is its own read: equal names or equal expressions are
+    never merged, and nested reads keep their own ordinal.
+    """
+
+    if type(owner) is not ProjectDeclarationOccurrence:
+        raise TypeError("Expression block reads require an owner occurrence.")
+    definition = owner.definition
+    if type(definition) not in {TableDef, QueryDef}:
+        return ()
+    reads: list[ProjectExpressionBlockRead] = []
+    for position, container_ordinal, container in _expression_read_containers(
+        cast(TableDef | QueryDef, definition)
+    ):
+        found = relation_read_expressions(container)
+        base = len(reads)
+        reads.extend(
+            ProjectExpressionBlockRead(
+                owner=owner,
+                expression=expression,
+                position=position,
+                container_ordinal=container_ordinal,
+                ordinal=base + index,
+            )
+            for index, expression in enumerate(found)
+        )
+    return tuple(reads)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectResolvedExpressionBlockRead:
+    """One expression read bound through its owner's scoped relation lookup.
+
+    ``target_symbol`` is absent when the name is unknown, blocked or in a
+    collision; the name's own issue is the diagnostic, never a chosen winner.
+    """
+
+    read: ProjectExpressionBlockRead
+    target_symbol: ProjectResolvedModuleRelationSymbol | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.read) is not ProjectExpressionBlockRead:
+            raise TypeError("Resolved expression read requires an exact read.")
+        symbol = self.target_symbol
+        if symbol is not None and (
+            type(symbol) is not ProjectResolvedModuleRelationSymbol
+            or symbol.owning_module_path != self.read.owner.identity.module_path
+            or symbol.local_name != self.read.relation_name
+        ):
+            raise ValueError("Resolved expression read must use its scoped lookup.")
 
 
 _LET_ISSUE_CODES = {
@@ -428,6 +611,7 @@ class ProjectModuleRelationResolutionEnvironment:
     issues: tuple[ProjectModuleRelationResolutionIssue, ...] = ()
     let_symbols: tuple[ProjectResolvedModuleRelationSymbol, ...] = ()
     blocked_let_scopes: tuple[tuple[int, str], ...] = ()
+    expression_reads: tuple[ProjectResolvedExpressionBlockRead, ...] = ()
     _symbols_by_name: Mapping[str, tuple[ProjectResolvedModuleRelationSymbol, ...]] = (
         field(init=False, repr=False, compare=False, hash=False)
     )
@@ -481,6 +665,16 @@ class ProjectModuleRelationResolutionEnvironment:
             ProjectResolvedModuleRelationSymbol,
             "Relation environment let symbols",
         )
+        _require_tuple_items(
+            self.expression_reads,
+            ProjectResolvedExpressionBlockRead,
+            "Relation environment expression reads",
+        )
+        if any(
+            item.read.owner.identity.module_path != self.module.path
+            for item in self.expression_reads
+        ):
+            raise ValueError("Expression reads must be module-local.")
         if type(self.blocked_let_scopes) is not tuple or any(
             type(item) is not tuple
             or len(item) != 2
@@ -753,6 +947,9 @@ class _RelationResolutionDraft:
     ambiguous_names: set[str]
     let_symbols: list[ProjectResolvedModuleRelationSymbol] = field(default_factory=list)
     blocked_let_scopes: set[tuple[int, str]] = field(default_factory=set)
+    expression_reads: list[ProjectResolvedExpressionBlockRead] = field(
+        default_factory=list
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -864,6 +1061,7 @@ def _build_project_module_relation_resolution_set(
             issues=ordered_issues,
             let_symbols=tuple(draft.let_symbols),
             blocked_let_scopes=tuple(sorted(draft.blocked_let_scopes)),
+            expression_reads=tuple(draft.expression_reads),
         )
         environments.append(environment)
         environment_by_path[module.path] = environment
@@ -1416,6 +1614,295 @@ def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
                 target_symbol=symbol,
             )
         )
+    _resolve_expression_reads(draft, symbols_by_name, lets_by_scope)
+
+
+def _resolve_expression_reads(
+    draft: _RelationResolutionDraft,
+    symbols_by_name: Mapping[str, ProjectResolvedModuleRelationSymbol],
+    lets_by_scope: Mapping[tuple[int, str], ProjectResolvedModuleRelationSymbol],
+) -> None:
+    """Resolve every expression read; a read that closes a relation cycle is not.
+
+    The module-local relation graph holds every FROM, JOIN and set input name
+    and every read accepted before, in source order. A read whose target
+    reaches its owner would make the owner read itself; it is reported once,
+    at that read, and resolves to nothing.
+    """
+
+    def local(name: str, owner: ProjectDeclarationOccurrence):
+        symbol = _resolve_scoped_name(
+            draft, owner, name, symbols_by_name, lets_by_scope
+        )
+        if symbol is None or symbol.target_occurrence.identity.module_path != (
+            draft.module.path
+        ):
+            return None
+        return symbol.target_occurrence
+
+    graph: dict[ProjectDeclarationOccurrence, list[ProjectDeclarationOccurrence]] = {}
+    for resolution in draft.resolutions:
+        target = resolution.target_symbol.target_occurrence
+        if target.identity.module_path == draft.module.path:
+            graph.setdefault(resolution.reference.owner, []).append(target)
+    for owner in draft.catalog.relation_owners:
+        definition = owner.definition
+        if type(definition) is SetRelationDef:
+            names = tuple(operand.relation_name for operand in definition.body.operands)
+        elif type(definition) in {TableDef, QueryDef}:
+            names = tuple(
+                join.target_relation_name
+                for join in cast(TableDef | QueryDef, definition).join_clauses
+            )
+        else:
+            continue
+        for name in names:
+            target = local(name, owner)
+            if target is not None:
+                graph.setdefault(owner, []).append(target)
+    for owner in draft.catalog.relation_owners:
+        reads = expression_block_reads(owner)
+        refused = _refused_read_positions(owner, reads)
+        for read in reads:
+            where = refused.get(id(read.expression))
+            if where is not None:
+                _append_expression_position_issue(draft, read, where)
+                draft.expression_reads.append(
+                    ProjectResolvedExpressionBlockRead(read=read)
+                )
+                continue
+            symbol = _resolve_expression_read(
+                draft, read, symbols_by_name, lets_by_scope
+            )
+            target = None if symbol is None else symbol.target_occurrence
+            if target is not None and target.identity.module_path == draft.module.path:
+                path = _relation_path(graph, target, owner)
+                if path is not None:
+                    _append_expression_cycle_issue(draft, read, path)
+                    symbol = None
+                else:
+                    graph.setdefault(owner, []).append(target)
+            draft.expression_reads.append(
+                ProjectResolvedExpressionBlockRead(read=read, target_symbol=symbol)
+            )
+
+
+# Each read family keeps its own code: a read is available only in WHERE and
+# in the SELECT of an ungrouped query (D70.04); every other place is refused.
+_READ_POSITION_DIAGNOSTICS: Mapping[type, tuple[str, str]] = {
+    RelationExistsExpr: ("PIE-S2349", "EXISTS relation reference"),
+    RelationScalarExpr: ("PIE-S2348", "Scalar relation read"),
+    RelationMembershipExpr: ("PIE-S2350", "IN relation reference"),
+}
+_REFUSED_POSITION_LABELS: Mapping[ProjectExpressionBlockPosition, str] = {
+    ProjectExpressionBlockPosition.FROM: "FROM",
+    ProjectExpressionBlockPosition.JOIN_ON: "JOIN ON",
+    ProjectExpressionBlockPosition.LET: "a row let",
+    ProjectExpressionBlockPosition.GROUP_BY: "GROUP BY",
+    ProjectExpressionBlockPosition.SATISFYING: "SATISFYING",
+    ProjectExpressionBlockPosition.WINDOW: "a window",
+    ProjectExpressionBlockPosition.QUALIFY: "QUALIFY",
+    ProjectExpressionBlockPosition.ORDER_BY: "ORDER BY",
+    ProjectExpressionBlockPosition.LIMIT: "LIMIT",
+}
+
+
+def _refused_read_positions(
+    owner: ProjectDeclarationOccurrence,
+    reads: tuple[ProjectExpressionBlockRead, ...],
+) -> dict[int, str]:
+    """The place of every read outside WHERE and an ungrouped, unwindowed SELECT."""
+
+    if not reads:
+        return {}
+    definition = cast(TableDef | QueryDef, owner.definition)
+    grouped = definition.group_by_clause is not None or any(
+        contains_semantic_aggregate(item.expression) for item in definition.select_items
+    )
+    windowed = _reads_under_windows(definition.select_items)
+    refused: dict[int, str] = {}
+    for read in reads:
+        position = read.position
+        if position is ProjectExpressionBlockPosition.WHERE:
+            continue
+        if position is ProjectExpressionBlockPosition.SELECT:
+            if id(read.expression) in windowed:
+                refused[id(read.expression)] = "a window"
+            elif grouped:
+                refused[id(read.expression)] = "the SELECT of a grouped query"
+            continue
+        refused[id(read.expression)] = _REFUSED_POSITION_LABELS[position]
+    return refused
+
+
+def _reads_under_windows(items: tuple[SelectItem, ...]) -> frozenset[int]:
+    """Identities of the reads written inside a window call or its window."""
+
+    found: set[int] = set()
+    pending: list[tuple[object, bool]] = [(item, False) for item in items]
+    while pending:
+        value, inside = pending.pop()
+        kind = type(value)
+        if kind is tuple:
+            pending.extend((child, inside) for child in cast(tuple[object, ...], value))
+            continue
+        if (
+            kind is Span
+            or kind.__module__ != "pietto.ast_nodes"
+            or not is_dataclass(value)
+        ):
+            continue
+        inside = inside or kind is WindowExpr
+        if inside and kind in RELATION_READ_EXPRESSIONS:
+            found.add(id(value))
+        pending.extend(
+            (getattr(value, item.name), inside) for item in _dataclass_fields(value)
+        )
+    return frozenset(found)
+
+
+def _append_expression_position_issue(
+    draft: _RelationResolutionDraft,
+    read: ProjectExpressionBlockRead,
+    where: str,
+) -> None:
+    code, label = _READ_POSITION_DIAGNOSTICS[type(read.expression)]
+    location = _location(read.expression.span, fallback_path=draft.module.path)
+    draft.issues.append(
+        ProjectModuleRelationResolutionIssue(
+            status=ProjectModuleRelationResolutionIssueStatus.RELATION_EXPRESSION_READ_POSITION,
+            owning_module_path=draft.module.path,
+            local_name=read.relation_name,
+            location=location,
+            diagnostic=_diagnostic(
+                code=code,
+                message=(
+                    f"{label} is available only in WHERE and in the SELECT of "
+                    f"an ungrouped query, not in {where}."
+                ),
+                location=location,
+            ),
+            occurrences=(read.owner,),
+        )
+    )
+
+
+def _relation_path(
+    graph: Mapping[ProjectDeclarationOccurrence, list[ProjectDeclarationOccurrence]],
+    start: ProjectDeclarationOccurrence,
+    goal: ProjectDeclarationOccurrence,
+) -> tuple[ProjectDeclarationOccurrence, ...] | None:
+    """The first breadth-first path from ``start`` to ``goal``, if any."""
+    parents: dict[ProjectDeclarationOccurrence, ProjectDeclarationOccurrence | None] = {
+        start: None
+    }
+    queue = [start]
+    index = 0
+    while index < len(queue):
+        node = queue[index]
+        index += 1
+        if node is goal:
+            path = [node]
+            while parents[path[-1]] is not None:
+                path.append(cast(ProjectDeclarationOccurrence, parents[path[-1]]))
+            return tuple(reversed(path))
+        for child in graph.get(node, ()):
+            if child not in parents:
+                parents[child] = node
+                queue.append(child)
+    return None
+
+
+def _append_expression_cycle_issue(
+    draft: _RelationResolutionDraft,
+    read: ProjectExpressionBlockRead,
+    path: tuple[ProjectDeclarationOccurrence, ...],
+) -> None:
+    owner = read.owner
+    # The cycle runs owner -> target -> ... -> owner; the path ends at owner.
+    members = (owner, *path[:-1]) if len(path) > 1 else (owner,)
+    order = {item: i for i, item in enumerate(draft.catalog.relation_owners)}
+    start = min(range(len(members)), key=lambda i: order.get(members[i], 0))
+    occurrences = (*members[start:], *members[:start])
+    location = _location(read.expression.span, fallback_path=draft.module.path)
+    names = tuple(item.identity.declared_name for item in occurrences)
+    draft.issues.append(
+        ProjectModuleRelationResolutionIssue(
+            status=ProjectModuleRelationResolutionIssueStatus.LOCAL_RELATION_CYCLE,
+            owning_module_path=draft.module.path,
+            local_name=names[0],
+            location=location,
+            related_locations=_ordered_related_locations(
+                location,
+                tuple(
+                    _location(item.definition.span, fallback_path=draft.module.path)
+                    for item in occurrences
+                ),
+            ),
+            diagnostic=_diagnostic(
+                code="PIE-S2302",
+                message=f"Relation cycle detected: {' -> '.join((*names, names[0]))}",
+                location=location,
+            ),
+            relation_cycle=occurrences,
+        )
+    )
+
+
+def _resolve_scoped_name(
+    draft: _RelationResolutionDraft,
+    owner: ProjectDeclarationOccurrence,
+    name: str,
+    symbols_by_name: Mapping[str, ProjectResolvedModuleRelationSymbol],
+    lets_by_scope: Mapping[tuple[int, str], ProjectResolvedModuleRelationSymbol],
+) -> ProjectResolvedModuleRelationSymbol | None:
+    """The FROM-name lookup of one owner's scope; no issue is produced here."""
+    scope = (owner.declaration_position, name)
+    if scope in draft.blocked_let_scopes:
+        return None
+    symbol = lets_by_scope.get(scope)
+    if symbol is not None:
+        return symbol
+    if name in draft.blocked_names or name in draft.ambiguous_names:
+        return None
+    return symbols_by_name.get(name)
+
+
+def _resolve_expression_read(
+    draft: _RelationResolutionDraft,
+    read: ProjectExpressionBlockRead,
+    symbols_by_name: Mapping[str, ProjectResolvedModuleRelationSymbol],
+    lets_by_scope: Mapping[tuple[int, str], ProjectResolvedModuleRelationSymbol],
+) -> ProjectResolvedModuleRelationSymbol | None:
+    """The same scoped lookup a FROM name uses; an unknown name is an issue."""
+
+    name = read.relation_name
+    symbol = _resolve_scoped_name(
+        draft, read.owner, name, symbols_by_name, lets_by_scope
+    )
+    if (
+        symbol is not None
+        or (read.owner.declaration_position, name) in draft.blocked_let_scopes
+        or name in draft.blocked_names
+        or name in draft.ambiguous_names
+    ):
+        return symbol
+    location = _location(read.expression.span, fallback_path=draft.module.path)
+    draft.issues.append(
+        ProjectModuleRelationResolutionIssue(
+            status=ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ,
+            owning_module_path=draft.module.path,
+            local_name=name,
+            location=location,
+            diagnostic=_diagnostic(
+                code="PIE-S2301",
+                message=f"Unknown relation: {name}",
+                location=location,
+            ),
+            occurrences=(read.owner,),
+        )
+    )
+    return None
 
 
 def _local_relation_cycles(
@@ -2455,6 +2942,36 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
             and not issue.relation_cycle
             and not issue.type_source_issues
             and code == _LET_ISSUE_CODES[status]
+        )
+    elif (
+        status
+        is ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ
+    ):
+        valid = (
+            issue.local_name is not None
+            and len(issue.occurrences) == 1
+            and issue.reference is None
+            and issue.select_item is None
+            and not issue.binding_issues
+            and issue.module_cycle is None
+            and not issue.relation_cycle
+            and not issue.type_source_issues
+            and code == "PIE-S2301"
+        )
+    elif (
+        status
+        is ProjectModuleRelationResolutionIssueStatus.RELATION_EXPRESSION_READ_POSITION
+    ):
+        valid = (
+            issue.local_name is not None
+            and len(issue.occurrences) == 1
+            and issue.reference is None
+            and issue.select_item is None
+            and not issue.binding_issues
+            and issue.module_cycle is None
+            and not issue.relation_cycle
+            and not issue.type_source_issues
+            and code in {"PIE-S2348", "PIE-S2349", "PIE-S2350"}
         )
     elif status is ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED:
         valid = (

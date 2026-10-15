@@ -988,6 +988,7 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLMembership,
     row.ProjectSQLCast,
     row.ProjectSQLScalarCall,
+    row.ProjectSQLRelationExists,
 )
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
@@ -1149,11 +1150,13 @@ def admitted_row_shape(plan):
         if type(d.entry.owner.definition) is not SourceDef
     )
     # A VALUES definition is a zero-input leaf like a source, but it is also a
-    # named producer: it owns its outputs and reads no input use.
+    # named producer: it owns its outputs and reads no input use. One leaf per
+    # input chain; a set body or an expression block use is the only way a
+    # statement closure reaches more than one leaf here.
     leaves = len(plan.sources) + len(plan.values_bodies)
     return bool(
         leaves
-        and (leaves == 1 or plan.set_bodies)
+        and (leaves == 1 or plan.set_bodies or plan.expression_block_uses)
         and named
         and len(plan.input_uses)
         == len(named)
@@ -1831,6 +1834,21 @@ def realize_rows(request, *, _guarded=None):
             available = {
                 port: read for port, read in zip(block.inputs, incoming, strict=True)
             }
+            # Row values may also read whole blocks through this definition's
+            # own expression block uses; stage columns never include them.
+            readable = dict(available)
+            for block_use in plan.expression_block_uses:
+                if block_use.consumer is not definition.original.ref:
+                    continue
+                target = _block_target(request, block_use, by_definition, source_refs)
+                if target is None:
+                    add(
+                        "PIE-B1001",
+                        "expression_block_producer_not_realized",
+                        block_use.ref,
+                    )
+                    return RowRealization(tuple(problems), None)
+                readable[block_use.ref] = target
             kind = block.kind.value
             # A definition with result boundaries ends in its result body, so
             # its visible projection is a closed stage whose terminals are the
@@ -2027,7 +2045,7 @@ def realize_rows(request, *, _guarded=None):
                     continue
                 value, problem = rows.build_row_value(
                     request,
-                    available,
+                    readable,
                     item.expression,
                     uses,
                     reference_type=reference_type,
@@ -2077,7 +2095,7 @@ def realize_rows(request, *, _guarded=None):
                 item = filters[block.ref]
                 value, problem = rows.build_row_value(
                     request,
-                    available,
+                    readable,
                     item.predicate,
                     uses,
                     reference_type=grouping.ProjectSQLResultReference
@@ -2185,12 +2203,28 @@ def realize_rows(request, *, _guarded=None):
     return RowRealization((), SQLRowQuery(request, tuple(bodies), nodes))
 
 
+def _block_target(request, block_use, by_definition, source_refs):
+    """The realized producer one expression block use reads, with its alias."""
+    symbol = SQLSymbol(0, block_use.ref, f"e{block_use.ref.position}")
+    source = source_refs.get(block_use.producer)
+    if source is not None:
+        matches = tuple(s for s in request.sources if s.owner is source.source.owner)
+        if len(matches) != 1:
+            return None
+        return rows.SQLBlockTarget(block_use, matches[0], source, symbol)
+    producer = by_definition.get(block_use.producer)
+    if producer is None:
+        return None
+    return rows.SQLBlockTarget(block_use, producer, None, symbol)
+
+
 def _value_node_count(value):
     total = 0
     for node in rows.value_nodes(value):
         total += (
             1
-            if type(node) in {rows.SQLStageReference, rows.SQLOperation}
+            if type(node)
+            in {rows.SQLStageReference, rows.SQLOperation, rows.SQLBlockRead}
             # A read renders one anchor around one native placeholder.
             else 2
             if type(node) is rows.SQLParameterRead
@@ -2206,7 +2240,11 @@ def _value_column_image(request, value, position, label, export, terminal, famil
         return replace(
             value.column, position=position, name=label, terminal=terminal.ref
         )
-    if type(value) not in {rows.SQLOperation, rows.SQLParameterRead}:
+    if type(value) not in {
+        rows.SQLOperation,
+        rows.SQLParameterRead,
+        rows.SQLBlockRead,
+    }:
         return rows.StageColumn(
             position,
             label,
@@ -2242,6 +2280,9 @@ def value_requirements(request, value):
                     node_premises(request, node.realization, (), "parameter"),
                 )
             )
+            continue
+        if type(node) is rows.SQLBlockRead:
+            result.extend(block_read_requirements(request, node))
             continue
         if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
             kind = rows.requirement_kind(node)
@@ -2279,6 +2320,41 @@ def value_requirements(request, value):
                     ),
                 )
             )
+    return tuple(result)
+
+
+def block_read_requirements(request, node):
+    """An existence read, and the qualified scan when it reads a source."""
+    target = node.target
+    result = [
+        GeneratedRequirement(
+            node.kind,
+            node.original.ref,
+            rows.REQUIREMENT_RULES[node.kind],
+            node_premises(request, node.realization, (), node.kind),
+        )
+    ]
+    if target.source is not None:
+        # Like a JOIN input, the read keeps the scan obligations of the
+        # physical relation it reads.
+        producer = target.producer
+        result.append(
+            GeneratedRequirement(
+                "qualified_scan",
+                target,
+                "R01",
+                applicable_premises(request, producer.owner),
+            )
+        )
+        result.extend(
+            GeneratedRequirement(
+                "source_representation",
+                field,
+                "R02",
+                applicable_premises(request, producer.owner, field),
+            )
+            for field in producer.fields
+        )
     return tuple(result)
 
 
@@ -2668,7 +2744,11 @@ def row_parameter_leaves(query):
                 if type(node) is rows.SQLParameterRead:
                     result.append(node)
                     continue
-                if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
+                if type(node) in {
+                    rows.SQLStageReference,
+                    rows.SQLOperation,
+                    rows.SQLBlockRead,
+                }:
                     continue
                 result.extend(
                     leaf

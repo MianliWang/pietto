@@ -20,6 +20,7 @@ from pietto.ast_nodes import (
     LetBinding,
     LiteralExpr,
     MembershipExpr,
+    RelationExistsExpr,
     NameExpr,
     ParameterRefExpr,
     QueryDef,
@@ -374,7 +375,14 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
     elif isinstance(expression, IsNullExpr):
         children.append(expression.value)
     elif not isinstance(
-        expression, (LiteralExpr, NameExpr, DottedNameExpr, ParameterRefExpr)
+        expression,
+        (
+            LiteralExpr,
+            NameExpr,
+            DottedNameExpr,
+            ParameterRefExpr,
+            RelationExistsExpr,
+        ),
     ):
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 

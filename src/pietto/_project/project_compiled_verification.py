@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from pietto._project.project_verification_scope import once
 from pietto._project.project_compiled_schema import (
+    executed_operations,
     Address,
     CompiledError,
     Description,
@@ -470,6 +471,17 @@ def verify_description(value: Description) -> None:
             ref(get("producer"), RELATIONS)
             need(type(get("ordinal")) is int and get("ordinal") >= 0, "USE")
             refs(get("ports"), {"port"})
+        elif kind == "expression_block_use":
+            operation = ref(get("operation"), {"operation"})
+            consumer = ref(get("consumer"), RELATIONS - {"source"})
+            ref(get("producer"), RELATIONS)
+            need(
+                operation.get("operator") == ("exists", "exists")
+                and get("column") is None
+                and get("producer") != consumer.address
+                and operation.address in executed_operations(records, consumer.address),
+                "EXPRESSION_BLOCK_USE",
+            )
         elif kind == "literal":
             need(
                 type(get("value")) is Scalar and get("value").tag == get("tag"),
@@ -1123,6 +1135,7 @@ def verify_description(value: Description) -> None:
                 "conditional": ({"if_else"}, 3),
                 "membership": ({"in", "not_in"}, None),
                 "cast": ({"int_to_float"}, 1),
+                "exists": ({"exists"}, 0),
                 "scalar_call": (
                     {
                         "lower",
@@ -1168,6 +1181,17 @@ def verify_description(value: Description) -> None:
                 operands,
                 {"literal", "null_literal", "parameter_read", "read", "operation"},
             )
+            if role == "exists":
+                # Exactly one expression block use names each existence read.
+                need(
+                    sum(
+                        r.address.kind == "expression_block_use"
+                        and r.get("operation") == record.address
+                        for r in records.values()
+                    )
+                    == 1,
+                    "EXPRESSION_BLOCK_USE_INVENTORY",
+                )
     bound_literals = {
         r.get("literal"): records[r.get("site")]
         for r in records.values()
@@ -1302,6 +1326,10 @@ def verify_description(value: Description) -> None:
     for record in records.values():
         if record.address.kind == "use":
             incoming[record.get("consumer")].append(record.get("producer"))
+    reads = {a: [] for a in incoming}
+    for record in records.values():
+        if record.address.kind == "expression_block_use":
+            reads[record.get("consumer")].append(record.get("producer"))
     execution = selected_relations(records, entry)
     retained = entry.get("retained")
     need(
@@ -1335,7 +1363,8 @@ def verify_description(value: Description) -> None:
     # any written order, so a closure reaches a let only through its block,
     # and a block reaches every let: positions 0, 1, 2, .... The one other root
     # is a retained request owner that is a let of an unselected block; its
-    # closure is that let and what it reads.
+    # closure is that let and what it reads. An expression block use reads its
+    # producer like a use does.
     def coordinates(record):
         return tuple(record.get(n) for n in ("module", "module_position", "position"))
 
@@ -1371,7 +1400,7 @@ def verify_description(value: Description) -> None:
             address = closure_pending.pop()
             if address not in closure:
                 closure.add(address)
-                closure_pending.extend(incoming[address])
+                closure_pending.extend((*incoming[address], *reads[address]))
         owners = {records[a].get("owner") for a in closure if a.kind != "source"}
         read_owners |= owners
         for owner in owners:
@@ -1407,7 +1436,8 @@ def verify_description(value: Description) -> None:
                 active.add(current)
                 relation_pending.append((current, True))
                 relation_pending.extend(
-                    (item, False) for item in reversed(incoming[current])
+                    (item, False)
+                    for item in reversed((*incoming[current], *reads[current]))
                 )
 
     _verify_compiled_contract(records, entry, contract_data, family)
@@ -2089,6 +2119,37 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             )
             for child, expected in zip(record.get("operands"), operands, strict=True):
                 check_scalar(child, expected, producer, use, join_contexts)
+        elif type(actual) is rows.SQLBlockRead:
+            # The existence operation and its one expression block use name the
+            # live read's consumer, producer, occurrence and generated alias.
+            need(
+                join_contexts is None
+                and record.address.kind == "operation"
+                and record.get("operator") == ("exists", "exists")
+                and record.get("operands") == (),
+                "EXPORT_BLOCK_READ",
+            )
+            matches = tuple(
+                r
+                for r in records.values()
+                if r.address.kind == "expression_block_use"
+                and r.get("operation") == address
+            )
+            need(len(matches) == 1, "EXPORT_BLOCK_READ")
+            target = actual.target
+            expected_producer = (
+                source_map.get(id(target.producer))
+                if target.source is not None
+                else unit_map.get(id(target.producer))
+            )
+            need(
+                expected_producer is not None
+                and matches[0].address.position == target.use.ref.position
+                and target.symbol.name == f"e{target.use.ref.position}"
+                and matches[0].values
+                == (address, records[use].get("consumer"), expected_producer, None),
+                "EXPORT_BLOCK_READ",
+            )
         else:
             raise CompiledError("COMPILED_EXPORT_SCALAR")
 
@@ -3148,6 +3209,39 @@ def _verify_compiled_emission(artifact, request):
         else:
             role, token = record.get("operator")
             children = record.get("operands")
+            if (role, token) == ("exists", "exists"):
+                described = tuple(
+                    r
+                    for r in records.values()
+                    if r.address.kind == "expression_block_use"
+                    and r.get("operation") == address
+                )
+                need(len(described) == 1 and not children, "EMISSION_BLOCK_READ")
+                block_use = described[0]
+                target = actual.target
+                producer_address = block_use.get("producer")
+                need(
+                    type(actual) is rows.SQLBlockRead
+                    and actual.original is plan.expression_identities[address]
+                    and actual.kind == "exists"
+                    and actual.realization is facts[address].realization
+                    and records[use].get("consumer") == block_use.get("consumer")
+                    and type(target) is rows.SQLBlockTarget
+                    and target.use.ref is refs[block_use.address]
+                    and target.symbol.binding is target.use.ref
+                    and target.symbol.position == 0
+                    and target.symbol.name == f"e{block_use.address.position}"
+                    and (
+                        target.producer is sources[producer_address]
+                        and target.source is not None
+                        and target.source.ref is refs[producer_address]
+                        if producer_address in sources
+                        else target.source is None
+                        and target.producer is observed_bodies.get(producer_address)
+                    ),
+                    "EMISSION_BLOCK_READ",
+                )
+                return
             if type(actual) is parameters.SQLUnary:
                 need(
                     role == "unary"

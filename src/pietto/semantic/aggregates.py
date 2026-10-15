@@ -89,6 +89,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.UnaryExpr,
         ast.ConditionalExpr,
         ast.MembershipExpr,
+        ast.RelationExistsExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -267,7 +268,14 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value,)
     if isinstance(
         expression,
-        (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr, ParameterRefExpr),
+        (
+            LiteralExpr,
+            NameExpr,
+            DottedNameExpr,
+            WindowExpr,
+            ParameterRefExpr,
+            ast.RelationExistsExpr,
+        ),
     ):
         return ()
     raise AssertionError(f"Unsupported expression: {type(expression).__name__}")

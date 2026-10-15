@@ -41,6 +41,7 @@ from pietto.ast_nodes import (
     NameExpr,
     Nullability,
     QueryDef,
+    RelationExistsExpr,
     Script,
     SelectItem,
     ShapeDef,
@@ -121,6 +122,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         BetweenExpr,
         IsNullExpr,
         WindowExpr,
+        RelationExistsExpr,
     }
 )
 _KNOWN_DEFINITIONS = frozenset(

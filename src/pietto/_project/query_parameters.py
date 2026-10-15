@@ -451,9 +451,10 @@ def query_parameter_semantic_diagnostics(
     catalogs: ProjectModuleCatalogSet | None,
     input_fields: Mapping[ProjectDeclarationOccurrence, frozenset[str]],
 ) -> tuple[Diagnostic, ...]:
-    """Header names colliding with any other visible name, and inputs reading a
-    parameterized query; both need resolved relation names and the completed
-    field names of each input, keyed by its owner occurrence.
+    """Header names colliding with any other visible name, and inputs or
+    ``exists`` reads naming a parameterized query; both need resolved relation
+    names and the completed field names of each input, keyed by its owner
+    occurrence.
 
     Every relation body is read, relation lets and the body of a declaration
     with lets included, each through its own scoped relation names.
@@ -463,15 +464,19 @@ def query_parameter_semantic_diagnostics(
         return ()
     found: list[Diagnostic] = []
     for environment in resolutions.environments:
+        # An expression read binds its whole block like an input does.
+        found.extend(
+            _diagnostic(INPUT_CODE, INPUT_MESSAGE, item.read.expression.span)
+            for item in environment.expression_reads
+            if item.target_symbol is not None
+            and _parameterized(item.target_symbol.target_occurrence.definition)
+        )
         for catalog in catalogs.find_module_path(environment.module.path):
             for owner in catalog.relation_owners:
                 definition = owner.definition
                 for name, span in _relation_inputs(definition):
                     if any(
-                        type(symbol.target_occurrence.definition) is QueryDef
-                        and cast(
-                            QueryDef, symbol.target_occurrence.definition
-                        ).parameters
+                        _parameterized(symbol.target_occurrence.definition)
                         for symbol in environment.find_scoped_relation_name(owner, name)
                     ):
                         found.append(_diagnostic(INPUT_CODE, INPUT_MESSAGE, span))
@@ -497,6 +502,10 @@ def query_parameter_semantic_diagnostics(
             ),
         )
     )
+
+
+def _parameterized(definition: object) -> bool:
+    return type(definition) is QueryDef and bool(cast(QueryDef, definition).parameters)
 
 
 def _relation_inputs(definition: object) -> tuple[tuple[str, Span], ...]:

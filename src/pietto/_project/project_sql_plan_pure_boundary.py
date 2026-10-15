@@ -573,6 +573,7 @@ def _relationships(document, declared):
         "input_ports",
         "all_exports",
         "boundaries",
+        "expression_block_uses",
     ):
         require(p[name] == bindings[name])
     require(p["symbols"][: len(bindings["symbols"])] == bindings["symbols"])
@@ -592,6 +593,7 @@ def _relationships(document, declared):
         "all_exports",
         "projections",
         "boundaries",
+        "expression_block_uses",
         "symbols",
         "origins",
         "demands",
@@ -702,7 +704,7 @@ def _relationships(document, declared):
         )
     _acyclic(expression_edges)
     dependencies = {fields[d]["ref"]: [] for d in bindings["definitions"]}
-    for use in p["input_uses"]:
+    for use in (*p["input_uses"], *p["expression_block_uses"]):
         dependencies[fields[use]["consumer"]].append(fields[use]["producer"])
     _acyclic(dependencies)
     _acyclic(

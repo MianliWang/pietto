@@ -645,9 +645,17 @@ RELATION_ROLES = {
     "relation": "name",
     "set_relation": "name",
     "join_relation": "name",
+    "exists_namespace": "namespace",
+    "exists_relation": "name",
 }
 UNIT_REFERENCE_ROLES = frozenset(
-    {"cte_reference", "stage_reference", "join_reference", "set_reference"}
+    {
+        "cte_reference",
+        "stage_reference",
+        "join_reference",
+        "set_reference",
+        "exists_reference",
+    }
 )
 # Roles that only the WITH preamble may carry, never a unit's own SELECT.
 PREAMBLE_ROLES = frozenset(
@@ -894,6 +902,17 @@ class _Check:
     # values, fixed literals and parameters
     def values(self) -> None:
         doc, family = self.doc, self.family
+        for ref in doc.all("sql_block_read"):
+            read = doc[ref]
+            target = doc[read["target"]]
+            _require(
+                read["kind"] == "exists"
+                and doc[read["realization"]]["tag"] == "Bool"
+                and doc[read["realization"]]["nullable"] is False
+                and (target["source"] is None)
+                is (target["producer"].kind != "bound_source"),
+                "existence read",
+            )
         for ref in doc.all("sql_operation"):
             op = doc[ref]
             _require(op["kind"] in schema.OPERATORS, "operation kind")
@@ -1423,6 +1442,7 @@ class _Tokens:
             ("row_scan", "realization"),
             ("join_input", "producer"),
             ("set_operand_body", "producer"),
+            ("sql_block_target", "producer"),
         ):
             for ref in doc.all(kind):
                 fields = doc[ref]
@@ -1453,6 +1473,11 @@ class _Tokens:
                 unit_names.setdefault(doc[item]["original"], set()).add(
                     doc[doc[producer]["symbol"]]["name"]
                 )
+        block_reads = self.index("sql_block_read", "original")
+        block_aliases = {
+            doc[ref]["use"]: doc[doc[ref]["symbol"]]["name"]
+            for ref in doc.all("sql_block_target")
+        }
         operations = self.index("sql_operation", "original")
         unaries = self.index("sql_unary", "original")
         anchors = self.index("sql_anchor", "original")
@@ -1500,6 +1525,8 @@ class _Tokens:
                         )
                     elif role in UNIT_REFERENCE_ROLES:
                         _require(name in unit_names.get(subject, ()), "unit reference")
+                    elif role == "exists_scope":
+                        _require(block_aliases.get(subject) == name, "block alias")
                     elif role == "window_definition":
                         _require(
                             subject in definitions
@@ -1550,6 +1577,9 @@ class _Tokens:
                         )
                     elif role == "window_argument_literal":
                         per_subject.setdefault((role, subject), []).append(text)
+                    elif role == "exists_sentinel":
+                        self.one(block_reads, subject, "existence sentinel")
+                        _require(text == "1", "existence sentinel")
                     else:
                         raise _Reject(Status.INVALID_RELATION, "literal role")
                 else:
@@ -2015,7 +2045,7 @@ class _Requirements:
 
     def tag(self, value: Ref) -> str:
         doc = self.doc
-        if value.kind in ("sql_stage_reference", "sql_operation"):
+        if value.kind in ("sql_stage_reference", "sql_operation", "sql_block_read"):
             return doc[doc[value]["realization"]]["tag"]
         if value.kind == "sql_null":
             return doc[value]["tag"]
@@ -2072,6 +2102,32 @@ class _Requirements:
 
     def value(self, value: Ref) -> None:
         doc = self.doc
+        if value.kind == "sql_block_read":
+            fields = doc[value]
+            self.add(
+                "exists",
+                fields["original"],
+                "R11",
+                self.node_premises(self.tag(value), (), "exists"),
+            )
+            target = doc[fields["target"]]
+            if target["source"] is not None:
+                bound = target["producer"]
+                owner = doc[bound]["owner"]
+                self.add(
+                    "qualified_scan",
+                    fields["target"],
+                    "R01",
+                    self.applicable(owner, False),
+                )
+                for field in doc[bound]["fields"]:
+                    self.add(
+                        "source_representation",
+                        field,
+                        "R02",
+                        self.applicable(owner, True),
+                    )
+            return
         if value.kind == "sql_stage_reference":
             fields = doc[value]
             self.add(

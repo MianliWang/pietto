@@ -42,6 +42,8 @@ VARIANTS = {
     # let joined with the published relation, with rows or with none, runs on
     # both targets.
     "Q_values_rows": ("top", "rejected", "let_join", "zero_left_join"),
+    # Phase70 S08: closed EXISTS / NOT EXISTS reads in WHERE.
+    "L_relation_exists": ("kept",),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -456,6 +458,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return let_fixture(target, variant)
     if case == "Q_values_rows":
         return values_fixture(target, variant)
+    if case == "L_relation_exists":
+        return exists_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
@@ -2083,6 +2087,27 @@ def values_fixture(target, variant):
     item = join_fixture(target, "W_join_shapes", "inner")
     header = item["source"].split("query result:", 1)[0]
     return {**item, "source": header + VALUES_BODIES[variant]}
+
+
+def exists_fixture(target, variant):
+    """M_named_chain/query_bag kept by `exists first and not exists none`.
+
+    `first` is read again only through EXISTS and `none` keeps no row, so both
+    reads are true, no new physical scan is added and the chain oracle states
+    the kept rows independently.
+    """
+    _need(variant == "kept", "unknown existence variant")
+    item = chain_fixture(target, "M_named_chain", "query_bag")
+    head, final = item["source"].split("query result:\n    from second\n", 1)
+    item["source"] = (
+        head
+        + "query none:\n    from first\n    where Key < Key\n"
+        + "    select:\n        Key\n"
+        + "query result:\n    from second\n"
+        + "    where exists first and not exists none\n"
+        + final
+    )
+    return item
 
 
 ROW_DIRECT_BODY = """    from rows
@@ -4064,6 +4089,8 @@ def _named_range_provenance(document, descriptors):
         # Phase70 VALUES units own their body and each declared column.
         "values_body": ["values_body"],
         "values_column": ["values_column"],
+        # Phase70 S08: one expression block use per existence read.
+        "expression_block_use": ["expression_block_use"],
     }
     associations = {
         "authored_cause",
@@ -5926,6 +5953,30 @@ def _decode_fixed_public(document, limits):
                 "name": name,
                 "operands": operands,
             }
+        if role == "exists_open":
+            # An existence read of one complete named producer terminal; a
+            # physical source target is not part of this grammar.
+            take("syntax", "exists_open", "EXISTS (", original)
+            take("syntax", "exists_select", "SELECT ", original)
+            take("literal", "exists_sentinel", "1", original)
+            take("syntax", "exists_from", " FROM ", original)
+            producer = lexical[cursor][0]["subject"]
+            _, name = take("identifier", "exists_reference", subject=producer)
+            source_body = row_ctes.get(name)
+            _need(
+                source_body is not None
+                and source_body["block"] == producer
+                and source_body["projection"],
+                "an existence read must read a complete definition terminal",
+            )
+            use = lexical[cursor][0]["subject"]
+            _need(use["kind"] == "expression_block_use", "existence read use")
+            take("syntax", "exists_alias", " AS ", use)
+            _, alias = take("identifier", "exists_scope", subject=use)
+            _need(alias == f"e{use['position']}", "existence read alias")
+            closed, _ = take("syntax", "exists_close", ")", original)
+            expected_ranges.append(("exists", original, start, closed["end"]))
+            return {"kind": "exists", "expression": original, "use": use}
         _need(role in {"binary_open", "comparison_open"}, "row expression node")
         take("syntax", role, "(", original)
         left = row_parse(block, port_kind)
@@ -6053,6 +6104,26 @@ def _decode_fixed_public(document, limits):
                 or read["realization"]["nullable"] is False,
             }
         original = node["expression"]
+        if node["kind"] == "exists":
+            # Existence is never NULL; the read keeps its own block use.
+            _need(within(cause(original), cause(owner)))
+            row_generated.append(
+                (
+                    "exists",
+                    ("opaque", "exists"),
+                    "R11",
+                    row_node_premises("Bool", (), "exists"),
+                    None,
+                )
+            )
+            row_rules[original["position"]] = "R11"
+            return {
+                **row_bool(False),
+                "root": original,
+                "operands": [],
+                "kind": "exists",
+                "strict": True,
+            }
         kind = "arithmetic" if node["kind"] == "sign" else node["kind"]
         rule = "R06" if kind in {"logical", "not"} else "R05"
         # One requirement per node in exact rendering order: the node, then the

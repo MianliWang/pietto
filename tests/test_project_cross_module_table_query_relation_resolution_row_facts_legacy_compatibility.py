@@ -147,6 +147,8 @@ def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_o
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NAME_COLLISION,
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_UNREAD,
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NESTING_LIMIT,
+        relation_resolution.ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ,
+        relation_resolution.ProjectModuleRelationResolutionIssueStatus.RELATION_EXPRESSION_READ_POSITION,
     )
     expected_fields = {
         relation_resolution.ProjectResolvedModuleRelationSymbol: (
@@ -175,6 +177,7 @@ def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_o
             "issues",
             "let_symbols",
             "blocked_let_scopes",
+            "expression_reads",
             "_symbols_by_name",
             "_let_symbols_by_scope",
             "_resolutions_by_from_clause",

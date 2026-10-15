@@ -116,6 +116,7 @@ def prepare_refinement(
     if output is None:
         output = prepare_output(artifact, binding=binding)
     verify_sources(sources, artifact.request.sources, family=artifact.request.family)
+    refuse_block_reads(artifact)
     units, statement, prefix = lower(output, sources)
     value = RefinedQuery(
         artifact,
@@ -130,6 +131,25 @@ def prepare_refinement(
     )
     verify_refinement(value)
     return value
+
+
+def refuse_block_reads(artifact):
+    """R2 has no proven row coordinates for an expression block read yet.
+
+    The complete source closure, including every source reached only through
+    such a read, is checked first; the refusal precedes any connection.
+    """
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_sql_emission_ast import SQLSelect, row_value_roots
+
+    if type(artifact.ast) is SQLSelect:
+        return
+    if any(
+        type(node) is rows.SQLBlockRead
+        for root in row_value_roots(artifact.ast)
+        for node in rows.value_nodes(root)
+    ):
+        raise ValueError("REFINEMENT_EXPRESSION_BLOCK_READ")
 
 
 def _live_root(template, binding, *, reanchor):
@@ -267,6 +287,7 @@ def _prepare_refinement(artifact, sources, *, policy, output, binding):
     if output is None:
         output = prepare_output(artifact, binding=binding)
     verify_sources(sources, artifact.request.sources, family=artifact.request.family)
+    refuse_block_reads(artifact)
     units, statement, prefix = lower(output, sources)
     value = RefinedQuery(
         artifact,

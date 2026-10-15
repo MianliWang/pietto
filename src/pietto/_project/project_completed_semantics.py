@@ -1566,6 +1566,12 @@ def derive_compiled_semantics(root, values, parameters=None):
                             ),
                         ),
                     )
+                elif role == "exists" and token == "exists" and not arguments:
+                    # An existence read of one whole producer block is never NULL.
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NON_NULL,
+                    )
                 elif role == "cast" and token == "int_to_float" and len(arguments) == 1:
                     error = (
                         None
@@ -1662,9 +1668,10 @@ def derive_compiled_semantics(root, values, parameters=None):
                     raise CompiledError("COMPILED_OPERATOR")
                 if error is not None or typed != declared(get("logical")):
                     raise CompiledError("COMPILED_OPERATOR_TYPE")
-                literal_value = facts[operands[0]].value
-                if role == "unary" and type(literal_value) in (int, float):
-                    value = -literal_value if token == "-" else +literal_value
+                if role == "unary":
+                    literal_value = facts[operands[0]].value
+                    if type(literal_value) in (int, float):
+                        value = -literal_value if token == "-" else +literal_value
                 input_facts = tuple(facts[child] for child in operands)
                 if physical_required:
                     inputs = tuple(item.require_realization() for item in input_facts)
@@ -1730,7 +1737,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 family, tag, nullable, *inputs, operator=token
                             )
                         )
-                    elif role == "null_test":
+                    elif role in {"null_test", "exists"}:
                         realized = physical._bool(family, False)
                     elif type(input_facts[0].value) in (int, float):
                         value = (
@@ -2515,6 +2522,12 @@ def verify_compiled_semantics(value):
                             ),
                         ),
                     )
+                elif role == "exists" and token == "exists" and not inputs:
+                    problem = None
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NON_NULL,
+                    )
                 elif role == "cast" and token == "int_to_float" and len(inputs) == 1:
                     problem = (
                         None
@@ -2615,7 +2628,7 @@ def verify_compiled_semantics(value):
                         EffectiveNullability.UNKNOWN,
                     )
                 need(problem is None, "SEMANTIC_TYPE")
-                if role == "unary" and type(inputs[0].value) in (int, float):
+                if role == "unary" and inputs and type(inputs[0].value) in (int, float):
                     expected_value = (
                         -inputs[0].value if token == "-" else +inputs[0].value
                     )
@@ -2701,7 +2714,7 @@ def verify_compiled_semantics(value):
                             realization is not None and problem is None,
                             "SEMANTIC_DOMAIN",
                         )
-                    elif role == "not":
+                    elif role in {"not", "exists"}:
                         from pietto._project import (
                             project_sql_emission_rows as physical,
                         )

@@ -17,7 +17,7 @@ FORMAT = "pietto.compiled-execution.v1"
 PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
 # 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch).
-VERSIONS = (3, 1, 3, 1)
+VERSIONS = (4, 1, 4, 1)  # 4/4: expression_block_use records (Phase70 S08)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20
@@ -77,6 +77,12 @@ FIELDS = {
         "meaning",
     ),
     "use": ("consumer", "producer", "ordinal", "ports"),
+    # ExpressionBlockUseV1: one expression occurrence of ``consumer`` reads the
+    # whole ``producer`` through ``operation``; never a ``use`` and never an
+    # input slot. ``column`` is the read output ordinal (null for an existence
+    # read). Records follow the statement's block use order, and record ``n``
+    # renders the relation alias ``e<n>``.
+    "expression_block_use": ("operation", "consumer", "producer", "column"),
     "port": ("owner", "ordinal", "label", "source", "logical"),
     "literal": ("tag", "value", "site"),
     "null_literal": ("site",),
@@ -528,14 +534,47 @@ def declaration_values(owner) -> tuple:
     )
 
 
+_SCALAR_CONTAINERS = frozenset(
+    {"operation", "aggregate_value", "window_value", "join_value", "set_value"}
+)
+
+
+def executed_operations(records, relation):
+    """Operations reachable from one relation's own values, never across uses."""
+    found, seen = set(), set()
+    pending = list(records[relation].values)
+    while pending:
+        value = pending.pop()
+        if type(value) is tuple:
+            pending.extend(value)
+            continue
+        if (
+            type(value) is not Address
+            or value in seen
+            or value.kind not in _SCALAR_CONTAINERS
+        ):
+            continue
+        seen.add(value)
+        if value.kind == "operation":
+            found.add(value)
+        pending.extend(records[value].values)
+    return found
+
+
 def selected_relations(records, entry):
-    """Current execution closure; retained request roots are checked separately."""
-    incoming = {}
+    """Current execution closure; retained request roots are checked separately.
+
+    A relation reaches its ``use`` producers and the producer of every
+    expression block use whose operation it actually executes.
+    """
+    incoming, reads = {}, {}
     for record in records.values():
         if record.address.kind == "use":
             incoming.setdefault(record.get("consumer"), []).append(
                 record.get("producer")
             )
+        elif record.address.kind == "expression_block_use":
+            reads.setdefault(record.get("consumer"), []).append(record)
     reached, pending = set(), [entry.get("terminal")]
     while pending:
         address = pending.pop()
@@ -543,6 +582,14 @@ def selected_relations(records, entry):
             continue
         reached.add(address)
         pending.extend(incoming.get(address, ()))
+        local = reads.get(address)
+        if local:
+            executed = executed_operations(records, address)
+            pending.extend(
+                read.get("producer")
+                for read in local
+                if read.get("operation") in executed
+            )
     return frozenset(reached)
 
 

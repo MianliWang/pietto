@@ -76,7 +76,8 @@ def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
         root,
         "b.pietto",
         "query q(a: Int not null):\n    from rows\n    select:\n        id\n"
-        "query r:\n    from rows\n    where exists t\n    select:\n        id\n",
+        "query r:\n    from rows\n    where exists t and id == scalar t.c\n"
+        "    select:\n        id\n",
     )
     _write(root, "c.pietto", "query valid:\n    from rows\n    select:\n        id\n")
 
@@ -95,12 +96,15 @@ def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
         for diagnostic in result.diagnostics
         if diagnostic.location.path == "a.pietto"
     } == {"PIE-P1000"}
-    # An explicit-module project admits a SELECT-body query header.
+    # An explicit-module project admits a SELECT-body query header and an
+    # EXISTS read inside a relation body; a scalar read stays gated.
     assert [
         (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
         for diagnostic in result.diagnostics
         if diagnostic.location.path == "b.pietto"
-    ] == [("PIE-S2346", 1, 9)] * (schema == 1) + [("PIE-S2349", 7, 11)]
+    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11)] * (schema == 1) + [
+        ("PIE-S2348", 7, 30)
+    ]
 
 
 def test_parse_only_project_check_reports_source_read_errors_and_continues(

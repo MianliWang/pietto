@@ -273,6 +273,8 @@ def emit_compiled(root, values, named=None):
                 leaf,
             )
         role, token = record.get("operator")
+        if (role, token) == ("exists", "exists"):
+            return block_read(address, fact)
         operands = tuple(
             scalar(a, use, producer, alias, join_contexts)
             for a in record.get("operands")
@@ -297,6 +299,33 @@ def emit_compiled(root, values, named=None):
         if identity is None:
             raise CompiledError("COMPILED_EXPRESSION_IDENTITY")
         return rows.SQLOperation(identity, kind, operands, fact.realization)
+
+    block_uses = {
+        r.get("operation"): r
+        for r in records.values()
+        if r.address.kind == "expression_block_use"
+    }
+
+    def block_read(address, fact):
+        """The executed existence read of one already realized producer."""
+        described = block_uses.get(address)
+        identity = plan.expression_identities.get(address)
+        if described is None or identity is None:
+            raise CompiledError("COMPILED_BLOCK_READ")
+        producer_address = described.get("producer")
+        subject = CompiledSubject(refs[described.address])
+        symbol = ast.SQLSymbol(0, subject.ref, f"e{described.address.position}")
+        source = source_by_ref.get(producer_address)
+        if source is not None:
+            binding = next(s for s in plan.sources if s.ref is refs[producer_address])
+            target = rows.SQLBlockTarget(subject, source, binding, symbol)
+        elif producer_address in bodies:
+            target = rows.SQLBlockTarget(
+                subject, bodies[producer_address], None, symbol
+            )
+        else:
+            raise CompiledError("COMPILED_BLOCK_READ_PRODUCER")
+        return rows.SQLBlockRead(identity, target, fact.realization)
 
     def read_column(address, use, producer, alias):
         value = scalar(address, use, producer, alias)

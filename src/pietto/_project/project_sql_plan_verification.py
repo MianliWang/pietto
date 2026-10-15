@@ -68,6 +68,7 @@ from pietto._project.project_sql_plan import (
     ProjectSQLInputUse,
     ProjectSQLBoundary,
     ProjectSQLBoundaryReason,
+    ProjectSQLExpressionBlockUse,
     ProjectSQLSymbol,
     ProjectSQLSymbolNamespace,
     ProjectSQLOrigin,
@@ -156,6 +157,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.UnaryExpr,
         ast_nodes.ConditionalExpr,
         ast_nodes.MembershipExpr,
+        ast_nodes.RelationExistsExpr,
         ast_nodes.CastExpr,
         ast_nodes.BinaryExpr,
         ast_nodes.ComparisonExpr,
@@ -331,6 +333,36 @@ def _binding_structure(
             else ProjectSQLBoundaryReason.NAMED_INPUT
         )
         if boundary.use is not use or boundary.reason is not expected:
+            return False
+    # Every retained expression edge of a closure consumer, in ledger order;
+    # each reads its whole active producer, never an input slot.
+    expected_reads = tuple(
+        edge
+        for edge in scope.analysis_bundle.root.expression_uses
+        if _owner_key(edge.use.consumer) in by_owner
+    )
+    if not _inventory(
+        bindings.expression_block_uses,
+        ProjectSQLExpressionBlockUse,
+        scope,
+        K.EXPRESSION_BLOCK_USE,
+    ) or len(bindings.expression_block_uses) != len(expected_reads):
+        return False
+    for block_use, edge in zip(
+        bindings.expression_block_uses, expected_reads, strict=True
+    ):
+        producer = by_owner[_owner_key(edge.use.target)]
+        consumer = by_owner[_owner_key(edge.use.consumer)]
+        if (
+            block_use.edge is not edge
+            or block_use.producer is not producer.ref
+            or block_use.consumer is not consumer.ref
+            or producer.ref.position >= consumer.ref.position
+            or edge.producer is not producer.entry
+            or edge.consumer is not consumer.entry
+            or edge.output is not producer.entry.output
+            or edge.use.evidence.read.expression is not edge.use.expression
+        ):
             return False
     return True
 
@@ -540,6 +572,19 @@ def _binding_origins(bindings: ProjectSQLBindings) -> bool:
                 _dependency_site(dep),
                 dep,
                 (boundary.use.ref,),
+            )
+        )
+    for block_use in bindings.expression_block_uses:
+        edge = block_use.edge.use
+        expected.append(
+            (
+                block_use.ref,
+                R.EXPRESSION_BLOCK_USE,
+                P.GENERATED_STRUCTURE,
+                edge.consumer,
+                edge.evidence.read.expression,
+                edge,
+                (block_use.producer,),
             )
         )
     for symbol in bindings.symbols:
@@ -1977,6 +2022,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
             "input_ports",
             "all_exports",
             "boundaries",
+            "expression_block_uses",
         )
     ):
         return (Issue.STRUCTURE,)
@@ -2553,8 +2599,10 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         BetweenExpr: row.ProjectSQLBetween,
         ConditionalExpr: row.ProjectSQLConditional,
         MembershipExpr: row.ProjectSQLMembership,
+        ast_nodes.RelationExistsExpr: row.ProjectSQLRelationExists,
         CastExpr: row.ProjectSQLCast,
     }
+    read_uses: list[object] = []
     roles = {
         row.ProjectSQLExpressionRole.LET: ProjectModuleFactOccurrenceRole.LET_VALUE,
         row.ProjectSQLExpressionRole.SELECT: ProjectModuleFactOccurrenceRole.SELECT_VALUE,
@@ -2628,7 +2676,10 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = (node.value, *node.options)
             elif isinstance(node, CastExpr):
                 children = (node.value,)
-            elif isinstance(node, (LiteralExpr, NameExpr, DottedNameExpr)):
+            elif isinstance(
+                node,
+                (LiteralExpr, NameExpr, DottedNameExpr, ast_nodes.RelationExistsExpr),
+            ):
                 children = ()
             elif isinstance(node, ParameterRefExpr):
                 children = ()
@@ -2970,6 +3021,40 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = (local[id(node.value)].ref,)
                 if value.value is not children[0]:
                     return False
+            elif isinstance(value, row.ProjectSQLRelationExists):
+                # The read names exactly the block use retained for this node,
+                # consumed by this site's own definition, in WHERE or SELECT.
+                bindings = plan.bindings
+                block_use = next(
+                    (u for u in bindings.expression_block_uses if u.ref is value.use),
+                    None,
+                )
+                consumer = next(
+                    (
+                        d.ref
+                        for d in bindings.definitions
+                        if d.entry.owner is site.owner
+                    ),
+                    None,
+                )
+                if (
+                    block_use is None
+                    or block_use.edge.use.expression is not node
+                    or block_use.consumer is not consumer
+                    or not isinstance(
+                        site, (row.ProjectSQLExpressionSite, row.ProjectSQLJoinedSite)
+                    )
+                    or site.role
+                    not in {
+                        row.ProjectSQLExpressionRole.WHERE,
+                        row.ProjectSQLExpressionRole.SELECT,
+                    }
+                    or value.value_type.resolved_type.name != "Bool"
+                    or value.value_type.nullability.value != "non_null"
+                ):
+                    return False
+                read_uses.append(block_use)
+                children = ()
             else:
                 children = (
                     local[id(node.value)].ref,
@@ -2995,6 +3080,11 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     return False
         if next(references, None) is not None:
             return False
+    # Every retained expression block use is read by exactly one expression.
+    if len(read_uses) != len(plan.bindings.expression_block_uses) or {
+        id(u) for u in read_uses
+    } != {id(u) for u in plan.bindings.expression_block_uses}:
+        return False
     return position == len(plan.expressions) and operand_position == len(plan.operands)
 
 
@@ -3120,6 +3210,8 @@ def _row_origins_and_demands(plan):
                     windows.ProjectSQLWindowReference,
                 ),
             )
+            else (value.use,)
+            if isinstance(value, row.ProjectSQLRelationExists)
             else ()
         )
         specs.append(

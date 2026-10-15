@@ -3389,6 +3389,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("relation", "let_relation_name_collision", "present"),
                     ("relation", "let_relation_unread", "present"),
                     ("relation", "let_relation_nesting_limit", "present"),
+                    ("relation", "unknown_relation_expression_read", "present"),
+                    ("relation", "relation_expression_read_position", "present"),
                 ),
             ),
         ),

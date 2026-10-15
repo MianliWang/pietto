@@ -17,6 +17,7 @@ from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_attribution import ProjectModuleAttributionFactSet
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.module_relation_resolution import (
+    ProjectResolvedExpressionBlockRead,
     ProjectResolvedModuleRelationReference,
     ProjectResolvedSetOperand,
     ProjectModuleSetOperandReference,
@@ -123,6 +124,53 @@ class ProjectCompletionDependency:
                 raise ValueError("JOIN completion dependency lost exact endpoints.")
         else:
             raise TypeError("Completion dependency requires retained use evidence.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectExpressionBlockUse:
+    """One resolved expression-to-block edge (ExpressionBlockUseV1, completion).
+
+    The consumer reads the whole target block from one expression occurrence;
+    the edge orders producer before consumer and propagates failure, but it is
+    never a relation input and never shares an input ordinal.
+    """
+
+    consumer: ProjectDeclarationOccurrence = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    target: ProjectDeclarationOccurrence = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    ordinal: int
+    evidence: ProjectResolvedExpressionBlockRead = field(
+        repr=False, compare=False, hash=False
+    )
+
+    def __post_init__(self) -> None:
+        evidence = self.evidence
+        if (
+            type(self.consumer) is not ProjectDeclarationOccurrence
+            or type(self.target) is not ProjectDeclarationOccurrence
+            or type(self.ordinal) is not int
+            or type(evidence) is not ProjectResolvedExpressionBlockRead
+        ):
+            raise TypeError("Expression block use requires exact owners and read.")
+        symbol = evidence.target_symbol
+        if (
+            evidence.read.owner is not self.consumer
+            or evidence.read.ordinal != self.ordinal
+            or symbol is None
+            or symbol.target_occurrence is not self.target
+        ):
+            raise ValueError("Expression block use lost its exact endpoints.")
+
+    @property
+    def expression(self):
+        return self.evidence.read.expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -356,6 +404,7 @@ class ProjectCompletionTopology:
     owners: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
     set_operands: tuple[ProjectResolvedSetOperand, ...] = field(init=False, repr=False)
     dependencies: tuple[ProjectCompletionDependency, ...] = field(init=False)
+    expression_uses: tuple[ProjectExpressionBlockUse, ...] = field(init=False)
     schedule: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
     cycles: tuple[ProjectCompletionCycle, ...] = field(init=False)
     blocked_owners: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
@@ -371,7 +420,8 @@ class ProjectCompletionTopology:
         )
         set_operands = _set_operand_resolutions(self.verification)
         dependencies = _dependencies(self.verification, set_operands)
-        schedule = _schedule(owners, dependencies)
+        expression_uses = _expression_uses(self.verification)
+        schedule = _schedule(owners, dependencies, expression_uses)
         cycles = tuple(
             ProjectCompletionCycle(
                 members=members,
@@ -388,6 +438,7 @@ class ProjectCompletionTopology:
             ("owners", owners),
             ("set_operands", set_operands),
             ("dependencies", dependencies),
+            ("expression_uses", expression_uses),
             ("schedule", schedule),
             ("cycles", cycles),
             (
@@ -438,7 +489,25 @@ class ProjectCompletionTopology:
             )
         ):
             raise ValueError("Completion topology lost exact owner/use authority.")
-        expected_schedule = _schedule(self.owners, self.dependencies)
+        expected_uses = _expression_uses(self.verification)
+        if (
+            type(self.expression_uses) is not tuple
+            or len(self.expression_uses) != len(expected_uses)
+            or any(
+                type(edge) is not ProjectExpressionBlockUse
+                or edge.consumer is not expected.consumer
+                or edge.target is not expected.target
+                or edge.ordinal != expected.ordinal
+                or edge.evidence is not expected.evidence
+                for edge, expected in zip(
+                    self.expression_uses, expected_uses, strict=True
+                )
+            )
+        ):
+            raise ValueError("Completion topology lost an exact expression block use.")
+        expected_schedule = _schedule(
+            self.owners, self.dependencies, self.expression_uses
+        )
         scheduled = {id(owner) for owner in expected_schedule}
         if not _same_objects(self.schedule, expected_schedule) or not _same_objects(
             self.blocked_owners,
@@ -738,6 +807,11 @@ class ProjectCompletion:
     entries: tuple[ProjectEffectiveOutputEntry, ...]
     topology: ProjectCompletionTopology = field(repr=False)
 
+    @property
+    def expression_uses(self) -> tuple[ProjectExpressionBlockUse, ...]:
+        """Expression-to-block edges; scheduled with, never inside, dependencies."""
+        return self.topology.expression_uses
+
     def __post_init__(self) -> None:
         if (
             type(self.verification) is not ProjectPhase62VerificationResult
@@ -936,9 +1010,62 @@ def _dependencies(
     return tuple(dependencies)
 
 
+def _expression_uses(
+    verification: ProjectPhase62VerificationResult,
+) -> tuple[ProjectExpressionBlockUse, ...]:
+    """Every resolved expression read of an inventory owner, in owner order."""
+    plan = verification.root.evaluation.project_plan
+    resolutions = plan.attribution._authority.relation_resolutions
+    result: list[ProjectExpressionBlockUse] = []
+    for fragment in plan.fragments:
+        owner = fragment.semantic_facts.owner
+        environments = resolutions.find_module_path(owner.identity.module_path)
+        if len(environments) != 1:
+            raise ValueError("Expression reads require one exact module environment.")
+        for item in environments[0].expression_reads:
+            symbol = item.target_symbol
+            if item.read.owner is owner and symbol is not None:
+                result.append(
+                    ProjectExpressionBlockUse(
+                        consumer=owner,
+                        target=symbol.target_occurrence,
+                        ordinal=item.read.ordinal,
+                        evidence=item,
+                    )
+                )
+    return tuple(result)
+
+
 def _schedule(
     owners: tuple[ProjectDeclarationOccurrence, ...],
     dependencies: tuple[ProjectCompletionDependency, ...],
+    expression_uses: tuple[ProjectExpressionBlockUse, ...] = (),
+) -> tuple[ProjectDeclarationOccurrence, ...]:
+    """Dependency-first order; expression block uses then order read producers.
+
+    Relation-input dependencies alone decide which owners are cycle-blocked.
+    Among the scheduled owners each expression target also precedes its
+    consumer; relation resolution never admits an expression read that closes
+    a relation cycle, so this second order is total.
+    """
+    ordered = _kahn(owners, dependencies)
+    if not expression_uses:
+        return ordered
+    scheduled = {id(owner) for owner in ordered}
+    edges = tuple(
+        edge
+        for edge in (*dependencies, *expression_uses)
+        if id(edge.consumer) in scheduled and id(edge.target) in scheduled
+    )
+    reordered = _kahn(ordered, edges)
+    if len(reordered) != len(ordered):
+        raise ValueError("Expression block uses must not close a relation cycle.")
+    return reordered
+
+
+def _kahn(
+    owners: tuple[ProjectDeclarationOccurrence, ...],
+    dependencies: tuple[ProjectCompletionDependency | ProjectExpressionBlockUse, ...],
 ) -> tuple[ProjectDeclarationOccurrence, ...]:
     positions = {id(owner): position for position, owner in enumerate(owners)}
     if len(positions) != len(owners):

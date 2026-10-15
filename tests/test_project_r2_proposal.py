@@ -492,3 +492,115 @@ table result:
         (3,),
         (2, 4),
     ]
+
+
+def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
+    tmp_path, monkeypatch
+):
+    import _pietto_execution_api as api
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-exists")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        "table flagged_items:\n    let tagged:\n        from tags\n"
+        "        select:\n            tag_id = id\n    from items\n"
+        "    where exists tagged\n    select:\n        id = items.id\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="flagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    sources = binding.artifact.request.sources
+    assert [(s.namespace, s.name) for s in sources] == [
+        ("fixture", "items"),
+        ("fixture", "tags"),
+    ]
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in sources
+    )
+    # The source read only through the existence read is a required input,
+    # then the read itself is refused before any connection.
+    with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])
+    with pytest.raises(ValueError, match="REFINEMENT_EXPRESSION_BLOCK_READ"):
+        proposal.prepare_live_refinement(query, binding, inputs)
+    # The public call refuses it as the query's own refusal, before any
+    # workspace or connection is opened.
+    from pietto import execution
+    from pietto._project import project_job_workspace as private_workspace
+
+    import socket
+
+    from pietto._project import project_execution_postgres as pg
+
+    workspace = execution.create_workspace(
+        Path(tmp_path) / "workspace", budget_bytes=private_workspace.MIN_BUDGET
+    )
+    before = sorted(
+        (p.relative_to(workspace.root), p.stat().st_size)
+        for p in Path(workspace.root).rglob("*")
+    )
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the driver")
+
+    for owner, name in ((pg, "_connect"), (pg, "drivers"), (socket.socket, "connect")):
+        monkeypatch.setattr(owner, name, forbidden)
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.save_recoverable(
+            workspace,
+            query,
+            source_requirements=inputs,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=execution.PostgresAccess(
+                "127.0.0.1", 5432, "app", "reader", "x" * 24, "disable"
+            ),
+            premise=execution.PostgresDeploymentPremise(
+                schemas=("fixture", "pg_catalog")
+            ),
+            limits=execution.ExecutionLimits(),
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "REFINEMENT_EXPRESSION_BLOCK_READ",
+    )
+    assert refused.value.attempt is None and refused.value.outcome is None
+    assert (
+        sorted(
+            (p.relative_to(workspace.root), p.stat().st_size)
+            for p in Path(workspace.root).rglob("*")
+        )
+        == before
+    )

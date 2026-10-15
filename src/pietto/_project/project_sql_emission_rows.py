@@ -209,6 +209,30 @@ class SQLOperation:
     realization: Realization
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLBlockTarget:
+    """One expression block use's realized producer and its generated alias.
+
+    ``producer`` is the producer definition's terminal unit, or the bound
+    source when the producer is a source; ``source`` is then its plan binding.
+    """
+
+    use: Any
+    producer: Any
+    source: Any
+    symbol: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLBlockRead:
+    """An existence read of one whole producer: ``EXISTS (SELECT 1 FROM p AS e)``."""
+
+    original: Any
+    target: SQLBlockTarget
+    realization: Realization
+    kind: str = "exists"
+
+
 def signed_range(storage) -> tuple[int, int] | None:
     bits = INT_WIDTHS.get(storage["kind"])
     if bits is None:
@@ -877,6 +901,15 @@ def build_row_value(
         )
     if type(expression) is row.ProjectSQLCast:
         return _cast(request, columns, expression, tag, nullable, uses, reference_type)
+    if type(expression) is row.ProjectSQLRelationExists:
+        # The stage scope carries each readable block target under its own
+        # expression block use; existence is never NULL.
+        target = columns.get(expression.use)
+        if type(target) is not SQLBlockTarget or target.use.ref is not expression.use:
+            return None, ("PIE-B1001", "expression_block_use_outside_scope")
+        if tag != "Bool" or nullable is not False:
+            return None, ("PIE-B1002", "existence_result_not_non_null_bool")
+        return SQLBlockRead(expression, target, _bool(family, False)), None
     return None, ("PIE-B1003", "row_expression_not_admitted_in_slice6")
 
 
@@ -1569,7 +1602,12 @@ def resolved_scalar_call_realization(family, symbol, tag, nullable, values):
 
 
 def realization_of(value, family: str) -> Realization:
-    if type(value) in {SQLStageReference, SQLOperation, SQLParameterRead}:
+    if type(value) in {
+        SQLStageReference,
+        SQLOperation,
+        SQLParameterRead,
+        SQLBlockRead,
+    }:
         return value.realization
     return constant_realization(value, family)
 
@@ -1585,7 +1623,7 @@ def rendered_value_nodes(value) -> tuple[Any, ...]:
 
 
 def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
-    if type(value) is SQLStageReference:
+    if type(value) in {SQLStageReference, SQLBlockRead}:
         return (value,)
     if type(value) is SQLOperation:
         result: list[Any] = [value]
@@ -1610,7 +1648,12 @@ def operand_refs(value) -> tuple[Any, ...]:
 
 
 def root_expression(value):
-    if type(value) in {SQLStageReference, SQLOperation, SQLParameterRead}:
+    if type(value) in {
+        SQLStageReference,
+        SQLOperation,
+        SQLParameterRead,
+        SQLBlockRead,
+    }:
         return value.original
     return parameters.value_nodes(value)[0].original
 
@@ -1620,6 +1663,8 @@ def requirement_kind(node) -> str:
         return "reference"
     if type(node) is SQLParameterRead:
         return "query_parameter"
+    if type(node) is SQLBlockRead:
+        return node.kind
     assert type(node) is SQLOperation
     return {
         "sign": "arithmetic",
@@ -1649,6 +1694,8 @@ REQUIREMENT_RULES = {
     "not": "R06",
     "null_test": "R05",
     "logical": "R06",
+    # An existence read wraps one complete producer terminal like SEMI/ANTI.
+    "exists": "R11",
 }
 
 
@@ -1675,6 +1722,8 @@ def demand_rule(plan, entry) -> str | None:
         return "R06" if expression.expression.operator in LOGICAL else "R05"
     if type(expression) in R05_OPERATIONS:
         return "R05"
+    if type(expression) is row.ProjectSQLRelationExists:
+        return "R11"
     return None
 
 

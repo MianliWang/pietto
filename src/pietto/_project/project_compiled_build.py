@@ -78,6 +78,7 @@ class _Export:
                 raise CompiledError("COMPILED_EXPORT_REFINEMENT_ROOT")
         self.sites, self.literals, self.slots, self.reads = {}, {}, {}, {}
         self.contexts, self.field_refs = {}, {}
+        self.block_uses = None
         self.values = {}
         self.requirement_anchors = {}
         self.compatibility = supported_compatibility()
@@ -376,7 +377,48 @@ class _Export:
         self.anchor(value.original.ref, address)
         return address
 
+    def block_read(self, value, use):
+        """An existence operation and the expression block use it executes."""
+        target = value.target
+        if use is None or type(target) is not rows.SQLBlockTarget:
+            raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
+        if self.block_uses is None:
+            # One record per statement block use, in its plan order, so record
+            # ``n`` is the read the live statement aliases ``e<n>``.
+            self.block_uses = {
+                item.ref: self.reserve("expression_block_use")
+                for item in self.request.plan.expression_block_uses
+            }
+        address = self.block_uses.get(target.use.ref)
+        if (
+            address is None
+            or address.position != target.use.ref.position
+            or target.symbol.name != f"e{address.position}"
+        ):
+            raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
+        operation = self.add(
+            "operation",
+            ("exists", "exists"),
+            (),
+            _logical(value.original.value_type),
+            None,
+        )
+        self.finish(
+            address,
+            operation,
+            self.records[use].get("consumer"),
+            self.sources[id(target.producer)]
+            if target.source is not None
+            else self.units[id(target.producer)],
+            None,
+        )
+        return operation
+
     def scalar_value(self, value, producer, use, join_inputs=None):
+        if type(value) is rows.SQLBlockRead:
+            if join_inputs is not None:
+                raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
+            return self.block_read(value, use)
         if type(value) is rows.SQLStageReference:
             if join_inputs is not None:
                 matches = tuple(

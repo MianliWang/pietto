@@ -957,3 +957,81 @@ def test_contextual_ordinals_require_ints_in_admission_and_verification(
     finally:
         object.__setattr__(target, field, original)
     assert verify_project_sql_plan(plan, *roots).verified
+
+
+EXISTS_SOURCE = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query flagged:
+    from tags
+    select:
+        id
+query result:
+    let picked:
+        from tags
+        where id > 0
+        select:
+            id
+    from rows
+    where exists picked and not exists flagged
+    select:
+        id
+"""
+
+
+@pytest.fixture
+def exists_plan(tmp_path: Path):
+    return _product(tmp_path, EXISTS_SOURCE)
+
+
+def _block_reads(plan, uses):
+    bindings = _graft(plan.bindings, expression_block_uses=uses)
+    return _graft(plan, bindings=bindings, expression_block_uses=uses)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("deleted", "inner_source", "forged_producer", "swapped_reads", "edge_swap"),
+)
+def test_expression_block_uses_cannot_be_dropped_forged_or_swapped(
+    exists_plan, mutation: str
+) -> None:
+    roots, plan, view = exists_plan
+    reads = plan.expression_block_uses
+    assert [r.edge.use.target.definition.name for r in reads] == ["picked", "flagged"]
+    assert [s.declaration.name for s in plan.sources] == ["rows", "tags"]
+    exists = [e for e in plan.expressions if type(e) is row.ProjectSQLRelationExists]
+    assert [e.use for e in exists] == [r.ref for r in reads]
+    if mutation == "deleted":
+        candidate = _block_reads(plan, ())
+    elif mutation == "inner_source":
+        kept = plan.sources[:1]
+        bindings = _graft(plan.bindings, sources=kept)
+        candidate = _graft(plan, bindings=bindings, sources=kept)
+    elif mutation == "forged_producer":
+        other = next(
+            d.ref
+            for d in plan.bindings.definitions
+            if d.entry.owner.definition.name == "rows"
+        )
+        candidate = _block_reads(plan, (_graft(reads[0], producer=other), reads[1]))
+    elif mutation == "swapped_reads":
+        swapped = {
+            id(exists[0]): _graft(exists[0], use=exists[1].use),
+            id(exists[1]): _graft(exists[1], use=exists[0].use),
+        }
+        candidate = _graft(
+            plan,
+            expressions=tuple(swapped.get(id(e), e) for e in plan.expressions),
+        )
+    else:
+        candidate = _block_reads(
+            plan,
+            (
+                _graft(reads[0], edge=reads[1].edge),
+                _graft(reads[1], edge=reads[0].edge),
+            ),
+        )
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation

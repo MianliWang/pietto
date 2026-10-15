@@ -349,9 +349,34 @@ class _Writer:
         )
         self.enclose("anchor", reference, start)
 
+    def block_read(self, value):
+        """``EXISTS (SELECT 1 FROM <producer> AS <alias>)`` over one block use."""
+        start = self.offset
+        reference = value.original.ref
+        target = value.target
+        self.emit("EXISTS (", "syntax", "exists_open", reference)
+        self.emit("SELECT ", "syntax", "exists_select", reference)
+        self.emit(SENTINEL, "literal", "exists_sentinel", reference)
+        self.emit(" FROM ", "syntax", "exists_from", reference)
+        if target.source is not None:
+            relation = target.source.ref
+            self.identifier(target.producer.namespace, "exists_namespace", relation)
+            self.emit(".", "syntax", "exists_qualifier", relation)
+            self.identifier(target.producer.name, "exists_relation", relation)
+        else:
+            producer = target.producer.block.ref
+            self.identifier(target.producer.symbol.name, "exists_reference", producer)
+        self.emit(" AS ", "syntax", "exists_alias", target.use.ref)
+        self.identifier(target.symbol.name, "exists_scope", target.use.ref)
+        self.emit(")", "syntax", "exists_close", reference)
+        self.enclose("exists", reference, start)
+
     def scalar(self, value, alias):
         """One admitted tree; a reference with its own scope reads that relation."""
         start = self.offset
+        if type(value) is rows.SQLBlockRead:
+            self.block_read(value)
+            return
         if type(value) is rows.SQLStageReference:
             reference = value.original.ref
             scope = alias if value.scope is None else value.scope.name

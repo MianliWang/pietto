@@ -79,6 +79,29 @@ def test_unknown_ast_node_source_membership_fails_closed():
         maps.membership(plan)
 
 
+# Two existence reads: a let and a module query, each an expression block use.
+EXISTS = """shape Row:
+    id: Int not null
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query flagged:
+    from tags
+    select:
+        id
+query result:
+    let picked:
+        from tags
+        where id > 0
+        select:
+            id
+    from rows
+    where exists picked
+    select:
+        id
+        f = not exists flagged
+"""
+
+
 @pytest.fixture(scope="module")
 def corpus(tmp_path_factory):
     cases = {
@@ -110,6 +133,7 @@ def corpus(tmp_path_factory):
         "        w = first_value(value) window composed\n        again = last_value(value) window composed\n",
     )
     cases["shared_window"] = (shared, None)
+    cases["exists"] = (EXISTS, None)
     result = {}
     for name, (source, requests) in cases.items():
         roots = _roots(tmp_path_factory.mktemp("source-maps"), source, requests)

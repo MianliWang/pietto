@@ -183,3 +183,82 @@ def test_deep_expressions_are_walked_without_recursion() -> None:
         "    select:\n        id\n"
     )
     assert [d.code for d in gated.diagnostics] == ["PIE-S2348"]
+
+
+def test_explicit_modules_admit_an_exists_read_only_inside_a_relation_body() -> None:
+    """A type rule, a shape check or a type argument keeps the gate diagnostic;
+    single-file and LEGACY_FLAT callers keep every occurrence gated."""
+    source = (
+        "type Age = Int:\n"
+        "    ensure self > 0 and exists t\n"
+        "shape S:\n"
+        "    id: Int not null\n"
+        "    check positive:\n"
+        "        id > 0 and exists t\n"
+        "query q:\n"
+        "    let l:\n"
+        "        from rows\n"
+        "        where exists t\n"
+        "        select:\n"
+        "            id\n"
+        "    from l\n"
+        "    where exists t and id == scalar t.c\n"
+        "    select:\n"
+        "        id\n"
+        "        d = cast(id as Decimal(exists t, 2))\n"
+    )
+    parsed = parse_source(source, path="gate.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    exists = FAMILIES["exists_reference"][1]
+    scalar = FAMILIES["scalar_read"][1]
+    gated = [
+        ("PIE-S2349", exists, 2, 25),
+        ("PIE-S2349", exists, 6, 20),
+        ("PIE-S2348", scalar, 14, 30),
+        ("PIE-S2349", exists, 17, 32),
+    ]
+
+    def described(diagnostics):
+        return [
+            (d.code, d.message, d.location.line, d.location.column) for d in diagnostics
+        ]
+
+    assert (
+        described(unadmitted_syntax_diagnostics(parsed.ast, explicit_modules=True))
+        == gated
+    )
+    assert described(unadmitted_syntax_diagnostics(parsed.ast)) == sorted(
+        [
+            *gated,
+            ("PIE-S2345", FAMILIES["let_relation"][1], 8, 5),
+            ("PIE-S2349", exists, 10, 15),
+            ("PIE-S2349", exists, 14, 11),
+        ],
+        key=lambda item: (item[2], item[3]),
+    )
+
+
+def test_an_admitted_query_header_still_gates_a_read_in_a_parameter_type() -> None:
+    """EXPLICIT_MODULES admits an entry-query header, not a form in its types."""
+    parsed = parse_source(
+        "query q(a: Int(exists t) not null, b: Text nullable):\n"
+        "    from rows\n    select:\n        id\n",
+        path="gate.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    exists = FAMILIES["exists_reference"][1]
+    header = FAMILIES["query_parameter"][1]
+
+    def described(diagnostics):
+        return [
+            (d.code, d.message, d.location.line, d.location.column) for d in diagnostics
+        ]
+
+    assert described(
+        unadmitted_syntax_diagnostics(parsed.ast, explicit_modules=True)
+    ) == [("PIE-S2349", exists, 1, 16)]
+    assert described(unadmitted_syntax_diagnostics(parsed.ast)) == [
+        ("PIE-S2346", header, 1, 9),
+        ("PIE-S2349", exists, 1, 16),
+        ("PIE-S2346", header, 1, 36),
+    ]

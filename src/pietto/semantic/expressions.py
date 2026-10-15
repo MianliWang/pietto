@@ -101,6 +101,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.UnaryExpr,
         ast.ConditionalExpr,
         ast.MembershipExpr,
+        ast.RelationExistsExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -676,6 +677,10 @@ def _infer(
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
         )
+    elif isinstance(expression, ast.RelationExistsExpr):
+        # An existence test is never NULL; its relation is resolved, scheduled
+        # and checked by the owner of the relation name, not by this kernel.
+        value_type = _builtin_value_type("Bool", EffectiveNullability.NON_NULL)
     elif isinstance(expression, IsNullExpr):
         _infer(
             expression.value,

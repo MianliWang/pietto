@@ -85,7 +85,10 @@ from pietto._project.module_semantic_fact_preservation import ProjectModuleSelec
 from pietto._project.project_completed_semantics import (
     ProjectConcreteCompletedSemanticResult,
 )
-from pietto._project.project_completion import ProjectCompletionDependency
+from pietto._project.project_completion import (
+    ProjectCompletionDependency,
+    ProjectExpressionBlockUse,
+)
 from pietto._project.project_ir_composition import ProjectIRCrossRelationEdge
 from pietto._project.project_ir_operators import (
     ProjectIRLogicalOperatorKind,
@@ -95,6 +98,7 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputFieldOccurrence,
 )
 from pietto._project.project_query_block_ir import (
+    ProjectIRExpressionBlockUse,
     ProjectIRQueryBlockEntry,
     ProjectIRConcreteQueryBlockEntry,
     ProjectIRCompletedSetOperationOutput,
@@ -132,6 +136,7 @@ from pietto.ast_nodes import (
     MembershipExpr,
     NameExpr,
     QueryDef,
+    RelationExistsExpr,
     SelectItem,
     SetRelationDef,
     SetOperationBody,
@@ -242,6 +247,20 @@ def _closure(
         ):
             raise ValueError("ProjectSQLPlan dependency has foreign endpoints.")
         incoming[consumer].append(dependency)
+    # An expression block use reads its whole target block, so the target and
+    # every source it reaches belong to the statement, never as an input use.
+    reads: dict[tuple[int, int, int], list[ProjectIRExpressionBlockUse]] = {
+        k: [] for k in owners
+    }
+    for edge in root.expression_uses:
+        consumer = _owner_key(edge.use.consumer)
+        target = _owner_key(edge.use.target)
+        if (
+            owners.get(consumer) is not edge.use.consumer
+            or owners.get(target) is not edge.use.target
+        ):
+            raise ValueError("ProjectSQLPlan expression use has foreign endpoints.")
+        reads[consumer].append(edge)
     pending = [_owner_key(selected)]
     entries_by_owner = {_owner_key(e.owner): e for e in root.entries}
     reached: set[tuple[int, int, int]] = set()
@@ -250,6 +269,7 @@ def _closure(
         if key not in reached:
             reached.add(key)
             pending.extend(_owner_key(d.target) for d in incoming[key])
+            pending.extend(_owner_key(e.use.target) for e in reads[key])
             for join in joining.join_images(root, entries_by_owner[key]):
                 for image in join.inputs:
                     producer = image.producer
@@ -372,6 +392,11 @@ def _blockers(
     orderings = results.order_index(completed)
     if not completed.ok:
         add(K.SEMANTIC_RESULT_UNSUCCESSFUL, selected, completed)
+    block_reads: dict[int, set[int]] = {}
+    for edge in bundle.root.expression_uses:
+        block_reads.setdefault(id(edge.use.consumer), set()).add(
+            id(edge.use.expression)
+        )
     for entry in _closure(bundle, selected):
         owner, definition = entry.owner, entry.owner.definition
         if type(definition) not in _KNOWN_DEFINITIONS:
@@ -501,19 +526,21 @@ def _blockers(
                     if operator.kind.value != "distinct":
                         add(K.IR_STAGE, owner, entry, operator)
             if not isinstance(entry, ProjectIRQueryBlockTerminal):
-                for kind, site in _row_blockers(completed, entry):
+                for kind, site in _row_blockers(
+                    completed, entry, frozenset(block_reads.get(id(owner), ()))
+                ):
                     add(kind, owner, entry, site)
     return tuple(result)
 
 
-def _row_blockers(completed, entry):
+def _row_blockers(completed, entry, block_reads=frozenset()):
     K = ProjectSQLPlanBlockerKind
     authority = row.row_authority(completed, entry)
     definition = entry.owner.definition
     aggregate = aggregation.authority(completed, entry)
     if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
         return (
-            *_joined_row_blockers(entry, authority, aggregate is not None),
+            *_joined_row_blockers(entry, authority, aggregate is not None, block_reads),
             *_aggregate_blockers(entry, authority, aggregate),
         )
     if authority is None or authority.let_scope.status not in {
@@ -557,6 +584,13 @@ def _row_blockers(completed, entry):
         if not isinstance(f.item.expression, WindowExpr)
     )
     blockers = []
+    if block_reads - _site_block_reads(
+        site
+        for site, _evidence, _references in sites
+        if not isinstance(site, LetBinding)
+    ):
+        # A block read outside a WHERE or ungrouped SELECT value is not lowered.
+        blockers.append((K.EXPRESSION_EVIDENCE, None))
     input_fields = {id(f): f for f in authority.input_schema.fields.values()}
     binding_ordinals = {id(f.binding): i for i, f in enumerate(authority.lets)}
     selection_ordinals = {id(f.item): i for i, f in enumerate(authority.selections)}
@@ -579,7 +613,18 @@ def _row_blockers(completed, entry):
         nodes = row.scalar_nodes(site.expression)
         if any(isinstance(n, CallExpr) and _callable_symbol(n) is None for n in nodes):
             blockers.append((K.CALL_AUTHORITY, site))
-        elif evidence is None or any(type(n) not in supported for n in nodes):
+        elif any(
+            type(n) is RelationExistsExpr
+            and (isinstance(site, LetBinding) or id(n) not in block_reads)
+            for n in nodes
+        ):
+            # A block read needs its own retained expression block use, and a
+            # row let stays a value of its input row only.
+            blockers.append((K.EXPRESSION_EVIDENCE, site))
+        elif evidence is None or any(
+            type(n) not in supported and type(n) is not RelationExistsExpr
+            for n in nodes
+        ):
             blockers.append((K.EXPRESSION_EVIDENCE, site))
         else:
             if isinstance(site, LetBinding):
@@ -653,7 +698,7 @@ def _row_blockers(completed, entry):
     return (*blockers, *_aggregate_blockers(entry, authority, aggregate))
 
 
-def _joined_row_blockers(entry, authority, aggregating=False):
+def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozenset()):
     K = ProjectSQLPlanBlockerKind
     definition = entry.owner.definition
     bindings = () if definition.let_clause is None else definition.let_clause.bindings
@@ -719,6 +764,12 @@ def _joined_row_blockers(entry, authority, aggregating=False):
         if not isinstance(fact.item.expression, WindowExpr)
     )
     result = []
+    if block_reads - _site_block_reads(
+        site
+        for site, _evidence, _references in sites
+        if not isinstance(site, LetBinding)
+    ):
+        result.append((K.EXPRESSION_EVIDENCE, None))
     for site, evidence, references in sites:
         if evidence is None:
             result.append((K.EXPRESSION_EVIDENCE, site))
@@ -776,10 +827,26 @@ def _joined_row_blockers(entry, authority, aggregating=False):
         if not references_valid:
             result.append((K.EXPRESSION_EVIDENCE, site))
             continue
-        kind = _scalar_blocker(site.expression, evidence)
+        kind = _scalar_blocker(
+            site.expression,
+            evidence,
+            block_reads=frozenset()
+            if isinstance(evidence, row.ProjectJoinedLetValue)
+            else block_reads,
+        )
         if kind is not None:
             result.append((kind, site))
     return tuple(result)
+
+
+def _site_block_reads(sites) -> frozenset[int]:
+    """Identities of the block reads written inside the given row value sites."""
+    return frozenset(
+        id(node)
+        for site in sites
+        for node in row.scalar_nodes(site.expression)
+        if type(node) is RelationExistsExpr
+    )
 
 
 def _aggregate_blockers(entry, rows, aggregate):
@@ -914,7 +981,7 @@ def _match_blocker(condition):
     return _scalar_blocker(condition.expression, condition)
 
 
-def _scalar_blocker(expression, evidence, aggregate=None):
+def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset()):
     nodes = row.scalar_nodes(expression)
     if aggregate is None and any(
         isinstance(node, CallExpr) and _callable_symbol(node) is None for node in nodes
@@ -945,7 +1012,10 @@ def _scalar_blocker(expression, evidence, aggregate=None):
         id(node): (node, value) for node, value in row.evidence_types(evidence).items()
     }
     if any(
-        type(node) not in supported
+        (
+            type(node) not in supported
+            and not (type(node) is RelationExistsExpr and id(node) in block_reads)
+        )
         or id(node) not in values
         or values[id(node)][0] is not node
         or values[id(node)][1].kind is not ValueTypeKind.KNOWN
@@ -1037,6 +1107,7 @@ class ProjectSQLPlanRefKind(StrEnum):
     EXPORT = "export"
     PROJECTION = "projection"
     BOUNDARY = "boundary"
+    EXPRESSION_BLOCK_USE = "expression_block_use"
     SYMBOL = "symbol"
     ORIGIN = "origin"
     DEMAND = "demand"
@@ -1113,6 +1184,25 @@ class ProjectSQLBoundary:
     ref: ProjectSQLPlanRef
     use: ProjectSQLInputUse
     reason: ProjectSQLBoundaryReason
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLExpressionBlockUse:
+    """ExpressionBlockUseV1 in the plan: one expression occurrence reads one
+    whole producer definition. It is never an input use, boundary or port."""
+
+    ref: ProjectSQLPlanRef
+    producer: ProjectSQLPlanRef
+    consumer: ProjectSQLPlanRef
+    edge: ProjectIRExpressionBlockUse
+
+    @property
+    def use(self) -> ProjectExpressionBlockUse:
+        return self.edge.use
+
+    @property
+    def expression(self) -> Expression:
+        return self.edge.use.expression
 
 
 class ProjectSQLSymbolNamespace(StrEnum):
@@ -1216,6 +1306,7 @@ class ProjectSQLOriginRole(StrEnum):
     PROJECTION = "projection"
     EXPORT = "export"
     BOUNDARY = "boundary"
+    EXPRESSION_BLOCK_USE = "expression_block_use"
     SYMBOL = "symbol"
     DEMAND = "demand"
 
@@ -1268,6 +1359,7 @@ type ProjectSQLOriginEvidence = (
     | ProjectDeclarationOccurrence
     | ProjectIRQueryBlockEntry
     | ProjectCompletionDependency
+    | ProjectExpressionBlockUse
     | ProjectModuleSelectFact
     | ProjectIROutputFieldOccurrence
     | ProjectModuleLetBindingFact
@@ -1336,6 +1428,7 @@ class ProjectSQLBindings:
     input_ports: tuple[ProjectSQLPort, ...]
     all_exports: tuple[ProjectSQLPort, ...]
     boundaries: tuple[ProjectSQLBoundary, ...]
+    expression_block_uses: tuple[ProjectSQLExpressionBlockUse, ...]
     symbols: tuple[ProjectSQLSymbol, ...]
     origins: tuple[ProjectSQLOrigin, ...]
     demands: tuple[ProjectSQLDemand, ...]
@@ -1363,6 +1456,7 @@ class ProjectSQLPlan:
     exports: tuple[ProjectSQLPort, ...]
     projections: tuple[ProjectSQLProjection, ...]
     boundaries: tuple[ProjectSQLBoundary, ...]
+    expression_block_uses: tuple[ProjectSQLExpressionBlockUse, ...]
     symbols: tuple[ProjectSQLSymbol, ...]
     origins: tuple[ProjectSQLOrigin, ...]
     demands: tuple[ProjectSQLDemand, ...]
@@ -1655,6 +1749,21 @@ def _root_inventory(
     )
 
 
+def _expression_inventory(
+    scope: ProjectSQLPlanScope,
+) -> tuple[ProjectIRExpressionBlockUse, ...]:
+    """Every expression block use whose consumer is in the statement closure."""
+    reached = {
+        _owner_key(e.owner)
+        for e in _closure(scope.analysis_bundle, scope.selected_owner)
+    }
+    return tuple(
+        edge
+        for edge in scope.analysis_bundle.root.expression_uses
+        if _owner_key(edge.use.consumer) in reached
+    )
+
+
 def _field_site(
     entry: ProjectIRConcreteQueryBlockEntry, position: int
 ) -> SourceDef | TableDef | QueryDef | SetRelationDef | SelectItem | ValuesColumn:
@@ -1839,6 +1948,26 @@ def build_project_sql_bindings(
                 ports=ports,
             )
         )
+    expression_block_uses: list[ProjectSQLExpressionBlockUse] = []
+    for edge in _expression_inventory(scope):
+        producer, consumer = (
+            by_owner[_owner_key(edge.use.target)],
+            by_owner[_owner_key(edge.use.consumer)],
+        )
+        if (
+            edge.producer is not producer.entry
+            or edge.consumer is not consumer.entry
+            or edge.output is not producer.entry.output
+        ):
+            raise ValueError("Expression block use must read its active producer.")
+        expression_block_uses.append(
+            ProjectSQLExpressionBlockUse(
+                ref=ref(K.EXPRESSION_BLOCK_USE),
+                producer=producer.ref,
+                consumer=consumer.ref,
+                edge=edge,
+            )
+        )
     by_ref = {d.ref: d for d in definitions}
     boundaries = tuple(
         ProjectSQLBoundary(
@@ -1991,6 +2120,16 @@ def build_project_sql_bindings(
             dep,
             (boundary.use.ref,),
         )
+    for block_use in expression_block_uses:
+        origin(
+            block_use.ref,
+            R.EXPRESSION_BLOCK_USE,
+            P.GENERATED_STRUCTURE,
+            block_use.use.consumer,
+            block_use.expression,
+            block_use.use,
+            (block_use.producer,),
+        )
     ports_by_ref = {p.ref: p for d in definitions for p in d.exports} | {
         p.ref: p for u in uses for p in u.ports
     }
@@ -2077,6 +2216,7 @@ def build_project_sql_bindings(
             for p in d.exports
         ),
         boundaries=boundaries,
+        expression_block_uses=tuple(expression_block_uses),
         symbols=tuple(symbols),
         origins=tuple(origins),
         demands=tuple(demands),
@@ -2168,6 +2308,9 @@ def build_project_sql_plan(
     window_policies: list[windows.ProjectSQLWindowPolicy] = []
     window_projections: list[windows.ProjectSQLWindowProjection] = []
     definitions_by_owner = {id(d.entry.owner): d for d in bindings.definitions}
+    block_uses_by_expression = {
+        id(u.expression): u for u in bindings.expression_block_uses
+    }
     uses_by_image = {id(u.edge): u for u in bindings.input_uses}
     joins_by_image = {}
     join_ports_by_ref = {}
@@ -2435,6 +2578,23 @@ def build_project_sql_plan(
                     value_type=value_type,
                     value=children[0],
                     options=children[1:],
+                )
+            elif isinstance(node, RelationExistsExpr):
+                block_use = block_uses_by_expression.get(id(node))
+                if (
+                    block_use is None
+                    or block_use.consumer
+                    is not definitions_by_owner[id(site.owner)].ref
+                ):
+                    raise ValueError(
+                        "Existence read lacks its exact expression block use."
+                    )
+                value = row.ProjectSQLRelationExists(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    use=block_use.ref,
                 )
             elif isinstance(node, CastExpr):
                 value = row.ProjectSQLCast(
@@ -3522,6 +3682,8 @@ def build_project_sql_plan(
                     windows.ProjectSQLWindowReference,
                 ),
             )
+            else (value.use,)
+            if isinstance(value, row.ProjectSQLRelationExists)
             else ()
         )
         origin(
@@ -4018,6 +4180,7 @@ def build_project_sql_plan(
         exports=selected.exports,
         projections=tuple(projections),
         boundaries=bindings.boundaries,
+        expression_block_uses=bindings.expression_block_uses,
         symbols=tuple(symbols),
         origins=tuple(origins),
         demands=tuple(demands),

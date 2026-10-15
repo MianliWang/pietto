@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pietto.ast_nodes import SetRelationDef, ValuesBody, ValuesRelationDef
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 import heapq
+from typing import cast
 
 from pietto._project.model import (
     ProjectSymbolKind,
@@ -28,6 +29,9 @@ from pietto.ast_nodes import (
     ModuleDeclarationKind,
     QueryDef,
     RelationBody,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
     SelectBody,
     SetOperationBody,
     ShapeDef,
@@ -158,10 +162,50 @@ def _block_view_of(
     )
 
 
-def relation_reads(definition: Definition | ValuesRelationDef) -> tuple[str, ...]:
-    """Every relation name one relation body reads: FROM, JOIN targets, operands.
+type RelationReadExpression = (
+    RelationExistsExpr | RelationMembershipExpr | RelationScalarExpr
+)
+RELATION_READ_EXPRESSIONS = frozenset(
+    {RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr}
+)
 
-    A typed VALUES body is a zero-input relation and reads none.
+
+def relation_read_expressions(node: object) -> tuple[RelationReadExpression, ...]:
+    """Every `exists`, `scalar` and `in` relation read under one AST value.
+
+    Reads come in source order, a read before the reads nested in it.
+    """
+
+    found: list[RelationReadExpression] = []
+    pending: list[object] = [node]
+    while pending:
+        value = pending.pop()
+        kind = type(value)
+        if kind is tuple:
+            pending.extend(reversed(cast(tuple[object, ...], value)))
+            continue
+        if (
+            kind is Span
+            or kind.__module__ != "pietto.ast_nodes"
+            or not is_dataclass(value)
+        ):
+            continue
+        if kind in RELATION_READ_EXPRESSIONS:
+            found.append(cast(RelationReadExpression, value))
+        pending.extend(
+            reversed(tuple(getattr(value, item.name) for item in fields(value)))
+        )
+    # Preorder, then stable source order.
+    found.sort(key=lambda item: (item.span.line, item.span.column))
+    return tuple(found)
+
+
+def relation_reads(definition: Definition | ValuesRelationDef) -> tuple[str, ...]:
+    """Every relation name one relation body reads.
+
+    These are its FROM and JOIN targets, set operands and the relations of its
+    `exists`, `scalar` and `in` reads. A typed VALUES body is a zero-input
+    relation and reads none.
     """
 
     if type(definition) is ValuesRelationDef:
@@ -172,6 +216,7 @@ def relation_reads(definition: Definition | ValuesRelationDef) -> tuple[str, ...
         return (
             definition.from_clause.source_name,
             *(join.target_relation_name for join in definition.join_clauses),
+            *(read.relation_name for read in relation_read_expressions(definition)),
         )
     raise ValueError("Relation reads require a relation body.")
 

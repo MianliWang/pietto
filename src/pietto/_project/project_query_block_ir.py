@@ -77,6 +77,7 @@ from pietto._project.project_completion import (
     ProjectCompletionDependency,
     ProjectEffectiveOutputTerminal,
     ProjectExistingEffectiveOutput,
+    ProjectExpressionBlockUse,
 )
 from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,
@@ -1876,6 +1877,51 @@ class ProjectIRSingleMatchRetention:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectIRExpressionBlockUse:
+    """ExpressionBlockUseV1 in the IR: one expression read of one active block.
+
+    ``consumer`` and ``producer`` are the exact ledger entries of the edge's
+    owners. ``output`` is the producer's active output (its row shape is the
+    target output schema) and is absent only when the producer is terminal.
+    ``column`` is the read output column ordinal; an existence read has none.
+    """
+
+    use: ProjectExpressionBlockUse = field(repr=False, compare=False, hash=False)
+    consumer: ProjectIRQueryBlockEntry = field(repr=False, compare=False, hash=False)
+    producer: ProjectIRQueryBlockEntry = field(repr=False, compare=False, hash=False)
+    output: ProjectIRActiveRowOutput | None = field(
+        repr=False, compare=False, hash=False
+    )
+    column: int | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.use) is not ProjectExpressionBlockUse
+            or self.consumer.owner is not self.use.consumer
+            or self.producer.owner is not self.use.target
+            or self.output is not self.producer.output
+            or (self.output is None)
+            is not (type(self.producer) is ProjectIRQueryBlockTerminal)
+        ):
+            raise ValueError("IR expression block use requires its exact endpoints.")
+        if self.column is not None and (
+            type(self.column) is not int
+            or self.output is None
+            or not 0 <= self.column < len(self.output.row_shape.fields)
+        ):
+            raise ValueError("IR expression block column is outside its output.")
+
+    @property
+    def expression(self):
+        return self.use.expression
+
+    @property
+    def schema(self):
+        """The target block's output row shape, when it has an active output."""
+        return None if self.output is None else self.output.row_shape
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectIRQueryBlockSnapshot:
     """Complete active-output overlay over exact Phase-61 and Phase-62 snapshots."""
 
@@ -1898,6 +1944,7 @@ class ProjectIRQueryBlockSnapshot:
     structural: ProjectIRQueryBlockStructuralExtension
     requirements: tuple[ProjectIRSingleMatchRetention, ...] = ()
     retained_joins: tuple[ProjectIRComposedJoin, ...] = ()
+    expression_uses: tuple[ProjectIRExpressionBlockUse, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.completed) is not ProjectConcreteCompletedSemanticResult or (
@@ -1975,6 +2022,20 @@ class ProjectIRQueryBlockSnapshot:
             item.grain.origin_set is not self.grain_origins for item in new_relational
         ):
             raise ValueError("Every new grain product requires one extension root.")
+        uses = self.completed.completion.expression_uses
+        entries = {id(entry.owner): entry for entry in self.entries}
+        if (
+            type(self.expression_uses) is not tuple
+            or len(self.expression_uses) != len(uses)
+            or any(
+                type(edge) is not ProjectIRExpressionBlockUse
+                or edge.use is not use
+                or edge.consumer is not entries[id(use.consumer)]
+                or edge.producer is not entries[id(use.target)]
+                for edge, use in zip(self.expression_uses, uses, strict=True)
+            )
+        ):
+            raise ValueError("Query-block IR must retain every expression block use.")
 
     @property
     def starting_allocation(self) -> ProjectIRAllocationState:
@@ -4502,6 +4563,7 @@ def build_project_query_block_ir(
         structural=structural,
         requirements=_build_requirement_images(completed, entries),
         retained_joins=_retain_historical_matches(completed, entries),
+        expression_uses=_build_expression_uses(completed, entries),
     )
 
 
@@ -4555,6 +4617,26 @@ def _build_values_structure(
         operator=operator,
         active_output=output,
     )
+
+
+def _build_expression_uses(
+    completed: ProjectConcreteCompletedSemanticResult,
+    entries: tuple[ProjectIRQueryBlockEntry, ...],
+) -> tuple[ProjectIRExpressionBlockUse, ...]:
+    """Image every completion expression edge onto its exact ledger entries."""
+    by_owner = {id(entry.owner): entry for entry in entries}
+    result = []
+    for use in completed.completion.expression_uses:
+        producer = by_owner[id(use.target)]
+        result.append(
+            ProjectIRExpressionBlockUse(
+                use=use,
+                consumer=by_owner[id(use.consumer)],
+                producer=producer,
+                output=producer.output,
+            )
+        )
+    return tuple(result)
 
 
 def _build_set_structure(

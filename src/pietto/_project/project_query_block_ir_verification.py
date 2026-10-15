@@ -156,7 +156,17 @@ from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
 )
 from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
-from pietto.ast_nodes import DottedNameExpr, NameExpr, QueryDef, TableDef
+from pietto.ast_nodes import (
+    DottedNameExpr,
+    NameExpr,
+    QueryDef,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
+    Span,
+    TableDef,
+)
+from dataclasses import fields as _dataclass_fields, is_dataclass
 
 __all__: tuple[str, ...] = ()
 
@@ -170,6 +180,7 @@ class ProjectIRQueryBlockVerificationIssueKind(StrEnum):
     ROOT_CONTINUITY = "root_continuity"
     ALLOCATION = "allocation"
     LEDGER = "ledger"
+    EXPRESSION_BLOCK_USE = "expression_block_use"
     ACTIVE_ROOT = "active_root"
     HISTORICAL_REUSE = "historical_reuse"
     JOIN_REUSE = "join_reuse"
@@ -809,6 +820,104 @@ def _verify_ledger(
     )
     if not valid:
         _record(issues, ProjectIRQueryBlockVerificationIssueKind.LEDGER)
+
+
+_RELATION_READS = frozenset(
+    {RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr}
+)
+
+
+def _authored_relation_reads(definition: object) -> tuple[object, ...]:
+    """Every relation-read node under one owner's own clauses, re-walked here."""
+    found: list[object] = []
+    pending: list[object] = [definition]
+    while pending:
+        value = pending.pop()
+        kind = type(value)
+        if kind is tuple:
+            pending.extend(cast(tuple[object, ...], value))
+            continue
+        if (
+            kind is Span
+            or kind.__module__ != "pietto.ast_nodes"
+            or not is_dataclass(value)
+        ):
+            continue
+        if kind in _RELATION_READS:
+            found.append(value)
+        pending.extend(getattr(value, item.name) for item in _dataclass_fields(value))
+    return tuple(found)
+
+
+def _verify_expression_block_uses(
+    root: ProjectIRQueryBlockSnapshot,
+    issues: list[ProjectIRQueryBlockVerificationIssue],
+) -> None:
+    """Re-derive every expression-to-block edge from the authored owners.
+
+    Each authored relation read is retained exactly once by the relation-name
+    authority; each resolved read is exactly one completion edge and one IR
+    edge between the exact ledger entries, scheduled producer first.
+    """
+    completion = root.completed.completion
+    resolutions = root.completed.semantic_result.module_relation_resolutions
+    if resolutions is None:
+        raise ValueError("Expression block uses require relation authority.")
+    entries = {id(entry.owner): entry for entry in root.entries}
+    positions = {id(owner): i for i, owner in enumerate(root.schedule)}
+    blocked = {id(owner) for owner in completion.topology.blocked_owners}
+    expected = []
+    valid = True
+    for owner in root.owners:
+        environments = resolutions.find_module_path(owner.identity.module_path)
+        if len(environments) != 1:
+            valid = False
+            break
+        reads = tuple(
+            item
+            for item in environments[0].expression_reads
+            if item.read.owner is owner
+        )
+        authored = {id(node) for node in _authored_relation_reads(owner.definition)}
+        listed = [id(item.read.expression) for item in reads]
+        if (
+            len(listed) != len(set(listed))
+            or set(listed) != authored
+            or [item.read.ordinal for item in reads] != list(range(len(reads)))
+        ):
+            valid = False
+            break
+        expected.extend(item for item in reads if item.target_symbol is not None)
+    uses = completion.expression_uses
+    valid = (
+        valid
+        and len(root.expression_uses) == len(expected) == len(uses)
+        and all(
+            edge.use is use
+            and use.evidence is item
+            and use.consumer is item.read.owner
+            and item.target_symbol is not None
+            and use.target is item.target_symbol.target_occurrence
+            and edge.consumer is entries[id(use.consumer)]
+            and edge.producer is entries[id(use.target)]
+            and edge.output is edge.producer.output
+            and (
+                edge.column is None
+                if type(item.read.expression) is RelationExistsExpr
+                else True
+            )
+            and (
+                id(use.consumer) in blocked
+                or id(use.target) in blocked
+                or positions[id(use.target)] < positions[id(use.consumer)]
+            )
+            for edge, use, item in zip(
+                root.expression_uses, uses, expected, strict=True
+            )
+        )
+    )
+    if not valid:
+        _record(issues, ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE)
 
 
 def _historical_edge(
@@ -2559,6 +2668,7 @@ def verify_project_query_block_ir(
     passes = (
         _verify_allocation,
         _verify_ledger,
+        _verify_expression_block_uses,
         _verify_active_roots,
         _verify_historical_reuse,
         _verify_join_reuse,
@@ -2582,6 +2692,9 @@ def verify_project_query_block_ir(
                 issue_kind = {
                     _verify_allocation: ProjectIRQueryBlockVerificationIssueKind.ALLOCATION,
                     _verify_ledger: ProjectIRQueryBlockVerificationIssueKind.LEDGER,
+                    _verify_expression_block_uses: (
+                        ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE
+                    ),
                     _verify_active_roots: (
                         ProjectIRQueryBlockVerificationIssueKind.ACTIVE_ROOT
                     ),

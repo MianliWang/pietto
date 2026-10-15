@@ -102,6 +102,8 @@ KINDS: dict[type, str] = {
     rows.StageColumn: "stage_column",
     rows.SQLStageReference: "sql_stage_reference",
     rows.SQLOperation: "sql_operation",
+    rows.SQLBlockRead: "sql_block_read",
+    rows.SQLBlockTarget: "sql_block_target",
     joining.JoinBody: "join_body",
     joining.JoinInput: "join_input",
     joining.JoinEquality: "join_equality",

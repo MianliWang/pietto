@@ -556,3 +556,55 @@ def test_lets_are_available_only_in_explicit_module_projects(
                 5,
             )
         ]
+
+
+# An existence read names a relation like FROM does: the same scope, the same
+# single-read availability for lets, and no winner for an unknown name.
+EXISTS_DIAGNOSTICS = {
+    "read_once": (
+        "query q:\n" + LET + "    from lhs\n    where exists a\n    select:\n"
+        "        id\n",
+        [],
+    ),
+    # A let may be read any number of times, before or after it is written.
+    "from_and_exists": (
+        "query q:\n" + LET + "    from a\n    where exists a\n    select:\n"
+        "        id\n",
+        [],
+    ),
+    "forward": (
+        "query q:\n    let b:\n        from rhs\n        where exists a\n"
+        "        select:\n            id\n" + LET + "    from b\n    select:\n"
+        "        id\n",
+        [],
+    ),
+    # A read that closes a cycle through lets is reported at the read.
+    "self": (
+        "query q:\n    let a:\n        from lhs\n        where exists a\n"
+        "        select:\n            id\n    from a\n    select:\n        id\n",
+        [("PIE-S2302", "Relation cycle detected: a -> a", 9, 15)],
+    ),
+    "mutual": (
+        "query q:\n    let b:\n        from rhs\n        where exists a\n"
+        "        select:\n            id\n    let a:\n        from b\n"
+        "        select:\n            id\n    from a\n    select:\n        id\n",
+        [("PIE-S2302", "Relation cycle detected: b -> a -> b", 9, 15)],
+    ),
+    # An existence read counts as a read; only the let no block reads is unread.
+    "unread_beside": (
+        "query q:\n" + LET + "    let c:\n        from lhs\n        select:\n"
+        "            id\n    from lhs\n    where exists a\n    select:\n"
+        "        id\n",
+        [("PIE-S2359", "Let relation c is never read.", 11, 5)],
+    ),
+    "unknown": (
+        "query q:\n    from lhs\n    where exists nowhere\n    select:\n        id\n",
+        [("PIE-S2301", "Unknown relation: nowhere", 8, 11)],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(EXISTS_DIAGNOSTICS))
+def test_an_existence_read_is_a_scoped_relation_read(tmp_path: Path, case: str) -> None:
+    body, expected = EXISTS_DIAGNOSTICS[case]
+    assert _check(tmp_path, body) == (1 if expected else 0, expected)

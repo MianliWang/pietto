@@ -378,6 +378,19 @@ def test_relation_lets_emit_with_their_declaration_and_are_never_selected(
         assert kinds(run(arguments)[1]) == [("emission_selector", None)], name
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_existence_reads_emit_through_the_project_command(
+    tmp_path: Path, target: str
+) -> None:
+    root, item = project(tmp_path, target, "L_relation_exists", "kept")
+    expected = api_bytes(tmp_path, item)
+    arguments = argv(root, target, kind="query", literal_policy="bind-safe")
+    assert run(arguments) == (0, expected, "")
+    document = probe.decode_public(expected)
+    # Each read is its own EXISTS subquery over a complete named producer.
+    assert document["sql"].count("EXISTS (SELECT 1 FROM ") == 2
+
+
 # --- contract read boundary ------------------------------------------------------
 
 

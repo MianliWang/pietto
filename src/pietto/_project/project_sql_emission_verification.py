@@ -109,6 +109,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.BetweenExpr,
         ast_nodes.IsNullExpr,
         ast_nodes.WindowExpr,
+        ast_nodes.RelationExistsExpr,
     }
 )
 
@@ -2409,6 +2410,37 @@ def _same_realization(actual, expected):
     )
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class _BlockScope:
+    """The verifier's own image of one readable expression block use."""
+
+    use: Any
+    producer: Any
+    source: Any
+
+
+def _block_scopes(request, definition, produced, source_refs):
+    """Each block use this definition reads, bound to its realized producer."""
+    result = {}
+    for use in request.plan.expression_block_uses:
+        if use.consumer is not definition.original.ref:
+            continue
+        source = source_refs.get(use.producer)
+        if source is not None:
+            matches = tuple(
+                s for s in request.sources if s.owner is source.source.owner
+            )
+            if len(matches) != 1:
+                raise ValueError("block read source")
+            result[use.ref] = _BlockScope(use, matches[0], source)
+        else:
+            producer = produced.get(use.producer)
+            if producer is None:
+                raise ValueError("block read producer")
+            result[use.ref] = _BlockScope(use, producer, None)
+    return result
+
+
 def _verify_row_value(
     request,
     value,
@@ -2424,6 +2456,41 @@ def _verify_row_value(
     expression = plan.expressions[reference.position]
     if expression.ref is not reference:
         raise ValueError("expression identity")
+    if type(value) is rows.SQLBlockRead:
+        # The independent scope image names each readable block use's producer.
+        expected = columns.get(getattr(expression, "use", None))
+        target = value.target
+        if (
+            type(expression) is not row.ProjectSQLRelationExists
+            or value.original is not expression
+            or value.kind != "exists"
+            or reference in children
+            or type(expected) is not _BlockScope
+            or type(target) is not rows.SQLBlockTarget
+            or target.use is not expected.use
+            or expected.use.ref is not expression.use
+            or target.producer is not expected.producer
+            or target.source is not expected.source
+            or target.symbol.binding is not expected.use.ref
+            or target.symbol.position != 0
+            or target.symbol.name != f"e{expected.use.ref.position}"
+            or (rows.value_tag(expression), rows.value_nullable(expression))
+            != ("Bool", False)
+        ):
+            raise ValueError("block read")
+        expected_realization = rows.Realization(
+            "Bool",
+            {"kind": rows.BOOL_RESULT[request.family]},
+            False,
+            {"kind": "bool01"},
+        )
+        if not _same_realization(value.realization, expected_realization):
+            raise ValueError("block read realization")
+        state["expressions"].append(expression)
+        state["nodes"] += 1
+        state["symbols"].append(target.symbol)
+        state.setdefault("block_reads", []).append(expected.use)
+        return value.realization
     if type(value) is rows.SQLStageReference:
         if (
             type(expression)
@@ -4013,6 +4080,10 @@ def verify_row_query(request, query, *, _guarded=None):
             )
             if any(column is None for column in columns.values()):
                 return False
+            readable = {
+                **columns,
+                **_block_scopes(request, definition, produced, source_refs),
+            }
             columns_by_body[position] = columns
             kind = block.kind.value
             stage = stages.get(definition.original.ref)
@@ -4231,7 +4302,7 @@ def verify_row_query(request, query, *, _guarded=None):
                     request,
                     column.value,
                     item.expression,
-                    columns,
+                    readable,
                     children,
                     state,
                     reference_type=row.ProjectSQLJoinedReference
@@ -4278,6 +4349,7 @@ def verify_row_query(request, query, *, _guarded=None):
                     if type(column.value) in {
                         rows.SQLOperation,
                         rows.SQLParameterRead,
+                        rows.SQLBlockRead,
                     }:
                         if image.literal is not None:
                             return False
@@ -4321,7 +4393,7 @@ def verify_row_query(request, query, *, _guarded=None):
                     request,
                     body.predicate.value,
                     item.predicate,
-                    columns,
+                    readable,
                     children,
                     state,
                     reference_type=grouping.ProjectSQLResultReference
@@ -4358,11 +4430,15 @@ def verify_row_query(request, query, *, _guarded=None):
             _verify_body_scope(body, position, state)
             if kind == "projection":
                 produced[definition.original.ref] = body
+        block_reads = state.get("block_reads", [])
         if (
             len({id(s) for s in symbols}) != len(symbols)
             or len(state["expressions"]) != len(plan.expressions)
             or {id(e) for e in state["expressions"]}
             != {id(e) for e in plan.expressions}
+            or len(block_reads) != len(plan.expression_block_uses)
+            or {id(u) for u in block_reads}
+            != {id(u) for u in plan.expression_block_uses}
             or request.verification.envelope is not plan.fixed_envelope
             or request.verification.literal_policy is not plan.literal_policy
         ):
@@ -4495,6 +4571,49 @@ def verify_row_bytes(query, rendered):
 
         def scalar(value, alias):
             start = offset
+            if type(value) is rows.SQLBlockRead:
+                reference = value.original.ref
+                target = value.target
+                take("syntax", "exists_open", reference, "EXISTS (")
+                take("syntax", "exists_select", reference, "SELECT ")
+                take("literal", "exists_sentinel", reference, joining.SENTINEL)
+                take("syntax", "exists_from", reference, " FROM ")
+                if target.source is not None:
+                    relation = target.source.ref
+                    take(
+                        "identifier",
+                        "exists_namespace",
+                        relation,
+                        target.producer.namespace,
+                        identifier=True,
+                    )
+                    take("syntax", "exists_qualifier", relation, ".")
+                    take(
+                        "identifier",
+                        "exists_relation",
+                        relation,
+                        target.producer.name,
+                        identifier=True,
+                    )
+                else:
+                    take(
+                        "identifier",
+                        "exists_reference",
+                        target.producer.block.ref,
+                        target.producer.symbol.name,
+                        identifier=True,
+                    )
+                take("syntax", "exists_alias", target.use.ref, " AS ")
+                take(
+                    "identifier",
+                    "exists_scope",
+                    target.use.ref,
+                    target.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "exists_close", reference, ")")
+                spans.append(("exists", reference, start, offset))
+                return
             if type(value) is rows.SQLStageReference:
                 reference = value.original.ref
                 take(
@@ -5814,6 +5933,35 @@ def verify_row_generated_requirements(request, query, generated):
                         node_premises(request, node.realization, (), "parameter"),
                     )
                 )
+                continue
+            if type(node) is rows.SQLBlockRead:
+                expected.append(
+                    (
+                        "exists",
+                        node.original.ref,
+                        "R11",
+                        node_premises(request, node.realization, (), "exists"),
+                    )
+                )
+                producer = node.target.producer
+                if node.target.source is not None:
+                    expected.append(
+                        (
+                            "qualified_scan",
+                            node.target,
+                            "R01",
+                            applicable_premises(request, producer.owner),
+                        )
+                    )
+                    for field in producer.fields:
+                        expected.append(
+                            (
+                                "source_representation",
+                                field,
+                                "R02",
+                                applicable_premises(request, producer.owner, field),
+                            )
+                        )
                 continue
             if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
                 kind = rows.requirement_kind(node)

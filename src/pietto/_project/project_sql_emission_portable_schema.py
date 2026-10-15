@@ -97,6 +97,7 @@ PLAN_KINDS = frozenset(
         "export",
         "projection",
         "boundary",
+        "expression_block_use",
         "symbol",
         "origin",
         "demand",
@@ -107,7 +108,9 @@ PLAN_KINDS = frozenset(
 # observation rather than being approximated.
 PLAN_CUTOFF = frozenset({"values_body", "values_column"})
 
-_VALUE = "@sql_anchor|sql_unary|sql_null|sql_operation|sql_stage_reference"
+_VALUE = (
+    "@sql_anchor|sql_unary|sql_null|sql_operation|sql_stage_reference|sql_block_read"
+)
 _UNIT = "row_body|row_result_body|join_body|set_body"
 _PRODUCER = "@bound_source|row_body|row_result_body|set_body|join_body"
 _ROW_COLUMN = (
@@ -372,6 +375,18 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("operator", "text"),
         ("operands", "*" + _VALUE),
         ("realization", "@realization"),
+    ),
+    "sql_block_read": (
+        ("original", "plan"),
+        ("target", "@sql_block_target"),
+        ("realization", "@realization"),
+        ("kind", "text"),
+    ),
+    "sql_block_target": (
+        ("use", "plan"),
+        ("producer", _PRODUCER),
+        ("source", "?plan"),
+        ("symbol", "@sql_symbol"),
     ),
     "join_body": (
         ("join", "plan"),
@@ -944,6 +959,12 @@ SYNTAX = {
     "membership_from": " FROM ",
     "correlation": " WHERE ",
     "membership_close": ")",
+    "exists_open": "EXISTS (",
+    "exists_select": "SELECT ",
+    "exists_from": " FROM ",
+    "exists_qualifier": ".",
+    "exists_alias": " AS ",
+    "exists_close": ")",
 }
 # Expression overlay role -> (first token role(s), last token role(s)).
 OVERLAYS = {
@@ -961,6 +982,7 @@ OVERLAYS = {
         ("membership_close", "membership_constant"),
     ),
     "cast": (("cast_open",), ("cast_close",)),
+    "exists": (("exists_open",), ("exists_close",)),
     "is_null": (("is_null_open",), ("is_null_close",)),
     "aggregate": (("aggregate_open",), ("aggregate_close",)),
     "window": (("window_open",), ("window_spec_close", "window_reference")),

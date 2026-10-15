@@ -212,6 +212,13 @@ ANCHOR = Shape(
         "call_expr",
         "conditional_expr",
         "membership_expr",
+        "relation_exists_expr",
+        "project_sql_relation_exists",
+        "project_sql_expression_block_use",
+        "project_ir_expression_block_use",
+        "project_expression_block_use",
+        "project_resolved_expression_block_read",
+        "project_expression_block_read",
         "cast_expr",
         "ir_symbol_id",
         "project_ir_cross_relation_edge",
@@ -727,6 +734,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         "export",
                         "projection",
                         "boundary",
+                        "expression_block_use",
                         "symbol",
                         "origin",
                         "demand",
@@ -943,6 +951,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         "projection",
                         "export",
                         "boundary",
+                        "expression_block_use",
                         "symbol",
                         "demand",
                     ),
@@ -1082,6 +1091,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ANCHOR,
                         ),
                         ref("project_completion_dependency"),
+                        ref("project_expression_block_use"),
                         ref("project_module_select_fact"),
                         ref("project_ir_output_field_occurrence"),
                         ref("project_module_let_binding_fact"),
@@ -1126,6 +1136,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("input_ports", seq(ref("project_sql_port"))),
                 FieldRule("all_exports", seq(ref("project_sql_port"))),
                 FieldRule("boundaries", seq(ref("project_sql_boundary"))),
+                FieldRule(
+                    "expression_block_uses",
+                    seq(ref("project_sql_expression_block_use")),
+                ),
                 FieldRule("symbols", seq(ref("project_sql_symbol"))),
                 FieldRule("origins", seq(ref("project_sql_origin"))),
                 FieldRule(
@@ -1170,6 +1184,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("exports", seq(ref("project_sql_port"))),
                 FieldRule("projections", seq(ref("project_sql_projection"))),
                 FieldRule("boundaries", seq(ref("project_sql_boundary"))),
+                FieldRule(
+                    "expression_block_uses",
+                    seq(ref("project_sql_expression_block_use")),
+                ),
                 FieldRule("symbols", seq(ref("project_sql_symbol"))),
                 FieldRule("origins", seq(ref("project_sql_origin"))),
                 FieldRule(
@@ -1219,6 +1237,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_sql_between"),
                             ref("project_sql_conditional"),
                             ref("project_sql_membership"),
+                            ref("project_sql_relation_exists"),
                             ref("project_sql_cast"),
                             ref("project_sql_scalar_call"),
                             ref("project_sql_result_reference"),
@@ -1650,6 +1669,114 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("expression", ref("membership_expr")),
                 FieldRule("value", ref("project_sql_plan_ref")),
                 FieldRule("options", seq(ref("project_sql_plan_ref"))),
+            ),
+        ),
+        "project_sql_relation_exists": RecordRule(
+            "project_sql_relation_exists",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("relation_exists_expr")),
+                FieldRule("use", ref("project_sql_plan_ref")),
+            ),
+        ),
+        "project_sql_expression_block_use": RecordRule(
+            "project_sql_expression_block_use",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule("producer", ref("project_sql_plan_ref")),
+                FieldRule("consumer", ref("project_sql_plan_ref")),
+                FieldRule("edge", ref("project_ir_expression_block_use")),
+            ),
+        ),
+        "project_ir_expression_block_use": RecordRule(
+            "project_ir_expression_block_use",
+            (
+                FieldRule("use", ref("project_expression_block_use")),
+                FieldRule(
+                    "consumer",
+                    union(
+                        ref("project_ir_reused_effective_output"),
+                        ref("project_ir_rebound_existing_output"),
+                        ref("project_ir_completed_query_block_output"),
+                        ref("project_ir_completed_set_operation_output"),
+                    ),
+                ),
+                FieldRule(
+                    "producer",
+                    union(
+                        ref("project_ir_reused_effective_output"),
+                        ref("project_ir_rebound_existing_output"),
+                        ref("project_ir_completed_query_block_output"),
+                        ref("project_ir_completed_set_operation_output"),
+                    ),
+                ),
+                FieldRule(
+                    "output",
+                    union(
+                        ref("project_ir_relation_row_output"),
+                        ref("project_ir_query_block_row_output"),
+                    ),
+                ),
+                FieldRule("column", union(INTEGER, optional)),
+            ),
+        ),
+        "project_expression_block_use": RecordRule(
+            "project_expression_block_use",
+            (
+                FieldRule("consumer", ref("project_declaration_occurrence")),
+                FieldRule("target", ref("project_declaration_occurrence")),
+                FieldRule("ordinal", INTEGER),
+                FieldRule("evidence", ref("project_resolved_expression_block_read")),
+            ),
+        ),
+        "project_resolved_expression_block_read": RecordRule(
+            "project_resolved_expression_block_read",
+            (
+                FieldRule("read", ref("project_expression_block_read")),
+                FieldRule(
+                    "target_symbol",
+                    union(ref("project_resolved_module_relation_symbol"), optional),
+                ),
+            ),
+        ),
+        "project_expression_block_read": RecordRule(
+            "project_expression_block_read",
+            (
+                FieldRule("owner", ref("project_declaration_occurrence")),
+                FieldRule("expression", ref("relation_exists_expr")),
+                FieldRule(
+                    "position",
+                    enum(
+                        "from",
+                        "join_on",
+                        "let",
+                        "where",
+                        "group_by",
+                        "select",
+                        "satisfying",
+                        "window",
+                        "qualify",
+                        "order_by",
+                        "limit",
+                    ),
+                ),
+                FieldRule("container_ordinal", INTEGER),
+                FieldRule("ordinal", INTEGER),
+            ),
+        ),
+        "relation_exists_expr": RecordRule(
+            "relation_exists_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("relation_name", TEXT),
             ),
         ),
         "project_sql_cast": RecordRule(
@@ -3458,6 +3585,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             "projection",
                             "export",
                             "boundary",
+                            "expression_block_use",
                             "symbol",
                             "demand",
                         ),

@@ -302,9 +302,10 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 ## Relation blocks and relation references
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
-relation let, a typed VALUES body and the header of an entry query whose FROM
-reads a relation and that declares no relation let are available, as described
-after the example; every other form is not available yet:
+relation let, a typed VALUES body, a closed `exists`/`not exists` read and the
+header of an entry query whose FROM reads a relation and that declares no
+relation let are available, as described after the example; every other form
+is not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -407,8 +408,8 @@ declaration and that declaration's JOIN bindings; a let named like any of them
 is PIE-S2001 at the let, and inside the declaration a `from`, JOIN target or
 set operand with that name then resolves to no relation. A let never hides
 another name. The other lets and the body of its declaration may read a let any
-number of times, by `from`, a JOIN target or a set operand, whether the let is
-written before or after them. A let that no block of its declaration reads is
+number of times, by `from`, a JOIN target, a set operand or an `exists` read,
+whether the let is written before or after them. A let that no block of its declaration reads is
 PIE-S2359 at the let. Reads must not form a cycle: a let reading itself, lets
 reading each other, or a let reading its own declaration while that declaration
 reads the let, directly or through other lets, is PIE-S2302. Its message
@@ -424,6 +425,28 @@ written where the let is read stays outside that LIMIT. A source read only
 inside a let is a source of the query like any other: the emission contract
 describes it, and the compiled query, source qualification and R2 source
 requirements include it.
+
+In the same projects `exists name` and `not exists name` read one whole relation
+block without capture: a source, a module table or query, or a let of the
+declaration, named by the same lookup as `from` (an unknown name is PIE-S2301; a
+read that would make its block read itself, directly or through its lets, other
+reads and inputs, is PIE-S2302 at the read). The result is a `Bool not null`:
+true when the block has at least one row. A read is never a FROM, JOIN or set
+input of its block, and every occurrence is its own read: `exists r or exists r`
+reads `r` twice, and a let read only by EXISTS is read. The read block is
+checked like any other block, including columns no one selects; project SQL
+emits it as its own named CTE (a source is read directly) and the read as
+`EXISTS (SELECT 1 FROM <block> AS e<n>)` with a generated alias. Pietto does
+not promise whether or when the database evaluates the read or the read
+block's expressions. A source read only through EXISTS, or only inside a let
+read by EXISTS, is a source of the query: the emission contract must describe
+it, and the compiled query, source qualification and R2 source requirements
+include it. A read is available only in WHERE and in the SELECT of an ungrouped
+query, including inside the let bodies of the declaration; in JOIN ON, a row
+`let:`, the SELECT of a grouped or aggregate query, SATISFYING, a window call
+or window specification, QUALIFY, ORDER BY or LIMIT it is PIE-S2349 at the
+read. Outside a relation body, for example in a type rule, a shape `check`, a
+type argument or a VALUES row, the read keeps its pre-admission PIE-S2349.
 
 In an EXPLICIT_MODULES project a typed VALUES body is also the body of a
 top-level table or query. It is its own zero-input relation, read by `from`, a
@@ -465,12 +488,13 @@ document, and a body over either limit is BLOCKED with PIE-B1007
 long before PIE-S2365: a body of 1,000 rows and 64 columns is always BLOCKED,
 and 1,000 rows of short cells emit with only about a dozen columns.
 
-In EXPLICIT_MODULES the `let NAME:` line and a typed VALUES body are admitted,
-so a let there never receives the temporary PIE-S2345 and a VALUES body never
-receives PIE-S2347; a `capture` line or other form inside a let still receives
-its own code. Every other occurrence of these forms receives its temporary
-ERROR diagnostic in every check mode before any semantic reader runs: PIE-S2345
-relation let,
+In EXPLICIT_MODULES the `let NAME:` line, a typed VALUES body and an `exists`
+read inside a relation body are admitted, so a let there never receives the
+temporary PIE-S2345, a VALUES body never receives PIE-S2347 and such a read
+never receives PIE-S2349; a `capture` line or other form inside a let still
+receives its own code. Every other occurrence of these forms receives its
+temporary ERROR diagnostic in every check mode before any semantic reader runs:
+PIE-S2345 relation let,
 PIE-S2346 query header parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read,
 PIE-S2349 EXISTS reference, PIE-S2350 IN reference, PIE-S2351 capture line and
 PIE-S2352 table-function FROM input. The one exception is a query header that
@@ -480,8 +504,8 @@ from semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks,
 project `emit-sql` and `compile_query` report them with the owning file's parse
 diagnostics, alongside other files' parse errors.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT retain their existing availability
-boundaries: relation lets and every later family become available only for
-EXPLICIT_MODULES.
+boundaries: relation lets, EXISTS reads and every later family become
+available only for EXPLICIT_MODULES.
 PACKAGE_ROOT `explain --project` does not read relation bodies, so a package
 module using these forms can be explained; that does not make its relations
 available.
@@ -566,9 +590,9 @@ output. An output that reads a parameter counts only in SATISFYING, QUALIFY,
 ORDER BY and LIMIT; elsewhere its name reads the input field it may shadow. A
 position that a literal cannot use either keeps the literal's diagnostic. A
 query with parameters is never the input of another relation, a relation let or
-the body of a declaration with lets included (PIE-S2356). Headers stay
-PIE-S2346 in single-file analysis, in LEGACY_FLAT projects and beside relation
-lets, VALUES, set-operation or table-function FROM bodies.
+the body of a declaration with lets included, nor read by `exists` (PIE-S2356).
+Headers stay PIE-S2346 in single-file analysis, in LEGACY_FLAT projects and
+beside relation lets, VALUES, set-operation or table-function FROM bodies.
 
 In a window call that is a SELECT item of a query without GROUP BY, SATISFYING
 or aggregates, a bare read is also available as a window argument: the value

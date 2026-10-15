@@ -16,8 +16,11 @@ from pietto.ast_nodes import (
     RelationMembershipExpr,
     RelationScalarExpr,
     Script,
+    SelectBody,
     Span,
+    TableDef,
     TableFunctionFromClause,
+    TypeExpr,
     ValuesBody,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -57,8 +60,12 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
 
 # Families whose semantics exist only for EXPLICIT_MODULES projects.
 _EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset(
-    {LetRelationDef, ValuesBody}
+    {LetRelationDef, ValuesBody, RelationExistsExpr}
 )
+# Expression families admitted only inside a FROM-based relation body; in a
+# shape, constraint, type argument or VALUES row they stay gated.
+_BODY_ONLY: frozenset[type[Node]] = frozenset({RelationExistsExpr})
+_BODIES: frozenset[type[Node]] = frozenset({TableDef, QueryDef, SelectBody})
 # D70.07: one table or query declares at most this many relation lets.
 _MAX_RELATION_LETS = 64
 
@@ -87,16 +94,18 @@ def unadmitted_syntax_diagnostics(
     EXPLICIT_MODULES caller admits the families its readers implement, up to
     ``_MAX_RELATION_LETS`` relation lets per table or query, and the header of
     an entry query built as a ``QueryDef`` (its FROM reads a relation and it
-    declares no relation let); headers of any other body stay unadmitted.
+    declares no relation let), whose parameter types are still read; headers
+    of any other body stay unadmitted. An EXISTS read is admitted only inside a
+    relation body.
     """
 
     found: list[Diagnostic] = []
-    pending: list[object] = [script]
+    pending: list[tuple[object, bool]] = [(script, False)]
     while pending:
-        value = pending.pop()
+        value, body = pending.pop()
         kind = type(value)
         if kind is tuple:
-            pending.extend(cast(tuple[object, ...], value))
+            pending.extend((item, body) for item in cast(tuple[object, ...], value))
             continue
         if (
             kind is Span
@@ -106,7 +115,9 @@ def unadmitted_syntax_diagnostics(
             continue
         family = _UNADMITTED.get(cast(type[Node], kind))
         if family is not None and not (
-            explicit_modules and kind in _EXPLICIT_MODULES_ADMITTED
+            explicit_modules
+            and kind in _EXPLICIT_MODULES_ADMITTED
+            and (body or kind not in _BODY_ONLY)
         ):
             found.append(_diagnostic(*family, cast(Node, value).span))
         if explicit_modules and kind is BlockRelationDef:
@@ -121,11 +132,16 @@ def unadmitted_syntax_diagnostics(
                     _MAX_RELATION_LETS:
                 ]
             )
-        pending.extend(
-            getattr(value, item.name)
-            for item in fields(value)
-            if not (explicit_modules and kind is QueryDef and item.name == "parameters")
-        )
+        body = (body or kind in _BODIES) and kind is not TypeExpr
+        for item in fields(value):
+            child = getattr(value, item.name)
+            if explicit_modules and kind is QueryDef and item.name == "parameters":
+                # The header is admitted; a form inside a parameter type is not.
+                child = tuple(
+                    parameter.type
+                    for parameter in cast(tuple[QueryParameter, ...], child)
+                )
+            pending.append((child, body))
     return tuple(
         sorted(
             found,

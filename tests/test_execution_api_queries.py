@@ -34,7 +34,10 @@ from pietto._project import project_execution as ex
 from pietto._project import project_execution_postgres as pg
 from pietto._project import project_public_execution as composition
 from pietto._project.project_compiled_build import build_compiled
-from pietto._project.project_compiled_verification import verify_description
+from pietto._project.project_compiled_verification import (
+    verify_description,
+    verify_export,
+)
 from pietto._project.project_compiled_schema import (
     FIELDS,
     VERSIONS,
@@ -1218,11 +1221,11 @@ table tagged_items:
 """
 
 
-def let_example(directory):
+def let_example(directory, text=LET_TAGS):
     """The documented project plus a table whose let alone reads `tags`."""
     project = api.write_example(directory)
     main = project / "main.pietto"
-    main.write_text(main.read_text(encoding="utf-8") + LET_TAGS, encoding="utf-8")
+    main.write_text(main.read_text(encoding="utf-8") + text, encoding="utf-8")
     contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
     tags = json.loads(json.dumps(contract["sources"][0]))
     tags["selector"]["name"] = "tags"
@@ -1908,3 +1911,228 @@ def test_export_and_compiled_emission_check_values_records_against_their_unit(
     ):
         with pytest.raises(CompiledError, match=f"^COMPILED_{category}$"):
             verify_compiled_values_unit(changed, record, request)
+
+
+EXISTS_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table flagged_items:
+    let tagged:
+        from tags
+        where id > 2
+        select:
+            tag_id = id
+    from items
+    where exists tagged and not exists tags
+    select:
+        id = items.id
+        label = items.label
+"""
+
+
+def _flagged(directory):
+    return execution.compile_query(
+        let_example(directory, EXISTS_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="flagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+
+
+def _replaced(description, kind, change):
+    return dataclasses.replace(
+        description,
+        members=tuple(
+            (name, tuple(change(r) if r.address.kind == kind else r for r in records))
+            for name, records in description.members
+        ),
+    )
+
+
+def test_a_compiled_existence_read_carries_its_block_use_and_inner_source(
+    tmp_path,
+):
+    query = _flagged(tmp_path)
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    assert tuple(description.compatibility[:4]) == VERSIONS
+    reads = [r for r in description.records if r.address.kind == "expression_block_use"]
+    # One record per read in the statement's block use order; record n renders
+    # the relation alias e<n>, so no alias, clause or occurrence field is stored.
+    assert [r.address.position for r in reads] == [0, 1]
+    for read in reads:
+        operation = records[read.get("operation")]
+        assert operation.get("operator") == ("exists", "exists")
+        assert operation.get("operands") == ()
+        assert operation.get("logical") == ("Bool", "non_null")
+        assert read.get("column") is None
+        consumer = records[read.get("consumer")]
+        assert records[consumer.get("owner")].get("label") == "flagged_items"
+    let_unit = records[reads[0].get("producer")]
+    assert (
+        records[let_unit.get("owner")].get("label"),
+        records[let_unit.get("owner")].get("let"),
+    ) == ("tagged", 0)
+    assert records[reads[1].get("producer")].get("name") == "tags"
+    # The source read only through the let or the read is a compiled source.
+    assert sorted(
+        r.get("name") for r in records.values() if r.address.kind == "source"
+    ) == ["items", "tags"]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    sql = loaded._template.artifact.rendered.sql
+    assert b'AS "e0"' in sql and b'AS "e1"' in sql
+
+    def changed(index, values):
+        target = reads[index].address
+        return dataclasses.replace(
+            description,
+            members=tuple(
+                (
+                    name,
+                    tuple(
+                        Record(r.address, values) if r.address == target else r
+                        for r in rs
+                    ),
+                )
+                for name, rs in description.members
+            ),
+        )
+
+    first, second = (r.values for r in reads)
+    for forged in (
+        # A producer equal to its consumer, a consumer that does not execute
+        # the read, a column on an existence read, two records of one read.
+        changed(0, (first[0], first[1], first[1], None)),
+        changed(0, (first[0], first[2], first[2], None)),
+        changed(0, (*first[:3], 0)),
+        changed(1, (first[0], *second[1:])),
+    ):
+        with pytest.raises(CompiledError):
+            verify_description(forged)
+    # Without its block uses the inner relation is outside the closure.
+    with pytest.raises(CompiledError):
+        verify_description(
+            dataclasses.replace(
+                description,
+                members=tuple(
+                    (
+                        name,
+                        tuple(
+                            r for r in rs if r.address.kind != "expression_block_use"
+                        ),
+                    )
+                    for name, rs in description.members
+                ),
+            )
+        )
+    # Valid-looking swaps describe another consistent query; the export
+    # verifier re-derives every record from the live statement and refuses them.
+    outcome, _ = emit_project(
+        let_example(tmp_path / "live", EXISTS_TAGS),
+        "main.pietto",
+        "table",
+        "flagged_items",
+        "postgres",
+        "contract.json",
+        POLICIES["bind-safe"],
+    )
+    built = build_compiled(outcome.artifact)
+    live = decode(built.payload)
+    verify_export(live, outcome.artifact)
+    live_reads = [r for r in live.records if r.address.kind == "expression_block_use"]
+    a, b = (r.values for r in live_reads)
+
+    def swapped(first_values, second_values):
+        targets = {
+            live_reads[0].address: first_values,
+            live_reads[1].address: second_values,
+        }
+        return dataclasses.replace(
+            live,
+            members=tuple(
+                (
+                    name,
+                    tuple(
+                        Record(r.address, targets[r.address])
+                        if r.address in targets
+                        else r
+                        for r in rs
+                    ),
+                )
+                for name, rs in live.members
+            ),
+        )
+
+    for forged in (
+        swapped((a[0], a[1], b[2], None), (b[0], b[1], a[2], None)),
+        swapped((b[0], *a[1:]), (a[0], *b[1:])),
+        swapped(b, a),
+    ):
+        verify_description(forged)
+        with pytest.raises(CompiledError):
+            verify_export(forged, outcome.artifact)
+
+
+def test_each_route_prepares_an_existence_read_with_its_inner_source(
+    tmp_path, unconnected
+):
+    query = _flagged(tmp_path)
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        request = handle._owner.request
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+        assert [s.name for s in request.binding.artifact.request.sources] == [
+            "items",
+            "tags",
+        ]
+    import _pietto_sql_emission as probe
+
+    item = probe.join_witness(
+        "mysql",
+        "query result:\n    let picked:\n        from rhs\n        select:\n"
+        "            rid = id\n    from lhs\n    where not exists picked\n"
+        "    select:\n        a = lhs.id\n        e = exists rhs\n",
+    )
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    mysql_query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    handle = execution.execute(
+        mysql_query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+    )
+    assert handle.route == "mysql_rows" and handle.outcome.end == "NOT_STARTED"
+    # A source read only inside the read let or the read itself is a MySQL
+    # source closure root.
+    assert [s.name for s in handle._owner.request.artifact.request.sources] == [
+        "phase66 lhs é",
+        "phase66 rhs é",
+    ]
