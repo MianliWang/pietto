@@ -435,6 +435,7 @@ def test_each_route_checks_exactly_its_declared_selection():
         "mysql.connector.connection",
         "adbc_driver_postgresql",
         "adbc_driver_manager",
+        "adbc_driver_manager._reader",
         "pyarrow",
     }
 

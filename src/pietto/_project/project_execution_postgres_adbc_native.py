@@ -17,11 +17,14 @@ from pietto._project.project_execution import (
 )
 
 __all__: tuple[str, ...] = ()
-# The pinned driver closure of `pietto[execute-postgres-adbc]`.
+# The pinned driver closure of `pietto[execute-postgres-adbc]`. The manager's
+# own stream reader keeps a server error raised while a result is read as the
+# driver's error with its SQLSTATE; PyArrow's reader alone reports an Arrow error.
 DRIVERS = (
     ("adbc-driver-postgresql", "1.12.0", "adbc_driver_postgresql"),
     ("adbc-driver-manager", "1.12.0", "adbc_driver_manager"),
     ("pyarrow", "26.0.0", "pyarrow"),
+    ("adbc-driver-manager", "1.12.0", "adbc_driver_manager._reader"),
 )
 CONTEXT_SQL = "SELECT current_setting('server_version_num')::integer,current_database()::text,current_user::text,session_user::text,(SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user),(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()),pg_backend_pid(),pg_current_xact_id()::text,current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding'),current_setting('search_path'),current_setting('TimeZone'),current_setting('standard_conforming_strings'),inet_server_addr()::text,inet_server_port(),pg_postmaster_start_time()::text"
 # Generated refinement pages run with JIT off for the rest of their transaction.
@@ -36,20 +39,23 @@ def failure(error, phase):
 
 
 def drivers():
-    """The pinned driver, manager and Arrow modules and the driver's own library."""
-    driver, manager, pa = pinned_modules(DRIVERS, "POSTGRES_ADBC_DRIVER_PROFILE")
+    """The pinned driver, manager and Arrow modules, the manager's result stream
+    reader and the driver's own library."""
+    driver, manager, pa, streams = pinned_modules(
+        DRIVERS, "POSTGRES_ADBC_DRIVER_PROFILE"
+    )
     filename = driver.__file__
     if type(filename) is not str:
         raise ExecutionError("POSTGRES_ADBC_DRIVER_LIBRARY")
     library = Path(filename).resolve().parent / "libadbc_driver_postgresql.so"
     if not library.is_file() or library.resolve().parent != library.parent:
         raise ExecutionError("POSTGRES_ADBC_DRIVER_LIBRARY")
-    return manager, pa, library
+    return manager, pa, streams.AdbcRecordBatchReader, library
 
 
 def connect(owner):
     refuse_ambient(("PG",))
-    manager, pa, library = drivers()
+    manager, pa, reader, library = drivers()
     a = owner.request.access
     # The pinned Linux driver supports require (encryption) or explicit loopback
     # disable. A child of the null character device cannot name a CA/CRL/key,
@@ -86,6 +92,7 @@ def connect(owner):
     owner._connection = owner._owned_connection = connection
     owner._manager = manager
     owner._arrow = pa
+    owner._stream_reader = reader
     owner.control_events.append(("connection_registered", owner.attempt))
     status = connection.get_option("adbc.postgresql.transaction_status")
     owner.control_events.append(("initial_transaction_status", status))
@@ -187,7 +194,7 @@ class NativeStatement:
         o._checkpoint()
         handle, _rowcount = self.native.execute_query()
         self.stream_handle = handle
-        self.reader = o._arrow.RecordBatchReader._import_from_c(handle.address)
+        self.reader = o._stream_reader._import_from_c(handle.address)
         if handle.is_valid:
             raise ExecutionError("POSTGRES_ADBC_STREAM_TRANSFER")
         self.schema = tuple(

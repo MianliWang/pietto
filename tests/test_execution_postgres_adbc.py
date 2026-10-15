@@ -608,6 +608,7 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
             ),
         ),
         "pyarrow": object(),
+        "adbc_driver_manager._reader": SimpleNamespace(AdbcRecordBatchReader=object()),
     }
 
     def version(name):
@@ -634,6 +635,11 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
         attempt="offline",
     )
     native.connect(owner)
+    # Result streams are read through the pinned manager's own reader.
+    assert (
+        owner._stream_reader
+        is modules["adbc_driver_manager._reader"].AdbcRecordBatchReader
+    )
     options = parse_qs(urlparse(captured[0]["uri"]).query)
     assert options["sslmode"] == [sslmode] and options["sslcertmode"] == ["disable"]
     assert options["require_auth"] == ["scram-sha-256"]

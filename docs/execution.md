@@ -663,16 +663,21 @@ and the settled end is `CANCELLED`. Sending a request and observing it are
 separate facts; neither alone establishes a server acknowledgement. A cancel
 after another terminal has settled is a no-op and cannot change the outcome.
 When PostgreSQL reports a cancelled statement after it has entered an aborted
-transaction, the outcome retains `transaction=UNKNOWN`, failed cleanup and its
-`PIE-R5001` transaction failure; cancellation observation is not a rollback ACK
-or a remote-quiescence claim.
+transaction, the outcome retains `transaction=UNKNOWN`; on `postgres_rows` it
+also retains failed cleanup and its `PIE-R5001` transaction failure, and on
+`postgres_adbc` cleanup is `LOCAL_CLOSED_REMOTE_UNOBSERVED` with no cleanup
+failure. Cancellation observation is not a rollback ACK or a remote-quiescence
+claim.
 
-When the server reports an error inside the transaction (a failing statement,
+When PostgreSQL reports an error inside the transaction (a failing statement,
 the 10 second statement limit, or the cancel a deadline sends), the transaction
 is aborted. This alpha then does not send `ROLLBACK`: it reports `transaction`
-`UNKNOWN`, `cleanup` `FAILED` with one `PIE-R5001` cleanup failure in phase
-`transaction`, and closes the connection, which ends the transaction on the
-server.
+`UNKNOWN` and closes the connection, which ends the transaction on the server.
+On `postgres_rows`, `cleanup` is then `FAILED` with one `PIE-R5001` cleanup
+failure in phase `transaction`. `postgres_adbc` sends no further command on
+that connection, so `cleanup` is `LOCAL_CLOSED_REMOTE_UNOBSERVED` with no
+cleanup failure; the error keeps its `sqlstate` whether it arrives when the
+statement runs or while its result is read.
 
 A cleanup step that fails at the end is reported by where it happened. If the
 result was read to the end and the server acknowledged `COMMIT`, but a cleanup

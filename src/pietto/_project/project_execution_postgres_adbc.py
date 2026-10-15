@@ -116,6 +116,7 @@ class PostgresADBCExecution:
         self._owned_connection: Any = None
         self._manager: Any = None
         self._arrow: Any = None
+        self._stream_reader: Any = None
         self._active: Any = None
         self._statement: Any = None
         self._statements: list[Any] = []

@@ -1095,7 +1095,7 @@ def controlled(resource, artifact, kind, *, seconds=60):
                 native.read_control(owner, "SET ROLE pietto_subset", maximum=0)
                 events.append({"kind": "injected_actual_set_role"})
             elif kind == "late_read_close_error":
-                pa = owner._arrow
+                pinned_reader = owner._stream_reader
 
                 class Reader:
                     def __init__(self, reader):
@@ -1121,20 +1121,14 @@ def controlled(resource, artifact, kind, *, seconds=60):
                 class ReaderFactory:
                     @staticmethod
                     def _import_from_c(address):
-                        reader = pa.RecordBatchReader._import_from_c(address)
+                        reader = pinned_reader._import_from_c(address)
                         return (
                             Reader(reader)
                             if owner._active.purpose == "query"
                             else reader
                         )
 
-                class ArrowProxy:
-                    RecordBatchReader = ReaderFactory
-
-                    def __getattr__(self, name):
-                        return getattr(pa, name)
-
-                owner._arrow = ArrowProxy()
+                owner._stream_reader = ReaderFactory
         elif stage == "batch":
             if kind == "cancel_after_batch" and not events:
                 events.append({"kind": "cancel_after_batch", "result": owner.cancel()})

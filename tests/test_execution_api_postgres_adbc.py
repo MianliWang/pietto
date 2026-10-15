@@ -329,6 +329,142 @@ def test_adbc_driver_refusals_reuse_the_pinned_driver_profile_code(word):
     assert (refusal.code, refusal.detail) == ("PIE-R2002", word)
 
 
+class ArrowInvalid(ValueError):
+    """PyArrow's error for a failed stream read: it carries no SQLSTATE."""
+
+
+class ProgrammingError(Exception):
+    """The driver manager's error for a server error: it carries the SQLSTATE."""
+
+    def __init__(self, sqlstate):
+        super().__init__("[libpq] more than one row returned by a subquery")
+        self.sqlstate = sqlstate
+
+
+@pytest.mark.parametrize(
+    ("error", "sqlstate"),
+    ((ProgrammingError("21000"), "21000"), (ArrowInvalid("stream failed"), None)),
+    ids=("server_error", "arrow_error"),
+)
+def test_adbc_error_raised_while_the_result_stream_is_read_keeps_its_sqlstate(
+    query, monkeypatch, error, sqlstate
+):
+    """The route reads each result stream through the pinned manager's reader,
+    which raises a server error found mid-stream (a multi-row scalar read:
+    21000) as the driver's error with its SQLSTATE; an error without one is
+    classified as before. The attempt then sends nothing more and closes."""
+    import time
+
+    handle = execution.execute(
+        query, route="postgres_adbc", access=ACCESS, premise=PREMISE
+    )
+    owner = handle._owner
+    submitted, streams, closed = [], [], []
+
+    class Stream:
+        schema = ()
+
+        def __init__(self, failure):
+            self.failure = failure
+
+        def read_next_batch(self):
+            if self.failure is None:
+                raise StopIteration
+            raise self.failure
+
+        def close(self):
+            closed.append("reader")
+
+    class Statement:
+        def __init__(self, connection):
+            self.sql = ""
+
+        def set_options(self, **options):
+            pass
+
+        def set_sql_query(self, sql):
+            self.sql = sql
+            submitted.append(sql)
+
+        def prepare(self):
+            pass
+
+        def bind(self, batch):
+            pass
+
+        def execute_query(self):
+            # The statement-timeout control read ends normally; the query fails.
+            control = self.sql.startswith("SELECT pg_catalog.set_config(")
+            streams.append(Stream(None if control else error))
+            return SimpleNamespace(address=len(streams) - 1, is_valid=False), -1
+
+        def close(self):
+            closed.append("statement")
+
+    class Reader:
+        @staticmethod
+        def _import_from_c(address):
+            return streams[address]
+
+    owner._started = time.monotonic()
+    owner._transaction = owner._delivery = "OPEN"
+    owner.session_id = 4242
+    owner._manager = SimpleNamespace(AdbcStatement=Statement)
+    # Arrow only types the bound values; it has no stream reader to fall back to.
+    owner._arrow = SimpleNamespace(
+        int64=str,
+        bool_=str,
+        float64=str,
+        string=str,
+        array=lambda values, **_: values,
+        record_batch=lambda columns, **_: SimpleNamespace(num_rows=1),
+    )
+    owner._stream_reader = Reader
+    owner._connection = owner._owned_connection = SimpleNamespace(
+        close=lambda: closed.append("connection")
+    )
+    owner._owned_database = SimpleNamespace(close=lambda: closed.append("database"))
+    monkeypatch.setattr(owner, "_verify", lambda: None)
+
+    with pytest.raises(execution.AttemptFailed) as failed:
+        next(handle)
+    expected = errors.failure(
+        "PIE-R3003", phase="query", sqlstate=sqlstate, cause=type(error).__name__
+    )
+    assert failed.value.failure == expected
+    outcome = handle.outcome
+    assert handle.closed and outcome.primary == expected
+    assert (
+        outcome.end,
+        outcome.source,
+        outcome.transaction,
+        outcome.delivery,
+        outcome.cleanup,
+        outcome.cleanup_failures,
+        outcome.cancel_observed,
+    ) == (
+        "FAILED",
+        "FAILED",
+        "UNKNOWN",
+        "FAILED",
+        "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        (),
+        False,
+    )
+    # No ROLLBACK or other command follows the server error on that connection.
+    assert len(submitted) == 2 and submitted[0].startswith(
+        "SELECT pg_catalog.set_config('statement_timeout'"
+    )
+    assert closed == [
+        "reader",
+        "statement",
+        "reader",
+        "statement",
+        "connection",
+        "database",
+    ]
+
+
 def test_adbc_retryable_cleanup_failure_is_publicly_failed_before_closed():
     owner = SimpleNamespace(cleanup="FAILED_REMOTE_UNOBSERVED", delivery="FAILED")
     assert _handle._end(
