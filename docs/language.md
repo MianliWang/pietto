@@ -977,6 +977,16 @@ Project module semantics preserve exact module/declaration identity, explicit
 visibility, aliases, every collision, graph evidence, provenance, and lineage.
 They never choose a first or last winner.
 
+An import cycle between modules is PIE-S2703. While any cycle exists, project
+checks, project `emit-sql` and `compile_query` stop before relation completion
+in every module, not only in the modules of the cycle. They report the parse
+diagnostics, the diagnostics of semantic analysis (for example an unknown
+relation, PIE-S2301, or an unknown SELECT field, PIE-S2102) and the source
+connector diagnostics, but none of the checks made while completing relations,
+for example the typing of a WHERE condition, the checks at a `scalar` or `in`
+read, and query header parameter collisions and parameterized inputs
+(PIE-S2354, PIE-S2356). Those appear once every cycle is fixed.
+
 Relationship declarations store two named endpoints and may add one authored
 base-match expression after them:
 

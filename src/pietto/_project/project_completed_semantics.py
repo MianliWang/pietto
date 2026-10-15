@@ -242,10 +242,26 @@ def _completed_row_references(
 
 
 class ProjectCompletedSemanticNonConcreteReason(StrEnum):
-    """Closed direct-builder mode terminals."""
+    """Closed direct-builder terminals."""
 
     LEGACY_FLAT_MODE = "legacy_flat_mode"
     PACKAGE_ROOT_MODE = "package_root_mode"
+    MODULE_IMPORT_CYCLE = "module_import_cycle"
+
+
+def _non_concrete_reason(
+    semantic_result: ProjectSemanticResult,
+) -> ProjectCompletedSemanticNonConcreteReason | None:
+    """Return the terminal for roots outside the positive chain, or None."""
+    if semantic_result.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
+        return ProjectCompletedSemanticNonConcreteReason.LEGACY_FLAT_MODE
+    if semantic_result.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+        return ProjectCompletedSemanticNonConcreteReason.PACKAGE_ROOT_MODE
+    graph = semantic_result.module_graph
+    # Modules in an import cycle have no relation authority to complete.
+    if graph is not None and graph.cycles:
+        return ProjectCompletedSemanticNonConcreteReason.MODULE_IMPORT_CYCLE
+    return None
 
 
 def _source_connector_diagnostics(
@@ -278,7 +294,7 @@ def _source_connector_diagnostics(
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectNonConcreteCompletedSemanticResult:
-    """One typed non-positive compilation-mode result with no partial chain."""
+    """One typed non-positive result with no partial chain."""
 
     semantic_result: ProjectSemanticResult = field(
         repr=False,
@@ -298,17 +314,18 @@ class ProjectNonConcreteCompletedSemanticResult:
             or type(self.reason) is not ProjectCompletedSemanticNonConcreteReason
         ):
             raise TypeError("Completed Project terminal requires exact typed roots.")
-        expected = {
-            ProjectCompilationMode.LEGACY_FLAT: (
-                ProjectCompletedSemanticNonConcreteReason.LEGACY_FLAT_MODE
-            ),
-            ProjectCompilationMode.PACKAGE_ROOT: (
-                ProjectCompletedSemanticNonConcreteReason.PACKAGE_ROOT_MODE
-            ),
-        }.get(self.semantic_result.compilation_mode)
+        expected = _non_concrete_reason(self.semantic_result)
         if expected is None or self.reason is not expected:
-            raise ValueError("Completed Project terminal must retain its exact mode.")
-        object.__setattr__(self, "diagnostics", self.semantic_result.diagnostics)
+            raise ValueError("Completed Project terminal must retain its exact reason.")
+        diagnostics = self.semantic_result.diagnostics
+        if self.reason is ProjectCompletedSemanticNonConcreteReason.MODULE_IMPORT_CYCLE:
+            # Each module's source connectors are checked from its own script,
+            # after the semantic diagnostics as on the positive chain.
+            diagnostics = (
+                *diagnostics,
+                *_source_connector_diagnostics(self.semantic_result),
+            )
+        object.__setattr__(self, "diagnostics", diagnostics)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -860,15 +877,8 @@ def build_project_completed_semantic_result(
 
     if type(semantic_result) is not ProjectSemanticResult:
         raise TypeError("Completed Project semantics require an exact semantic result.")
-    if semantic_result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
-        reason = {
-            ProjectCompilationMode.LEGACY_FLAT: (
-                ProjectCompletedSemanticNonConcreteReason.LEGACY_FLAT_MODE
-            ),
-            ProjectCompilationMode.PACKAGE_ROOT: (
-                ProjectCompletedSemanticNonConcreteReason.PACKAGE_ROOT_MODE
-            ),
-        }[semantic_result.compilation_mode]
+    reason = _non_concrete_reason(semantic_result)
+    if reason is not None:
         return ProjectNonConcreteCompletedSemanticResult(
             semantic_result=semantic_result,
             reason=reason,

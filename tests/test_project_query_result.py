@@ -17,9 +17,11 @@ from pietto._project import project_joined_windows as joined_windows
 from pietto._project import project_scalar_namespaces as scalar_namespaces
 from pietto._project import project_completed_semantics as completed_semantics
 from pietto._project.json_v2 import project_check_result_to_json_dict
+from pietto._project.check import check_project_parse_only
 from pietto._project.model import (
     ProjectParseCheckResult,
     ProjectSemanticResult,
+    build_empty_project_semantic_result,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completion import (
@@ -142,6 +144,179 @@ def test_direct_builder_is_typed_fail_closed_for_non_positive_modes(
     assert result.diagnostics is semantic.diagnostics
     assert result.verification is result.completion is result.effective_outputs is None
     assert not result.ok
+
+
+def test_module_import_cycles_are_a_typed_terminal_in_builder_check_and_emit_sql(
+    tmp_path: Path,
+    positive: _Built,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def module(name: str, target: str, target_name: str) -> str:
+        return (
+            f"shape {name}:\n    id: Int\nexport:\n    shape {name}\n"
+            f'import "{target}":\n    shape {target_name}\n'
+        )
+
+    def public(items: object) -> tuple[tuple[object, ...], ...]:
+        facts: list[tuple[object, ...]] = []
+        for item in cast(list[dict[str, object]], items):
+            location = cast(dict[str, object], item["location"])
+            facts.append(
+                (
+                    item["code"],
+                    item["message"],
+                    location["path"],
+                    location["line"],
+                    location["column"],
+                )
+            )
+        return tuple(facts)
+
+    root = tmp_path / "import-cycles"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    for path, source in {
+        "a.pietto": module("A", "b.pietto", "B"),
+        "b.pietto": module("B", "a.pietto", "A"),
+        "c.pietto": module("C", "d.pietto", "D"),
+        "d.pietto": module("D", "c.pietto", "C"),
+        "e.pietto": (
+            "shape E:\n    id: Int not null\n"
+            'source rows: E is postgres.table("e")\n'
+            "query bad:\n    from rows\n    select:\n        nope\n"
+        ),
+        # A source connector outside the cycles is still checked.
+        "f.pietto": 'shape F:\n    id: Int not null\nsource bad: F is mysql.table("")\n',
+        # Header parameter, WHERE typing and scalar read checks are made while
+        # completing relations, so a cycle elsewhere holds them back.
+        "g.pietto": (
+            "shape G:\n    id: Int not null\n    k: Int\n"
+            'source rows: G is postgres.table("g")\n'
+            "query p(id: Int not null, k: Int not null):\n    from rows\n"
+            "    where id > k\n    select:\n        x = rows.id\n"
+            "query q:\n    from rows\n    where exists p\n    select:\n        id\n"
+            'query n:\n    from rows\n    where 1 == "a"\n    select:\n'
+            "        id\n        v = scalar rows.nope\n"
+        ),
+        "contract.json": "{}",
+    }.items():
+        (root / path).write_text(source, encoding="utf-8")
+    expected = (
+        (
+            "PIE-S2703",
+            "Module import cycle detected: a.pietto -> b.pietto -> a.pietto",
+            "b.pietto",
+            5,
+            8,
+        ),
+        (
+            "PIE-S2703",
+            "Module import cycle detected: c.pietto -> d.pietto -> c.pietto",
+            "d.pietto",
+            5,
+            8,
+        ),
+        ("PIE-S2102", "Unknown field: nope", "e.pietto", 7, 9),
+        (
+            "PIE-S2306",
+            "Invalid source connector arguments for mysql.table",
+            "f.pietto",
+            3,
+            18,
+        ),
+    )
+
+    semantic = build_empty_project_semantic_result(check_project_parse_only(root))
+    result = completed_semantics.build_project_completed_semantic_result(semantic)
+    assert type(result) is completed_semantics.ProjectNonConcreteCompletedSemanticResult
+    assert (
+        result.reason
+        is completed_semantics.ProjectCompletedSemanticNonConcreteReason.MODULE_IMPORT_CYCLE
+    )
+    assert result.diagnostics[: len(semantic.diagnostics)] == semantic.diagnostics
+    assert result.verification is result.completion is result.effective_outputs is None
+    assert not result.ok
+    retained = tuple(
+        (d.code, d.message, d.location.path, d.location.line, d.location.column)
+        for d in result.diagnostics
+    )
+    assert retained == expected
+    for semantic_root, reason in (
+        (positive.semantic_result, result.reason),
+        (
+            semantic,
+            completed_semantics.ProjectCompletedSemanticNonConcreteReason.LEGACY_FLAT_MODE,
+        ),
+    ):
+        with pytest.raises(ValueError, match="exact reason"):
+            completed_semantics.ProjectNonConcreteCompletedSemanticResult(
+                semantic_result=semantic_root,
+                reason=reason,
+            )
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == "".join(
+        f"{path}:{line}:{column} {code} error: {message}\n"
+        for code, message, path, line, column in expected
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = _read_json(capsys)
+    assert tuple(document) == PROJECT_JSON_KEYS
+    assert document["ok"] is False
+    assert public(document["diagnostics"]) == expected
+
+    emit = ["emit-sql", "--project", str(root), "--module", "e.pietto"]
+    emit += ["--kind", "query", "--name", "bad", "--dialect", "postgres"]
+    emit += ["--emission-contract", "contract.json", "--format", "json"]
+    assert cli.main(emit) == 1
+    emitted = _read_json(capsys)
+    assert (emitted["status"], emitted["artifact"]) == ("BLOCKED", None)
+    assert public(emitted["diagnostics"]) == expected
+
+    # With every cycle fixed, the completed chain reports its own diagnostics
+    # after the semantic and source connector ones.
+    for path, name in (("b.pietto", "B"), ("d.pietto", "D")):
+        (root / path).write_text(
+            f"shape {name}:\n    id: Int\nexport:\n    shape {name}\n",
+            encoding="utf-8",
+        )
+    collision = (
+        "PIE-S2354",
+        "Query parameter name is also a field, let, relation, output or window name.",
+        "g.pietto",
+        5,
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    fixed = public(_read_json(capsys)["diagnostics"])
+    parameters = (
+        (*collision, 9),
+        (*collision, 27),
+        (
+            "PIE-S2356",
+            "A query with parameters cannot be the input of another relation.",
+            "g.pietto",
+            12,
+            11,
+        ),
+    )
+    assert fixed[-3:] == parameters
+    assert tuple(item for item in fixed if item[2] == "g.pietto") == (
+        ("PIE-S2102", "Unknown field: rows.nope", "g.pietto", 20, 13),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: expected comparable operands",
+            "g.pietto",
+            17,
+            11,
+        ),
+        *parameters,
+    )
+    assert expected[3] in fixed
 
 
 def test_completed_roots_reject_equal_looking_foreign_grafts(

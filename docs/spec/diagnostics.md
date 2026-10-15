@@ -125,7 +125,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2603` | Duplicate endpoint local name within one relationship |
 | `PIE-S2701` | Invalid, unselected, or unresolved local module import target |
 | `PIE-S2702` | Duplicate or conflicting logical module identity |
-| `PIE-S2703` | Explicit-module import dependency cycle |
+| `PIE-S2703` | Explicit-module import dependency cycle. While any cycle exists, a project check reports besides it only parse, semantic analysis and source connector diagnostics of every module; the checks made while completing relations (for example WHERE typing, the checks at a `scalar` or `in` read, PIE-S2354 and PIE-S2356) appear once every cycle is fixed. |
 | `PIE-S2704` | Duplicate, unknown, ineligible, or invalid export request |
 | `PIE-S2705` | Unknown, private, or non-exported imported declaration |
 | `PIE-S2706` | Local, import, alias, or export binding collision |
