@@ -1261,7 +1261,7 @@ the no-state statement below.
 
 | Call | Database and network | Reads | Threads | Imports |
 | --- | --- | --- | --- | --- |
-| `import pietto.execution` | none | Python modules; importing `hashlib` lets CPython's OpenSSL read `OPENSSL_CONF` or the system `openssl.cnf` | none | no driver, no PyArrow |
+| `import pietto.execution` | none | Python modules; importing `hashlib` lets CPython's OpenSSL read `OPENSSL_CONF` or the system `openssl.cnf` | none | no driver, no PyArrow, no saved-result job module (reading a saved-result name such as `save` or `create_workspace` first imports its owner) |
 | `compile_query(...)` | none; no schema is read | `pietto.toml`, the selected sources and the contract under the project root; the installed Pietto and ANTLR runtime `.py` files; the ANTLR distribution's `METADATA` and `RECORD` | none | none |
 | attributes, `repr()` of the value objects, `CompiledQuery`, `QueryBundle` and an unopened handle | none | none | none | none |
 | `export_bundle(...)` | none | none; the bytes are encoded in memory | none | none |

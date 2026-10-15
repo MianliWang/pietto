@@ -14,13 +14,17 @@ execute(..., values=...) binds explicit values to a bind-safe query's slots,
 and execute(..., parameters=...) binds a query's declared parameters by name.
 
 This is an alpha interface: names, fields and PIE-R codes may change with
-documented notes. Importing it loads no database driver and no PyArrow;
-compiling, exporting, loading and execute() make no connection. See
+documented notes. Importing it loads no database driver, no PyArrow and no
+saved-result job module, which the saved-result calls import when first
+named; compiling, exporting, loading and execute() make no connection. See
 docs/execution.md.
 
 Managed operator compliance: NOT_INDEPENDENTLY_VERIFIED
 Native all-definition lifetime exclusion: NOT_DEMONSTRATED / NOT CLAIMED
 """
+
+from typing import TYPE_CHECKING
+import importlib
 
 from pietto.execution._access import (
     ExecutionLimits,
@@ -44,11 +48,6 @@ from pietto.execution._handle import (
     UnclosedHandleWarning,
     execute,
 )
-from pietto.execution._inspection import (
-    GenerationObservation,
-    JobObservation,
-    inspect_job,
-)
 from pietto.execution._query import (
     CompiledQuery,
     QueryBundle,
@@ -56,32 +55,93 @@ from pietto.execution._query import (
     export_bundle,
     load_bundle,
 )
-from pietto.execution._retirement import retire_generation
-from pietto.execution._saved import SaveCloseHandle, SaveReply, save
-from pietto.execution._r2 import R2SourceInput, recover, save_recoverable
-from pietto.execution._saved_read import (
-    SavedBatch,
-    SavedRead,
-    SavedReadEnd,
-    new_consumer_identity,
-    open_saved_read,
-    release_saved_read,
-)
-from pietto.execution._verified_export import VerifiedExport, verified_export
-from pietto.execution._publication import PublicationReply, publish_saved_generation
-from pietto.execution._reference_sink import (
-    ReferenceSinkDescriptor,
-    create_reference_sink,
-)
-from pietto.execution._relay import RelayCloseHandle, RelayReply, relay_live
-from pietto.execution._workspace import (
-    OperationReply,
-    WorkspaceRef,
-    create_workspace,
-    new_operation,
-    open_workspace,
-    operation_result,
-)
+
+if TYPE_CHECKING:
+    from pietto.execution._inspection import (
+        GenerationObservation,
+        JobObservation,
+        inspect_job,
+    )
+    from pietto.execution._publication import (
+        PublicationReply,
+        publish_saved_generation,
+    )
+    from pietto.execution._r2 import R2SourceInput, recover, save_recoverable
+    from pietto.execution._reference_sink import (
+        ReferenceSinkDescriptor,
+        create_reference_sink,
+    )
+    from pietto.execution._relay import RelayCloseHandle, RelayReply, relay_live
+    from pietto.execution._retirement import retire_generation
+    from pietto.execution._saved import SaveCloseHandle, SaveReply, save
+    from pietto.execution._saved_read import (
+        SavedBatch,
+        SavedRead,
+        SavedReadEnd,
+        new_consumer_identity,
+        open_saved_read,
+        release_saved_read,
+    )
+    from pietto.execution._verified_export import VerifiedExport, verified_export
+    from pietto.execution._workspace import (
+        OperationReply,
+        WorkspaceRef,
+        create_workspace,
+        new_operation,
+        open_workspace,
+        operation_result,
+    )
+
+# The saved-result calls stand on the job subsystem; their owners are imported
+# when one of their names is first read, so compiling and direct execution
+# never load it.
+_SAVED_RESULT_OWNERS = {
+    "GenerationObservation": "_inspection",
+    "JobObservation": "_inspection",
+    "inspect_job": "_inspection",
+    "PublicationReply": "_publication",
+    "publish_saved_generation": "_publication",
+    "R2SourceInput": "_r2",
+    "recover": "_r2",
+    "save_recoverable": "_r2",
+    "ReferenceSinkDescriptor": "_reference_sink",
+    "create_reference_sink": "_reference_sink",
+    "RelayCloseHandle": "_relay",
+    "RelayReply": "_relay",
+    "relay_live": "_relay",
+    "retire_generation": "_retirement",
+    "SaveCloseHandle": "_saved",
+    "SaveReply": "_saved",
+    "save": "_saved",
+    "SavedBatch": "_saved_read",
+    "SavedRead": "_saved_read",
+    "SavedReadEnd": "_saved_read",
+    "new_consumer_identity": "_saved_read",
+    "open_saved_read": "_saved_read",
+    "release_saved_read": "_saved_read",
+    "VerifiedExport": "_verified_export",
+    "verified_export": "_verified_export",
+    "OperationReply": "_workspace",
+    "WorkspaceRef": "_workspace",
+    "create_workspace": "_workspace",
+    "new_operation": "_workspace",
+    "open_workspace": "_workspace",
+    "operation_result": "_workspace",
+}
+
+
+def __getattr__(name: str) -> object:
+    owner = _SAVED_RESULT_OWNERS.get(name)
+    if owner is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(f"{__name__}.{owner}"), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_SAVED_RESULT_OWNERS})
+
 
 __all__ = [
     "AttemptFailed",

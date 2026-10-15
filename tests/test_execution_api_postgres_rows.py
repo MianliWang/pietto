@@ -274,6 +274,86 @@ def test_import_compile_and_unopened_execute_load_no_driver_and_connect_nowhere(
     assert not sentinel.connected()
 
 
+JOB_CHILD = r"""
+import json, sys
+sys.path.insert(0, sys.argv[1])
+def jobs():
+    return sorted(m for m in sys.modules
+        if m.startswith(("pietto._project.project_job", "pietto._project.project_public_jobs")))
+import pietto.execution as pe
+facts = {"import": jobs()}
+query = pe.compile_query(sys.argv[2], module="main.pietto", kind="table",
+    name="active_items", dialect="postgres", emission_contract="contract.json")
+bundle = pe.export_bundle(query)
+loaded = pe.load_bundle(bundle.payload, expected_pin=bundle.pin,
+    accepted_producer=bundle.producer, accepted_compatibility=bundle.compatibility)
+access = pe.PostgresAccess("127.0.0.1", int(sys.argv[3]), "app", "reader",
+    "pw-never-sent", "disable")
+premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+for value in (query, loaded):
+    pe.execute(value, route="postgres_rows", access=access, premise=premise).close()
+facts["direct"] = jobs()
+workspace = pe.create_workspace(sys.argv[4], budget_bytes=8 * 1024 * 1024)
+opened = pe.open_workspace(sys.argv[4], expected_identity=workspace.identity)
+facts["saved"] = [type(opened).__name__, opened.identity == workspace.identity,
+    pe.operation_result(opened, pe.new_operation()),
+    sorted({getattr(pe, name).__module__ for name in pe.__all__})]
+facts["loaded"] = bool(jobs())
+print(json.dumps(facts))
+"""
+
+
+def test_direct_execution_never_loads_the_job_subsystem(example, sentinel, tmp_path):
+    """Importing `pietto.execution`, compiling, exporting, loading and an
+    unopened execute() import no saved-result job module; the saved-result
+    names still resolve to their owners and create and open a workspace."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            JOB_CHILD,
+            str(ROOT / "src"),
+            str(example),
+            str(sentinel.port),
+            str(tmp_path / "workspace"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=example.parent,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    facts = json.loads(result.stdout)
+    owners = sorted(
+        "pietto.execution." + name
+        for name in (
+            "_access",
+            "_errors",
+            "_handle",
+            "_inspection",
+            "_publication",
+            "_query",
+            "_r2",
+            "_reference_sink",
+            "_relay",
+            "_retirement",
+            "_saved",
+            "_saved_read",
+            "_verified_export",
+            "_workspace",
+        )
+    )
+    assert facts == {
+        "import": [],
+        "direct": [],
+        "saved": ["WorkspaceRef", True, None, owners],
+        "loaded": True,
+    }
+    assert not sentinel.connected()
+
+
 @pytest.mark.parametrize(
     "blocks",
     (api.example_blocks, api.bundle_blocks),
