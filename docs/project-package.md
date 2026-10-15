@@ -278,8 +278,9 @@ result proof; caller JSON cannot supply that proof.
 
 The rules in the previous paragraph postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
-distributions, although this source tree still declares version `0.1.2`. Git
-publication and natural exact-head CI remain the lifecycle authority.
+distributions. This `0.1.3` candidate is available only when its accepted
+files appear on its versioned release channels. Git publication and natural
+exact-head CI remain the lifecycle authority.
 
 ## Optional Arrow dependency
 
@@ -288,9 +289,9 @@ The public selector `pietto[arrow]` adds exactly `pyarrow==26.0.0`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
-`pietto.execution`. Package/CLI version is `0.1.2` and `requires-python`
+`pietto.execution`. Package/CLI version is `0.1.3` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
-distribution availability.
+distribution availability once the accepted files are available.
 The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow26.0.0.
 See [checkout and local-wheel installation](../README.md#optional-arrow-interoperability).
 This is not a broader platform/version support promise.

@@ -1,10 +1,9 @@
-# Phase70 public alpha release notes — 0.1.3 (draft)
+# Phase70 public alpha release notes — 0.1.3
 
-**Status:** draft. These notes describe the current source, not a release:
-the package version is still `0.1.2`, and no `0.1.3` tag, GitHub pre-release,
-PyPI upload or release date exists or is authorized by this text. The release
-step replaces this status and the `TODO(S19)` below with the accepted
-candidate's evidence.
+**Status:** These notes cover the `0.1.3` public-alpha candidate. A release is
+established only when the accepted wheel and sdist are available from both the
+versioned GitHub pre-release and PyPI channels; this document neither creates
+those channels nor substitutes for their byte verification.
 
 `0.1.3` extends query authoring and checked execution in explicit-module
 projects (`schema_version = 2`). Pietto remains an alpha; the CLI still has no
@@ -296,11 +295,14 @@ test and CI evidence only, not a query, bundle or saved-job format.
 
 ## Support and release boundary
 
-TODO(S19): the support statement of the accepted candidate's installation and
-native execution evidence; the `0.1.2` statement below applies until then.
-Published bytes are never overwritten. A defect found after release is fixed
-in `0.1.4`; any PyPI yank is the owner's action, noted on the GitHub
-pre-release.
+The release target is compiler and package coverage on CPython 3.12 and 3.13
+for Linux x86-64. That support boundary is established only by acceptance of
+the formal distribution bytes. Native route evidence is limited to CPython
+3.13.13 on the qualified integration host with the lock's exact artifacts;
+other native platforms, Python versions, database releases and driver closures
+are not claimed. Published bytes are never overwritten. A defect found after
+release is fixed in `0.1.4`; any PyPI yank is the owner's action, noted on the
+GitHub pre-release.
 
 ---
 
