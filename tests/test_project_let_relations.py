@@ -134,8 +134,8 @@ DIAGNOSTICS = {
             ),
             (
                 "PIE-S2370",
-                "Let a with capture lines can be read only once, by exists or a "
-                "join in the body of q.",
+                "Let a with capture lines can be read only once, by exists, scalar, "
+                "in or a join in the body of q.",
                 12,
                 5,
             ),
@@ -634,11 +634,16 @@ CAPTURE = (
     "    from lhs\n    where exists m\n    select:\n        a = lhs.id\n"
 )
 READ_ONLY_BY_EXISTS = (
-    "Let m with capture lines can be read only once, by exists or a join in the "
-    "body of q."
+    "Let m with capture lines can be read only once, by exists, scalar, in or a "
+    "join in the body of q."
 )
 BODY_SHAPE = (
     "Let m with capture lines may use only FROM, WHERE and an ungrouped SELECT."
+)
+# The body rule of a let joined LATERAL or read by scalar, IN or NOT IN.
+LATERAL_BODY_SHAPE = (
+    "Let m with capture lines may use only FROM, WHERE, an ungrouped SELECT, "
+    "an ungrouped ORDER BY without captured fields and LIMIT."
 )
 CAPTURE_DIAGNOSTICS = {
     "accepted": (CAPTURE, []),
@@ -750,8 +755,8 @@ CAPTURE_DIAGNOSTICS = {
         "        id\nquery q:\n    let m:\n        capture nope\n"
         "        from rhs\n        select:\n            id\n    let t:\n"
         "        from generate_series(1, 3, 1) as n\n        select:\n"
-        "            n\n    from lhs\n    where lhs.id in m\n    select:\n"
-        "        a = lhs.id\n",
+        "            n\n    from m\n    where id > 0\n    select:\n"
+        "        a = id\n",
         [
             (
                 "PIE-S2366",
@@ -765,7 +770,7 @@ CAPTURE_DIAGNOSTICS = {
                 18,
                 9,
             ),
-            ("PIE-S2370", READ_ONLY_BY_EXISTS, 22, 11),
+            ("PIE-S2370", READ_ONLY_BY_EXISTS, 21, 5),
             (
                 "PIE-S2353",
                 "Query parameter type must be Bool, Int, Float or Text.",
@@ -1085,20 +1090,301 @@ def test_capture_lines_bind_outer_row_inputs_by_qualified_name(
     assert _check(tmp_path, body) == (1 if expected else 0, expected)
 
 
-@pytest.mark.parametrize(
-    ("read", "column"),
-    (("    where lhs.id in m\n", 11), ("    where lhs.id == scalar m.id\n", 21)),
+# Phase70 S14: `scalar m.c`, `v in m` and `v not in m` read a let with capture
+# lines like `exists m`: once, in WHERE or the SELECT of an ungrouped
+# declaration body. The scalar (S07) and IN (S09) position, column and width
+# rules are unchanged.
+SCALAR_POSITION = (
+    "Scalar relation read is available only in WHERE and in the SELECT of an "
+    "ungrouped query, not in {}."
 )
-def test_a_let_with_capture_lines_is_not_read_by_scalar_or_in(
-    tmp_path: Path, read: str, column: int
+IN_POSITION = (
+    "IN relation reference is available only in WHERE and in the SELECT of an "
+    "ungrouped query, not in {}."
+)
+UNAVAILABLE = (
+    "PIE-S2333",
+    "Project relation semantic completion is unavailable: q",
+    6,
+    1,
+)
+GROUPED = "    group by:\n        key\n    select:\n        key\n        n = count()\n"
+
+
+def _ordered(
+    read: str, tail: str = "        order by:\n            id desc\n        limit 1\n"
+) -> str:
+    """CAPTURE whose let ends in ``tail`` and whose EXISTS read is ``read``."""
+    return CAPTURE.replace(
+        "            id\n    from lhs", "            id\n" + tail + "    from lhs"
+    ).replace("exists m", read)
+
+
+CORRELATED_READS = {
+    "where_in": (CAPTURE.replace("exists m", "lhs.id in m"), []),
+    "where_not_in": (CAPTURE.replace("exists m", "lhs.key not in m"), []),
+    "where_scalar": (CAPTURE.replace("exists m", "lhs.id == scalar m.id"), []),
+    "select_scalar": (
+        CAPTURE.replace("    where exists m\n", "") + "        v = scalar m.id\n",
+        [],
+    ),
+    "select_not_in": (
+        CAPTURE.replace("    where exists m\n", "") + "        f = lhs.id not in m\n",
+        [],
+    ),
+    "grouped_where_in": (
+        CAPTURE.replace("exists m", "lhs.id in m").split("    select:\n        a")[0]
+        + GROUPED,
+        [],
+    ),
+    "grouped_select_scalar": (
+        CAPTURE.replace("    where exists m\n", "").split("    select:\n        a")[0]
+        + GROUPED
+        + "        v = scalar m.id\n",
+        [
+            (
+                "PIE-S2348",
+                SCALAR_POSITION.format("the SELECT of a grouped query"),
+                19,
+                13,
+            ),
+            UNAVAILABLE,
+        ],
+    ),
+    "row_let_scalar": (
+        CAPTURE.replace("    where exists m\n", "    let:\n        v = scalar m.id\n"),
+        [("PIE-S2348", SCALAR_POSITION.format("a row let"), 15, 13)],
+    ),
+    "named_window_scalar": (
+        CAPTURE.replace("    where exists m\n", "").replace(
+            "        a = lhs.id\n",
+            "        id\n        rn = row_number() window ordered\n"
+            "    window ordered:\n        order by:\n            scalar m.id\n",
+        ),
+        [
+            ("PIE-S2348", SCALAR_POSITION.format("a window"), 19, 13),
+            ("PIE-S2103", "Unknown function: row_number", 16, 14),
+        ],
+    ),
+    "window_in": (
+        CAPTURE.replace("    where exists m\n", "").replace(
+            "        a = lhs.id\n",
+            "        id\n        rn = row_number() window:\n"
+            "            order by:\n                lhs.id in m\n",
+        ),
+        [
+            ("PIE-S2350", IN_POSITION.format("a window"), 18, 17),
+            ("PIE-S2103", "Unknown function: row_number", 16, 14),
+        ],
+    ),
+    "order_by_in": (
+        CAPTURE.replace("    where exists m\n", "")
+        + "    order by:\n        lhs.id in m\n",
+        [("PIE-S2350", IN_POSITION.format("ORDER BY"), 17, 9)],
+    ),
+    "join_on_in": (
+        CAPTURE.replace(
+            "    where exists m\n",
+            "    inner join rhs as r:\n        from lhs\n        on lhs.id in m\n",
+        ),
+        [("PIE-S2350", IN_POSITION.format("JOIN ON"), 16, 12)],
+    ),
+    "two_columns": (
+        CAPTURE.replace(
+            "            id\n", "            id\n            key\n"
+        ).replace("exists m", "lhs.id in m"),
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator in: expected a relation with one "
+                "output column",
+                15,
+                11,
+            )
+        ],
+    ),
+    "unknown_column": (
+        CAPTURE.replace("exists m", "lhs.id == scalar m.nope"),
+        [("PIE-S2102", "Unknown field: m.nope", 14, 21)],
+    ),
+    # Read once: a second read in the body is refused like any later read.
+    "scalar_and_in": (
+        CAPTURE.replace("exists m", "lhs.id in m") + "        v = scalar m.id\n",
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 17, 13)],
+    ),
+    "not_in_and_in": (
+        CAPTURE.replace("exists m", "lhs.key not in m") + "        f = lhs.id in m\n",
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 17, 13)],
+    ),
+    # Nested correlation: no other let reads it, by scalar or IN either.
+    "scalar_in_another_let": (
+        CAPTURE.replace(
+            "    from lhs\n    where exists m\n",
+            "    let other:\n        from rhs\n        where rhs.id == scalar m.id\n"
+            "        select:\n            id\n    from lhs\n    where exists other\n",
+        ),
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 15, 25)],
+    ),
+    # Owner decision 2026-10-15 (D70.05): a scalar, IN or NOT IN read takes
+    # the let's ORDER BY and LIMIT, a top-k per outer row whose ORDER BY reads
+    # no captured field and no aggregate; an EXISTS read never does. The
+    # program is valid on both targets (MySQL emission refuses the read).
+    "ordered_read_by_in": (_ordered("lhs.id in m"), []),
+    "ordered_read_by_scalar": (
+        _ordered("lhs.id == scalar m.id", "        limit 1\n"),
+        [],
+    ),
+    # ORDER BY alone, by a field the let does not select.
+    "ordered_read_by_not_in": (
+        _ordered("lhs.key not in m", "        order by:\n            key\n"),
+        [],
+    ),
+    "ordered_limit_maximum": (
+        _ordered("lhs.id in m", f"        limit {2**63 - 1}\n"),
+        [],
+    ),
+    "ordered_limit_over_maximum": (
+        _ordered("lhs.id in m", f"        limit {2**63}\n"),
+        [
+            (
+                "PIE-S2307",
+                "Limit must be a static integer from 0 to 9223372036854775807",
+                13,
+                15,
+            )
+        ],
+    ),
+    "ordered_read_by_exists": (_ordered("exists m"), [("PIE-S2370", BODY_SHAPE, 7, 5)]),
+    "ordered_captured_key": (
+        _ordered(
+            "lhs.id in m", "        order by:\n            lhs.key\n        limit 1\n"
+        ),
+        [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
+    ),
+    "ordered_aggregate_key": (
+        _ordered("lhs.id == scalar m.id", "        order by:\n            count()\n"),
+        [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
+    ),
+    "ordered_read_twice": (
+        _ordered("lhs.id in m") + "        v = scalar m.id\n",
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 20, 13)],
+    ),
+    # A read in another let neither reads the let nor gives it ORDER BY.
+    "ordered_read_in_another_let": (
+        _ordered("exists m").replace(
+            "    from lhs\n    where exists m\n",
+            "    let other:\n        from rhs\n        where rhs.id == scalar m.id\n"
+            "        select:\n            id\n    from lhs\n    where exists other\n",
+        ),
+        [("PIE-S2370", BODY_SHAPE, 7, 5), ("PIE-S2370", READ_ONLY_BY_EXISTS, 18, 25)],
+    ),
+    # A let over a relation whose columns are known only after completion has
+    # such columns too: `scalar` cannot read it yet, `in` and `not in` can.
+    "own_from_values_scalar": (
+        OWN_FROM_INPUTS["values"]
+        + OWN_FROM.replace("    where exists m\n", "")
+        + "        v = scalar m.id\n",
+        [
+            (
+                "PIE-S2348",
+                "Scalar relation read m.id is not yet available: the columns of m "
+                "are not known before completion.",
+                21,
+                13,
+            )
+        ],
+    ),
+    "own_from_set_not_in": (
+        OWN_FROM_INPUTS["set"]
+        + OWN_FROM.replace("            k = lhs.key\n", "").replace(
+            "exists m", "lhs.id not in m"
+        ),
+        [],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(CORRELATED_READS))
+def test_scalar_and_in_read_a_capturing_let_in_its_declaration_body(
+    tmp_path: Path, case: str
 ) -> None:
-    # An admitted scalar or IN read still cannot read a correlated let
-    # (Phase70 S14); the capture refusal is the only diagnostic.
-    body = CAPTURE.replace("    where exists m\n", read)
-    assert _check(tmp_path, body) == (
-        1,
-        [("PIE-S2370", READ_ONLY_BY_EXISTS, 14, column)],
+    body, expected = CORRELATED_READS[case]
+    assert _check(tmp_path, body) == (1 if expected else 0, expected)
+
+
+TWO_READS = (
+    "query q:\n    let m:\n        capture lhs\n        from rhs\n"
+    "        where rhs.key == lhs.key\n        select:\n            id\n"
+    "    let n:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            id\n"
+    "    from lhs\n    where lhs.key not in m\n    select:\n        a = lhs.id\n"
+    "        v = scalar n.id\n"
+)
+TWO_READS_GATED = [
+    ("PIE-S2345", 7, 5),
+    ("PIE-S2351", 8, 9),
+    ("PIE-S2345", 13, 5),
+    ("PIE-S2351", 14, 9),
+    ("PIE-S2350", 20, 11),
+    ("PIE-S2348", 23, 13),
+]
+
+
+# Both lets ending in ORDER BY and LIMIT (owner decision 2026-10-15): the
+# gated modes keep their codes, each moved down by the tails above it.
+ORDER_TAIL = "        order by:\n            id desc\n        limit 1\n"
+TWO_ORDERED_READS = TWO_READS.replace(
+    "            id\n    let n:", "            id\n" + ORDER_TAIL + "    let n:"
+).replace(
+    "            id\n    from lhs", "            id\n" + ORDER_TAIL + "    from lhs"
+)
+TWO_ORDERED_READS_GATED = [
+    ("PIE-S2345", 7, 5),
+    ("PIE-S2351", 8, 9),
+    ("PIE-S2345", 16, 5),
+    ("PIE-S2351", 17, 9),
+    ("PIE-S2350", 26, 11),
+    ("PIE-S2348", 29, 13),
+]
+
+
+@pytest.mark.parametrize("ordered", (False, True))
+@pytest.mark.parametrize("mode", ("explicit_modules", "legacy_flat", "single_file"))
+def test_correlated_scalar_and_in_reads_are_explicit_module_forms(
+    tmp_path: Path, mode: str, ordered: bool
+) -> None:
+    body, gated = (
+        (TWO_ORDERED_READS, TWO_ORDERED_READS_GATED)
+        if ordered
+        else (TWO_READS, TWO_READS_GATED)
     )
+    if mode == "single_file":
+        path = tmp_path / "single.pietto"
+        path.write_text(HEAD + body, encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(["check", str(path), "--format", "json"])
+        diagnostics = [
+            (d["code"], d["location"]["line"], d["location"]["column"])
+            for d in json.loads(out.getvalue())["diagnostics"]
+        ]
+        assert (code, diagnostics) == (1, gated)
+        return
+    version = 2 if mode == "explicit_modules" else 1
+    code, diagnostics = _check(
+        tmp_path,
+        body,
+        config=probe.CONFIG.replace(
+            "schema_version = 2", f"schema_version = {version}"
+        ),
+    )
+    if version == 2:
+        assert (code, diagnostics) == (0, [])
+    else:
+        assert (code, [(c, line, column) for c, _, line, column in diagnostics]) == (
+            1,
+            gated,
+        )
 
 
 @pytest.mark.parametrize("schema_version", (1, 2))
@@ -1217,12 +1503,6 @@ JOIN_KIND = "Let m with capture lines can be joined only by cross, inner or left
 
 def _lateral(kind: str, on: str = "        on true\n") -> str:
     return LATERAL.format(kind=kind, on="" if kind == "cross" else on)
-
-
-LATERAL_BODY_SHAPE = (
-    "Let m with capture lines may use only FROM, WHERE, an ungrouped SELECT, "
-    "an ungrouped ORDER BY without captured fields and LIMIT."
-)
 
 
 def _top_k(

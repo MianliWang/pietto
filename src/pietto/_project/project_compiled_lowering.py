@@ -358,7 +358,7 @@ def emit_compiled(root, values, named=None):
             target = rows.SQLBlockTarget(
                 subject, bodies[producer_address], None, symbol
             )
-        elif producer_address in inline_units and scopes and kind == "exists":
+        elif producer_address in inline_units and scopes:
             # The capturing let renders inside this read: its units are built
             # here, innermost first, over the reading body's input row.
             chain = [producer_address]

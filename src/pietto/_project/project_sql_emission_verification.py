@@ -2528,7 +2528,8 @@ def _verify_block_membership(
         unit = expected.producer
         candidate = (
             unit.columns[0].column.realization
-            if len(unit.columns) == 1 and len(unit.cte_columns) == 1
+            if len(unit.columns) == 1
+            and len(unit.cte_columns) == (0 if _inline_body(unit) else 1)
             else None
         )
     state["expressions"].append(expression)
@@ -4172,6 +4173,10 @@ def verify_row_query(request, query, *, _guarded=None):
             if len(reads) != 1:
                 return False
             terminal = reads[0].target.producer
+            # D70.05: MySQL reads a capturing let's ORDER BY and LIMIT only
+            # LATERAL, never inside an expression read.
+            if request.family != "postgres" and type(terminal) is not RowBody:
+                return False
             if not verify_inline_chain(block_use.producer, terminal, images):
                 return False
             return _BlockScope(block_use, terminal, None)
@@ -4959,6 +4964,22 @@ def verify_row_bytes(query, rendered):
                         target.producer.name,
                         identifier=True,
                     )
+                elif _inline_body(target.producer):
+                    producer = target.producer
+                    take(
+                        "identifier",
+                        "in_column",
+                        producer.columns[0].column.terminal,
+                        column[0],
+                        identifier=True,
+                    )
+                    take("syntax", "in_from", reference, " FROM ")
+                    take("syntax", "inline_open", producer.block.ref, "(")
+                    if type(producer) is resulting.RowResultBody:
+                        result_select(producer)
+                    else:
+                        select(producer)
+                    take("syntax", "inline_close", producer.block.ref, ")")
                 else:
                     take(
                         "identifier",

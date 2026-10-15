@@ -395,8 +395,8 @@ class _Writer:
     def block_membership(self, value, alias):
         """``(<v> [NOT] IN (SELECT <e>.<c> FROM <producer> AS <e>))``.
 
-        The producer is a top-level CTE or a qualified source; any LIMIT of
-        the producer stays inside its own CTE.
+        The producer is a top-level CTE, a qualified source or a capturing
+        let's inline chain; a LIMIT stays inside that CTE or derived table.
         """
         start = self.offset
         reference = value.original.ref
@@ -422,6 +422,14 @@ class _Writer:
             self.identifier(target.producer.namespace, "in_namespace", relation)
             self.emit(".", "syntax", "in_qualifier", relation)
             self.identifier(target.producer.name, "in_relation", relation)
+        elif inline_body(target.producer):
+            # A capturing let is the derived relation of its own read.
+            producer = target.producer
+            self.identifier(column[0], "in_column", producer.columns[0].column.terminal)
+            self.emit(" FROM ", "syntax", "in_from", reference)
+            self.emit("(", "syntax", "inline_open", producer.block.ref)
+            _unit_select(self, producer)
+            self.emit(")", "syntax", "inline_close", producer.block.ref)
         else:
             producer = target.producer
             self.identifier(column[0], "in_column", producer.cte_columns[0].binding)

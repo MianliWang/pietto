@@ -514,8 +514,11 @@ class _Export:
         return getattr(entry, name)
 
     def fields(self, kind: str, obj: Any) -> dict[str, Any]:
-        if kind == "join_input" and sql_ast.inline_body(obj.producer):
-            # A LATERAL input (Phase70 S12) is outside this schema.
+        if (kind == "join_input" and sql_ast.inline_body(obj.producer)) or (
+            kind == "row_result_body" and sql_ast.inline_body(obj)
+        ):
+            # A LATERAL input (Phase70 S12) and a let's inline ORDER BY and
+            # LIMIT (Phase70 S14) are outside this schema.
             raise _Outside
         derived = schema.DERIVED.get(kind, frozenset())
         return {

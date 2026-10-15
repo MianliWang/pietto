@@ -722,6 +722,84 @@ def test_the_ir_rejects_forged_or_swapped_capture_edges(tmp_path) -> None:
         }, changes
 
 
+# Phase70 S14: a scalar and an IN read of two capturing lets in one body; each
+# capture checkpoint names its own let's read edge and that edge's column.
+CAPTURE_SCALAR_IN = """query result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key
+        select:
+            id
+            key
+    let other:
+        capture lhs
+        from rhs
+        where rhs.id == lhs.id
+        select:
+            id
+    from lhs
+    where lhs.id not in other
+    select:
+        a = lhs.id
+        k = scalar matched.key
+"""
+
+
+def test_scalar_and_in_reads_keep_their_own_capture_edges(tmp_path) -> None:
+    from copy import copy
+
+    from pietto._project.project_query_block_ir import ProjectIRCaptureStage
+    from pietto._project.project_query_block_ir_verification import (
+        ProjectIRQueryBlockVerificationIssueKind as Kind,
+        verify_project_query_block_ir,
+    )
+
+    def graft(value, **changes):
+        changed = copy(value)
+        for name, item in changes.items():
+            object.__setattr__(changed, name, item)
+        return changed
+
+    _, snapshot = _capture_snapshot(tmp_path, CAPTURE_SCALAR_IN)
+    assert verify_project_query_block_ir(snapshot).verified
+    membership, scalar = snapshot.expression_uses
+    assert [
+        (e.producer.owner.definition.name, e.column, type(e.use.expression).__name__)
+        for e in (membership, scalar)
+    ] == [
+        ("other", 0, "RelationMembershipExpr"),
+        ("matched", 1, "RelationScalarExpr"),
+    ]
+    matched, other = snapshot.capture_uses
+    assert matched.checkpoint.read is scalar and other.checkpoint.read is membership
+    assert {matched.checkpoint.stage, other.checkpoint.stage} == {
+        ProjectIRCaptureStage.INPUT
+    }
+    assert [(f.expression.field, f.position) for f in snapshot.captured_fields] == [
+        ("key", 1),
+        ("id", 0),
+    ]
+    for changes, kind in (
+        # Each checkpoint names the other let's read of the same body.
+        (
+            {
+                "capture_uses": (
+                    graft(matched, checkpoint=other.checkpoint),
+                    graft(other, checkpoint=matched.checkpoint),
+                )
+            },
+            Kind.CAPTURE_USE,
+        ),
+        # The scalar read names another existing column of its let, and the
+        # membership read no column.
+        ({"expression_uses": (membership, graft(scalar, column=0))}, None),
+        ({"expression_uses": (graft(membership, column=None), scalar)}, None),
+    ):
+        issues = verify_project_query_block_ir(graft(snapshot, **changes)).issues
+        assert (kind or Kind.EXPRESSION_BLOCK_USE) in {i.kind for i in issues}, changes
+
+
 # Phase70 S12: a JOIN reads the let LATERAL; its capture lines read the row of
 # the bindings left of that JOIN (the LEFT JOIN's null-extended r included),
 # never the final joined row, and the JOIN orders the let first.

@@ -49,8 +49,9 @@ VARIANTS = {
     "L_relation_scalar": ("kept",),
     # Phase70 S09: closed `[not] in` reads; one three-valued SELECT table over
     # empty, duplicated, NULL-only and full candidates, and one WHERE filter
-    # over a closed LIMIT let emitted as a top-level CTE.
-    "L_relation_membership": ("select_truth", "where_limit"),
+    # over a closed LIMIT let emitted as a top-level CTE; S14: a correlated
+    # `in` and a correlated `scalar` read in WHERE.
+    "L_relation_membership": ("select_truth", "where_limit", "correlated"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -2208,6 +2209,23 @@ def membership_fixture(target, variant):
     _need(variant in VARIANTS["L_relation_membership"], "unknown membership variant")
     item = chain_fixture(target, "M_named_chain", "query_bag")
     head, final = item["source"].split("query result:\n    from second\n", 1)
+    if variant == "correlated":
+        # Each `second` row has its own `first` rows (same Key, duplicates
+        # included) and none with a smaller Key equal to it: `in` is true over
+        # duplicated candidates and the scalar read of no row is NULL; every
+        # row stays.
+        item["source"] = (
+            head
+            + "query result:\n    let same:\n        capture second\n"
+            + "        from first\n        where first.Key == second.id2\n"
+            + "        select:\n            Key\n"
+            + "    let smaller:\n        capture second\n        from first\n"
+            + "        where first.Key == second.id2 and first.Key < second.again\n"
+            + "        select:\n            Key\n"
+            + "    from second\n    where id2 in same and scalar smaller.Key is null\n"
+            + final
+        )
+        return item
     if variant == "select_truth":
         body = "query result:\n    from second\n    select:\n" + "".join(
             f"        {label} = flag2 {'in' if label.startswith('in_') else 'not in'}"
@@ -5730,6 +5748,19 @@ def _decode_fixed_public(document, limits):
     specialized = [False]
     call_argument_depth = [0]
 
+    def inline_read(producer):
+        """A let with capture lines read inline: its parsed final body and its
+        obligations, which follow the read's own (Phase70 S10, S14)."""
+        _need(bool(capture_frames), "a correlated read outside its row")
+        take("syntax", "inline_open", "(", producer)
+        mark, outer_block = len(row_generated), row_block[0]
+        body = row_select(producer, False, None, inline=True)
+        row_block[0] = outer_block
+        inline = row_generated[mark:]
+        del row_generated[mark:]
+        take("syntax", "inline_close", ")", producer)
+        return body, inline
+
     def row_parse(block, port_kind="stage_port", repeated=False):
         """Parse one admitted value; a matching scope reads pre-match JOIN ports."""
         nonlocal scalar_nodes
@@ -6106,14 +6137,7 @@ def _decode_fixed_public(document, limits):
             if peek() == "inline_open":
                 # Phase70 S10: a let with capture lines is the derived relation
                 # of its own read; its obligations follow the read's own.
-                _need(bool(capture_frames), "a correlated read outside its row")
-                take("syntax", "inline_open", "(", producer)
-                mark, outer_block = len(row_generated), row_block[0]
-                source_body = row_select(producer, False, None, inline=True)
-                row_block[0] = outer_block
-                inline = row_generated[mark:]
-                del row_generated[mark:]
-                take("syntax", "inline_close", ")", producer)
+                source_body, inline = inline_read(producer)
             else:
                 _, name = take("identifier", "exists_reference", subject=producer)
                 source_body = row_ctes.get(name)
@@ -6149,8 +6173,14 @@ def _decode_fixed_public(document, limits):
             _, column = take("identifier", "scalar_column", subject=original)
             take("syntax", "scalar_from", " FROM ", original)
             producer = lexical[cursor][0]["subject"]
-            _, name = take("identifier", "scalar_reference", subject=producer)
-            source_body = row_ctes.get(name)
+            inline = None
+            if peek() == "inline_open":
+                # Phase70 S14: a let with capture lines read by `scalar` is
+                # the derived relation of its own read, like an EXISTS read.
+                source_body, inline = inline_read(producer)
+            else:
+                _, name = take("identifier", "scalar_reference", subject=producer)
+                source_body = row_ctes.get(name)
             _need(
                 source_body is not None
                 and source_body["block"] == producer
@@ -6170,6 +6200,7 @@ def _decode_fixed_public(document, limits):
                 "expression": original,
                 "use": use,
                 "read": source_body["outgoing"][names.index(column)],
+                "inline": inline,
             }
         if role == "in_open":
             # Phase70 S09: a three-valued membership in the one column of one
@@ -6188,8 +6219,13 @@ def _decode_fixed_public(document, limits):
             column_token, column = take("identifier", "in_column")
             take("syntax", "in_from", " FROM ", original)
             producer = lexical[cursor][0]["subject"]
-            _, name = take("identifier", "in_reference", subject=producer)
-            source_body = row_ctes.get(name)
+            inline = None
+            if peek() == "inline_open":
+                # Phase70 S14: a let with capture lines read by `in`.
+                source_body, inline = inline_read(producer)
+            else:
+                _, name = take("identifier", "in_reference", subject=producer)
+                source_body = row_ctes.get(name)
             _need(
                 source_body is not None
                 and source_body["block"] == producer
@@ -6214,6 +6250,7 @@ def _decode_fixed_public(document, limits):
                 "negated": token == " NOT IN (",
                 "operands": [operand],
                 "column": source_body["outgoing"][0]["realization"],
+                "inline": inline,
             }
         _need(role in {"binary_open", "comparison_open"}, "row expression node")
         take("syntax", role, "(", original)
@@ -6405,6 +6442,7 @@ def _decode_fixed_public(document, limits):
                     None,
                 )
             )
+            row_generated.extend(node.get("inline") or ())
             row_rules[original["position"]] = "R11"
             return {
                 **realization,
@@ -6418,6 +6456,8 @@ def _decode_fixed_public(document, limits):
             _need(within(cause(original), cause(owner)))
             slot = len(row_generated)
             row_generated.append(None)
+            # An inline let's obligations follow the read's, before its value's.
+            row_generated.extend(node.get("inline") or ())
             left = row_resolve(
                 node["operands"][0], incoming, alias, owner, scopes, context
             )
@@ -8097,7 +8137,7 @@ def _decode_fixed_public(document, limits):
             inline_owners.extend(
                 next_row_definition()
                 for i in range(cursor, body_end - 1)
-                if lexical[i][0]["role"] == "exists_from"
+                if lexical[i][0]["role"] in ("exists_from", "scalar_from", "in_from")
                 and lexical[i + 1][0]["role"] == "inline_open"
             )
             owner = next_row_definition()

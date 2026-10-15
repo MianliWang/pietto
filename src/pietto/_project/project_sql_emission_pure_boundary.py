@@ -706,8 +706,21 @@ def _block_column_name(doc, target, column) -> str | None:
             if doc[field]["ordinal"] == column
         ]
         return names[0] if len(names) == 1 else None
+    if _inline_producer(doc, producer):
+        # A capturing let's inline body names its outputs by their labels.
+        outputs = doc[producer]["columns"]
+        return doc[outputs[column]]["label"] if 0 <= column < len(outputs) else None
     columns = doc[producer]["cte_columns"]
     return doc[columns[column]]["name"] if 0 <= column < len(columns) else None
+
+
+def _inline_producer(doc, producer) -> bool:
+    """A read target's producer that is a capturing let's inline body."""
+    return (
+        producer.kind == "row_body"
+        and doc[producer]["symbol"] is None
+        and doc[producer]["final"] is False
+    )
 
 
 class _Check:
@@ -871,7 +884,7 @@ class _Check:
         return units
 
     def inline_units(self) -> dict[Ref, Ref]:
-        """Each inline let body and the existence read target that renders it.
+        """Each inline let body and the block read target that renders it.
 
         A capturing let is no unit: its bodies are nested derived tables of
         its single read, the target's body first, each inner one read by a
@@ -997,6 +1010,8 @@ class _Check:
                     and len(
                         producer["fields"]
                         if target["producer"].kind == "bound_source"
+                        else producer["columns"]
+                        if _inline_producer(doc, target["producer"])
                         else producer["cte_columns"]
                     )
                     == 1

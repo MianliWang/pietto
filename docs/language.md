@@ -303,11 +303,11 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
 relation let, a typed VALUES body, a closed `exists`/`not exists`, `scalar` or
-`in`/`not in` read, a let with `capture` lines read by `exists` or joined
-LATERAL by `cross join`, `inner join` or `left join` and the header of an entry
-query whose FROM reads a relation and that declares no relation let are
-available, as described after the example; every other form is not available
-yet:
+`in`/`not in` read, a let with `capture` lines read by `exists`, `scalar` or
+`in`/`not in` or joined LATERAL by `cross join`, `inner join` or `left join` and
+the header of an entry query whose FROM reads a relation and that declares no
+relation let are available, as described after the example; every other form is
+not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -559,20 +559,30 @@ WHERE and SELECT as usual. In the example above `recent` captures `customers`, t
 FROM input of `customers_with_recent_orders`.
 
 Unlike other lets, a let with capture lines is read exactly once, by `exists
-name` or `not exists name` written in the WHERE, or in the SELECT of an
-ungrouped declaration body (the positions of any EXISTS read, PIE-S2349
-elsewhere) or as the target of a JOIN of that body (LATERAL, below), and every
-outer row, duplicates included, gets its own result. Its body is a FROM
-relation with an
-optional WHERE and an ungrouped, window-free SELECT; a let joined LATERAL may
-also end in ORDER BY and LIMIT (below). Project SQL emits it inside
-that read as nested derived tables, `EXISTS (SELECT 1 FROM (SELECT ... FROM
-(SELECT ... WHERE ...) AS t<n>) AS e<n>)`, whose correlated references name the
-reading SELECT's own relation alias and column; a correlated block is never a
-CTE, while capture-free lets and relations stay top-level CTEs, including lets
+name`, `not exists name`, `scalar name.column`, `value in name` or `value not in
+name` written in the WHERE, or in the SELECT of an ungrouped declaration body
+(the positions of any such read: PIE-S2349, PIE-S2348 or PIE-S2350 elsewhere) or
+as the target of a JOIN of that body (LATERAL, below), and every outer row,
+duplicates included, gets its own result: a correlated read is never rewritten
+to a JOIN, deduplicated by key or decorrelated. A correlated `scalar` read is
+NULL for an outer row whose let has no row, that row's value for one row, and
+the database's own runtime error for more than one (PIE-R3003, SQLSTATE 21000);
+a correlated `in` or `not in` keeps the three-valued logic above for each outer
+row, and `not in` is never an ANTI JOIN. The column and width rules of `scalar`
+and `in` are unchanged (PIE-S2102, PIE-S2105). Its body is a FROM relation with
+an optional WHERE and an ungrouped, window-free SELECT; a let joined LATERAL or
+read by `scalar`, `in` or `not in` may also end in ORDER BY and LIMIT (below).
+Project SQL emits it inside that read as nested derived tables, `EXISTS (SELECT
+1 FROM (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS e<n>)`, `(SELECT
+e<n>.c<k> FROM (SELECT ...) AS e<n>)` for `scalar` and `(value [NOT] IN (SELECT
+e<n>.c0 FROM (SELECT ...) AS e<n>))` for `in`, whose correlated references name
+the reading SELECT's own relation alias and column; the left value of `in`
+renders, and takes its placeholders, before the let. A correlated block is never
+a CTE, while capture-free lets and relations stay top-level CTEs, including lets
 the correlated let reads. No let reads a let with capture lines (no nested
 correlation), so a correlated read nests at most the two derived tables of its
-let's body inside its EXISTS. A self-correlation, a capture of an input the
+let's body inside its read, three when the let ends in ORDER BY and LIMIT. A
+self-correlation, a capture of an input the
 let itself reads, is refused: read that relation through another let first and
 read the renamed let, for example `let inner: from orders` and then
 `capture orders` in a let that reads `from inner`. These forms report:
@@ -586,11 +596,12 @@ read the renamed let, for example `let inner: from orders` and then
 - PIE-S2370 at the let when its body has a JOIN, row `let:`, GROUP BY, an
   aggregate in WHERE or SELECT, a window, QUALIFY, SATISFYING or DISTINCT, is
   a set operation or VALUES body, or has ORDER BY or LIMIT without being joined
-  LATERAL or an ORDER BY that reads a captured field or an aggregate, and at
-  every read of the let other than its first `exists` or JOIN in its
-  declaration body, in source order: a later `exists` or JOIN, a FROM or set
-  operand, a scalar or IN read, or any read written in another let, a JOIN of
-  another let included;
+  LATERAL or read by `scalar`, `in` or `not in` (an `exists` read never takes
+  them), or an ORDER BY that reads a captured field or an aggregate, and at
+  every read of the let other than its first `exists`, `scalar`, `in`, `not in`
+  or JOIN in its declaration body, in source order: a later such read or JOIN,
+  a FROM or set operand, or any read written in another let, a JOIN of another
+  let included;
 - PIE-S2371 at a capture line of a let joined LATERAL whose input is not left
   of that JOIN: the let's own JOIN binding or a later JOIN's binding;
 - PIE-S2372 at a RIGHT, FULL, SEMI or ANTI JOIN whose target is a let with
@@ -675,6 +686,23 @@ keeps both inside that JOIN's derived relation as one more derived table over
 the let's SELECT, which carries each ORDER BY key as an extra column:
 `LATERAL (SELECT ... FROM (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS
 t<n> ORDER BY ... LIMIT <n>) AS m<n>`.
+
+A let read by `scalar`, `in` or `not in` may end in `order by` and `limit` the
+same way, on PostgreSQL only: for each outer row, duplicates included, the read
+sees at most that many of the let's rows for it, the first ones in that order,
+under the ORDER BY, LIMIT and tie rules above. A `scalar` read of such a let
+with `limit 1` is NULL for an outer row without a row and that row's value
+otherwise; a larger limit keeps the runtime error for more than one row
+(PIE-R3003). Project SQL wraps the let's derived tables, ORDER BY and LIMIT
+included, in the read's own derived table, so no subquery that `in` reads
+carries a LIMIT itself: `(SELECT e<n>.c<k> FROM (SELECT ... FROM (SELECT ...
+FROM (SELECT ... WHERE ...) AS t<n>) AS t<n> ORDER BY ... LIMIT <n>) AS e<n>)`
+and `(value [NOT] IN (SELECT e<n>.c0 FROM (SELECT ... ORDER BY ... LIMIT <n>)
+AS e<n>))`. MySQL does not take this form: `check --project` accepts the
+program, and `emit-sql --project` and `compile_query` for MySQL refuse the
+query with PIE-B1003 `mysql_correlated_order_or_limit_read_not_admitted` at
+each such read, in source order, before any connection; a let joined LATERAL
+keeps its ORDER BY and LIMIT on both targets.
 
 In EXPLICIT_MODULES the `let NAME:` line, a `capture` line, a typed VALUES
 body and an `exists`, `scalar` or `in` read inside a relation body are

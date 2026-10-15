@@ -453,6 +453,96 @@ def test_a_lateral_join_emits_through_the_project_command(
     assert document["sql"].count(outer) == 1
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_correlated_scalar_and_in_reads_emit_through_the_project_command(
+    tmp_path: Path, target: str
+) -> None:
+    # Phase70 S14: a NOT IN and a scalar read of two lets with capture lines;
+    # each let is the derived relation of its own read.
+    item = probe.join_witness(
+        target,
+        "query result:\n    let matched:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key and rhs.id > 0\n        select:\n"
+        "            id\n    let keyed:\n        capture lhs\n        from rhs\n"
+        "        where rhs.id == lhs.id\n        select:\n            key\n"
+        "    from lhs\n    where lhs.id not in matched\n    select:\n"
+        "        a = lhs.id\n        k = scalar keyed.key\n",
+        policy="bind_safe_literals",
+    )
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    for file, content in probe.source_files(item["source"]).items():
+        (root / file).write_text(content, encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    expected = api_bytes(tmp_path, item)
+    arguments = argv(root, target, kind="query", literal_policy="bind-safe")
+    assert run(arguments) == (0, expected, "")
+    document = json.loads(expected)
+    q = '"' if target == "postgres" else "`"
+    assert document["status"] == "VERIFIED" and len(document["parameter_uses"]) == 1
+    assert (
+        document["sql"].count(f" NOT IN (SELECT {q}e0{q}.{q}c0{q} FROM (SELECT ") == 1
+    )
+    assert document["sql"].count(f"(SELECT {q}e1{q}.{q}c0{q} FROM (SELECT ") == 1
+    assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
+        ("a", False),
+        ("k", True),
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_correlated_order_and_limit_read_emits_only_for_postgres(
+    tmp_path: Path, target: str
+) -> None:
+    # Owner decision 2026-10-15 (D70.05): a scalar read of a let ending in
+    # ORDER BY and LIMIT wraps the let's result body in its own derived table
+    # on PostgreSQL; the MySQL command refuses it with one PIE-B1003 blocker.
+    item = probe.join_witness(
+        target,
+        "query result:\n    let last:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        "        order by:\n            id desc\n        limit 1\n"
+        "    from lhs\n    select:\n        a = lhs.id\n        k = scalar last.id\n",
+        policy="bind_safe_literals",
+    )
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    for file, content in probe.source_files(item["source"]).items():
+        (root / file).write_text(content, encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    expected = api_bytes(tmp_path, item)
+    code, out, err = run(argv(root, target, kind="query", literal_policy="bind-safe"))
+    assert (out, err) == (expected, "")
+    if target == "postgres":
+        document = json.loads(out)
+        assert (code, document["status"]) == (0, "VERIFIED")
+        assert document["sql"].count(' ORDER BY "t0"."c1" DESC LIMIT 1) AS "e0")') == 1
+        return
+    document = failure(out)
+    assert (code, document["status"], document["cli_errors"]) == (1, "BLOCKED", [])
+    lines = (root / "main.pietto").read_text(encoding="utf-8").splitlines()
+    line = lines.index("        k = scalar last.id") + 1
+    assert document["diagnostics"] == []
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            b["location"]["line"],
+            b["location"]["column"],
+        )
+        for b in document["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "mysql_correlated_order_or_limit_read_not_admitted",
+            line,
+            13,
+        )
+    ]
+
+
 # --- contract read boundary ------------------------------------------------------
 
 

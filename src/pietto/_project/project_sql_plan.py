@@ -1238,7 +1238,7 @@ class ProjectSQLExpressionBlockUse:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLCapture:
     """CaptureV1 in the plan: one capture line of ``inner`` reads the current
-    row of ``outer`` at the outer's single EXISTS read of ``inner``.
+    row of ``outer`` at the outer's single read of ``inner``.
 
     ``read`` is that read's expression value, ``block`` its SELECT block and
     ``ports`` the block's stage ports of the captured input's fields, in the
@@ -2437,7 +2437,7 @@ def build_project_sql_plan(
     }
     uses_by_image = {id(u.edge): u for u in bindings.input_uses}
     # Every imaged capture of the statement keeps its plan ref in IR order; the
-    # record itself is completed at the outer body's EXISTS read of the let.
+    # record itself is completed at the outer body's read of the let.
     capture_edges = tuple(
         edge
         for edge in analysis_bundle.root.capture_uses

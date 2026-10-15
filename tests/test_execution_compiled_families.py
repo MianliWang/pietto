@@ -2086,3 +2086,114 @@ def test_a_lateral_top_k_replays_from_compiled_input(tmp_path, target, kind):
     verify_description(forged)
     with pytest.raises(CompiledError, match="^COMPILED_EXPORT_STATIC_LITERAL$"):
         verify_export(forged, artifact)
+
+
+# Owner decision 2026-10-15 (D70.05): a correlated NOT IN and a scalar read of
+# two lets ending in ORDER BY and LIMIT compile on PostgreSQL with no new
+# record kind: each let's ORDER BY and LIMIT are one inline result unit, the
+# outermost of its chain, read by the expression block use of its read.
+ORDERED_BLOCK_READS = (
+    "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+    "        where rhs.key == lhs.key\n        select:\n            id\n"
+    "        order by:\n            id desc\n        limit 2\n"
+    "    let n:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            key\n"
+    "        order by:\n            id\n        limit 1\n"
+    "    from lhs\n    where lhs.id not in m\n"
+    "    select:\n        a = lhs.id\n        k = scalar n.key\n"
+)
+
+
+def test_ordered_scalar_and_in_reads_replay_from_compiled_input(tmp_path):
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Scalar,
+    )
+    from pietto._project.project_compiled_verification import (
+        verify_description,
+        verify_export,
+    )
+
+    artifact, built, candidate = _compiled_lateral(
+        tmp_path, "postgres", ORDERED_BLOCK_READS
+    )
+    sql = candidate.rendered.sql
+    assert (sql.count(b" LIMIT 2) AS "), sql.count(b" LIMIT 1) AS ")) == (1, 1)
+    description = built.root.description
+    records = {r.address: r for r in description.records}
+    captures = [r for r in description.records if r.address.kind == "capture_use"]
+    reads = [records[c.get("read")] for c in captures]
+    assert [r.address.kind for r in reads] == ["expression_block_use"] * 2
+    results = [records[r.get("producer")] for r in reads]
+    assert sorted(
+        (r.address.kind, r.get("layout")[:2], r.get("layout")[3:], r.get("limit"))
+        for r in results
+    ) == [
+        ("result", (None, ()), (False, None), 1),
+        ("result", (None, ()), (False, None), 2),
+    ]
+    result = results[0]
+    names = FIELDS["result"]
+    layout = result.get("layout")
+    # A unit position makes it no inline unit of the read.
+    values = list(result.values)
+    values[names.index("layout")] = (*layout[:-1], 0)
+    with pytest.raises(CompiledError, match="^COMPILED_CAPTURE_USE$"):
+        verify_description(_replaced(description, {result.address: tuple(values)}))
+    # Another valid LIMIT with its literal is a coherent description that the
+    # export verifier refuses against the live statement.
+    literal = records[result.get("limit_literal")]
+    literal_values = list(literal.values)
+    literal_values[FIELDS["literal"].index("value")] = Scalar("Int", 3)
+    values = list(result.values)
+    values[names.index("limit")] = 3
+    forged = _replaced(
+        description,
+        {result.address: tuple(values), literal.address: tuple(literal_values)},
+    )
+    verify_description(forged)
+    with pytest.raises(CompiledError, match="^COMPILED_EXPORT_STATIC_LITERAL$"):
+        verify_export(forged, artifact)
+
+
+def test_a_mysql_description_of_an_ordered_block_read_is_refused(tmp_path, monkeypatch):
+    # MySQL reads a let's ORDER BY and LIMIT only LATERAL. A MySQL artifact
+    # forged past the emission's own refusal and its verifiers describes a
+    # scalar or IN read of an inline result unit; the emission verifier and
+    # the compiled description (a repinned bundle) each refuse it on their own.
+    from types import SimpleNamespace
+
+    from pietto._project import project_sql_emission as emitting
+    from pietto._project import project_sql_emission_ast as sql_ast
+    from pietto._project import project_sql_emission_inspection as inspection
+    from pietto._project.project_compiled_build import _Export
+    from pietto._project.project_compiled_schema import CompiledError, encode
+    from pietto._project.project_compiled_verification import verify_description
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    verified = SimpleNamespace(verified=True, issues=())
+    monkeypatch.setattr(
+        sql_ast, "ORDERED_INLINE_READ_TARGETS", frozenset({"postgres", "mysql"})
+    )
+    monkeypatch.setattr(emitting, "verify_row_query", lambda *_: True)
+    for module in (emitting, inspection):
+        monkeypatch.setattr(module, "verify_project_sql_emission", lambda *_: verified)
+    item = emission.join_witness("mysql", ORDERED_BLOCK_READS)
+    _, outcome = emission.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None and b" LIMIT 1) AS " in artifact.rendered.sql
+    description = _Export(artifact, None, None).run()
+    monkeypatch.undo()
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(CompiledError, match="^COMPILED_MYSQL_CORRELATED_ORDER$"):
+        verify_description(description)
+    built = SimpleNamespace(
+        producer=description.producer, compatibility=description.compatibility
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_MYSQL_CORRELATED_ORDER$"):
+        _load(encode(description), built)

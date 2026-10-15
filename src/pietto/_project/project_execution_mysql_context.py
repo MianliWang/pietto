@@ -143,7 +143,7 @@ def mysql_text_packet_requirements(owner) -> tuple[tuple[object, int], ...]:
         raise ExecutionError("MYSQL_TEXT_PACKET_ROOTS")
 
     def nodes(values):
-        # An inline let's operations follow the EXISTS read that renders it.
+        # An inline let's operations follow the read that renders it.
         for value in values:
             for node in value_nodes(value):
                 yield node

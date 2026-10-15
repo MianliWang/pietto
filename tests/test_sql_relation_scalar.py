@@ -343,3 +343,449 @@ def test_a_tampered_scalar_read_is_refused_by_the_emission_verifier(
         columns[index] = replace(columns[index], value=forged)
         bodies = (*query.bodies[:-1], replace(final, columns=tuple(columns)))
         assert not verify_row_query(artifact.request, replace(query, bodies=bodies))
+
+
+# Phase70 S14: a scalar read of a let with capture lines renders that let
+# inline at the read, `(SELECT e<n>.c<k> FROM (<let bodies>) AS e<n>)`, whose
+# correlated references name the reading body's own alias; the let is never a
+# CTE and every outer row, duplicates included, gets its own read.
+CORRELATED = {
+    "select": """query result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > 0
+        select:
+            id
+            key
+    from lhs
+    where lhs.id > 1
+    select:
+        a = lhs.id
+        k = scalar matched.key
+""",
+    "where": """query result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > 0
+        select:
+            id
+            key
+    from lhs
+    where lhs.id == scalar matched.id
+    select:
+        a = lhs.id
+""",
+}
+CORRELATED_SQL = {
+    ("select", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", '
+        '"s1"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" '
+        'WHERE ("s1"."order.id" > CAST($1 AS pg_catalog.int8))) '
+        'SELECT "t3"."c0" AS "a", (SELECT "e0"."c1" FROM '
+        '(SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1" FROM '
+        '(SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" '
+        'FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE (("s0"."key value" = "t3"."c1") AND '
+        '("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0") '
+        'AS "k" FROM "p0" AS "t3"'
+    ),
+    ("select", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, "
+        "`s1`.`key value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1` "
+        "WHERE (`s1`.`order.id` > CAST(? AS SIGNED))) "
+        "SELECT `t3`.`c0` AS `a`, (SELECT `e0`.`c1` FROM "
+        "(SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM "
+        "(SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` "
+        "FROM `phase66`.`phase66 rhs é` AS `s0` "
+        "WHERE ((`s0`.`key value` = `t3`.`c1`) AND "
+        "(`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`) "
+        "AS `k` FROM `p0` AS `t3`"
+    ),
+    ("where", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", '
+        '"s1"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" '
+        'WHERE ("s1"."order.id" = (SELECT "e0"."c0" FROM '
+        '(SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1" FROM '
+        '(SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" '
+        'FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE (("s0"."key value" = "s1"."key value") AND '
+        '("s0"."order.id" > CAST($1 AS pg_catalog.int8)))) AS "t1") AS "e0"))) '
+        'SELECT "t3"."c0" AS "a" FROM "p0" AS "t3"'
+    ),
+    ("where", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, "
+        "`s1`.`key value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1` "
+        "WHERE (`s1`.`order.id` = (SELECT `e0`.`c0` FROM "
+        "(SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM "
+        "(SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` "
+        "FROM `phase66`.`phase66 rhs é` AS `s0` "
+        "WHERE ((`s0`.`key value` = `s1`.`key value`) AND "
+        "(`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`))) "
+        "SELECT `t3`.`c0` AS `a` FROM `p0` AS `t3`"
+    ),
+}
+
+
+def _correlated(tmp_path: Path, target: str, shape: str, policy: str):
+    item = probe.join_witness(target, CORRELATED[shape], policy=policy)
+    return probe.build_case(tmp_path, item["source"], item["contract"], item["policy"])
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(CORRELATED))
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_correlated_scalar_read_renders_its_let_inline(
+    tmp_path: Path, target: str, shape: str, policy: str
+) -> None:
+    from pietto._project import project_sql_plan_portable as transport
+
+    checked, outcome = _correlated(tmp_path, target, shape, policy)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    expected = CORRELATED_SQL[shape, target]
+    if policy == "preserve_literals":
+        first, second = ("1", "0") if shape == "select" else ("0", None)
+        expected = expected.replace("$1", first).replace("$2", str(second))
+        expected = expected.replace("CAST(? AS", f"CAST({first} AS", 1)
+        expected = expected.replace("CAST(? AS", f"CAST({second} AS", 1)
+    assert document["sql"] == expected
+    assert " LIMIT " not in document["sql"]
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    (capture,) = plan.captures
+    assert type(plan.expressions[capture.read.position]) is row.ProjectSQLRelationScalar
+    # The let is never a CTE: its read opens the one derived table.
+    quote = "`" if target == "mysql" else '"'
+    assert document["sql"].count(f"(SELECT {quote}e0{quote}.") == 1
+    assert document["sql"].count(f"{quote}p1{quote}") == 0
+    if shape == "select":
+        assert [c["nullable"] for c in document["columns"]] == [False, True]
+    artifact = outcome.artifact
+    assert artifact is not None
+    kinds = [(r.kind, r.rule) for r in artifact.generated_requirements]
+    captured = sum(
+        1 for e in plan.expressions if type(e) is row.ProjectSQLCapturedField
+    )
+    assert kinds.count(("capture", "R11")) == captured == 1
+    assert kinds.count(("inline_stage_use", "R11")) == 1
+    assert kinds.count(("scalar", "R11")) == 1
+    if policy == "bind_safe_literals":
+        # The outer literal renders first; the inline let's follows its read.
+        assert [(u.ordinal, u.server_index) for u in artifact.parameter_uses] == (
+            [(0, 1), (1, 2)] if shape == "select" else [(0, 1)]
+        )
+    _observed(outcome)
+    with pytest.raises(transport.TransportError) as refused:
+        transport.build_project_sql_plan_portable(checked)
+    assert refused.value.issue is transport.RuntimeIssue.UNSUPPORTED_VALUE
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "mutation", ("other_column", "inner_producer", "existence_kind", "not_null")
+)
+def test_a_forged_correlated_scalar_read_fails_the_verifiers(
+    tmp_path: Path, target: str, mutation: str
+) -> None:
+    from dataclasses import replace
+
+    from pietto._project.project_sql_emission_verification import (
+        verify_row_bytes,
+        verify_row_query,
+    )
+
+    _, outcome = _correlated(tmp_path, target, "select", "preserve_literals")
+    artifact = outcome.artifact
+    assert artifact is not None
+    query = artifact.ast
+    assert type(query) is SQLRowQuery and verify_row_query(artifact.request, query)
+    final = query.bodies[-1]
+    ((read, index),) = (
+        (column.value, i)
+        for i, column in enumerate(final.columns)
+        if type(getattr(column, "value", None)) is rows.SQLBlockRead
+    )
+    inner = read.target.producer
+    assert (read.column, inner.symbol, inner.cte_columns) == (1, None, ())
+    # Valid-looking values: the let's other output, its own inner stage body,
+    # an existence read of the same target, a NOT NULL read of the same carrier.
+    forged = {
+        "other_column": lambda: replace(read, column=0),
+        "inner_producer": lambda: replace(
+            read, target=replace(read.target, producer=inner.scan.body)
+        ),
+        "existence_kind": lambda: replace(read, kind="exists", column=None),
+        "not_null": lambda: replace(
+            read, realization=replace(read.realization, nullable=False)
+        ),
+    }[mutation]()
+    columns = list(final.columns)
+    columns[index] = replace(columns[index], value=forged)
+    bodies = (*query.bodies[:-1], replace(final, columns=tuple(columns)))
+    assert not verify_row_query(artifact.request, replace(query, bodies=bodies))
+    # The bytes of the let's other output under the same alias are refused.
+    q = '"' if target == "postgres" else "`"
+    sql = artifact.rendered.sql.decode()
+    corrupted = sql.replace(f"(SELECT {q}e0{q}.{q}c1{q}", f"(SELECT {q}e0{q}.{q}c0{q}")
+    assert corrupted != sql
+    changed = replace(artifact.rendered, sql=corrupted.encode("utf-8"))
+    assert not verify_row_bytes(artifact.ast, changed)
+
+
+# Owner decision 2026-10-15 (D70.05): a correlated scalar read of a let ending
+# in ORDER BY and LIMIT is PostgreSQL only. The let's result body is one more
+# derived table inside the read's own, which carries each ORDER BY key as an
+# extra column: `(SELECT e<n>.c<k> FROM (SELECT ... FROM (<let bodies>) AS t<n>
+# ORDER BY ... LIMIT <n>) AS e<n>)`. MySQL emission refuses the read before any
+# SQL exists; the program itself is valid on both targets.
+ORDERED = CORRELATED["select"].replace(
+    "            key\n    from lhs",
+    "            key\n        order by:\n            id desc\n        limit 1\n"
+    "    from lhs",
+)
+ORDERED_SQL = (
+    'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", '
+    '"s1"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" '
+    'WHERE ("s1"."order.id" > CAST($1 AS pg_catalog.int8))) '
+    'SELECT "t3"."c0" AS "a", (SELECT "e0"."c1" FROM '
+    '(SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1" FROM '
+    '(SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c0" AS "c2" FROM '
+    '(SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" '
+    'FROM "public"."phase66 rhs é" AS "s0" '
+    'WHERE (("s0"."key value" = "t3"."c1") AND '
+    '("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "t0" '
+    'ORDER BY "t0"."c2" DESC LIMIT 1) AS "e0") AS "k" FROM "p0" AS "t3"'
+)
+MYSQL_ORDERED_READ = (
+    "PIE-B1003",
+    "UNSUPPORTED_RULE",
+    "mysql_correlated_order_or_limit_read_not_admitted",
+)
+
+
+def _ordered(tmp_path: Path, target: str, policy: str = "bind_safe_literals"):
+    item = probe.join_witness(target, ORDERED, policy=policy)
+    return probe.build_case(tmp_path, item["source"], item["contract"], item["policy"])
+
+
+def _ordered_read(artifact):
+    query = artifact.ast
+    assert type(query) is SQLRowQuery
+    final = query.bodies[-1]
+    ((read, index),) = (
+        (column.value, i)
+        for i, column in enumerate(final.columns)
+        if type(getattr(column, "value", None)) is rows.SQLBlockRead
+    )
+    return query, final, read, index
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_correlated_scalar_read_takes_its_lets_order_and_limit_on_postgres(
+    tmp_path: Path, target: str, policy: str
+) -> None:
+    from pietto._project.project_sql_emission_ast import inline_body
+    from pietto._project.project_sql_emission_results import RowResultBody
+
+    checked, outcome = _ordered(tmp_path, target, policy)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        assert (document["status"], document["diagnostics"]) == ("BLOCKED", [])
+        assert "sql" not in document and outcome.artifact is None
+        assert [
+            (
+                b["code"],
+                b["reason"],
+                b["subject"]["detail"],
+                b["location"]["line"],
+                b["location"]["column"],
+            )
+            for b in document["blockers"]
+        ] == [(*MYSQL_ORDERED_READ, 21, 13)]
+        return
+    assert document["status"] == "VERIFIED", document
+    expected = ORDERED_SQL
+    if policy == "preserve_literals":
+        expected = expected.replace("$1", "1").replace("$2", "0")
+    assert document["sql"] == expected
+    assert [c["nullable"] for c in document["columns"]] == [False, True]
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    (capture,) = plan.captures
+    assert type(plan.expressions[capture.read.position]) is row.ProjectSQLRelationScalar
+    assert [
+        b.kind.value for b in plan.result_boundaries if b.definition is capture.inner
+    ] == ["relation_ordering", "limit"]
+    artifact = outcome.artifact
+    assert artifact is not None
+    _, _, read, _ = _ordered_read(artifact)
+    result = read.target.producer
+    # The let's third body (filter, projection, result), unnamed and not final.
+    assert type(result) is RowResultBody and inline_body(result.scan.body)
+    assert (result.final, result.symbol, result.cte_columns) == (False, None, ())
+    assert result.limit is not None and result.limit.value == 1
+    assert read.column == 1 and len(result.columns) == 2
+    kinds = [(r.kind, r.rule) for r in artifact.generated_requirements]
+    assert kinds.count(("inline_stage_use", "R11")) == 2
+    assert kinds.count(("static_limit", "R21")) == 1
+    if policy == "bind_safe_literals":
+        assert [(u.ordinal, u.server_index) for u in artifact.parameter_uses] == [
+            (0, 1),
+            (1, 2),
+        ]
+    # The private observation has no schema for an inline result body.
+    assert (
+        portable.export_emission_observation(artifact, artifact.request).status
+        is portable.ObservationStatus.OUTSIDE_SCHEMA
+    )
+
+
+# Every scalar, IN and NOT IN read of an ordered capturing let is refused on
+# MySQL at its own read, in source order across the statement's relations,
+# never only the first.
+ORDERED_READS = """table t:
+    let m1:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key
+        select:
+            id
+        order by:
+            id desc
+        limit 1
+    from lhs
+    where lhs.id in m1
+    select:
+        id
+        key
+query result:
+    let m2:
+        capture t
+        from rhs
+        where rhs.key == t.key
+        select:
+            id
+        order by:
+            id desc
+        limit 1
+    let m3:
+        capture t
+        from rhs
+        where rhs.id == t.id
+        select:
+            key
+        order by:
+            id
+        limit 2
+    from t
+    where t.key not in m3
+    select:
+        a = t.id
+        k = scalar m2.id
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_ordered_correlated_read_is_refused_on_mysql(
+    tmp_path: Path, target: str
+) -> None:
+    item = probe.join_witness(target, ORDERED_READS, policy="bind_safe_literals")
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "postgres":
+        assert document["status"] == "VERIFIED", document
+        assert document["sql"].count(" LIMIT ") == 3
+        return
+    lines = item["source"].splitlines()
+    assert (document["status"], document["diagnostics"]) == ("BLOCKED", [])
+    assert outcome.artifact is None
+    assert [
+        (
+            b["code"],
+            b["reason"],
+            b["subject"]["detail"],
+            b["location"]["line"],
+            b["location"]["column"],
+        )
+        for b in document["blockers"]
+    ] == [
+        (*MYSQL_ORDERED_READ, lines.index("    where lhs.id in m1") + 1, 11),
+        (*MYSQL_ORDERED_READ, lines.index("    where t.key not in m3") + 1, 11),
+        (*MYSQL_ORDERED_READ, lines.index("        k = scalar m2.id") + 1, 13),
+    ]
+
+
+@pytest.mark.parametrize(
+    "mutation", ("limit_value", "order_direction", "dropped_result", "named_result")
+)
+def test_a_forged_ordered_scalar_read_fails_the_verifiers(
+    tmp_path: Path, mutation: str
+) -> None:
+    from dataclasses import replace
+
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+        verify_row_bytes,
+        verify_row_query,
+    )
+
+    _, outcome = _ordered(tmp_path, "postgres")
+    artifact = outcome.artifact
+    assert artifact is not None
+    query, final, read, _ = _ordered_read(artifact)
+    result = read.target.producer
+    assert result.limit is not None and result.order is not None
+    # Valid-looking values: another static limit, the other direction, the
+    # let's own projection (it has the read column too) and the name of the
+    # statement's own CTE.
+    changes = {
+        "limit_value": [(result.limit, "value", 2)],
+        "order_direction": [(result.order.items[0], "direction", "ASC")],
+        "dropped_result": [(read.target, "producer", result.scan.body)],
+        "named_result": [(result, "symbol", query.bodies[0].symbol)],
+    }[mutation]
+    originals = [(node, name, getattr(node, name)) for node, name, _ in changes]
+    try:
+        for node, name, value in changes:
+            object.__setattr__(node, name, value)
+        assert not verify_row_query(artifact.request, query)
+    finally:
+        for node, name, value in originals:
+            object.__setattr__(node, name, value)
+    assert verify_row_query(artifact.request, query)
+    # The bytes of another limit or direction under the same tree are refused.
+    sql = artifact.rendered.sql.decode()
+    corrupted = (
+        sql.replace(" LIMIT 1) AS ", " LIMIT 2) AS ")
+        if mutation == "limit_value"
+        else sql.replace(" DESC LIMIT 1)", " ASC LIMIT 1)")
+    )
+    assert corrupted != sql
+    changed = replace(artifact.rendered, sql=corrupted.encode("utf-8"))
+    assert not verify_row_bytes(artifact.ast, changed)
+    assert not verify_project_sql_emission(
+        replace(artifact, rendered=changed), artifact.request
+    ).verified
+
+
+def test_the_verifier_refuses_a_mysql_ordered_scalar_read_on_its_own(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # With the emission's own refusal lifted, the independent verifier still
+    # refuses the MySQL tree, so no artifact exists.
+    from pietto._project import project_sql_emission_ast as sql_ast
+
+    monkeypatch.setattr(
+        sql_ast, "ORDERED_INLINE_READ_TARGETS", frozenset({"postgres", "mysql"})
+    )
+    _, outcome = _ordered(tmp_path, "mysql")
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert outcome.artifact is None and document["status"] == "BLOCKED"
+    assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]

@@ -26,6 +26,7 @@ from pietto._project.project_compiled_schema import (
     row_bindings,
     scalar_wire,
     selected_relations,
+    unit_captured_reads,
     unit_position,
 )
 
@@ -528,13 +529,6 @@ def verify_description(value: Description) -> None:
                     "LATERAL_JOIN_KIND",
                 )
                 uses = tuple(u for u in uses if u.get("ordinal") == 0)
-            else:
-                # Only an existence read executes a capturing let.
-                need(
-                    ref(block.get("operation"), {"operation"}).get("operator")
-                    == ("exists", "exists"),
-                    "CAPTURE_USE",
-                )
             inner = records[block.get("producer")]
             need(
                 type(get("ordinal")) is int
@@ -546,6 +540,14 @@ def verify_description(value: Description) -> None:
                 and inner.address.kind in ("row", "result")
                 and unit_position(inner) is None,
                 "CAPTURE_USE",
+            )
+            # MySQL reads a let's ORDER BY and LIMIT only LATERAL, never in a
+            # scalar or IN read, as at emission (D70.05).
+            need(
+                family == "postgres"
+                or block.address.kind == "use"
+                or inner.address.kind == "row",
+                "MYSQL_CORRELATED_ORDER",
             )
         elif kind == "literal":
             need(
@@ -1487,8 +1489,12 @@ def verify_description(value: Description) -> None:
     # the let's inline units, so no inline unit of a read is named like a
     # relation of that unit (its scan or JOIN inputs, or the e<n> of a block
     # read it makes) or like another unit of the same let; the inputs of one
-    # JOIN or set have distinct aliases. Any other unit is another scope, where
-    # an alias may repeat, and a retained unit is never rendered.
+    # JOIN or set have distinct aliases. The one exception is the ORDER BY and
+    # LIMIT wrapper of a `scalar` or `in` read, holding no reference: it names
+    # the derived table every reference lies inside, never in scope there, and
+    # PostgreSQL's wrapper of a JOIN reader repeats the reader's alias. Any
+    # other unit is another scope, where an alias may repeat, and a retained
+    # unit is never rendered.
     for address in execution:
         if "layout" not in FIELDS[address.kind]:
             continue
@@ -1525,14 +1531,21 @@ def verify_description(value: Description) -> None:
             if r.address.kind == "expression_block_use"
             and r.get("consumer") == consumer
         )
-        names, current = [], records[read].get("producer")
+        chain, current = [], records[read].get("producer")
         while current in inline:
-            names.append(records[current].get("layout")[2])
+            chain.append(current)
             current = incoming[current][0]
+        names = [records[unit].get("layout")[2] for unit in chain]
+        wrapper = (
+            read.kind == "expression_block_use"
+            and bool(chain)
+            and chain[0].kind == "result"
+            and not unit_captured_reads(records, chain[0])
+        )
         need(
             all(type(n) is str for n in names)
             and len(set(names)) == len(names)
-            and not set(names) & visible,
+            and not set(names[1:] if wrapper else names) & visible,
             "ALIASES",
         )
     retained = entry.get("retained")
@@ -3706,12 +3719,17 @@ def _verify_compiled_emission(artifact, request):
                 block_use = described[0]
                 target = actual.target
                 producer_address = block_use.get("producer")
-                if producer_address in inline_units:
+                inline = producer_address in inline_units
+                if inline:
                     need(
                         type(actual) is rows.SQLBlockRead
-                        and type(target) is rows.SQLBlockTarget,
+                        and type(target) is rows.SQLBlockTarget
+                        and len(actual.operands) == len(children),
                         "EMISSION_BLOCK_READ",
                     )
+                    # A membership read renders its left value before the let.
+                    for operand, child in zip(actual.operands, children, strict=True):
+                        scalar(operand, child, producer, use, join_contexts)
                     check_inline(actual, block_use, use, producer)
                 need(
                     type(actual) is rows.SQLBlockRead
@@ -3736,8 +3754,9 @@ def _verify_compiled_emission(artifact, request):
                     ),
                     "EMISSION_BLOCK_READ",
                 )
-                for operand, child in zip(actual.operands, children, strict=True):
-                    scalar(operand, child, producer, use, join_contexts)
+                if not inline:
+                    for operand, child in zip(actual.operands, children, strict=True):
+                        scalar(operand, child, producer, use, join_contexts)
                 return
             if type(actual) is parameters.SQLUnary:
                 need(

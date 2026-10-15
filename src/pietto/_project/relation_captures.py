@@ -4,12 +4,14 @@ Phase70 S10 admits, in EXPLICIT_MODULES projects only, a relation let whose
 body starts with ``capture NAME`` lines (D70.03, owner rule of 2026-10-14). Each
 line names one FROM or JOIN row input of the declaration body, whose current
 row the let reads through qualified names ``NAME.field`` only. The let is
-read once, by ``exists`` written in that declaration body (D70.04) or, LATERAL
+read once, by ``exists``, ``scalar``, ``in`` or ``not in`` written in that
+declaration body (D70.04; Phase70 S10, S14) or, LATERAL
 (Phase70 S12, S13), as the target of a CROSS, INNER or LEFT JOIN of that body
 whose capture lines name inputs left of it (D70.03); its body is a FROM
 relation with an optional WHERE and an ungrouped, window-free SELECT; a let
-read LATERAL may end in an ungrouped ORDER BY that reads no captured field,
-and LIMIT.
+read LATERAL or by ``scalar``, ``in`` or ``not in`` may end in an ungrouped
+ORDER BY that reads no captured field, and LIMIT (MySQL emission refuses the
+latter readers, D70.05).
 
 Everything here reads authored syntax only and runs before semantic analysis,
 like the query-header refusals: a refused capture stops that run's semantic
@@ -216,14 +218,24 @@ def takes_order_and_limit(block: BlockRelationDef, let: LetRelationDef) -> bool:
 
     The one reader gate for a let with capture lines ending in ORDER BY and
     LIMIT (a top-k per outer row): a let the declaration body joins (LATERAL)
-    takes them, even when it is read more than once, which is refused at each
-    later read (PIE-S2370); an ``exists`` read does not. Every later layer
-    realizes and verifies those bodies inside whatever read renders the let.
+    or reads by ``scalar``, ``in`` or ``not in`` takes them, even when it is
+    read more than once, which is refused at each later read (PIE-S2370); an
+    ``exists`` read does not. Every later layer realizes and verifies those
+    bodies inside whatever read renders the let; MySQL emission refuses them
+    inside a ``scalar`` or ``in`` read (D70.05).
     """
 
     body = block.body
-    return type(body) is SelectBody and any(
+    if type(body) is SelectBody and any(
         join.target_relation_name == let.name for join in body.join_clauses
+    ):
+        return True
+    nodes: list[Node] = []
+    _walk(body, nodes)
+    return any(
+        type(node) in (RelationScalarExpr, RelationMembershipExpr)
+        and _read_name(node) == let.name
+        for node in nodes
     )
 
 
@@ -382,11 +394,7 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
         let = names.get(_read_name(node))
         if let is None:
             continue
-        if (
-            type(node) in (RelationExistsExpr, JoinClause)
-            and in_body
-            and let.name not in admitted
-        ):
+        if type(node) in (*_READS, JoinClause) and in_body and let.name not in admitted:
             admitted.add(let.name)
             if type(node) is JoinClause:
                 found.extend(_lateral_diagnostics(block, let, node, outer))
@@ -395,7 +403,7 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
             _diagnostic(
                 "unsupported",
                 f"Let {let.name} with capture lines can be read only once, by "
-                f"exists or a join in the body of {block.name}.",
+                f"exists, scalar, in or a join in the body of {block.name}.",
                 node.span,
             )
         )

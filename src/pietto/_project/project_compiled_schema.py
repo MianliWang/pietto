@@ -701,26 +701,32 @@ def captured_reads(records):
     found: dict[Address, list[tuple[Address, Any]]] = {}
     for block, captures in described.items():
         for unit in inline_units(records, block):
-            seen, pending = set(), list(records[unit].values)
-            while pending:
-                value = pending.pop()
-                if type(value) is tuple:
-                    pending.extend(value)
-                    continue
-                if type(value) is not Address or value in seen:
-                    continue
-                seen.add(value)
-                if value.kind in _SCALAR_CONTAINERS:
-                    pending.extend(records[value].values)
-                elif value.kind == "read" and records[value].get("role") == "capture":
-                    port = records[value].get("port")
-                    owners = tuple(
-                        c.address for c in captures if port in c.get("ports")
-                    )
-                    found.setdefault(value, []).append(
-                        (block, owners[0] if len(owners) == 1 else None)
-                    )
+            for value in unit_captured_reads(records, unit):
+                port = records[value].get("port")
+                owners = tuple(c.address for c in captures if port in c.get("ports"))
+                found.setdefault(value, []).append(
+                    (block, owners[0] if len(owners) == 1 else None)
+                )
     return {read: tuple(pairs) for read, pairs in found.items()}
+
+
+def unit_captured_reads(records, unit):
+    """The captured field reads in one unit's own values, where its own
+    alias is in scope; a read found twice is listed twice."""
+    found, seen, pending = [], set(), list(records[unit].values)
+    while pending:
+        value = pending.pop()
+        if type(value) is tuple:
+            pending.extend(value)
+            continue
+        if type(value) is not Address or value in seen:
+            continue
+        seen.add(value)
+        if value.kind in _SCALAR_CONTAINERS:
+            pending.extend(records[value].values)
+        elif value.kind == "read" and records[value].get("role") == "capture":
+            found.append(value)
+    return tuple(found)
 
 
 def selected_relations(records, entry):

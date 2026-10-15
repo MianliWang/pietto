@@ -508,17 +508,29 @@ table result:
 
 
 # A capture-free let and (Phase70 S10) a let with a capture line, inline at its
-# read; both are read only by EXISTS.
+# read; both are read by EXISTS and (Phase70 S14) the captured let by a
+# correlated scalar or NOT IN read, also when it ends in ORDER BY and LIMIT.
 EXISTS_LETS = {
     "let": "        from tags\n",
     "captured": "        capture items\n        from tags\n"
     "        where tags.label == items.label\n",
+    "ordered": "        capture items\n        from tags\n"
+    "        where tags.label == items.label\n",
+}
+ORDER_TAILS = {"ordered": "        order by:\n            id desc\n        limit 1\n"}
+BLOCK_READS = {
+    ("let", "exists"): "exists tagged",
+    ("captured", "exists"): "exists tagged",
+    ("captured", "not_in"): "id not in tagged",
+    ("captured", "scalar"): "id <= scalar tagged.tag_id",
+    ("ordered", "not_in"): "id not in tagged",
+    ("ordered", "scalar"): "id <= scalar tagged.tag_id",
 }
 
 
-@pytest.mark.parametrize("let", sorted(EXISTS_LETS))
-def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
-    tmp_path, monkeypatch, let
+@pytest.mark.parametrize(("let", "read"), sorted(BLOCK_READS))
+def test_live_refinement_refuses_a_let_read_after_its_source_closure(
+    tmp_path, monkeypatch, let, read
 ):
     import _pietto_execution_api as api
     from pietto._project.project_execution_template import bind_values
@@ -531,8 +543,10 @@ def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
         + 'source tags: Item is postgres.table("fixture.tags")\n'
         "table flagged_items:\n    let tagged:\n"
         + EXISTS_LETS[let]
-        + "        select:\n            tag_id = id\n    from items\n"
-        "    where exists tagged\n    select:\n        id = items.id\n",
+        + "        select:\n            tag_id = id\n"
+        + ORDER_TAILS.get(let, "")
+        + "    from items\n"
+        f"    where {BLOCK_READS[let, read]}\n    select:\n        id = items.id\n",
         encoding="utf-8",
     )
     contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
@@ -573,7 +587,7 @@ def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
         )
         for s in sources
     )
-    # The source read only through the existence read is a required input,
+    # The source read only through the let read is a required input,
     # then the read itself is refused before any connection.
     with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
         proposal.prepare_live_refinement(query, binding, inputs[:1])

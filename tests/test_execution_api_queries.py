@@ -2966,9 +2966,13 @@ def test_a_compiled_capture_names_the_outer_ports_of_its_read(tmp_path):
         ("scalar", "scalar"),
     ),
 )
-def test_a_capturing_let_read_other_than_exists_is_refused_on_load(tmp_path, operator):
-    # A membership or scalar read of the single-column capturing let is a
-    # valid block read elsewhere; only an existence read executes the let.
+def test_a_capturing_let_read_by_another_operator_is_that_read_on_load(
+    tmp_path, operator
+):
+    # Phase70 S14: a capturing let also executes in a membership or scalar
+    # read. The existence read's records relabelled as one describe that read:
+    # IN and NOT IN load and render it inline; a scalar read is no WHERE
+    # condition. None fails inside the loader.
     bundle = execution.export_bundle(_matched(tmp_path))
     description = decode(bundle.payload)
     records = {r.address: r for r in description.records}
@@ -2997,12 +3001,18 @@ def test_a_capturing_let_read_other_than_exists_is_refused_on_load(tmp_path, ope
             block.address: (*block.values[:3], 0),
         },
     )
-    with pytest.raises(CompiledError, match="CAPTURE_USE"):
-        verify_description(forged)
+    verify_description(forged)
     raw = encode(forged)
-    assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
-        "PIE-R1008",
-        "COMPILED_CAPTURE_USE",
+    if operator[0] == "scalar":
+        assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+            "PIE-R1004",
+            "COMPILED_OPERATOR_TYPE",
+        )
+        return
+    sql = load(bundle, raw, expected_pin=content_pin(raw))._template.artifact.rendered
+    keyword = "IN" if operator[1] == "in" else "NOT IN"
+    assert f'"s1"."item_id" {keyword} (SELECT "e0"."c0" FROM (SELECT '.encode() in (
+        sql.sql
     )
 
 
@@ -3459,6 +3469,63 @@ def test_a_loaded_inline_let_alias_names_no_relation_of_its_reader(tmp_path):
     raw = encode(_records_changed(joined_description, _aliased(join, ("m0", inline))))
     renamed = load(joined, raw, expected_pin=content_pin(raw))
     assert f'LEFT JOIN "public"."phase66 rhs é" AS "{inline}"'.encode() in (
+        renamed._template.artifact.rendered.sql
+    )
+
+
+# Phase70 S14 x S12: a JOIN reader's ordered `scalar` and `in` reads.
+ORDERED_JOIN_READER = (
+    "query result:\n    let c:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            id\n"
+    "        order by:\n            id desc\n        limit 1\n"
+    "    from lhs\n    inner join rhs as t:\n        from lhs\n"
+    "        on t.id == lhs.id\n"
+)
+ORDERED_JOIN_READS = {
+    "in": "    where lhs.id in c\n    select:\n        a = lhs.id\n",
+    "scalar": "    select:\n        a = lhs.id\n        x = scalar c.id\n",
+}
+
+
+@pytest.mark.parametrize("shape", sorted(ORDERED_JOIN_READS))
+def test_an_ordered_read_of_a_join_reader_compiles_and_loads(tmp_path, shape):
+    # PostgreSQL's ORDER BY and LIMIT wrapper of the read repeats the JOIN
+    # reader's stage alias: it names the derived table every correlated
+    # reference lies inside, never in scope there. A unit the references lie
+    # in, or between them and the wrapper, still takes no alias of the reader.
+    body = ORDERED_JOIN_READER + ORDERED_JOIN_READS[shape]
+    for policy in ("preserve", "bind-safe"):
+        project = _witness(tmp_path / policy, body, "postgres", policy)
+        _, bundle = _witness_round_trip(project, "postgres", policy)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    (block,) = [
+        r for r in description.records if r.address.kind == "expression_block_use"
+    ]
+    reader = records[block.get("consumer")].get("layout")[2]
+    wrapper = records[block.get("producer")]
+    assert wrapper.address.kind == "result" and wrapper.get("layout")[2] == reader
+    inner = [
+        r
+        for r in description.records
+        if "layout" in FIELDS[r.address.kind]
+        and r.get("layout")[-1] is None
+        and r is not wrapper
+    ]
+    assert [r.address.kind for r in inner] == ["row", "row"]
+    for unit in inner:
+        forged = _records_changed(description, _aliased(unit, reader))
+        with pytest.raises(CompiledError, match="^COMPILED_ALIASES$"):
+            verify_description(forged)
+        raw = encode(forged)
+        assert refused(load, bundle, raw, expected_pin=content_pin(raw)) == (
+            "PIE-R1008",
+            "COMPILED_ALIASES",
+        )
+    # The wrapper renamed alone renames that one derived table.
+    raw = encode(_records_changed(description, _aliased(wrapper, "zz")))
+    renamed = load(bundle, raw, expected_pin=content_pin(raw))
+    assert b'AS "zz" ORDER BY "zz"."c1" DESC' in (
         renamed._template.artifact.rendered.sql
     )
 
@@ -4110,3 +4177,334 @@ def test_a_compiled_left_lateral_join_round_trips(tmp_path, unconnected):
     assert loaded._template.artifact.rendered.sql == sql
     handle = run(loaded, route="postgres_rows")
     assert handle.outcome.end == "NOT_STARTED"
+
+
+# Phase70 S14: a NOT IN read in WHERE and a scalar read in SELECT of two lets
+# with capture lines; each let compiles inline at its own read, and each
+# capture_use record names that read's expression block use.
+CORRELATED_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table correlated_items:
+    let same_label:
+        capture items
+        from tags
+        where tags.label == items.label and tags.id > 1
+        select:
+            tag_id = id
+    let same_id:
+        capture items
+        from tags
+        where tags.id == items.id
+        select:
+            tag_id = id
+            label
+    from items
+    where items.id not in same_label
+    select:
+        id = items.id
+        tag_label = scalar same_id.label
+"""
+CORRELATED_ITEMS_SQL = (
+    b'WITH "p0" ("c0", "c1") AS (SELECT "s2"."item_id" AS "c0", '
+    b'"s2"."item_label" AS "c1" FROM "fixture"."items" AS "s2" '
+    b'WHERE ("s2"."item_id" NOT IN (SELECT "e0"."c0" FROM '
+    b'(SELECT "t1"."c0" AS "c0" FROM (SELECT "s0"."item_id" AS "c0", '
+    b'"s0"."item_label" AS "c1" FROM "fixture"."tags" AS "s0" '
+    b'WHERE (("s0"."item_label" = "s2"."item_label") AND '
+    b'("s0"."item_id" > CAST($1 AS pg_catalog.int8)))) AS "t1") AS "e0"))) '
+    b'SELECT "t5"."c0" AS "id", (SELECT "e1"."c1" FROM '
+    b'(SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1" FROM '
+    b'(SELECT "s1"."item_id" AS "c0", "s1"."item_label" AS "c1" '
+    b'FROM "fixture"."tags" AS "s1" WHERE ("s1"."item_id" = "t5"."c0")) '
+    b'AS "t3") AS "e1") AS "tag_label" FROM "p0" AS "t5"'
+)
+
+
+@pytest.mark.parametrize("policy", ("preserve", "bind-safe"))
+def test_compiled_correlated_scalar_and_in_reads_round_trip(
+    tmp_path, unconnected, policy
+):
+    query = execution.compile_query(
+        let_example(tmp_path, CORRELATED_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="correlated_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+    expected = CORRELATED_ITEMS_SQL
+    if policy == "preserve":
+        expected = expected.replace(b"CAST($1 AS", b"CAST(1 AS")
+    assert query._template.artifact.rendered.sql == expected
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    captures = [r for r in description.records if r.address.kind == "capture_use"]
+    reads = [records[c.get("read")] for c in captures]
+    assert [
+        (records[r.get("operation")].get("operator"), r.get("column")) for r in reads
+    ] == [(("relation_membership", "not_in"), 0), (("scalar", "scalar"), 1)]
+    # Each let is an inline unit read by its own reading body's use.
+    assert all(records[r.get("producer")].get("layout")[-1] is None for r in reads)
+    assert reads[0].get("consumer") != reads[1].get("consumer")
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert loaded._template.artifact.rendered.sql == expected
+    handle = run(loaded, route="postgres_rows")
+    assert handle.outcome.end == "NOT_STARTED"
+    assert [s.name for s in handle._owner.request.binding.artifact.request.sources] == [
+        "items",
+        "tags",
+    ]
+
+
+def test_compiled_correlated_reads_refuse_valid_looking_forgeries(tmp_path):
+    outcome, _ = emit_project(
+        let_example(tmp_path, CORRELATED_TAGS),
+        "main.pietto",
+        "table",
+        "correlated_items",
+        "postgres",
+        "contract.json",
+        POLICIES["bind-safe"],
+    )
+    live = decode(build_compiled(outcome.artifact).payload)
+    verify_export(live, outcome.artifact)
+    records = {r.address: r for r in live.records}
+    first, second = [r for r in live.records if r.address.kind == "capture_use"]
+    # Each capture names the other let's read: refused by the description.
+    with pytest.raises(CompiledError):
+        verify_description(
+            _records_changed(
+                live,
+                {
+                    first.address: (second.get("read"), *first.values[1:]),
+                    second.address: (first.get("read"), *second.values[1:]),
+                },
+            )
+        )
+    # The scalar read names the let's other existing output: a coherent
+    # description that the export verifier refuses against the live statement.
+    scalar = records[second.get("read")]
+    names = FIELDS["expression_block_use"]
+    values = dict(zip(names, scalar.values, strict=True)) | {"column": 0}
+    forged = _records_changed(
+        live, {scalar.address: tuple(values[name] for name in names)}
+    )
+    verify_description(forged)
+    with pytest.raises(CompiledError):
+        verify_export(forged, outcome.artifact)
+
+
+def test_each_route_prepares_correlated_scalar_and_in_reads(tmp_path, unconnected):
+    import _pietto_sql_emission as probe
+
+    item = probe.join_witness(
+        "mysql",
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        "    let n:\n        capture lhs\n        from rhs\n"
+        "        where rhs.id == lhs.id\n        select:\n            key\n"
+        "    from lhs\n    where lhs.id in m\n"
+        "    select:\n        a = lhs.id\n        k = scalar n.key\n",
+    )
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    mysql_query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    exported = execution.export_bundle(mysql_query)
+    assert execution.export_bundle(load(exported)).payload == exported.payload
+    handle = execution.execute(
+        mysql_query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+    )
+    assert handle.route == "mysql_rows" and handle.outcome.end == "NOT_STARTED"
+    assert [s.name for s in handle._owner.request.artifact.request.sources] == [
+        "phase66 lhs é",
+        "phase66 rhs é",
+    ]
+    query = execution.compile_query(
+        let_example(tmp_path / "pg", CORRELATED_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="correlated_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+
+
+# Owner decision 2026-10-15 (D70.05): both lets end in ORDER BY and LIMIT. On
+# PostgreSQL each read wraps its let's inline chain, result body included, in
+# its own derived table; MySQL refuses the read before any SQL or connection.
+ORDERED_TAGS = CORRELATED_TAGS.replace(
+    "            tag_id = id\n    let same_id:",
+    "            tag_id = id\n        order by:\n            id desc\n"
+    "        limit 2\n    let same_id:",
+).replace(
+    "            label\n    from items",
+    "            label\n        order by:\n            id\n        limit 1\n"
+    "    from items",
+)
+ORDERED_ITEMS_SQL = (
+    b'WITH "p0" ("c0", "c1") AS (SELECT "s2"."item_id" AS "c0", '
+    b'"s2"."item_label" AS "c1" FROM "fixture"."items" AS "s2" '
+    b'WHERE ("s2"."item_id" NOT IN (SELECT "e0"."c0" FROM '
+    b'(SELECT "t0"."c0" AS "c0" FROM (SELECT "t1"."c0" AS "c0", '
+    b'"t1"."c0" AS "c1" FROM (SELECT "s0"."item_id" AS "c0", '
+    b'"s0"."item_label" AS "c1" FROM "fixture"."tags" AS "s0" '
+    b'WHERE (("s0"."item_label" = "s2"."item_label") AND '
+    b'("s0"."item_id" > CAST($1 AS pg_catalog.int8)))) AS "t1") AS "t0" '
+    b'ORDER BY "t0"."c1" DESC LIMIT 2) AS "e0"))) '
+    b'SELECT "t5"."c0" AS "id", (SELECT "e1"."c1" FROM '
+    b'(SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1" FROM '
+    b'(SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1", "t3"."c0" AS "c2" FROM '
+    b'(SELECT "s1"."item_id" AS "c0", "s1"."item_label" AS "c1" '
+    b'FROM "fixture"."tags" AS "s1" WHERE ("s1"."item_id" = "t5"."c0")) '
+    b'AS "t3") AS "t2" ORDER BY "t2"."c2" ASC LIMIT 1) AS "e1") AS "tag_label" '
+    b'FROM "p0" AS "t5"'
+)
+
+
+@pytest.mark.parametrize("policy", ("preserve", "bind-safe"))
+def test_correlated_order_and_limit_reads_compile_and_prepare_on_postgres(
+    tmp_path, unconnected, policy
+):
+    query = execution.compile_query(
+        let_example(tmp_path, ORDERED_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="correlated_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+    expected = ORDERED_ITEMS_SQL
+    if policy == "preserve":
+        expected = expected.replace(b"CAST($1 AS", b"CAST(1 AS")
+    assert query._template.artifact.rendered.sql == expected
+    bundle = execution.export_bundle(query)
+    records = {r.address: r for r in decode(bundle.payload).records}
+    # Each read names its let's inline result unit: no unit position, no
+    # CTE name, not final; no new record kind.
+    results = [
+        records[records[r.get("read")].get("producer")]
+        for r in records.values()
+        if r.address.kind == "capture_use"
+    ]
+    assert [(r.address.kind, r.get("limit")) for r in results] == [
+        ("result", 2),
+        ("result", 1),
+    ]
+    assert all(r.get("layout")[:2] == (None, ()) for r in results)
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    assert loaded._template.artifact.rendered.sql == expected
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(loaded, route=route)
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+
+
+def test_a_mysql_correlated_order_and_limit_read_is_refused_before_any_route(
+    tmp_path, unconnected
+):
+    import contextlib
+    import io
+
+    import _pietto_sql_emission as probe
+    from pietto import cli
+
+    item = probe.join_witness(
+        "mysql",
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n        select:\n            id\n"
+        "        order by:\n            id desc\n        limit 1\n"
+        "    from lhs\n    where lhs.id in m\n    select:\n        a = lhs.id\n",
+    )
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    # The program is valid; only its MySQL emission refuses the read.
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
+    assert json.loads(out.getvalue())["diagnostics"] == []
+    lines = item["source"].splitlines()
+    read_line = lines.index("    where lhs.id in m") + 1
+    with pytest.raises(execution.CompileRejected) as error:
+        execution.compile_query(
+            root,
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+    document = json.loads(error.value.emission)
+    assert error.value.status == document["status"] == "BLOCKED"
+    assert "sql" not in document and document["diagnostics"] == []
+    assert [
+        (
+            b["code"],
+            b["reason"],
+            b["subject"]["detail"],
+            b["location"]["line"],
+            b["location"]["column"],
+        )
+        for b in document["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "UNSUPPORTED_RULE",
+            "mysql_correlated_order_or_limit_read_not_admitted",
+            read_line,
+            11,
+        )
+    ]
+
+
+def test_correlated_declarations_compile_beside_each_other(tmp_path):
+    # Each declaration compiles alone while the other, unselected, keeps its
+    # own correlated reads in the module.
+    text = CORRELATED_TAGS + CAPTURE_TAGS.split("\n", 2)[2]
+    project = let_example(tmp_path, text)
+    for name in ("correlated_items", "matched_items"):
+        query = execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="table",
+            name=name,
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+        bundle = execution.export_bundle(query)
+        assert execution.export_bundle(load(bundle)).payload == bundle.payload
+        captures = [
+            r for r in decode(bundle.payload).records if r.address.kind == "capture_use"
+        ]
+        assert len(captures) == (2 if name == "correlated_items" else 1)

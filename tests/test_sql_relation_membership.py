@@ -516,3 +516,533 @@ def test_reads_share_a_parameterized_statement_and_its_placeholder_stream(
     assert [
         (u["owner"]["kind"], u["server_index"]) for u in document["parameter_uses"]
     ] == [("parameter", 1), *([("slot", 2)] if "bind" in policy else [])]
+
+
+# Phase70 S14: `v [NOT] IN m` of a let with capture lines renders that let
+# inline at the read, `(v [NOT] IN (SELECT e<n>.c0 FROM (<let bodies>) AS
+# e<n>))`; its correlated references name the reading body's alias, its left
+# value renders first and keeps the literal-list three-valued logic.
+CORRELATED = {
+    "select": """query result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > 0
+        select:
+            id
+    from lhs
+    where lhs.id > 1
+    select:
+        a = lhs.id
+        f = lhs.id in matched
+""",
+    # A correlated scalar read is the left value of a correlated NOT IN.
+    "where": """query result:
+    let same:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > 1
+        select:
+            id
+    let other:
+        capture lhs
+        from rhs
+        where rhs.id == lhs.id and rhs.id > 2
+        select:
+            id
+    from lhs
+    where scalar other.id not in same and lhs.id > 3
+    select:
+        a = lhs.id
+""",
+}
+CORRELATED_SQL = {
+    ("select", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", '
+        '"s1"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" '
+        'WHERE ("s1"."order.id" > CAST($1 AS pg_catalog.int8))) '
+        'SELECT "t3"."c0" AS "a", ("t3"."c0" IN (SELECT "e0"."c0" FROM '
+        '(SELECT "t1"."c0" AS "c0" FROM (SELECT "s0"."order.id" AS "c0", '
+        '"s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE (("s0"."key value" = "t3"."c1") AND '
+        '("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0")) '
+        'AS "f" FROM "p0" AS "t3"'
+    ),
+    ("select", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, "
+        "`s1`.`key value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1` "
+        "WHERE (`s1`.`order.id` > CAST(? AS SIGNED))) "
+        "SELECT `t3`.`c0` AS `a`, (`t3`.`c0` IN (SELECT `e0`.`c0` FROM "
+        "(SELECT `t1`.`c0` AS `c0` FROM (SELECT `s0`.`order.id` AS `c0`, "
+        "`s0`.`key value` AS `c1` FROM `phase66`.`phase66 rhs é` AS `s0` "
+        "WHERE ((`s0`.`key value` = `t3`.`c1`) AND "
+        "(`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`)) "
+        "AS `f` FROM `p0` AS `t3`"
+    ),
+    ("where", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s2"."order.id" AS "c0", '
+        '"s2"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s2" '
+        'WHERE (((SELECT "e1"."c0" FROM (SELECT "t3"."c0" AS "c0" FROM '
+        '(SELECT "s1"."order.id" AS "c0", "s1"."key value" AS "c1" '
+        'FROM "public"."phase66 rhs é" AS "s1" '
+        'WHERE (("s1"."order.id" = "s2"."order.id") AND '
+        '("s1"."order.id" > CAST($1 AS pg_catalog.int8)))) AS "t3") AS "e1") '
+        'NOT IN (SELECT "e0"."c0" FROM (SELECT "t1"."c0" AS "c0" FROM '
+        '(SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1" '
+        'FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE (("s0"."key value" = "s2"."key value") AND '
+        '("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0")) '
+        'AND ("s2"."order.id" > CAST($3 AS pg_catalog.int8)))) '
+        'SELECT "t5"."c0" AS "a" FROM "p0" AS "t5"'
+    ),
+    ("where", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s2`.`order.id` AS `c0`, "
+        "`s2`.`key value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `s2` "
+        "WHERE (((SELECT `e1`.`c0` FROM (SELECT `t3`.`c0` AS `c0` FROM "
+        "(SELECT `s1`.`order.id` AS `c0`, `s1`.`key value` AS `c1` "
+        "FROM `phase66`.`phase66 rhs é` AS `s1` "
+        "WHERE ((`s1`.`order.id` = `s2`.`order.id`) AND "
+        "(`s1`.`order.id` > CAST(? AS SIGNED)))) AS `t3`) AS `e1`) "
+        "NOT IN (SELECT `e0`.`c0` FROM (SELECT `t1`.`c0` AS `c0` FROM "
+        "(SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1` "
+        "FROM `phase66`.`phase66 rhs é` AS `s0` "
+        "WHERE ((`s0`.`key value` = `s2`.`key value`) AND "
+        "(`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`)) "
+        "AND (`s2`.`order.id` > CAST(? AS SIGNED)))) "
+        "SELECT `t5`.`c0` AS `a` FROM `p0` AS `t5`"
+    ),
+}
+# The literals of each shape in rendering order (outer before inner in SELECT;
+# the left value's let before the read let before the later conjunct in WHERE).
+CORRELATED_LITERALS = {"select": ("1", "0"), "where": ("2", "1", "3")}
+
+
+def _preserved(sql: str, literals) -> str:
+    for index, literal in enumerate(literals, start=1):
+        sql = sql.replace(f"${index} ", f"{literal} ", 1)
+        sql = sql.replace("CAST(? AS", f"CAST({literal} AS", 1)
+    return sql
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(CORRELATED))
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_correlated_membership_renders_its_let_inline_after_its_value(
+    tmp_path: Path, target: str, shape: str, policy: str
+) -> None:
+    from pietto._project import project_sql_plan_portable as transport
+
+    checked, outcome = _emit(tmp_path, target, CORRELATED[shape], policy=policy)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    expected = CORRELATED_SQL[shape, target]
+    literals = CORRELATED_LITERALS[shape]
+    if policy == "preserve_literals":
+        expected = _preserved(expected, literals)
+    assert document["sql"] == expected
+    assert " LIMIT " not in document["sql"]
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    kinds = {type(plan.expressions[c.read.position]).__name__ for c in plan.captures}
+    assert kinds == (
+        {"ProjectSQLRelationMembership"}
+        if shape == "select"
+        else {"ProjectSQLRelationMembership", "ProjectSQLRelationScalar"}
+    )
+    # Every let is inline: no CTE but the reading body's own.
+    quote = "`" if target == "mysql" else '"'
+    assert f"{quote}p1{quote}" not in document["sql"]
+    if shape == "select":
+        assert [(c["label"], c["nullable"]) for c in document["columns"]] == [
+            ("a", False),
+            ("f", True),
+        ]
+    artifact = outcome.artifact
+    assert artifact is not None
+    kinds_rules = [(r.kind, r.rule) for r in artifact.generated_requirements]
+    assert kinds_rules.count(("inline_stage_use", "R11")) == len(plan.captures)
+    if policy == "bind_safe_literals":
+        assert [(u.ordinal, u.server_index) for u in artifact.parameter_uses] == [
+            (i, i + 1) for i in range(len(literals))
+        ]
+    _observed(artifact)
+    with pytest.raises(transport.TransportError) as refused:
+        transport.build_project_sql_plan_portable(checked)
+    assert refused.value.issue is transport.RuntimeIssue.UNSUPPORTED_VALUE
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "mutation", ("swapped_targets", "other_kind", "inner_producer", "rendered_sql")
+)
+def test_a_forged_correlated_membership_fails_the_verifiers(
+    tmp_path: Path, target: str, mutation: str
+) -> None:
+    _, outcome = _emit(tmp_path, target, CORRELATED["where"])
+    artifact = outcome.artifact
+    assert artifact is not None
+    request = artifact.request
+    assert verify_project_sql_emission(artifact, request).verified
+    membership, scalar = sorted(_block_reads(artifact), key=lambda r: r.kind)
+    assert (membership.kind, scalar.kind) == ("not_in", "scalar")
+    if mutation == "rendered_sql":
+        # The let's alias of the other read: a valid alias of the statement.
+        sql = artifact.rendered.sql
+        q = b'"' if target == "postgres" else b"`"
+        changed = sql.replace(
+            b"NOT IN (SELECT " + q + b"e0", b"NOT IN (SELECT " + q + b"e1"
+        )
+        assert changed != sql
+        object.__setattr__(artifact.rendered, "sql", changed)
+        try:
+            assert not verify_project_sql_emission(artifact, request).verified
+        finally:
+            object.__setattr__(artifact.rendered, "sql", sql)
+        return
+    # Valid-looking values: the other inline let's target (both read the same
+    # row), the membership's other kind, the let's own inner stage body.
+    changes = {
+        "swapped_targets": [
+            (membership, "target", scalar.target),
+            (scalar, "target", membership.target),
+        ],
+        "other_kind": [(membership, "kind", "in")],
+        "inner_producer": [
+            (membership.target, "producer", membership.target.producer.scan.body)
+        ],
+    }[mutation]
+    originals = [(node, name, getattr(node, name)) for node, name, _ in changes]
+    try:
+        for node, name, value in changes:
+            object.__setattr__(node, name, value)
+        assert not verify_project_sql_emission(artifact, request).verified
+    finally:
+        for node, name, value in originals:
+            object.__setattr__(node, name, value)
+    assert verify_project_sql_emission(artifact, request).verified
+
+
+# A let read by `in` or `not in` may read a relation whose columns are known
+# only after completion (a set or a typed VALUES body, read through a let); on
+# PostgreSQL its ORDER BY and LIMIT wrapper may repeat a JOIN reader's alias,
+# since every correlated reference lies inside the derived table it names.
+OWN_FROM_MEMBERSHIP = {
+    "set_not_in": """query result:
+    let s:
+        union all:
+            from lhs
+            from rhs
+    let m:
+        capture lhs
+        from s
+        where s.key == lhs.key
+        select:
+            id
+    from lhs
+    where lhs.id not in m
+    select:
+        a = lhs.id
+""",
+    "values_in": """query result:
+    let s:
+        values(id: Int not null, key: Int nullable):
+            1, 2
+            3, null
+    let m:
+        capture lhs
+        from s
+        where s.key == lhs.key or s.id > 5
+        select:
+            id
+    from lhs
+    select:
+        a = lhs.id
+        b = lhs.id in m
+""",
+}
+OWN_FROM_MEMBERSHIP_SQL = {
+    ("set_not_in", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS ((SELECT "o0"."order.id" AS "c0", '
+        '"o0"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "o0") '
+        'UNION ALL (SELECT "o1"."order.id" AS "c0", "o1"."key value" AS '
+        '"c1" FROM "public"."phase66 rhs é" AS "o1")), "p1" ("c0", "c1") AS '
+        '(SELECT "s3"."order.id" AS "c0", "s3"."key value" AS "c1" FROM '
+        '"public"."phase66 lhs é" AS "s3" WHERE ("s3"."order.id" NOT IN '
+        '(SELECT "e0"."c0" FROM (SELECT "t1"."c0" AS "c0" FROM (SELECT '
+        '"s2"."c0" AS "c0", "s2"."c1" AS "c1" FROM "p0" AS "s2" WHERE '
+        '("s2"."c1" = "s3"."key value")) AS "t1") AS "e0"))) SELECT '
+        '"t3"."c0" AS "a" FROM "p1" AS "t3"'
+    ),
+    ("set_not_in", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS ((SELECT `o0`.`order.id` AS `c0`, "
+        "`o0`.`key value` AS `c1` FROM `phase66`.`phase66 lhs é` AS `o0`) "
+        "UNION ALL (SELECT `o1`.`order.id` AS `c0`, `o1`.`key value` AS "
+        "`c1` FROM `phase66`.`phase66 rhs é` AS `o1`)), `p1` (`c0`, `c1`) "
+        "AS (SELECT `s3`.`order.id` AS `c0`, `s3`.`key value` AS `c1` FROM "
+        "`phase66`.`phase66 lhs é` AS `s3` WHERE (`s3`.`order.id` NOT IN "
+        "(SELECT `e0`.`c0` FROM (SELECT `t1`.`c0` AS `c0` FROM (SELECT "
+        "`s2`.`c0` AS `c0`, `s2`.`c1` AS `c1` FROM `p0` AS `s2` WHERE "
+        "(`s2`.`c1` = `s3`.`key value`)) AS `t1`) AS `e0`))) SELECT "
+        "`t3`.`c0` AS `a` FROM `p1` AS `t3`"
+    ),
+    ("values_in", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (VALUES (CAST(1 AS pg_catalog.int8), '
+        "CAST(2 AS pg_catalog.int8)), (CAST(3 AS pg_catalog.int8), "
+        'CAST(NULL AS pg_catalog.int8))) SELECT "s1"."order.id" AS "a", '
+        '("s1"."order.id" IN (SELECT "e0"."c0" FROM (SELECT "t1"."c0" AS '
+        '"c0" FROM (SELECT "s0"."c0" AS "c0", "s0"."c1" AS "c1" FROM "p0" '
+        'AS "s0" WHERE (("s0"."c1" = "s1"."key value") OR ("s0"."c0" > '
+        'CAST($1 AS pg_catalog.int8)))) AS "t1") AS "e0")) AS "b" FROM '
+        '"public"."phase66 lhs é" AS "s1"'
+    ),
+    ("values_in", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (VALUES ROW(CAST(1 AS SIGNED), CAST(2 AS "
+        "SIGNED)), ROW(CAST(3 AS SIGNED), CAST(NULL AS SIGNED))) SELECT "
+        "`s1`.`order.id` AS `a`, (`s1`.`order.id` IN (SELECT `e0`.`c0` FROM "
+        "(SELECT `t1`.`c0` AS `c0` FROM (SELECT `s0`.`c0` AS `c0`, "
+        "`s0`.`c1` AS `c1` FROM `p0` AS `s0` WHERE ((`s0`.`c1` = `s1`.`key "
+        "value`) OR (`s0`.`c0` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`)) AS "
+        "`b` FROM `phase66`.`phase66 lhs é` AS `s1`"
+    ),
+}
+OWN_FROM_ORDERED = {
+    "values_in_ordered": """query result:
+    let s:
+        values(id: Int not null, key: Int nullable):
+            1, 2
+            3, null
+    let m:
+        capture lhs
+        from s
+        where s.key == lhs.key
+        select:
+            id
+        order by:
+            id desc
+        limit 1
+    from lhs
+    inner join rhs as r:
+        from lhs
+        on r.id == lhs.id
+    where lhs.id in m
+    select:
+        a = lhs.id
+""",
+}
+OWN_FROM_ORDERED_SQL = {
+    ("values_in_ordered", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (VALUES (CAST(1 AS pg_catalog.int8), '
+        "CAST(2 AS pg_catalog.int8)), (CAST(3 AS pg_catalog.int8), "
+        'CAST(NULL AS pg_catalog.int8))), "p1" ("c0", "c1", "c2", "c3") AS '
+        '(SELECT "m0"."order.id" AS "c0", "m0"."key value" AS "c1", '
+        '"m1"."order.id" AS "c2", "m1"."key value" AS "c3" FROM '
+        '"public"."phase66 lhs é" AS "m0" INNER JOIN "public"."phase66 rhs '
+        'é" AS "m1" ON ("m1"."order.id" = "m0"."order.id")), "p2" ("c0", '
+        '"c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", '
+        '"t0"."c2" AS "c2", "t0"."c3" AS "c3" FROM "p1" AS "t0" WHERE '
+        '("t0"."c0" IN (SELECT "e0"."c0" FROM (SELECT "t0"."c0" AS "c0" '
+        'FROM (SELECT "t1"."c0" AS "c0", "t1"."c0" AS "c1" FROM (SELECT '
+        '"s0"."c0" AS "c0", "s0"."c1" AS "c1" FROM "p0" AS "s0" WHERE '
+        '("s0"."c1" = "t0"."c1")) AS "t1") AS "t0" ORDER BY "t0"."c1" DESC '
+        'LIMIT 1) AS "e0"))) SELECT "t3"."c0" AS "a" FROM "p2" AS "t3"'
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(OWN_FROM_MEMBERSHIP))
+def test_a_membership_read_let_reads_a_relation_known_after_completion(
+    tmp_path: Path, target: str, shape: str
+) -> None:
+    _, outcome = _emit(
+        tmp_path, target, OWN_FROM_MEMBERSHIP[shape], policy="bind_safe_literals"
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == OWN_FROM_MEMBERSHIP_SQL[shape, target]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_an_ordered_membership_of_a_join_reader_reads_a_relation_known_later(
+    tmp_path: Path, target: str
+) -> None:
+    _, outcome = _emit(
+        tmp_path,
+        target,
+        OWN_FROM_ORDERED["values_in_ordered"],
+        policy="bind_safe_literals",
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        assert document["status"] == "BLOCKED"
+        assert [
+            (b["code"], b["subject"]["detail"], b["location"]["line"])
+            for b in document["blockers"]
+        ] == [("PIE-B1003", "mysql_correlated_order_or_limit_read_not_admitted", 24)]
+        return
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == OWN_FROM_ORDERED_SQL["values_in_ordered", target]
+
+
+# Owner decision 2026-10-15 (D70.05): a correlated `[not] in` of a let ending in
+# ORDER BY and LIMIT is PostgreSQL only. The let's result body stays inside the
+# read's own derived table, so no IN subquery carries a LIMIT itself:
+# `(v [NOT] IN (SELECT e<n>.c0 FROM (... ORDER BY ... LIMIT <n>) AS e<n>))`.
+# MySQL emission refuses the read before any SQL exists.
+ORDERED = {
+    # ORDER BY a field the let does not select (a hidden column), then its own.
+    "select": CORRELATED["select"].replace(
+        "            id\n    from lhs",
+        "            id\n        order by:\n            key desc\n            id\n"
+        "        limit 2\n    from lhs",
+    ),
+    "where": """query result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.key == lhs.key and rhs.id > 2
+        select:
+            id
+        order by:
+            id
+        limit 2
+    from lhs
+    where lhs.id not in matched and lhs.id > 3
+    select:
+        a = lhs.id
+""",
+}
+ORDERED_SQL = {
+    "select": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", '
+        '"s1"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" '
+        'WHERE ("s1"."order.id" > CAST($1 AS pg_catalog.int8))) '
+        'SELECT "t3"."c0" AS "a", ("t3"."c0" IN (SELECT "e0"."c0" FROM '
+        '(SELECT "t0"."c0" AS "c0" FROM (SELECT "t1"."c0" AS "c0", '
+        '"t1"."c1" AS "c1", "t1"."c0" AS "c2" FROM (SELECT "s0"."order.id" AS "c0", '
+        '"s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE (("s0"."key value" = "t3"."c1") AND '
+        '("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "t0" '
+        'ORDER BY "t0"."c1" DESC, "t0"."c2" ASC LIMIT 2) AS "e0")) AS "f" '
+        'FROM "p0" AS "t3"'
+    ),
+    "where": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", '
+        '"s1"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s1" '
+        'WHERE (("s1"."order.id" NOT IN (SELECT "e0"."c0" FROM '
+        '(SELECT "t0"."c0" AS "c0" FROM (SELECT "t1"."c0" AS "c0", '
+        '"t1"."c0" AS "c1" FROM (SELECT "s0"."order.id" AS "c0", '
+        '"s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0" '
+        'WHERE (("s0"."key value" = "s1"."key value") AND '
+        '("s0"."order.id" > CAST($1 AS pg_catalog.int8)))) AS "t1") AS "t0" '
+        'ORDER BY "t0"."c1" ASC LIMIT 2) AS "e0")) AND '
+        '("s1"."order.id" > CAST($2 AS pg_catalog.int8)))) '
+        'SELECT "t3"."c0" AS "a" FROM "p0" AS "t3"'
+    ),
+}
+# The literals in rendering order and the read's (line, column) in the source.
+ORDERED_LITERALS = {"select": ("1", "0"), "where": ("2", "3")}
+ORDERED_READ_AT = {"select": (21, 13), "where": (17, 11)}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(ORDERED))
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_correlated_membership_takes_its_lets_order_and_limit_on_postgres(
+    tmp_path: Path, target: str, shape: str, policy: str
+) -> None:
+    from pietto._project.project_sql_emission_results import RowResultBody
+
+    checked, outcome = _emit(tmp_path, target, ORDERED[shape], policy=policy)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        assert (document["status"], document["diagnostics"]) == ("BLOCKED", [])
+        assert outcome.artifact is None and "sql" not in document
+        assert [
+            (
+                b["code"],
+                b["reason"],
+                b["subject"]["detail"],
+                b["location"]["line"],
+                b["location"]["column"],
+            )
+            for b in document["blockers"]
+        ] == [
+            (
+                "PIE-B1003",
+                "UNSUPPORTED_RULE",
+                "mysql_correlated_order_or_limit_read_not_admitted",
+                *ORDERED_READ_AT[shape],
+            )
+        ]
+        return
+    assert document["status"] == "VERIFIED", document
+    expected = ORDERED_SQL[shape]
+    if policy == "preserve_literals":
+        expected = _preserved(expected, ORDERED_LITERALS[shape])
+    assert document["sql"] == expected
+    plan = checked.plan
+    assert type(plan) is ProjectSQLPlan
+    (capture,) = plan.captures
+    assert [
+        b.kind.value for b in plan.result_boundaries if b.definition is capture.inner
+    ] == ["relation_ordering", "limit"]
+    artifact = outcome.artifact
+    assert artifact is not None
+    (read,) = _block_reads(artifact)
+    result = read.target.producer
+    assert type(result) is RowResultBody and len(result.columns) == 1
+    assert (result.symbol, result.final) == (None, False)
+    kinds = [(r.kind, r.rule) for r in artifact.generated_requirements]
+    assert kinds.count(("inline_stage_use", "R11")) == 2
+    if policy == "bind_safe_literals":
+        assert [(u.ordinal, u.server_index) for u in artifact.parameter_uses] == [
+            (0, 1),
+            (1, 2),
+        ]
+    assert (
+        portable.export_emission_observation(artifact, artifact.request).status
+        is portable.ObservationStatus.OUTSIDE_SCHEMA
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation", ("limit_value", "dropped_result", "negated", "rendered_limit")
+)
+def test_a_forged_ordered_membership_fails_the_verifiers(
+    tmp_path: Path, mutation: str
+) -> None:
+    _, outcome = _emit(tmp_path, "postgres", ORDERED["where"])
+    artifact = outcome.artifact
+    assert artifact is not None
+    request = artifact.request
+    assert verify_project_sql_emission(artifact, request).verified
+    (read,) = _block_reads(artifact)
+    result = read.target.producer
+    if mutation == "rendered_limit":
+        sql = artifact.rendered.sql
+        changed = sql.replace(b" LIMIT 2) AS ", b" LIMIT 3) AS ")
+        assert changed != sql
+        object.__setattr__(artifact.rendered, "sql", changed)
+        try:
+            assert not verify_project_sql_emission(artifact, request).verified
+        finally:
+            object.__setattr__(artifact.rendered, "sql", sql)
+        return
+    # Valid-looking values: another static limit, the let's own projection
+    # (one-column reads of it stay well formed) and the other membership kind.
+    assert result.limit is not None
+    changes = {
+        "limit_value": [(result.limit, "value", 3)],
+        "dropped_result": [(read.target, "producer", result.scan.body)],
+        "negated": [(read, "kind", "in")],
+    }[mutation]
+    originals = [(node, name, getattr(node, name)) for node, name, _ in changes]
+    try:
+        for node, name, value in changes:
+            object.__setattr__(node, name, value)
+        assert not verify_project_sql_emission(artifact, request).verified
+    finally:
+        for node, name, value in originals:
+            object.__setattr__(node, name, value)
+    assert verify_project_sql_emission(artifact, request).verified

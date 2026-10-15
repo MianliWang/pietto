@@ -994,6 +994,15 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLRelationMembership,
     row.ProjectSQLCapturedField,
 )
+# Expression reads that may render a capturing let inline at their own site.
+INLINE_READS = (
+    row.ProjectSQLRelationExists,
+    row.ProjectSQLRelationScalar,
+    row.ProjectSQLRelationMembership,
+)
+# Targets whose expression reads may render a capturing let's ORDER BY and
+# LIMIT inside the read (D70.05); MySQL takes them only LATERAL.
+ORDERED_INLINE_READ_TARGETS = frozenset({"postgres"})
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
     grouping.ProjectSQLResultReference,
@@ -1688,9 +1697,33 @@ def realize_rows(request, *, _guarded=None):
     result_groups = resulting.boundaries_by_definition(plan)
     set_groups = setting.bodies_by_definition(plan)
     values_groups = valuing.bodies_by_definition(plan)
-    # A capturing let is realized inline at its outer body's single EXISTS read
+    # A capturing let is realized inline at its outer body's single read
     # (a correlated reference cannot live in a CTE: native probe S10-E).
     inline = {capture.inner for capture in plan.captures}
+    # D70.05: MySQL takes a capturing let's ORDER BY and LIMIT only LATERAL.
+    # Every scalar or IN read of such a let is refused at its own read, in
+    # source order, before anything is realized.
+    if family not in ORDERED_INLINE_READ_TARGETS:
+        for block_use in sorted(
+            (
+                u
+                for u in plan.expression_block_uses
+                if u.producer in inline and result_groups.get(u.producer)
+            ),
+            key=lambda u: (
+                u.expression.span.path or "",
+                u.expression.span.line,
+                u.expression.span.column,
+            ),
+        ):
+            add(
+                "PIE-B1003",
+                "mysql_correlated_order_or_limit_read_not_admitted",
+                block_use.ref,
+                block_use.expression.span,
+            )
+        if problems:
+            return RowRealization(tuple(problems), None)
     blocks_by_definition = {
         definition.original.ref: (definition, blocks) for definition, blocks in groups
     }
@@ -1773,25 +1806,37 @@ def realize_rows(request, *, _guarded=None):
             add("PIE-B1008", "expression_tree_structure", reference)
             return
         # Parameter reads join the literal chains in the one rendering order;
-        # an inline let's own native occurrences render at its EXISTS read.
+        # an inline let's own native occurrences render at its read, after a
+        # membership read's left value (an inner read's let closes first).
         order = {id(node): i for i, node in enumerate(rendered)}
+
+        def inline_key(node):
+            start = order[id(node)]
+            value = getattr(node, "value", None)
+            end = start + (
+                0 if value is None else len(rows.rendered_tree_nodes(plan, value))
+            )
+            return (end, 1, -start)
+
         native = sorted(
             (
-                *((order[id(leaf)], chain, leaf) for chain, leaf in chains),
+                *(((order[id(leaf)], 0, 0), chain, leaf) for chain, leaf in chains),
                 *(
-                    (order[id(node)], None, node)
+                    ((order[id(node)], 0, 0), None, node)
                     for node in rendered
                     if type(node) is row.ProjectSQLParameterRead
-                    or (
-                        type(node) is row.ProjectSQLRelationExists
-                        and producers.get(node.use) in inline
-                    )
+                ),
+                *(
+                    (inline_key(node), None, node)
+                    for node in rendered
+                    if isinstance(node, INLINE_READS)
+                    and producers.get(node.use) in inline
                 ),
             ),
             key=lambda item: item[0],
         )
         for _, chain, leaf in native:
-            if type(leaf) is row.ProjectSQLRelationExists:
+            if isinstance(leaf, INLINE_READS):
                 definition, blocks = blocks_by_definition[producers[leaf.use]]
                 parts = stage_roots(definition, blocks)
                 for inner in nested_roots(parts, len(parts) - 1):
@@ -1834,7 +1879,7 @@ def realize_rows(request, *, _guarded=None):
         """Realize one definition's stage bodies; a capturing let is inline.
 
         ``captures`` maps each capture record of an inline let to the outer
-        row scope of its single EXISTS read; its bodies are never CTEs and
+        row scope of its single read; its bodies are never CTEs and
         never join ``units``: they are reachable only through that read.
         """
         nonlocal nodes
@@ -3035,13 +3080,21 @@ def join_values(unit):
 
 def spliced_value_nodes(values):
     """Every value node in exact SQL order; an inline let's own nodes follow
-    the EXISTS read that renders it."""
+    the read that renders it, after a membership read's left operand."""
     result = []
     for value in values:
-        for node in rows.rendered_value_nodes(value):
+        nodes = rows.rendered_value_nodes(value)
+        pending: dict[int, list[tuple[Any, ...]]] = {}
+        for position, node in enumerate(nodes):
             result.append(node)
             if type(node) is rows.SQLBlockRead and inline_body(node.target.producer):
-                result.extend(spliced_value_nodes(inline_values(node.target.producer)))
+                end = position + len(rows.rendered_value_nodes(node)) - 1
+                pending.setdefault(end, []).append(
+                    spliced_value_nodes(inline_values(node.target.producer))
+                )
+            # An inner read closes before the read whose operand holds it.
+            for spliced in reversed(pending.pop(position, ())):
+                result.extend(spliced)
     return tuple(result)
 
 

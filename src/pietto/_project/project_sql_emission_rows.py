@@ -225,7 +225,7 @@ class SQLBlockTarget:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SQLCaptureScope:
-    """The outer row one capture record reads at its let's EXISTS read.
+    """The outer row one capture record reads at its let's single read.
 
     ``alias`` is the reading body's own FROM alias and ``reads`` are that
     body's stage columns of the captured input's fields, in capture order.
@@ -272,6 +272,13 @@ def block_column(target: SQLBlockTarget, column: int) -> tuple[str, Realization]
         realization = None if len(fields) != 1 else field_realization(fields[0])
         return None if realization is None else (fields[0].column, realization)
     producer = target.producer
+    if producer.symbol is None and not producer.final:
+        # A capturing let's inline body: its derived-table columns are its labels.
+        if not 0 <= column < len(producer.columns):
+            return None
+        return producer.columns[column].label, producer.columns[
+            column
+        ].column.realization
     if not 0 <= column < len(producer.cte_columns) or len(producer.columns) != len(
         producer.cte_columns
     ):
@@ -1859,7 +1866,7 @@ REQUIREMENT_RULES = {
     "exists": "R11",
     "scalar": "R11",
     "relation_membership": "R11",
-    # A captured field is the outer correlation of an inline EXISTS read.
+    # A captured field is the outer correlation of an inline read.
     "capture": "R11",
 }
 

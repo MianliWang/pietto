@@ -1240,6 +1240,106 @@ def test_capture_records_and_captured_reads_cannot_be_forged(
     assert not verify_project_sql_plan(candidate, *roots).verified, mutation
 
 
+# Phase70 S14: a scalar read in SELECT and a NOT IN read in WHERE of two
+# capturing lets; each capture record names its own read, block and ports.
+SCALAR_IN_CAPTURE_SOURCE = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query result:
+    let matched:
+        capture rows
+        from tags
+        where tags.key == rows.key
+        select:
+            id
+            key
+    let other:
+        capture rows
+        from tags
+        where tags.id == rows.id
+        select:
+            id
+    from rows
+    where rows.id not in other
+    select:
+        id = rows.id
+        k = scalar matched.key
+"""
+
+
+@pytest.mark.parametrize(
+    "mutation", ("swapped_reads", "swapped_blocks", "swapped_ports")
+)
+def test_scalar_and_in_capture_records_cannot_be_swapped(
+    tmp_path: Path, mutation: str
+) -> None:
+    roots, plan, _view = _product(tmp_path, SCALAR_IN_CAPTURE_SOURCE)
+    scalar, membership = plan.captures
+    expressions = {e.ref: e for e in plan.expressions}
+    assert type(expressions[scalar.read]) is row.ProjectSQLRelationScalar
+    assert type(expressions[membership.read]) is row.ProjectSQLRelationMembership
+    assert scalar.block is not membership.block
+    swaps = {
+        "swapped_reads": ("read", membership.read, scalar.read),
+        "swapped_blocks": ("block", membership.block, scalar.block),
+        "swapped_ports": ("ports", membership.ports, scalar.ports),
+    }
+    name, first, second = swaps[mutation]
+    candidate = _graft(
+        plan,
+        captures=(
+            _graft(scalar, **{name: first}),
+            _graft(membership, **{name: second}),
+        ),
+    )
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation
+    assert verify_project_sql_plan(plan, *roots).verified
+
+
+# Owner decision 2026-10-15 (D70.05): the let read by `scalar` ends in ORDER BY
+# and LIMIT. Its result boundaries belong to that let's own definition, its
+# capture record is unchanged, and a valid-looking graft of either is refused.
+ORDERED_CAPTURE_SOURCE = SCALAR_IN_CAPTURE_SOURCE.replace(
+    "            key\n    let other:",
+    "            key\n        order by:\n            id desc\n        limit 1\n"
+    "    let other:",
+)
+
+
+@pytest.mark.parametrize("mutation", ("limit_value", "limit_bound", "other_let"))
+def test_an_ordered_capturing_let_keeps_its_result_bounds_in_the_plan(
+    tmp_path: Path, mutation: str
+) -> None:
+    roots, plan, _view = _product(tmp_path, ORDERED_CAPTURE_SOURCE)
+    scalar, membership = plan.captures
+    expressions = {e.ref: e for e in plan.expressions}
+    assert type(expressions[scalar.read]) is row.ProjectSQLRelationScalar
+    assert [
+        b.kind.value for b in plan.result_boundaries if b.definition is scalar.inner
+    ] == ["relation_ordering", "limit"]
+    assert not [b for b in plan.result_boundaries if b.definition is membership.inner]
+    (limit,) = plan.result_limits
+    assert limit.value == 1
+    if mutation == "other_let":
+        # The ORDER BY and LIMIT moved to the other capturing let.
+        candidate = _graft(
+            plan,
+            result_boundaries=tuple(
+                _graft(b, definition=membership.inner) for b in plan.result_boundaries
+            ),
+        )
+    else:
+        changed = {
+            "limit_value": {"value": 2},
+            "limit_bound": {"row_count_upper_bound": 2},
+        }
+        candidate = _graft(plan, result_limits=(_graft(limit, **changed[mutation]),))
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation
+    assert verify_project_sql_plan(plan, *roots).verified
+
+
 # Phase70 S12: the JOIN's right input reads the let LATERAL; each capture record
 # names that input and the JOIN's own left input ports.
 LATERAL_SOURCE = CAPTURE_SOURCE.replace(
