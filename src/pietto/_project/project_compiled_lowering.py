@@ -4,7 +4,12 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 import json
 
-from pietto._project.project_compiled_schema import Address, CompiledError, MAX_RECORDS
+from pietto._project.project_compiled_schema import (
+    Address,
+    BLOCK_READ_OPERATORS,
+    CompiledError,
+    MAX_RECORDS,
+)
 from pietto._project.project_completed_semantics import derive_compiled_semantics
 from pietto._project.project_query_block_ir import (
     build_compiled_query_block_ir,
@@ -273,7 +278,7 @@ def emit_compiled(root, values, named=None):
                 leaf,
             )
         role, token = record.get("operator")
-        if (role, token) == ("exists", "exists"):
+        if (role, token) in BLOCK_READ_OPERATORS:
             return block_read(address, fact)
         operands = tuple(
             scalar(a, use, producer, alias, join_contexts)
@@ -307,7 +312,7 @@ def emit_compiled(root, values, named=None):
     }
 
     def block_read(address, fact):
-        """The executed existence read of one already realized producer."""
+        """The executed block read of one already realized producer."""
         described = block_uses.get(address)
         identity = plan.expression_identities.get(address)
         if described is None or identity is None:
@@ -325,7 +330,10 @@ def emit_compiled(root, values, named=None):
             )
         else:
             raise CompiledError("COMPILED_BLOCK_READ_PRODUCER")
-        return rows.SQLBlockRead(identity, target, fact.realization)
+        kind = records[address].get("operator")[0]
+        return rows.SQLBlockRead(
+            identity, target, fact.realization, kind, described.get("column")
+        )
 
     def read_column(address, use, producer, alias):
         value = scalar(address, use, producer, alias)

@@ -44,6 +44,8 @@ VARIANTS = {
     "Q_values_rows": ("top", "rejected", "let_join", "zero_left_join"),
     # Phase70 S08: closed EXISTS / NOT EXISTS reads in WHERE.
     "L_relation_exists": ("kept",),
+    # Phase70 S07: closed scalar reads in WHERE.
+    "L_relation_scalar": ("kept",),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -460,6 +462,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return values_fixture(target, variant)
     if case == "L_relation_exists":
         return exists_fixture(target, variant)
+    if case == "L_relation_scalar":
+        return scalar_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
@@ -2105,6 +2109,32 @@ def exists_fixture(target, variant):
         + "    select:\n        Key\n"
         + "query result:\n    from second\n"
         + "    where exists first and not exists none\n"
+        + final
+    )
+    return item
+
+
+def scalar_fixture(target, variant):
+    """M_named_chain/query_bag kept by three scalar reads in WHERE.
+
+    `low` is the one-row MIN of every id (0), `none` keeps no row so its read
+    is NULL, and `counted` is the one-row COUNT of that empty input (0, not
+    NULL, so it equals `low.k`); every chain row satisfies all four reads, no
+    literal or new physical scan is added and the chain oracle states the kept
+    rows independently.
+    """
+    _need(variant == "kept", "unknown scalar variant")
+    item = chain_fixture(target, "M_named_chain", "query_bag")
+    head, final = item["source"].split("query result:\n    from second\n", 1)
+    item["source"] = (
+        head
+        + "query low:\n    from first\n    select:\n        k = min(Key)\n"
+        + "query none:\n    from first\n    where Key < Key\n"
+        + "    select:\n        Key\n"
+        + "query counted:\n    from none\n    select:\n        n = count()\n"
+        + "query result:\n    from second\n"
+        + "    where id2 >= scalar low.k and scalar none.Key is null"
+        + " and scalar counted.n == scalar low.k\n"
         + final
     )
     return item
@@ -4089,7 +4119,7 @@ def _named_range_provenance(document, descriptors):
         # Phase70 VALUES units own their body and each declared column.
         "values_body": ["values_body"],
         "values_column": ["values_column"],
-        # Phase70 S08: one expression block use per existence read.
+        # Phase70: one expression block use per relation read.
         "expression_block_use": ["expression_block_use"],
     }
     associations = {
@@ -5977,6 +6007,41 @@ def _decode_fixed_public(document, limits):
             closed, _ = take("syntax", "exists_close", ")", original)
             expected_ranges.append(("exists", original, start, closed["end"]))
             return {"kind": "exists", "expression": original, "use": use}
+        if role == "scalar_open":
+            # A scalar read of one output of one complete named producer
+            # terminal; a physical source target is not part of this grammar.
+            take("syntax", "scalar_open", "(", original)
+            take("syntax", "scalar_select", "SELECT ", original)
+            use = lexical[cursor][0]["subject"]
+            _need(use["kind"] == "expression_block_use", "scalar read use")
+            _, alias = take("identifier", "scalar_scope", subject=use)
+            _need(alias == f"e{use['position']}", "scalar read alias")
+            take("syntax", "scalar_column_qualifier", ".", original)
+            _, column = take("identifier", "scalar_column", subject=original)
+            take("syntax", "scalar_from", " FROM ", original)
+            producer = lexical[cursor][0]["subject"]
+            _, name = take("identifier", "scalar_reference", subject=producer)
+            source_body = row_ctes.get(name)
+            _need(
+                source_body is not None
+                and source_body["block"] == producer
+                and source_body["projection"],
+                "a scalar read must read a complete definition terminal",
+            )
+            assert source_body is not None
+            names = [item["name"] for item in source_body["outgoing"]]
+            _need(names.count(column) == 1, "scalar read column")
+            take("syntax", "scalar_alias", " AS ", use)
+            _, again = take("identifier", "scalar_scope", subject=use)
+            _need(again == alias, "scalar read alias")
+            closed, _ = take("syntax", "scalar_close", ")", original)
+            expected_ranges.append(("scalar", original, start, closed["end"]))
+            return {
+                "kind": "scalar",
+                "expression": original,
+                "use": use,
+                "read": source_body["outgoing"][names.index(column)],
+            }
         _need(role in {"binary_open", "comparison_open"}, "row expression node")
         take("syntax", role, "(", original)
         left = row_parse(block, port_kind)
@@ -6123,6 +6188,27 @@ def _decode_fixed_public(document, limits):
                 "operands": [],
                 "kind": "exists",
                 "strict": True,
+            }
+        if node["kind"] == "scalar":
+            # The read column's own carrier, NULL when its producer has no row.
+            _need(within(cause(original), cause(owner)))
+            realization = {**node["read"]["realization"], "nullable": True}
+            row_generated.append(
+                (
+                    "scalar",
+                    ("opaque", "scalar"),
+                    "R11",
+                    row_node_premises(realization["tag"], (), "scalar"),
+                    None,
+                )
+            )
+            row_rules[original["position"]] = "R11"
+            return {
+                **realization,
+                "root": original,
+                "operands": [],
+                "kind": "scalar",
+                "strict": False,
             }
         kind = "arithmetic" if node["kind"] == "sign" else node["kind"]
         rule = "R06" if kind in {"logical", "not"} else "R05"

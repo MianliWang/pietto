@@ -137,6 +137,7 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     RelationExistsExpr,
+    RelationScalarExpr,
     SelectItem,
     SetRelationDef,
     SetOperationBody,
@@ -614,7 +615,7 @@ def _row_blockers(completed, entry, block_reads=frozenset()):
         if any(isinstance(n, CallExpr) and _callable_symbol(n) is None for n in nodes):
             blockers.append((K.CALL_AUTHORITY, site))
         elif any(
-            type(n) is RelationExistsExpr
+            type(n) in _BLOCK_READS
             and (isinstance(site, LetBinding) or id(n) not in block_reads)
             for n in nodes
         ):
@@ -622,8 +623,7 @@ def _row_blockers(completed, entry, block_reads=frozenset()):
             # row let stays a value of its input row only.
             blockers.append((K.EXPRESSION_EVIDENCE, site))
         elif evidence is None or any(
-            type(n) not in supported and type(n) is not RelationExistsExpr
-            for n in nodes
+            type(n) not in supported and type(n) not in _BLOCK_READS for n in nodes
         ):
             blockers.append((K.EXPRESSION_EVIDENCE, site))
         else:
@@ -839,13 +839,17 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
     return tuple(result)
 
 
+# Expression nodes that read a whole block through an expression block use.
+_BLOCK_READS = frozenset({RelationExistsExpr, RelationScalarExpr})
+
+
 def _site_block_reads(sites) -> frozenset[int]:
     """Identities of the block reads written inside the given row value sites."""
     return frozenset(
         id(node)
         for site in sites
         for node in row.scalar_nodes(site.expression)
-        if type(node) is RelationExistsExpr
+        if type(node) in _BLOCK_READS
     )
 
 
@@ -1014,7 +1018,7 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
     if any(
         (
             type(node) not in supported
-            and not (type(node) is RelationExistsExpr and id(node) in block_reads)
+            and not (type(node) in _BLOCK_READS and id(node) in block_reads)
         )
         or id(node) not in values
         or values[id(node)][0] is not node
@@ -2579,23 +2583,30 @@ def build_project_sql_plan(
                     value=children[0],
                     options=children[1:],
                 )
-            elif isinstance(node, RelationExistsExpr):
+            elif isinstance(node, (RelationExistsExpr, RelationScalarExpr)):
                 block_use = block_uses_by_expression.get(id(node))
                 if (
                     block_use is None
                     or block_use.consumer
                     is not definitions_by_owner[id(site.owner)].ref
                 ):
-                    raise ValueError(
-                        "Existence read lacks its exact expression block use."
+                    raise ValueError("Block read lacks its exact expression block use.")
+                if isinstance(node, RelationExistsExpr):
+                    value = row.ProjectSQLRelationExists(
+                        ref=node_ref,
+                        site=site,
+                        expression=node,
+                        value_type=value_type,
+                        use=block_use.ref,
                     )
-                value = row.ProjectSQLRelationExists(
-                    ref=node_ref,
-                    site=site,
-                    expression=node,
-                    value_type=value_type,
-                    use=block_use.ref,
-                )
+                else:
+                    value = row.ProjectSQLRelationScalar(
+                        ref=node_ref,
+                        site=site,
+                        expression=node,
+                        value_type=value_type,
+                        use=block_use.ref,
+                    )
             elif isinstance(node, CastExpr):
                 value = row.ProjectSQLCast(
                     ref=node_ref,
@@ -3683,7 +3694,9 @@ def build_project_sql_plan(
                 ),
             )
             else (value.use,)
-            if isinstance(value, row.ProjectSQLRelationExists)
+            if isinstance(
+                value, (row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar)
+            )
             else ()
         )
         origin(

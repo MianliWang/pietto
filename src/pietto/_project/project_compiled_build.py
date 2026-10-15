@@ -378,9 +378,13 @@ class _Export:
         return address
 
     def block_read(self, value, use):
-        """An existence operation and the expression block use it executes."""
+        """A block read operation and the expression block use it executes."""
         target = value.target
-        if use is None or type(target) is not rows.SQLBlockTarget:
+        if (
+            use is None
+            or type(target) is not rows.SQLBlockTarget
+            or value.kind not in ("exists", "scalar")
+        ):
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
         if self.block_uses is None:
             # One record per statement block use, in its plan order, so record
@@ -398,7 +402,7 @@ class _Export:
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
         operation = self.add(
             "operation",
-            ("exists", "exists"),
+            (value.kind, value.kind),
             (),
             _logical(value.original.value_type),
             None,
@@ -410,7 +414,7 @@ class _Export:
             self.sources[id(target.producer)]
             if target.source is not None
             else self.units[id(target.producer)],
-            None,
+            value.column,
         )
         return operation
 

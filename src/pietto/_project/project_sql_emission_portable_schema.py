@@ -381,6 +381,7 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("target", "@sql_block_target"),
         ("realization", "@realization"),
         ("kind", "text"),
+        ("column", "?nat"),
     ),
     "sql_block_target": (
         ("use", "plan"),
@@ -965,6 +966,13 @@ SYNTAX = {
     "exists_qualifier": ".",
     "exists_alias": " AS ",
     "exists_close": ")",
+    "scalar_open": "(",
+    "scalar_select": "SELECT ",
+    "scalar_column_qualifier": ".",
+    "scalar_from": " FROM ",
+    "scalar_qualifier": ".",
+    "scalar_alias": " AS ",
+    "scalar_close": ")",
 }
 # Expression overlay role -> (first token role(s), last token role(s)).
 OVERLAYS = {
@@ -983,6 +991,7 @@ OVERLAYS = {
     ),
     "cast": (("cast_open",), ("cast_close",)),
     "exists": (("exists_open",), ("exists_close",)),
+    "scalar": (("scalar_open",), ("scalar_close",)),
     "is_null": (("is_null_open",), ("is_null_close",)),
     "aggregate": (("aggregate_open",), ("aggregate_close",)),
     "window": (("window_open",), ("window_spec_close", "window_reference")),

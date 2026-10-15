@@ -350,26 +350,37 @@ class _Writer:
         self.enclose("anchor", reference, start)
 
     def block_read(self, value):
-        """``EXISTS (SELECT 1 FROM <producer> AS <alias>)`` over one block use."""
+        """``EXISTS (SELECT 1 FROM <producer> AS <alias>)`` or, for a scalar
+        read, ``(SELECT <alias>.<column> FROM <producer> AS <alias>)``."""
         start = self.offset
         reference = value.original.ref
         target = value.target
-        self.emit("EXISTS (", "syntax", "exists_open", reference)
-        self.emit("SELECT ", "syntax", "exists_select", reference)
-        self.emit(SENTINEL, "literal", "exists_sentinel", reference)
-        self.emit(" FROM ", "syntax", "exists_from", reference)
+        kind = value.kind
+        if kind == "scalar":
+            read = rows.block_column(target, value.column)
+            assert read is not None
+            self.emit("(", "syntax", "scalar_open", reference)
+            self.emit("SELECT ", "syntax", "scalar_select", reference)
+            self.identifier(target.symbol.name, "scalar_scope", target.use.ref)
+            self.emit(".", "syntax", "scalar_column_qualifier", reference)
+            self.identifier(read[0], "scalar_column", reference)
+        else:
+            self.emit("EXISTS (", "syntax", "exists_open", reference)
+            self.emit("SELECT ", "syntax", "exists_select", reference)
+            self.emit(SENTINEL, "literal", "exists_sentinel", reference)
+        self.emit(" FROM ", "syntax", f"{kind}_from", reference)
         if target.source is not None:
             relation = target.source.ref
-            self.identifier(target.producer.namespace, "exists_namespace", relation)
-            self.emit(".", "syntax", "exists_qualifier", relation)
-            self.identifier(target.producer.name, "exists_relation", relation)
+            self.identifier(target.producer.namespace, f"{kind}_namespace", relation)
+            self.emit(".", "syntax", f"{kind}_qualifier", relation)
+            self.identifier(target.producer.name, f"{kind}_relation", relation)
         else:
             producer = target.producer.block.ref
-            self.identifier(target.producer.symbol.name, "exists_reference", producer)
-        self.emit(" AS ", "syntax", "exists_alias", target.use.ref)
-        self.identifier(target.symbol.name, "exists_scope", target.use.ref)
-        self.emit(")", "syntax", "exists_close", reference)
-        self.enclose("exists", reference, start)
+            self.identifier(target.producer.symbol.name, f"{kind}_reference", producer)
+        self.emit(" AS ", "syntax", f"{kind}_alias", target.use.ref)
+        self.identifier(target.symbol.name, f"{kind}_scope", target.use.ref)
+        self.emit(")", "syntax", f"{kind}_close", reference)
+        self.enclose(kind, reference, start)
 
     def scalar(self, value, alias):
         """One admitted tree; a reference with its own scope reads that relation."""

@@ -185,37 +185,39 @@ def test_deep_expressions_are_walked_without_recursion() -> None:
     assert [d.code for d in gated.diagnostics] == ["PIE-S2348"]
 
 
-def test_explicit_modules_admit_an_exists_read_only_inside_a_relation_body() -> None:
+def test_explicit_modules_admit_relation_reads_only_inside_a_relation_body() -> None:
     """A type rule, a shape check or a type argument keeps the gate diagnostic;
     single-file and LEGACY_FLAT callers keep every occurrence gated."""
     source = (
         "type Age = Int:\n"
-        "    ensure self > 0 and exists t\n"
+        "    ensure self > scalar t.c and exists t\n"
         "shape S:\n"
         "    id: Int not null\n"
         "    check positive:\n"
-        "        id > 0 and exists t\n"
+        "        id > scalar t.c and exists t\n"
         "query q:\n"
         "    let l:\n"
         "        from rows\n"
-        "        where exists t\n"
+        "        where exists t and id == scalar t.c\n"
         "        select:\n"
         "            id\n"
         "    from l\n"
         "    where exists t and id == scalar t.c\n"
         "    select:\n"
         "        id\n"
-        "        d = cast(id as Decimal(exists t, 2))\n"
+        "        d = cast(id as Decimal(exists t, scalar t.c))\n"
     )
     parsed = parse_source(source, path="gate.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
     exists = FAMILIES["exists_reference"][1]
     scalar = FAMILIES["scalar_read"][1]
     gated = [
-        ("PIE-S2349", exists, 2, 25),
-        ("PIE-S2349", exists, 6, 20),
-        ("PIE-S2348", scalar, 14, 30),
+        ("PIE-S2348", scalar, 2, 19),
+        ("PIE-S2349", exists, 2, 34),
+        ("PIE-S2348", scalar, 6, 14),
+        ("PIE-S2349", exists, 6, 29),
         ("PIE-S2349", exists, 17, 32),
+        ("PIE-S2348", scalar, 17, 42),
     ]
 
     def described(diagnostics):
@@ -232,7 +234,9 @@ def test_explicit_modules_admit_an_exists_read_only_inside_a_relation_body() -> 
             *gated,
             ("PIE-S2345", FAMILIES["let_relation"][1], 8, 5),
             ("PIE-S2349", exists, 10, 15),
+            ("PIE-S2348", scalar, 10, 34),
             ("PIE-S2349", exists, 14, 11),
+            ("PIE-S2348", scalar, 14, 30),
         ],
         key=lambda item: (item[2], item[3]),
     )

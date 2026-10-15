@@ -735,6 +735,7 @@ def _ordinary_row_diagnostics(
 ) -> tuple[Diagnostic, ...]:
     return (
         *(() if facts.let_scope_facts is None else facts.let_scope_facts.diagnostics),
+        *(item.diagnostic for item in facts.scalar_reads if item.diagnostic),
         *(() if facts.where_fact is None else facts.where_fact.diagnostics),
         *(
             diagnostic
@@ -757,6 +758,7 @@ def _final_diagnostics(
         if id(diagnostic) not in retired_ids
     ]
     retained_ids = {id(diagnostic) for diagnostic in retained}
+    semantic_facts = semantic_result.module_semantic_facts
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
             for diagnostic in _ordinary_row_diagnostics(entry.fragment.semantic_facts):
@@ -764,23 +766,33 @@ def _final_diagnostics(
                     retained.append(diagnostic)
                     retained_ids.add(id(diagnostic))
             continue
-        if type(entry) in {
-            ProjectCompletedEffectiveOutput,
-            ProjectCompletedSetOutput,
-            ProjectCompletedValuesOutput,
-        }:
+        if type(entry) in {ProjectCompletedSetOutput, ProjectCompletedValuesOutput}:
             continue
-        if type(entry) not in {
+        completed = type(entry) is ProjectCompletedEffectiveOutput
+        if not completed and type(entry) not in {
             ProjectEffectiveOutputTerminal,
             ProjectEffectiveOutputCompletionTerminal,
         }:
             raise TypeError("Final diagnostics require exact effective entries.")
+        # A JOIN reader or a reader of a set completes its row without its
+        # facts, so the diagnostics of its scalar reads are retained here.
+        reads = (
+            item.diagnostic
+            for facts in (
+                () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
+            )
+            for item in facts.scalar_reads
+            if item.diagnostic is not None
+        )
         errors = tuple(
             diagnostic
-            for diagnostic in _entry_error_diagnostics(entry)
+            for diagnostic in (
+                *(() if completed else _entry_error_diagnostics(entry)),
+                *reads,
+            )
             if id(diagnostic) not in retired_ids
         )
-        if not errors:
+        if not errors and not completed:
             errors = (_fallback_diagnostic(entry),)
         for diagnostic in errors:
             if id(diagnostic) in retained_ids:
@@ -953,7 +965,12 @@ def derive_compiled_semantics(root, values, parameters=None):
     from pietto._project import project_sql_emission_rows as physical
     from pietto._project.project_sql_emission_parameters import literal_representation
     from pietto._project.module_attribution import compiled_declarations
-    from pietto._project.project_compiled_schema import Address, CompiledError, Scalar
+    from pietto._project.project_compiled_schema import (
+        Address,
+        CompiledError,
+        Scalar,
+        scalar_read_port,
+    )
     from pietto._project.project_sql_emission_parameters import value_valid
     from pietto.semantic.expressions import (
         resolved_literal_value_type,
@@ -1031,6 +1048,12 @@ def derive_compiled_semantics(root, values, parameters=None):
 
     def dependencies(record) -> tuple[Address, ...]:
         kind, get = record.address.kind, record.get
+        if kind == "operation" and get("operator") == ("scalar", "scalar"):
+            # A scalar read reads the one producer output its block use names.
+            port = scalar_read_port(records, record.address)
+            if port is None or get("operands"):
+                raise CompiledError("COMPILED_BLOCK_READ")
+            return (port,)
         if kind == "operation":
             return get("operands")
         if kind == "aggregate_value":
@@ -1572,6 +1595,11 @@ def derive_compiled_semantics(root, values, parameters=None):
                         ResolvedType("Bool", TypeKind.BUILTIN),
                         EffectiveNullability.NON_NULL,
                     )
+                elif role == "scalar" and token == "scalar" and len(arguments) == 1:
+                    # A scalar read is its column's type; no row reads NULL.
+                    typed = ValueType(
+                        arguments[0].resolved_type, EffectiveNullability.NULLABLE
+                    )
                 elif role == "cast" and token == "int_to_float" and len(arguments) == 1:
                     error = (
                         None
@@ -1739,6 +1767,8 @@ def derive_compiled_semantics(root, values, parameters=None):
                         )
                     elif role in {"null_test", "exists"}:
                         realized = physical._bool(family, False)
+                    elif role == "scalar":
+                        realized = physical.scalar_read_realization(inputs[0])
                     elif type(input_facts[0].value) in (int, float):
                         value = (
                             -input_facts[0].value
@@ -1815,7 +1845,7 @@ def verify_compiled_semantics(value):
     """Independently inspect derived facts; never invoke their constructor."""
     import json
     from pietto._project import project_sql_emission_rows as physical
-    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_schema import Address, scalar_read_port
     from pietto._project.project_compiled_verification import need
     from pietto._project.project_sql_emission_parameters import (
         literal_representation,
@@ -2019,7 +2049,13 @@ def verify_compiled_semantics(value):
             record, actual = records[current], by_address[current]
             kind, get = record.address.kind, record.get
             children = (
-                get("operands")
+                tuple(
+                    port
+                    for port in (scalar_read_port(records, current),)
+                    if port is not None
+                )
+                if kind == "operation" and get("operator") == ("scalar", "scalar")
+                else get("operands")
                 if kind == "operation"
                 else get("arguments")
                 if kind == "aggregate_value"
@@ -2528,6 +2564,17 @@ def verify_compiled_semantics(value):
                         ResolvedType("Bool", TypeKind.BUILTIN),
                         EffectiveNullability.NON_NULL,
                     )
+                elif (
+                    role == "scalar"
+                    and token == "scalar"
+                    and len(inputs) == 1
+                    and not get("operands")
+                ):
+                    problem = None
+                    typed = ValueType(
+                        inputs[0].value_type.resolved_type,
+                        EffectiveNullability.NULLABLE,
+                    )
                 elif role == "cast" and token == "int_to_float" and len(inputs) == 1:
                     problem = (
                         None
@@ -2721,6 +2768,15 @@ def verify_compiled_semantics(value):
 
                         realization = physical._bool(
                             family, NULLABILITY[typed.nullability]
+                        )
+                    elif role == "scalar":
+                        read = inputs[0].require_realization()
+                        realization = Realization(
+                            read.tag,
+                            read.storage,
+                            True,
+                            read.domain,
+                            read.proven_int_range,
                         )
                     elif role == "unary" and type(inputs[0].value) in (int, float):
                         expected_value = (

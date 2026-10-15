@@ -14,6 +14,7 @@ from pietto._project.project_scalar_bindings import (
     ProjectVisibleJoinedBinding,
     resolve_project_joined_scalar_reference,
 )
+from pietto._project.row_expression_type_facts import scalar_read_types_within
 from pietto._project.project_scalar_references import (
     ProjectScalarEnvironmentField,
     ProjectScalarReferenceOccurrence,
@@ -532,8 +533,12 @@ type ProjectJoinedNamespaceExpressionResult = (
 def analyze_project_joined_namespace_expression(
     namespace: ProjectJoinedScalarNamespace,
     expression: Expression,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> ProjectJoinedNamespaceExpressionResult:
-    """Resolve and type one expression without applying a consumer policy."""
+    """Resolve and type one expression without applying a consumer policy.
+
+    ``read_types`` holds the owner's typed scalar relation reads.
+    """
 
     if type(namespace) is not ProjectJoinedScalarNamespace:
         raise TypeError("Joined expression analysis requires an exact namespace.")
@@ -567,7 +572,7 @@ def analyze_project_joined_namespace_expression(
             blocking_resolutions=blockers,
         )
 
-    value_types: dict[Expression, ValueType] = {}
+    value_types = scalar_read_types_within(expression, read_types)
     for resolution in resolutions:
         if type(resolution) is ProjectScalarReferenceResolution:
             target = resolution.target

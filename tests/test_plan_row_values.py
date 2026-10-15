@@ -1035,3 +1035,64 @@ def test_expression_block_uses_cannot_be_dropped_forged_or_swapped(
             ),
         )
     assert not verify_project_sql_plan(candidate, *roots).verified, mutation
+
+
+SCALAR_SOURCE = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query result:
+    let picked:
+        from tags
+        select:
+            id
+            key
+    from rows
+    where id == scalar picked.id
+    select:
+        id
+        k = scalar tags.key
+"""
+
+
+@pytest.mark.parametrize("mutation", ("non_null", "other_type", "swapped_reads"))
+def test_a_scalar_read_leaf_keeps_its_column_type_and_block_use(
+    tmp_path: Path, mutation: str
+) -> None:
+    from pietto.semantic.model import EffectiveNullability, ValueType
+
+    roots, plan, _ = _product(tmp_path, SCALAR_SOURCE)
+    reads = plan.expression_block_uses
+    scalars = [e for e in plan.expressions if type(e) is row.ProjectSQLRelationScalar]
+    assert [e.use for e in scalars] == [r.ref for r in reads]
+    assert [r.edge.column for r in reads] == [0, 1]
+    assert [e.value_type.nullability for e in scalars] == [
+        EffectiveNullability.NULLABLE
+    ] * 2
+    first = scalars[0]
+    if mutation == "non_null":
+        changed = {
+            id(first): _graft(
+                first,
+                value_type=ValueType(
+                    first.value_type.resolved_type, EffectiveNullability.NON_NULL
+                ),
+            )
+        }
+    elif mutation == "other_type":
+        bool_type = next(
+            e.value_type
+            for e in plan.expressions
+            if type(e) is row.ProjectSQLComparison
+        )
+        changed = {id(first): _graft(first, value_type=bool_type)}
+    else:
+        changed = {
+            id(scalars[0]): _graft(scalars[0], use=scalars[1].use),
+            id(scalars[1]): _graft(scalars[1], use=scalars[0].use),
+        }
+    candidate = _graft(
+        plan, expressions=tuple(changed.get(id(e), e) for e in plan.expressions)
+    )
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation

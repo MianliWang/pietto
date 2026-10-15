@@ -604,3 +604,64 @@ def test_live_refinement_refuses_an_existence_read_after_its_source_closure(
         )
         == before
     )
+
+
+def test_live_refinement_refuses_a_scalar_read_after_its_source_closure(tmp_path):
+    import _pietto_execution_api as api
+    from pietto._project.project_execution_template import bind_values
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-scalar")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        "table priced_items:\n    let top:\n        from tags\n"
+        "        select:\n            n = count()\n    from items\n"
+        "    where id <= scalar top.n\n    select:\n        id = items.id\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="priced_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    sources = binding.artifact.request.sources
+    assert [(s.namespace, s.name) for s in sources] == [
+        ("fixture", "items"),
+        ("fixture", "tags"),
+    ]
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in sources
+    )
+    # The source read only through the scalar read is a required input, then
+    # the read itself is refused before any connection.
+    with pytest.raises(ValueError, match="PUBLIC_R2_SOURCE_CLOSURE"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])
+    with pytest.raises(ValueError, match="REFINEMENT_EXPRESSION_BLOCK_READ"):
+        proposal.prepare_live_refinement(query, binding, inputs)

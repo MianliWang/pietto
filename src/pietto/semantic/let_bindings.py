@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     MembershipExpr,
     RelationExistsExpr,
+    RelationScalarExpr,
     NameExpr,
     ParameterRefExpr,
     QueryDef,
@@ -382,6 +383,7 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
             DottedNameExpr,
             ParameterRefExpr,
             RelationExistsExpr,
+            RelationScalarExpr,
         ),
     ):
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")

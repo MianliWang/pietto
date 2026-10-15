@@ -1722,6 +1722,7 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         "O_named_later",
         "L_let_relations",
         "L_relation_exists",
+        "L_relation_scalar",
     }
     expected_rows = (chain_rows if named else emission_rows)(
         target, empty=variant_name == "empty"

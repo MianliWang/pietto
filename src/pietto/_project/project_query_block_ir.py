@@ -214,7 +214,14 @@ from pietto._project.project_scalar_references import (
 from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
 )
-from pietto.ast_nodes import DottedNameExpr, NameExpr, QueryDef, SourceDef, TableDef
+from pietto.ast_nodes import (
+    DottedNameExpr,
+    NameExpr,
+    QueryDef,
+    RelationScalarExpr,
+    SourceDef,
+    TableDef,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -4634,9 +4641,24 @@ def _build_expression_uses(
                 consumer=by_owner[id(use.consumer)],
                 producer=producer,
                 output=producer.output,
+                column=expression_block_column(use.expression, producer.output),
             )
         )
     return tuple(result)
+
+
+def expression_block_column(
+    expression: object, output: ProjectIRActiveRowOutput | None
+) -> int | None:
+    """The one output column a scalar read names; existence reads none."""
+    if type(expression) is not RelationScalarExpr or output is None:
+        return None
+    matches = tuple(
+        position
+        for position, item in enumerate(output.row_shape.fields)
+        if item.evidence.name == expression.column_name
+    )
+    return matches[0] if len(matches) == 1 else None
 
 
 def _build_set_structure(

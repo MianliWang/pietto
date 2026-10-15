@@ -5,7 +5,9 @@ from typing import Any, cast
 
 from pietto._project.project_verification_scope import once
 from pietto._project.project_compiled_schema import (
+    BLOCK_READ_OPERATORS,
     executed_operations,
+    scalar_read_port,
     Address,
     CompiledError,
     Description,
@@ -476,8 +478,12 @@ def verify_description(value: Description) -> None:
             consumer = ref(get("consumer"), RELATIONS - {"source"})
             ref(get("producer"), RELATIONS)
             need(
-                operation.get("operator") == ("exists", "exists")
-                and get("column") is None
+                operation.get("operator") in BLOCK_READ_OPERATORS
+                and (
+                    get("column") is None
+                    if operation.get("operator") == ("exists", "exists")
+                    else scalar_read_port(records, operation.address) is not None
+                )
                 and get("producer") != consumer.address
                 and operation.address in executed_operations(records, consumer.address),
                 "EXPRESSION_BLOCK_USE",
@@ -1136,6 +1142,7 @@ def verify_description(value: Description) -> None:
                 "membership": ({"in", "not_in"}, None),
                 "cast": ({"int_to_float"}, 1),
                 "exists": ({"exists"}, 0),
+                "scalar": ({"scalar"}, 0),
                 "scalar_call": (
                     {
                         "lower",
@@ -1181,8 +1188,8 @@ def verify_description(value: Description) -> None:
                 operands,
                 {"literal", "null_literal", "parameter_read", "read", "operation"},
             )
-            if role == "exists":
-                # Exactly one expression block use names each existence read.
+            if (role, token) in BLOCK_READ_OPERATORS:
+                # Exactly one expression block use names each block read.
                 need(
                     sum(
                         r.address.kind == "expression_block_use"
@@ -2125,7 +2132,8 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             need(
                 join_contexts is None
                 and record.address.kind == "operation"
-                and record.get("operator") == ("exists", "exists")
+                and record.get("operator") == (actual.kind, actual.kind)
+                and record.get("operator") in BLOCK_READ_OPERATORS
                 and record.get("operands") == (),
                 "EXPORT_BLOCK_READ",
             )
@@ -2147,7 +2155,12 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 and matches[0].address.position == target.use.ref.position
                 and target.symbol.name == f"e{target.use.ref.position}"
                 and matches[0].values
-                == (address, records[use].get("consumer"), expected_producer, None),
+                == (
+                    address,
+                    records[use].get("consumer"),
+                    expected_producer,
+                    actual.column,
+                ),
                 "EXPORT_BLOCK_READ",
             )
         else:
@@ -3209,7 +3222,7 @@ def _verify_compiled_emission(artifact, request):
         else:
             role, token = record.get("operator")
             children = record.get("operands")
-            if (role, token) == ("exists", "exists"):
+            if (role, token) in BLOCK_READ_OPERATORS:
                 described = tuple(
                     r
                     for r in records.values()
@@ -3223,7 +3236,8 @@ def _verify_compiled_emission(artifact, request):
                 need(
                     type(actual) is rows.SQLBlockRead
                     and actual.original is plan.expression_identities[address]
-                    and actual.kind == "exists"
+                    and actual.kind == role
+                    and actual.column == block_use.get("column")
                     and actual.realization is facts[address].realization
                     and records[use].get("consumer") == block_use.get("consumer")
                     and type(target) is rows.SQLBlockTarget

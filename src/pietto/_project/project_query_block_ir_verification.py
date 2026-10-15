@@ -35,7 +35,7 @@ from pietto._project.project_ir_joins import (
 from dataclasses import dataclass, field
 from enum import StrEnum
 from heapq import heappop, heappush
-from typing import cast
+from typing import Any, cast
 
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectRelationClauseDependencyKind,
@@ -849,6 +849,18 @@ def _authored_relation_reads(definition: object) -> tuple[object, ...]:
     return tuple(found)
 
 
+def _read_column(expression: object, output: object) -> int | None:
+    """A scalar read's one named output column; an existence read has none."""
+    if type(expression) is RelationExistsExpr or output is None:
+        return None
+    if type(expression) is not RelationScalarExpr:
+        return -1
+    names = [item.evidence.name for item in cast(Any, output).row_shape.fields]
+    if names.count(expression.column_name) != 1:
+        return None
+    return names.index(expression.column_name)
+
+
 def _verify_expression_block_uses(
     root: ProjectIRQueryBlockSnapshot,
     issues: list[ProjectIRQueryBlockVerificationIssue],
@@ -901,11 +913,7 @@ def _verify_expression_block_uses(
             and edge.consumer is entries[id(use.consumer)]
             and edge.producer is entries[id(use.target)]
             and edge.output is edge.producer.output
-            and (
-                edge.column is None
-                if type(item.read.expression) is RelationExistsExpr
-                else True
-            )
+            and edge.column == _read_column(item.read.expression, edge.output)
             and (
                 id(use.consumer) in blocked
                 or id(use.target) in blocked

@@ -438,3 +438,60 @@ query self:
         for u in result.expression_uses
     ] == [("a", "b")]
     assert not result.topology.blocked_owners and not result.topology.cycles
+
+
+SCALAR_READS = """shape Row:
+    id: Int not null
+    key: Int nullable
+source rows: Row is postgres.table("rows")
+source tags: Row is postgres.table("tags")
+query result:
+    let picked:
+        from tags
+        select:
+            id
+            key
+    from rows
+    where id == scalar picked.key
+    select:
+        id
+        k = scalar tags.id
+"""
+
+
+def test_a_scalar_read_edge_binds_its_one_named_output_column(tmp_path) -> None:
+    from copy import copy
+
+    from _pietto_project_join import _completed
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        ProjectIRQueryBlockVerificationIssueKind,
+        verify_project_query_block_ir,
+    )
+
+    def graft(value, **changes):
+        changed = copy(value)
+        for name, item in changes.items():
+            object.__setattr__(changed, name, item)
+        return changed
+
+    snapshot = build_project_query_block_ir(_completed(tmp_path, SCALAR_READS))
+    assert verify_project_query_block_ir(snapshot).verified
+    first, second = snapshot.expression_uses
+    assert [(e.producer.owner.definition.name, e.column) for e in (first, second)] == [
+        ("picked", 1),
+        ("tags", 0),
+    ]
+    assert first.output is not None
+    assert [f.evidence.name for f in first.output.row_shape.fields] == ["id", "key"]
+    for edges in (
+        # Another existing column of the same block, and no column at all.
+        (graft(first, column=0), second),
+        (first, graft(second, column=None)),
+    ):
+        issues = verify_project_query_block_ir(
+            graft(snapshot, expression_uses=edges)
+        ).issues
+        assert ProjectIRQueryBlockVerificationIssueKind.EXPRESSION_BLOCK_USE in {
+            issue.kind for issue in issues
+        }

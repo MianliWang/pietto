@@ -2136,3 +2136,205 @@ def test_each_route_prepares_an_existence_read_with_its_inner_source(
         "phase66 lhs é",
         "phase66 rhs é",
     ]
+
+
+SCALAR_TAGS = """
+source tags: Item is postgres.table("fixture.tags")
+
+table priced_items:
+    let top:
+        from tags
+        where id > 2
+        select:
+            n = count()
+    from items
+    where id <= scalar top.n
+    select:
+        id = items.id
+        best = scalar tags.label
+"""
+
+
+def _priced(directory):
+    return execution.compile_query(
+        let_example(directory, SCALAR_TAGS),
+        module="main.pietto",
+        kind="table",
+        name="priced_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+
+
+def test_a_compiled_scalar_read_carries_its_column_and_inner_source(tmp_path):
+    query = _priced(tmp_path)
+    bundle = execution.export_bundle(query)
+    description = decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    assert tuple(description.compatibility[:4]) == VERSIONS
+    reads = sorted(
+        (r for r in records.values() if r.address.kind == "expression_block_use"),
+        key=lambda r: r.address.position,
+    )
+    # The read's own column ordinal is the only scalar-specific record value.
+    assert [
+        (
+            records[r.get("operation")].get("operator"),
+            records[r.get("operation")].get("operands"),
+            records[r.get("operation")].get("logical"),
+            r.get("column"),
+        )
+        for r in reads
+    ] == [
+        (("scalar", "scalar"), (), ("Int", "nullable"), 0),
+        (("scalar", "scalar"), (), ("Text", "nullable"), 1),
+    ]
+    owner = records[records[reads[0].get("producer")].get("owner")]
+    assert (owner.get("label"), owner.get("let")) == ("top", 0)
+    assert records[reads[1].get("producer")].get("name") == "tags"
+    assert sorted(
+        r.get("name") for r in records.values() if r.address.kind == "source"
+    ) == ["items", "tags"]
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    source_read = reads[1].address
+    at = FIELDS["expression_block_use"].index("column")
+
+    def forged(column):
+        return _replaced(
+            description,
+            "expression_block_use",
+            lambda r: (
+                Record(r.address, (*r.values[:at], column, *r.values[at + 1 :]))
+                if r.address == source_read
+                else r
+            ),
+        )
+
+    # A column past the producer's outputs, none, and an existence operator
+    # are refused by the description check itself.
+    for column in (2, None):
+        with pytest.raises(CompiledError):
+            verify_description(forged(column))
+    with pytest.raises(CompiledError):
+        verify_description(
+            _replaced(
+                description,
+                "operation",
+                lambda r: (
+                    Record(r.address, (("exists", "exists"), *r.values[1:]))
+                    if r.address == reads[1].get("operation")
+                    else r
+                ),
+            )
+        )
+    # The source's other existing column, under a pin computed from the forged
+    # bytes, is refused by the independent semantic re-derivation.
+    crafted = encode(forged(0))
+    assert refused(load, bundle, crafted, expected_pin=content_pin(crafted)) == (
+        "PIE-R1004",
+        "COMPILED_OPERATOR_TYPE",
+    )
+
+
+# No FROM, JOIN, set or let reads `tags`: only scalar reads in WHERE and SELECT.
+SCALAR_ONLY = """
+source tags: Item is postgres.table("fixture.tags")
+
+table scalar_only:
+    from items
+    where id <= scalar tags.id
+    select:
+        id = items.id
+        best = scalar tags.label
+"""
+
+
+def test_a_source_read_only_through_scalar_reads_compiles_and_loads(
+    tmp_path, unconnected
+):
+    query = execution.compile_query(
+        let_example(tmp_path, SCALAR_ONLY),
+        module="main.pietto",
+        kind="table",
+        name="scalar_only",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    bundle = execution.export_bundle(query)
+    records = {r.address: r for r in decode(bundle.payload).records}
+    (tags,) = (
+        r.address
+        for r in records.values()
+        if r.address.kind == "source" and r.get("name") == "tags"
+    )
+    assert [
+        (
+            records[r.get("operation")].get("operator"),
+            r.get("producer"),
+            r.get("column"),
+        )
+        for r in records.values()
+        if r.address.kind == "expression_block_use"
+    ] == [(("scalar", "scalar"), tags, 0), (("scalar", "scalar"), tags, 1)]
+    # No stage input uses `tags`; its ports are reached only through the reads.
+    assert not any(
+        r.address.kind == "use" and r.get("producer") == tags for r in records.values()
+    )
+    loaded = load(bundle)
+    assert execution.export_bundle(loaded).payload == bundle.payload
+    handle = run(loaded)
+    assert bound(handle) == bound(run(query))
+    sources = handle._owner.request.binding.artifact.request.sources
+    assert [s.name for s in sources] == ["items", "tags"]
+
+
+def test_each_route_prepares_a_scalar_read_with_its_inner_source(tmp_path, unconnected):
+    import _pietto_sql_emission as probe
+
+    query = _priced(tmp_path / "postgres")
+    for route in ("postgres_rows", "postgres_adbc"):
+        handle = run(query, route=route)
+        request = handle._owner.request
+        assert handle.route == route and handle.outcome.end == "NOT_STARTED"
+        assert [s.name for s in request.binding.artifact.request.sources] == [
+            "items",
+            "tags",
+        ]
+    item = probe.fixture("mysql", "L_relation_scalar", "kept")
+    root = tmp_path / "mysql"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    mysql_query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    handle = execution.execute(
+        mysql_query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+    )
+    assert handle.route == "mysql_rows" and handle.outcome.end == "NOT_STARTED"
+    assert b"(SELECT `e0`.`c0` FROM `p3` AS `e0`)" in (
+        handle._owner.request.artifact.rendered.sql
+    )

@@ -989,6 +989,7 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLCast,
     row.ProjectSQLScalarCall,
     row.ProjectSQLRelationExists,
+    row.ProjectSQLRelationScalar,
 )
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
@@ -2324,7 +2325,7 @@ def value_requirements(request, value):
 
 
 def block_read_requirements(request, node):
-    """An existence read, and the qualified scan when it reads a source."""
+    """A block read, and the qualified scan when it reads a source."""
     target = node.target
     result = [
         GeneratedRequirement(

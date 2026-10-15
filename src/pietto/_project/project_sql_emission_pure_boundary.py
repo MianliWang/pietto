@@ -647,6 +647,8 @@ RELATION_ROLES = {
     "join_relation": "name",
     "exists_namespace": "namespace",
     "exists_relation": "name",
+    "scalar_namespace": "namespace",
+    "scalar_relation": "name",
 }
 UNIT_REFERENCE_ROLES = frozenset(
     {
@@ -655,6 +657,7 @@ UNIT_REFERENCE_ROLES = frozenset(
         "join_reference",
         "set_reference",
         "exists_reference",
+        "scalar_reference",
     }
 )
 # Roles that only the WITH preamble may carry, never a unit's own SELECT.
@@ -684,6 +687,22 @@ def _unit_plan(doc: _Doc, ref: Ref) -> PlanRef:
     if ref.kind == "set_body":
         return fields["body"]
     return doc[fields["definition"]]["original"]
+
+
+def _block_column_name(doc, target, column) -> str | None:
+    """The rendered name of the one producer output a scalar read reads."""
+    if type(column) is not int:
+        return None
+    producer = target["producer"]
+    if producer.kind == "bound_source":
+        names = [
+            doc[field]["column"]
+            for field in doc[producer]["fields"]
+            if doc[field]["ordinal"] == column
+        ]
+        return names[0] if len(names) == 1 else None
+    columns = doc[producer]["cte_columns"]
+    return doc[columns[column]]["name"] if 0 <= column < len(columns) else None
 
 
 class _Check:
@@ -905,13 +924,20 @@ class _Check:
         for ref in doc.all("sql_block_read"):
             read = doc[ref]
             target = doc[read["target"]]
+            realization = doc[read["realization"]]
             _require(
-                read["kind"] == "exists"
-                and doc[read["realization"]]["tag"] == "Bool"
-                and doc[read["realization"]]["nullable"] is False
-                and (target["source"] is None)
-                is (target["producer"].kind != "bound_source"),
-                "existence read",
+                (target["source"] is None)
+                is (target["producer"].kind != "bound_source")
+                and (
+                    read["kind"] == "exists"
+                    and read["column"] is None
+                    and realization["tag"] == "Bool"
+                    and realization["nullable"] is False
+                    or read["kind"] == "scalar"
+                    and _block_column_name(doc, target, read["column"]) is not None
+                    and realization["nullable"] is True
+                ),
+                "block read",
             )
         for ref in doc.all("sql_operation"):
             op = doc[ref]
@@ -1525,8 +1551,18 @@ class _Tokens:
                         )
                     elif role in UNIT_REFERENCE_ROLES:
                         _require(name in unit_names.get(subject, ()), "unit reference")
-                    elif role == "exists_scope":
+                    elif role in ("exists_scope", "scalar_scope"):
                         _require(block_aliases.get(subject) == name, "block alias")
+                    elif role == "scalar_column":
+                        read = self.one(block_reads, subject, "scalar column")
+                        _require(
+                            read["kind"] == "scalar"
+                            and name
+                            == _block_column_name(
+                                doc, doc[read["target"]], read["column"]
+                            ),
+                            "scalar column",
+                        )
                     elif role == "window_definition":
                         _require(
                             subject in definitions
@@ -2104,11 +2140,12 @@ class _Requirements:
         doc = self.doc
         if value.kind == "sql_block_read":
             fields = doc[value]
+            _require(fields["kind"] in ("exists", "scalar"), "block read kind")
             self.add(
-                "exists",
+                fields["kind"],
                 fields["original"],
                 "R11",
-                self.node_premises(self.tag(value), (), "exists"),
+                self.node_premises(self.tag(value), (), fields["kind"]),
             )
             target = doc[fields["target"]]
             if target["source"] is not None:

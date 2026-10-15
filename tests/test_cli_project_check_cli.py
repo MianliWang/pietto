@@ -234,7 +234,8 @@ def test_project_check_json_reports_gate_diagnostics_beside_parse_errors(
         "b.pietto",
         "query q(a: Int not null):\n    from rows\n    select:\n        id\n"
         "query r:\n    from rows\n    where exists t and id == scalar t.c\n"
-        "    select:\n        id\n",
+        "    select:\n        id\n"
+        "type Age = Int:\n    ensure self > scalar t.c\n",
     )
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
@@ -247,15 +248,15 @@ def test_project_check_json_reports_gate_diagnostics_beside_parse_errors(
     assert {item["code"] for item in diagnostics[: paths.count("a.pietto")]} == {
         "PIE-P1000"
     }
-    # An explicit-module project admits a SELECT-body query header and an
-    # EXISTS read inside a relation body; a scalar read stays gated.
+    # An explicit-module project admits a SELECT-body query header and the
+    # relation reads inside a relation body; a read in a type rule stays gated.
     assert [
         (item["code"], item["location"]["line"], item["location"]["column"])
         for item in diagnostics
         if item["location"]["path"] == "b.pietto"
-    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11)] * (schema == 1) + [
-        ("PIE-S2348", 7, 30)
-    ]
+    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11), ("PIE-S2348", 7, 30)] * (
+        schema == 1
+    ) + [("PIE-S2348", 11, 19)]
 
 
 def test_project_check_rejects_path_and_project_together(

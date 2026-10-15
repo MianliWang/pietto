@@ -371,3 +371,43 @@ def test_public_surface_is_exactly_the_alpha_names():
         assert declaration in (execution.__doc__ or "")
         assert declaration in (ROOT / "docs/execution.md").read_text(encoding="utf-8")
         assert declaration in runtime
+
+
+def test_a_multi_row_scalar_read_is_the_server_error_with_sqlstate_21000():
+    """A scalar read of more than one row is the database's own runtime error
+    (no LIMIT is added): PostgreSQL CardinalityViolation, MySQL error 1242 and
+    an ADBC error all carry SQLSTATE 21000 and classify as PIE-R3003."""
+    import mysql.connector.errors as mysql_errors
+    import psycopg.errors as pg_errors
+
+    from pietto._project import project_execution_mysql_native as mysql_native
+    from pietto._project import project_execution_postgres_adbc_native as adbc
+
+    class AdbcProgrammingError(Exception):
+        """The ADBC driver manager's error shape: a message and a sqlstate."""
+
+        def __init__(self, message, sqlstate):
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    postgres = pg_errors.CardinalityViolation(
+        "more than one row returned by a subquery used as an expression"
+    )
+    mysql = mysql_errors.get_mysql_exception(
+        1242, "Subquery returns more than 1 row", "21000"
+    )
+    adbc_error = AdbcProgrammingError("[libpq] more than one row", "21000")
+    for error in (postgres, mysql, adbc_error):
+        refusal = errors.attempt_failure(
+            error, phase="read", deadline=False, connected=True
+        )
+        assert (refusal.code, refusal.category, refusal.sqlstate) == (
+            "PIE-R3003",
+            "SERVER_ERROR",
+            "21000",
+        )
+        assert "more than" not in str(refusal)
+    recorded = mysql_native.failure(mysql, "read")
+    assert (recorded.sqlstate, recorded.vendor_code) == ("21000", 1242)
+    assert errors.record_failure(recorded, "PIE-R3003").sqlstate == "21000"
+    assert adbc.failure(adbc_error, "read").sqlstate == "21000"

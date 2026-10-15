@@ -452,7 +452,7 @@ def query_parameter_semantic_diagnostics(
     input_fields: Mapping[ProjectDeclarationOccurrence, frozenset[str]],
 ) -> tuple[Diagnostic, ...]:
     """Header names colliding with any other visible name, and inputs or
-    ``exists`` reads naming a parameterized query; both need resolved relation
+    relation reads naming a parameterized query; both need resolved relation
     names and the completed field names of each input, keyed by its owner
     occurrence.
 

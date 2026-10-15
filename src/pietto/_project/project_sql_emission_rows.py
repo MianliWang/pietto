@@ -225,12 +225,36 @@ class SQLBlockTarget:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SQLBlockRead:
-    """An existence read of one whole producer: ``EXISTS (SELECT 1 FROM p AS e)``."""
+    """A read of one whole producer: ``EXISTS (SELECT 1 FROM p AS e)`` for kind
+    ``exists``, or ``(SELECT e.c FROM p AS e)`` of output ``column`` for kind
+    ``scalar``, which is NULL when ``p`` has no row."""
 
     original: Any
     target: SQLBlockTarget
     realization: Realization
     kind: str = "exists"
+    column: int | None = None
+
+
+def block_column(target: SQLBlockTarget, column: int) -> tuple[str, Realization] | None:
+    """The rendered name and realization of one producer output a scalar reads."""
+    if target.source is not None:
+        fields = tuple(f for f in target.producer.fields if f.ordinal == column)
+        realization = None if len(fields) != 1 else field_realization(fields[0])
+        return None if realization is None else (fields[0].column, realization)
+    producer = target.producer
+    if not 0 <= column < len(producer.cte_columns) or len(producer.columns) != len(
+        producer.cte_columns
+    ):
+        return None
+    return producer.cte_columns[column].name, producer.columns[
+        column
+    ].column.realization
+
+
+def scalar_read_realization(read: Realization) -> Realization:
+    """A scalar read keeps its column's carrier and is NULL for no row."""
+    return Realization(read.tag, read.storage, True, read.domain, read.proven_int_range)
 
 
 def signed_range(storage) -> tuple[int, int] | None:
@@ -910,6 +934,20 @@ def build_row_value(
         if tag != "Bool" or nullable is not False:
             return None, ("PIE-B1002", "existence_result_not_non_null_bool")
         return SQLBlockRead(expression, target, _bool(family, False)), None
+    if type(expression) is row.ProjectSQLRelationScalar:
+        # One named output of the read producer; no row reads NULL, and more
+        # than one row is the database's own runtime error.
+        target = columns.get(expression.use)
+        if type(target) is not SQLBlockTarget or target.use.ref is not expression.use:
+            return None, ("PIE-B1001", "expression_block_use_outside_scope")
+        column = target.use.edge.column
+        read = None if column is None else block_column(target, column)
+        if read is None:
+            return None, ("PIE-B1001", "scalar_read_column_not_realized")
+        realization = scalar_read_realization(read[1])
+        if realization.tag != tag or nullable is not True:
+            return None, ("PIE-B1002", "scalar_read_type_mismatch")
+        return SQLBlockRead(expression, target, realization, "scalar", column), None
     return None, ("PIE-B1003", "row_expression_not_admitted_in_slice6")
 
 
@@ -1694,8 +1732,9 @@ REQUIREMENT_RULES = {
     "not": "R06",
     "null_test": "R05",
     "logical": "R06",
-    # An existence read wraps one complete producer terminal like SEMI/ANTI.
+    # A block read wraps one complete producer terminal like SEMI/ANTI.
     "exists": "R11",
+    "scalar": "R11",
 }
 
 
@@ -1722,7 +1761,7 @@ def demand_rule(plan, entry) -> str | None:
         return "R06" if expression.expression.operator in LOGICAL else "R05"
     if type(expression) in R05_OPERATIONS:
         return "R05"
-    if type(expression) is row.ProjectSQLRelationExists:
+    if type(expression) in {row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar}:
         return "R11"
     return None
 

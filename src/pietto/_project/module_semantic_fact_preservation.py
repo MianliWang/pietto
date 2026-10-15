@@ -5,7 +5,7 @@ from __future__ import annotations
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import SetRelationDef, ValuesRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
-from pietto._project.project_values import values_diagnostics
+from pietto._project.project_values import ProjectValuesRelation, values_diagnostics
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -41,6 +41,7 @@ from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
     ProjectResolvedTypeKind,
     ProjectRowField,
+    ProjectRowFieldNullability,
     ProjectRowResultRole,
     ProjectRowSchema,
     ProjectSymbol,
@@ -61,6 +62,7 @@ from pietto._project.module_relation_resolution import (
     ProjectModuleRelationResolutionIssue,
     ProjectModuleRelationResolutionSet,
     ProjectModuleRelationRowFact,
+    ProjectResolvedExpressionBlockRead,
     ProjectResolvedModuleRelationReference,
 )
 from pietto._project.row_expression_schema import (
@@ -69,7 +71,9 @@ from pietto._project.row_expression_schema import (
 )
 from pietto._project.row_expression_type_facts import (
     build_project_row_expression_value_types,
+    project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
+    scalar_read_types_within,
 )
 from pietto._project.row_dependency_graph import (
     ProjectRowDependencyNode,
@@ -105,6 +109,7 @@ from pietto.ast_nodes import (
     NameExpr,
     OrderItem,
     QueryDef,
+    RelationScalarExpr,
     SelectItem,
     SourceDef,
     Span,
@@ -140,7 +145,7 @@ from pietto.semantic.capability_signatures import _CAPABILITY_SIGNATURE_FACTS
 from pietto.semantic.capability_windows import _WINDOW_CAPABILITY_FACTS
 from pietto.semantic.generic_compatibility import GenericSignature
 from pietto.semantic.model import RowSchema as SemanticRowSchema
-from pietto.semantic.model import ValueType
+from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.predicate_checks import _check_bool_expression
 from pietto.semantic.nullability_formulas import SignatureResultFormula
@@ -195,6 +200,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.RelationScalarExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -1263,6 +1269,54 @@ class ProjectModuleWindowOutputFact:
                 )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectModuleScalarReadFact:
+    """One ``scalar r.c`` read of its owner, typed by the read block's column.
+
+    ``value_type`` is the column's type made NULLABLE, because a read of no row
+    is NULL; it is absent when the read block or column is not available, and
+    ``diagnostic`` then names why unless the read block reports it itself.
+    """
+
+    read: ProjectResolvedExpressionBlockRead
+    target: ProjectModuleRelationSemanticFacts | None = field(
+        repr=False, compare=False, hash=False
+    )
+    column: ProjectRowField | None = None
+    value_type: ValueType | None = None
+    diagnostic: Diagnostic | None = None
+
+    def __post_init__(self) -> None:
+        read = self.read
+        if (
+            type(read) is not ProjectResolvedExpressionBlockRead
+            or type(read.read.expression) is not RelationScalarExpr
+        ):
+            raise TypeError("Scalar read facts require one exact scalar read.")
+        symbol = read.target_symbol
+        if self.target is not None and (
+            symbol is None or self.target.owner is not symbol.target_occurrence
+        ):
+            raise ValueError("Scalar read facts must keep the read block.")
+        schema = None if self.target is None else _read_block_schema(self.target)
+        if (self.value_type is not None) and (
+            self.column is None
+            or schema is None
+            or schema.fields.get(self.expression.column_name) != self.column
+            or self.value_type
+            != project_row_field_to_semantic_value_type(
+                self.column, ProjectRowFieldNullability.NULLABLE
+            )
+        ):
+            raise ValueError("A scalar read is typed only by its read column.")
+        if self.value_type is not None and self.diagnostic is not None:
+            raise ValueError("A typed scalar read has no diagnostic.")
+
+    @property
+    def expression(self) -> RelationScalarExpr:
+        return cast(RelationScalarExpr, self.read.read.expression)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectModuleRelationSemanticFacts:
     """All existing facts retained for one exact relation declaration occurrence."""
@@ -1292,10 +1346,25 @@ class ProjectModuleRelationSemanticFacts:
     group_key_references: tuple[
         tuple[ProjectModuleExpressionReferenceFact, ...], ...
     ] = ()
+    scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = ()
+
+    @property
+    def scalar_read_types(self) -> Mapping[Expression, ValueType]:
+        """The typed scalar reads of this owner, for every kernel call over it."""
+        return MappingProxyType(
+            {
+                item.expression: item.value_type
+                for item in self.scalar_reads
+                if item.value_type is not None
+            }
+        )
 
     def __post_init__(self) -> None:
         if type(self.owner) is not ProjectDeclarationOccurrence:
             raise TypeError("Relation semantic facts require an exact owner.")
+        _require_tuple(self.scalar_reads, ProjectModuleScalarReadFact, "Scalar reads")
+        if any(item.read.read.owner is not self.owner for item in self.scalar_reads):
+            raise ValueError("Scalar read facts must belong to their owner.")
         if type(self.base_row_fact) is not ProjectModuleRelationRowFact:
             raise TypeError("Relation semantic facts require a Slice 10 row fact.")
         if self.base_row_fact.owner is not self.owner:
@@ -2672,12 +2741,24 @@ def _build_project_module_semantic_fact_set(
                         )
                     ):
                         continue
+                    # A scalar read is typed by its read block's own facts, so
+                    # every read block of this owner is built first.
+                    if any(
+                        _owner_is_pending(pending, target)
+                        for target in _scalar_read_targets(
+                            owner, resolution_environment
+                        )
+                    ):
+                        continue
                     semantic_fact, pre_window_state = _build_derived_relation_facts(
                         owner=owner,
                         base_row_fact=base_row_fact,
                         resolution=resolution,
                         upstream=upstream,
                         capabilities=capabilities,
+                        scalar_reads=_scalar_read_facts(
+                            owner, resolution_environment, completed
+                        ),
                     )
                 built_for_module.append(semantic_fact)
                 completed.append(semantic_fact)
@@ -2700,6 +2781,9 @@ def _build_project_module_semantic_fact_set(
                     resolution=resolution,
                     upstream=None,
                     capabilities=capabilities,
+                    scalar_reads=_scalar_read_facts(
+                        base_row_fact.owner, resolution_environment, completed
+                    ),
                 )
                 built_for_module.append(semantic_fact)
                 completed.append(semantic_fact)
@@ -2861,6 +2945,116 @@ def _owner_is_pending(
     return any(fact.owner is owner for fact in pending)
 
 
+def _scalar_reads_of(
+    owner: ProjectDeclarationOccurrence,
+    environment: ProjectModuleRelationResolutionEnvironment,
+) -> tuple[ProjectResolvedExpressionBlockRead, ...]:
+    return tuple(
+        item
+        for item in environment.expression_reads
+        if item.read.owner is owner and type(item.read.expression) is RelationScalarExpr
+    )
+
+
+def _scalar_read_targets(
+    owner: ProjectDeclarationOccurrence,
+    environment: ProjectModuleRelationResolutionEnvironment,
+) -> tuple[ProjectDeclarationOccurrence, ...]:
+    return tuple(
+        item.target_symbol.target_occurrence
+        for item in _scalar_reads_of(owner, environment)
+        if item.target_symbol is not None
+    )
+
+
+def _scalar_read_facts(
+    owner: ProjectDeclarationOccurrence,
+    environment: ProjectModuleRelationResolutionEnvironment,
+    completed: list[ProjectModuleRelationSemanticFacts],
+) -> tuple[ProjectModuleScalarReadFact, ...]:
+    """Type each scalar read of one owner by its read block's column."""
+    result: list[ProjectModuleScalarReadFact] = []
+    for item in _scalar_reads_of(owner, environment):
+        expression = cast(RelationScalarExpr, item.read.expression)
+        symbol = item.target_symbol
+        target = (
+            None
+            if symbol is None
+            else _find_exact_owner(completed, symbol.target_occurrence)
+        )
+        schema = None if target is None else _read_block_schema(target)
+        column = value_type = diagnostic = None
+        if schema is not None:
+            column = schema.fields.get(expression.column_name)
+            if column is None:
+                diagnostic = _scalar_read_diagnostic(
+                    expression,
+                    "PIE-S2102",
+                    f"Unknown field: {expression.relation_name}."
+                    f"{expression.column_name}",
+                )
+            else:
+                typed = project_row_field_to_semantic_value_type(
+                    column, ProjectRowFieldNullability.NULLABLE
+                )
+                value_type = typed if typed.kind is ValueTypeKind.KNOWN else None
+        elif target is not None:
+            # A read block whose row is not concrete here (a set, an authored
+            # JOIN, a relation over one, or one whose own errors leave its row
+            # unknown) has no column type, so the read is never left untyped.
+            diagnostic = _scalar_read_diagnostic(
+                expression,
+                "PIE-S2348",
+                f"Scalar relation read {expression.relation_name}."
+                f"{expression.column_name} is not yet available: the columns "
+                f"of {expression.relation_name} are not known before completion.",
+            )
+        result.append(
+            ProjectModuleScalarReadFact(
+                read=item,
+                target=target,
+                column=column,
+                value_type=value_type,
+                diagnostic=diagnostic,
+            )
+        )
+    return tuple(result)
+
+
+def _read_block_schema(
+    target: ProjectModuleRelationSemanticFacts,
+) -> ProjectRowSchema | None:
+    """The columns a read block has before completion, if they are known.
+
+    They are its concrete row, or the header of a typed VALUES body without
+    errors, which declares its columns before any completion.
+    """
+    if target.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+        return target.state.schema
+    definition = target.owner.definition
+    if type(definition) is ValuesRelationDef:
+        return ProjectValuesRelation(definition=definition).schema
+    return None
+
+
+def _scalar_read_diagnostic(
+    expression: RelationScalarExpr, code: str, message: str
+) -> Diagnostic:
+    span = expression.span
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
 def _build_derived_relation_facts(
     *,
     owner: ProjectDeclarationOccurrence,
@@ -2868,11 +3062,17 @@ def _build_derived_relation_facts(
     resolution: ProjectResolvedModuleRelationReference | None,
     upstream: ProjectModuleRelationSemanticFacts | None,
     capabilities: ProjectModuleCapabilityFactInventory,
+    scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = (),
 ) -> tuple[
     ProjectModuleRelationSemanticFacts,
     ProjectRelationRowSchemaState,
 ]:
     definition = cast(_DerivedRelation, owner.definition)
+    read_types: dict[Expression, ValueType] = {
+        item.expression: item.value_type
+        for item in scalar_reads
+        if item.value_type is not None
+    }
     named_window_namespace = (
         None
         if not definition.named_windows
@@ -2904,6 +3104,7 @@ def _build_derived_relation_facts(
                 let_scope=let_scope,
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
+                scalar_reads=scalar_reads,
             ),
             state,
         )
@@ -2932,6 +3133,7 @@ def _build_derived_relation_facts(
                 let_scope=let_scope,
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
+                scalar_reads=scalar_reads,
             ),
             state,
         )
@@ -2957,6 +3159,7 @@ def _build_derived_relation_facts(
                 let_scope=let_scope,
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
+                scalar_reads=scalar_reads,
             ),
             state,
         )
@@ -3007,6 +3210,7 @@ def _build_derived_relation_facts(
             upstream_state=upstream.state,
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
+            read_types=read_types,
         )
         helper_diagnostics = schema_result.diagnostics
         base_state = _project_relation_row_schema_state_from_result(
@@ -3072,6 +3276,7 @@ def _build_derived_relation_facts(
         state=state,
         let_scope=let_scope,
         aggregate_result_facts=published_aggregate_result_facts,
+        read_types=read_types,
     )
     return (
         ProjectModuleRelationSemanticFacts(
@@ -3107,7 +3312,8 @@ def _build_derived_relation_facts(
             window_outputs=window_outputs,
             named_window_namespace=named_window_namespace,
             helper_diagnostics=helper_diagnostics,
-            where_fact=_where_fact(owner, input_schema, let_scope),
+            where_fact=_where_fact(owner, input_schema, let_scope, read_types),
+            scalar_reads=scalar_reads,
         ),
         base_state,
     )
@@ -3123,6 +3329,7 @@ def _nonconcrete_relation_facts(
     let_scope: ProjectRelationLetScopeFacts,
     group_key_occurrences: tuple[GroupByItem, ...],
     capabilities: ProjectModuleCapabilityFactInventory,
+    scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = (),
 ) -> ProjectModuleRelationSemanticFacts:
     definition = cast(_DerivedRelation, owner.definition)
     named_window_namespace = (
@@ -3184,6 +3391,7 @@ def _nonconcrete_relation_facts(
         window_outputs=window_outputs,
         named_window_namespace=named_window_namespace,
         helper_diagnostics=syntax_diagnostics(definition, allow_distinct=True),
+        scalar_reads=scalar_reads,
     )
 
 
@@ -3281,6 +3489,7 @@ def _select_facts(
     state: ProjectRelationRowSchemaState,
     let_scope: ProjectRelationLetScopeFacts,
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[
     tuple[ProjectModuleSelectFact, ...], tuple[ProjectModuleSelectExpressionFact, ...]
 ]:
@@ -3300,6 +3509,7 @@ def _select_facts(
             input_schema=input_schema,
             relation_qualifier=definition.from_clause.source_name,
             bare_value_types=let_values,
+            read_types=read_types,
         )
     aggregate_by_name = {fact.output_name: fact for fact in aggregate_result_facts}
     schema = (
@@ -3324,7 +3534,7 @@ def _select_facts(
         ):
             # The schema helper omits failed analyses. Retain the existing-rule
             # failure as well, so completion cannot replace it with success.
-            failed_types: dict[Expression, ValueType] = {}
+            failed_types = scalar_read_types_within(item.expression, read_types)
             infer_row_expression(
                 item.expression,
                 project_row_schema_to_semantic_row_schema(input_schema),
@@ -3408,6 +3618,7 @@ def _where_fact(
     owner: ProjectDeclarationOccurrence,
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> ProjectModuleWhereFact | None:
     definition = cast(_DerivedRelation, owner.definition)
     clause = definition.where_clause
@@ -3416,7 +3627,7 @@ def _where_fact(
         ProjectLetScopeFactsStatus.CONCRETE,
     }:
         return None
-    value_types: dict[Expression, ValueType] = {}
+    value_types = scalar_read_types_within(clause.expression, read_types)
     diagnostics: list[Diagnostic] = []
     if contains_semantic_aggregate(clause.expression):
         diagnostics.append(

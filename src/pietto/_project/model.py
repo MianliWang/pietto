@@ -42,6 +42,7 @@ from pietto.ast_nodes import (
     Nullability,
     QueryDef,
     RelationExistsExpr,
+    RelationScalarExpr,
     Script,
     SelectItem,
     ShapeDef,
@@ -61,6 +62,7 @@ from pietto.semantic.capability_profiles import (
 )
 
 if TYPE_CHECKING:
+    from pietto.semantic.model import ValueType
     from pietto._project.project_compiled_schema import Address, Description, Record
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
     from pietto._project.module_attribution import ProjectModuleAttributionFactSet
@@ -123,6 +125,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         IsNullExpr,
         WindowExpr,
         RelationExistsExpr,
+        RelationScalarExpr,
     }
 )
 _KNOWN_DEFINITIONS = frozenset(
@@ -2688,6 +2691,7 @@ def _project_direct_relation_row_schema(
     upstream_state: ProjectRelationRowSchemaState | None = None,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input."""
 
@@ -2735,6 +2739,7 @@ def _project_direct_relation_row_schema(
         input_schema=source_schema,
         relation_qualifier=definition.from_clause.source_name,
         bare_value_types=let_value_types,
+        read_types=read_types,
     )
 
     for item in definition.select_items:

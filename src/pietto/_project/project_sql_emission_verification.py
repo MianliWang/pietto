@@ -110,6 +110,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.IsNullExpr,
         ast_nodes.WindowExpr,
         ast_nodes.RelationExistsExpr,
+        ast_nodes.RelationScalarExpr,
     }
 )
 
@@ -2441,6 +2442,19 @@ def _block_scopes(request, definition, produced, source_refs):
     return result
 
 
+def _block_scope_column(scope, column):
+    """The realization of one output of a readable block, from the scope image."""
+    if type(column) is not int:
+        return None
+    if scope.source is not None:
+        fields = tuple(f for f in scope.producer.fields if f.ordinal == column)
+        return None if len(fields) != 1 else rows.field_realization(fields[0])
+    columns = scope.producer.columns
+    if not 0 <= column < len(columns):
+        return None
+    return columns[column].column.realization
+
+
 def _verify_row_value(
     request,
     value,
@@ -2460,10 +2474,12 @@ def _verify_row_value(
         # The independent scope image names each readable block use's producer.
         expected = columns.get(getattr(expression, "use", None))
         target = value.target
+        scalar = type(expression) is row.ProjectSQLRelationScalar
         if (
-            type(expression) is not row.ProjectSQLRelationExists
+            type(expression)
+            not in {row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar}
             or value.original is not expression
-            or value.kind != "exists"
+            or value.kind != ("scalar" if scalar else "exists")
             or reference in children
             or type(expected) is not _BlockScope
             or type(target) is not rows.SQLBlockTarget
@@ -2474,16 +2490,32 @@ def _verify_row_value(
             or target.symbol.binding is not expected.use.ref
             or target.symbol.position != 0
             or target.symbol.name != f"e{expected.use.ref.position}"
-            or (rows.value_tag(expression), rows.value_nullable(expression))
-            != ("Bool", False)
+            or value.column != (expected.use.edge.column if scalar else None)
         ):
             raise ValueError("block read")
-        expected_realization = rows.Realization(
+        if scalar:
+            # The read producer's own output realization, NULL for no row.
+            read = _block_scope_column(expected, value.column)
+            if read is None or (
+                rows.value_tag(expression),
+                rows.value_nullable(expression),
+            ) != (read.tag, True):
+                raise ValueError("scalar read")
+            expected_realization = rows.Realization(
+                read.tag, read.storage, True, read.domain, read.proven_int_range
+            )
+        elif (rows.value_tag(expression), rows.value_nullable(expression)) != (
             "Bool",
-            {"kind": rows.BOOL_RESULT[request.family]},
             False,
-            {"kind": "bool01"},
-        )
+        ):
+            raise ValueError("block read")
+        else:
+            expected_realization = rows.Realization(
+                "Bool",
+                {"kind": rows.BOOL_RESULT[request.family]},
+                False,
+                {"kind": "bool01"},
+            )
         if not _same_realization(value.realization, expected_realization):
             raise ValueError("block read realization")
         state["expressions"].append(expression)
@@ -4574,23 +4606,52 @@ def verify_row_bytes(query, rendered):
             if type(value) is rows.SQLBlockRead:
                 reference = value.original.ref
                 target = value.target
-                take("syntax", "exists_open", reference, "EXISTS (")
-                take("syntax", "exists_select", reference, "SELECT ")
-                take("literal", "exists_sentinel", reference, joining.SENTINEL)
-                take("syntax", "exists_from", reference, " FROM ")
+                kind = value.kind
+                if kind == "scalar":
+                    read = (
+                        None
+                        if value.column is None
+                        else rows.block_column(target, value.column)
+                    )
+                    if read is None:
+                        raise ValueError("scalar read column")
+                    take("syntax", "scalar_open", reference, "(")
+                    take("syntax", "scalar_select", reference, "SELECT ")
+                    take(
+                        "identifier",
+                        "scalar_scope",
+                        target.use.ref,
+                        target.symbol.name,
+                        identifier=True,
+                    )
+                    take("syntax", "scalar_column_qualifier", reference, ".")
+                    take(
+                        "identifier",
+                        "scalar_column",
+                        reference,
+                        read[0],
+                        identifier=True,
+                    )
+                elif kind == "exists":
+                    take("syntax", "exists_open", reference, "EXISTS (")
+                    take("syntax", "exists_select", reference, "SELECT ")
+                    take("literal", "exists_sentinel", reference, joining.SENTINEL)
+                else:
+                    raise ValueError("block read kind")
+                take("syntax", f"{kind}_from", reference, " FROM ")
                 if target.source is not None:
                     relation = target.source.ref
                     take(
                         "identifier",
-                        "exists_namespace",
+                        f"{kind}_namespace",
                         relation,
                         target.producer.namespace,
                         identifier=True,
                     )
-                    take("syntax", "exists_qualifier", relation, ".")
+                    take("syntax", f"{kind}_qualifier", relation, ".")
                     take(
                         "identifier",
-                        "exists_relation",
+                        f"{kind}_relation",
                         relation,
                         target.producer.name,
                         identifier=True,
@@ -4598,21 +4659,21 @@ def verify_row_bytes(query, rendered):
                 else:
                     take(
                         "identifier",
-                        "exists_reference",
+                        f"{kind}_reference",
                         target.producer.block.ref,
                         target.producer.symbol.name,
                         identifier=True,
                     )
-                take("syntax", "exists_alias", target.use.ref, " AS ")
+                take("syntax", f"{kind}_alias", target.use.ref, " AS ")
                 take(
                     "identifier",
-                    "exists_scope",
+                    f"{kind}_scope",
                     target.use.ref,
                     target.symbol.name,
                     identifier=True,
                 )
-                take("syntax", "exists_close", reference, ")")
-                spans.append(("exists", reference, start, offset))
+                take("syntax", f"{kind}_close", reference, ")")
+                spans.append((kind, reference, start, offset))
                 return
             if type(value) is rows.SQLStageReference:
                 reference = value.original.ref
@@ -5935,12 +5996,14 @@ def verify_row_generated_requirements(request, query, generated):
                 )
                 continue
             if type(node) is rows.SQLBlockRead:
+                if node.kind not in ("exists", "scalar"):
+                    raise ValueError("block read kind")
                 expected.append(
                     (
-                        "exists",
+                        node.kind,
                         node.original.ref,
                         "R11",
-                        node_premises(request, node.realization, (), "exists"),
+                        node_premises(request, node.realization, (), node.kind),
                     )
                 )
                 producer = node.target.producer

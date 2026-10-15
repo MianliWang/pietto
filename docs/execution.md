@@ -284,10 +284,10 @@ requires an ordinary live `CompiledQuery` from `compile_query`; a loaded bundle
 is refused, and callers cannot manufacture a guard or refinement. Its
 `source_requirements` must be one `R2SourceInput` for every compiled source,
 in the compiled source order, including guarded and refined sources and sources
-read only inside a relation let or through an `exists` read; a partial,
-reordered or substituted tuple is refused. It is not an option on
-`compile_query`. A query with an `exists` read is then refused before any
-workspace access or connection (`PIE-R1004` with detail
+read only inside a relation let or through an `exists` or `scalar` read; a
+partial, reordered or substituted tuple is refused. It is not an option on
+`compile_query`. A query with an `exists` or `scalar` read is then refused
+before any workspace access or connection (`PIE-R1004` with detail
 `REFINEMENT_EXPRESSION_BLOCK_READ`); ordinary execution and bundles accept
 it. A query that groups by a value its own `let:` computes is not an R2 shape
 yet: `save_recoverable` and `recover` refuse it with `PIE-R1004`
@@ -667,9 +667,12 @@ replaced by an execution error.
 Errors carry a `PIE-R` code (see [Diagnostics](spec/diagnostics.md)), its
 `category`, and a `failure` with the private `detail` word, the `phase`, the
 server's `sqlstate` and the exception class as `cause`. Code against `code`;
-`detail` may change between alpha releases. `RequestRejected` (PIE-R1xxx) means
-nothing connected; `AttemptFailed` (PIE-R2xxx and PIE-R3xxx) ends the attempt and
-carries its `outcome`; `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
+`detail` may change between alpha releases. A `scalar` read of more than one
+row is the database's own runtime error: `PIE-R3003` with `sqlstate` `21000`,
+in no promised order relative to other runtime errors of the statement.
+`RequestRejected` (PIE-R1xxx) means nothing connected; `AttemptFailed`
+(PIE-R2xxx and PIE-R3xxx) ends the attempt and carries its `outcome`;
+`HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 `execute()` first checks that `query`, `route`, `access`, `premise` and
 `limits` are given and have the right type and that `isolation` is given, in
 this order; right after the route's type it checks that the route is
@@ -954,10 +957,11 @@ isolation come from that call, and each attempt qualifies the sources and meets
 the server's privilege checks itself. Qualification does not check column
 privileges: a source the query reads only through `exists`, directly or inside
 a let read that way, needs the SELECT privilege on the table or on at least one
-of its columns, and without it the database refuses the statement during the
-attempt (PostgreSQL SQLSTATE `42501`, MySQL error `1142`), reported as
-`PIE-R3003`. A refused call creates nothing and
-changes nothing, and a failed attempt does not affect the next one. Pietto
+of its columns (a `scalar` read needs it on the column it reads, like any other
+read), and without it the database refuses the statement during the attempt
+(PostgreSQL SQLSTATE `42501`, MySQL error `1142`), reported as `PIE-R3003`. A
+refused call creates nothing and changes nothing, and a failed attempt does not
+affect the next one. Pietto
 caches no binding, request, qualification, accepted bundle or failure.
 
 The code identity is that of the installed Pietto and ANTLR runtime files at

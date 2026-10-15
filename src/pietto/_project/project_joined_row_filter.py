@@ -407,9 +407,11 @@ def build_project_joined_row_filter(
             ),
         )
 
+    facts = completion.plan.semantic_facts.find_owner(entry.owner)
     analysis = analyze_project_joined_namespace_expression(
         joined.post_let,
         where_clause.expression,
+        read_types=facts[0].scalar_read_types if len(facts) == 1 else None,
     )
     if contains_semantic_aggregate(where_clause.expression):
         diagnostic = invalid_context_diagnostic(

@@ -60,11 +60,11 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
 
 # Families whose semantics exist only for EXPLICIT_MODULES projects.
 _EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset(
-    {LetRelationDef, ValuesBody, RelationExistsExpr}
+    {LetRelationDef, ValuesBody, RelationExistsExpr, RelationScalarExpr}
 )
 # Expression families admitted only inside a FROM-based relation body; in a
 # shape, constraint, type argument or VALUES row they stay gated.
-_BODY_ONLY: frozenset[type[Node]] = frozenset({RelationExistsExpr})
+_BODY_ONLY: frozenset[type[Node]] = frozenset({RelationExistsExpr, RelationScalarExpr})
 _BODIES: frozenset[type[Node]] = frozenset({TableDef, QueryDef, SelectBody})
 # D70.07: one table or query declares at most this many relation lets.
 _MAX_RELATION_LETS = 64
@@ -95,8 +95,8 @@ def unadmitted_syntax_diagnostics(
     ``_MAX_RELATION_LETS`` relation lets per table or query, and the header of
     an entry query built as a ``QueryDef`` (its FROM reads a relation and it
     declares no relation let), whose parameter types are still read; headers
-    of any other body stay unadmitted. An EXISTS read is admitted only inside a
-    relation body.
+    of any other body stay unadmitted. An EXISTS or scalar read is admitted only
+    inside a relation body.
     """
 
     found: list[Diagnostic] = []

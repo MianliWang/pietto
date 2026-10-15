@@ -213,7 +213,9 @@ ANCHOR = Shape(
         "conditional_expr",
         "membership_expr",
         "relation_exists_expr",
+        "relation_scalar_expr",
         "project_sql_relation_exists",
+        "project_sql_relation_scalar",
         "project_sql_expression_block_use",
         "project_ir_expression_block_use",
         "project_expression_block_use",
@@ -1238,6 +1240,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_sql_conditional"),
                             ref("project_sql_membership"),
                             ref("project_sql_relation_exists"),
+                            ref("project_sql_relation_scalar"),
                             ref("project_sql_cast"),
                             ref("project_sql_scalar_call"),
                             ref("project_sql_result_reference"),
@@ -1687,6 +1690,22 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("use", ref("project_sql_plan_ref")),
             ),
         ),
+        "project_sql_relation_scalar": RecordRule(
+            "project_sql_relation_scalar",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("relation_scalar_expr")),
+                FieldRule("use", ref("project_sql_plan_ref")),
+            ),
+        ),
         "project_sql_expression_block_use": RecordRule(
             "project_sql_expression_block_use",
             (
@@ -1751,7 +1770,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             "project_expression_block_read",
             (
                 FieldRule("owner", ref("project_declaration_occurrence")),
-                FieldRule("expression", ref("relation_exists_expr")),
+                FieldRule(
+                    "expression",
+                    union(ref("relation_exists_expr"), ref("relation_scalar_expr")),
+                ),
                 FieldRule(
                     "position",
                     enum(
@@ -1777,6 +1799,14 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule("span", ref("span")),
                 FieldRule("relation_name", TEXT),
+            ),
+        ),
+        "relation_scalar_expr": RecordRule(
+            "relation_scalar_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("relation_name", TEXT),
+                FieldRule("column_name", TEXT),
             ),
         ),
         "project_sql_cast": RecordRule(

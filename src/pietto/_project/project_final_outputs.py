@@ -229,6 +229,7 @@ from pietto.semantic.aggregates import (
     invalid_context_diagnostic,
 )
 from pietto.semantic.expressions import infer_row_expression
+from pietto._project.row_expression_type_facts import scalar_read_types_within
 from pietto.semantic.group_by import _grouped_order_by_unsupported_diagnostic
 from pietto.semantic.model import CheckMode, ValueType, ValueTypeKind
 from pietto.semantic.relation_schemas import (
@@ -3369,9 +3370,10 @@ def _analyze_no_join_scalar(
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
     expression: Expression,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> ProjectNoJoinScalarExpression:
     definition = _derived_definition(owner)
-    value_types: dict[Expression, ValueType] = {}
+    value_types = scalar_read_types_within(expression, read_types)
     diagnostics: list[Diagnostic] = []
     value_type = infer_row_expression(
         expression,
@@ -3407,6 +3409,7 @@ def _no_join_where(
     owner: ProjectDeclarationOccurrence,
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> ProjectConcreteNoJoinWhere | ProjectNoJoinScalarExpression:
     definition = _derived_definition(owner)
     clause = definition.where_clause
@@ -3420,6 +3423,7 @@ def _no_join_where(
         input_schema=input_schema,
         let_scope=let_scope,
         expression=clause.expression,
+        read_types=read_types,
     )
     diagnostics = list(analysis.diagnostics)
     if contains_semantic_aggregate(clause.expression):
@@ -3577,6 +3581,7 @@ def _joined_final_fields(
             analysis = analyze_project_joined_namespace_expression(
                 aggregation.input_filter.namespace,
                 item.expression,
+                read_types=_semantic_facts(completion, owner).scalar_read_types,
             )
             if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
                 return None, analysis, analysis.diagnostics
@@ -4250,6 +4255,7 @@ def _no_join_final_fields(
                 input_schema=input_schema,
                 let_scope=let_scope,
                 expression=item.expression,
+                read_types=_semantic_facts(completion, owner).scalar_read_types,
             )
             if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
                 return None, analysis, analysis.diagnostics
@@ -5295,6 +5301,7 @@ def _complete_no_join_output(
         owner=owner,
         input_schema=input_schema,
         let_scope=let_scope,
+        read_types=semantic.scalar_read_types,
     )
     if type(where) is ProjectNoJoinScalarExpression:
         return _no_join_terminal(
@@ -5323,6 +5330,7 @@ def _complete_no_join_output(
             ),
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
+            read_types=semantic.scalar_read_types,
         )
         base_state = _project_relation_row_schema_state_from_result(
             schema_result,

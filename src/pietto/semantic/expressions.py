@@ -102,6 +102,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.RelationScalarExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -681,6 +682,10 @@ def _infer(
         # An existence test is never NULL; its relation is resolved, scheduled
         # and checked by the owner of the relation name, not by this kernel.
         value_type = _builtin_value_type("Bool", EffectiveNullability.NON_NULL)
+    elif isinstance(expression, ast.RelationScalarExpr):
+        # A scalar read's type is its read block column's, which only the
+        # relation-name owner knows; a caller supplies it in ``value_types``.
+        value_type = _UNKNOWN_VALUE_TYPE
     elif isinstance(expression, IsNullExpr):
         _infer(
             expression.value,

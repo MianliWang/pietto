@@ -50,6 +50,7 @@ _KNOWN_NODES = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.RelationScalarExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,

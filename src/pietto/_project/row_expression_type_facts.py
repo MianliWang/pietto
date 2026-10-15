@@ -12,7 +12,7 @@ from pietto._project.model import (
     ProjectRowFieldNullability,
     ProjectRowSchema,
 )
-from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr
+from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr, RelationScalarExpr
 from pietto.errors import Diagnostic
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
@@ -65,6 +65,21 @@ def scalar_field_reference_leaves(
     )
 
 
+def scalar_read_types_within(
+    expression: Expression, read_types: Mapping[Expression, ValueType] | None
+) -> dict[Expression, ValueType]:
+    """The owner's typed scalar relation reads written inside one expression."""
+    result: dict[Expression, ValueType] = {}
+    pending = [expression]
+    while read_types and pending:
+        node = pending.pop()
+        typed = read_types.get(node) if type(node) is RelationScalarExpr else None
+        if typed is not None:
+            result[node] = typed
+        pending.extend(child_expressions(node))
+    return result
+
+
 def project_row_field_to_semantic_value_type(
     field: ProjectRowField,
     effective_nullability: ProjectRowFieldNullability,
@@ -90,8 +105,13 @@ def build_project_row_expression_value_types(
     input_schema: ProjectRowSchema,
     relation_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None = None,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> Mapping[Expression, ValueType]:
-    """Infer known row expression value types from a concrete project schema."""
+    """Infer known row expression value types from a concrete project schema.
+
+    ``read_types`` holds the owner's typed scalar relation reads; the kernel
+    takes each from there and never types a relation read on its own.
+    """
 
     if input_schema.is_unknown:
         return MappingProxyType({})
@@ -101,7 +121,7 @@ def build_project_row_expression_value_types(
     for expression in tuple(expressions):
         if contains_semantic_aggregate(expression):
             continue
-        scratch_value_types: dict[Expression, ValueType] = {}
+        scratch_value_types = scalar_read_types_within(expression, read_types)
         diagnostics: list[Diagnostic] = []
         root_value_type = infer_row_expression(
             expression,

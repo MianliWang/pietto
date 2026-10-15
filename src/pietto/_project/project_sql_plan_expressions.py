@@ -93,6 +93,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.RelationScalarExpr,
         ast.CastExpr,
         ast.BinaryExpr,
         ast.ComparisonExpr,
@@ -313,6 +314,14 @@ class ProjectSQLRelationExists(ProjectSQLExpressionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLRelationScalar(ProjectSQLExpressionBase):
+    """A scalar read of one column of one whole block through its block use."""
+
+    expression: ast.RelationScalarExpr
+    use: ProjectSQLPlanRef
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLCast(ProjectSQLExpressionBase):
     expression: CastExpr
     value: ProjectSQLPlanRef
@@ -340,6 +349,7 @@ type ProjectSQLExpression = (
     | ProjectSQLConditional
     | ProjectSQLMembership
     | ProjectSQLRelationExists
+    | ProjectSQLRelationScalar
     | ProjectSQLCast
     | ProjectSQLScalarCall
     | aggregation.ProjectSQLResultReference

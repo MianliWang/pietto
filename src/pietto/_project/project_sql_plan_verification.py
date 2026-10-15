@@ -143,7 +143,11 @@ from pietto.ast_nodes import (
     BetweenExpr,
     LetBinding,
 )
-from pietto.semantic.model import ValueTypeKind
+from pietto.semantic.model import EffectiveNullability, ValueTypeKind
+from pietto._project.model import ProjectRowFieldNullability
+from pietto._project.row_expression_type_facts import (
+    project_row_field_to_semantic_value_type,
+)
 
 
 __all__: tuple[str, ...] = ()
@@ -158,6 +162,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.ConditionalExpr,
         ast_nodes.MembershipExpr,
         ast_nodes.RelationExistsExpr,
+        ast_nodes.RelationScalarExpr,
         ast_nodes.CastExpr,
         ast_nodes.BinaryExpr,
         ast_nodes.ComparisonExpr,
@@ -2585,6 +2590,27 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
     return _row_origins_and_demands(plan)
 
 
+def _block_read_type(value, edge) -> ValueType | None:
+    """An existence read is a non-NULL Bool; a scalar read is its read
+    column's type made NULLABLE, since a read of no row is NULL."""
+    if isinstance(value, row.ProjectSQLRelationExists):
+        return (
+            value.value_type
+            if edge.column is None
+            and value.value_type.resolved_type.name == "Bool"
+            and value.value_type.nullability is EffectiveNullability.NON_NULL
+            else None
+        )
+    if edge.column is None or edge.output is None:
+        return None
+    column = edge.output.row_shape.fields[edge.column].evidence
+    if column.name != value.expression.column_name:
+        return None
+    return project_row_field_to_semantic_value_type(
+        column, ProjectRowFieldNullability.NULLABLE
+    )
+
+
 def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
     position = operand_position = 0
     variants = {
@@ -2600,6 +2626,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         ConditionalExpr: row.ProjectSQLConditional,
         MembershipExpr: row.ProjectSQLMembership,
         ast_nodes.RelationExistsExpr: row.ProjectSQLRelationExists,
+        ast_nodes.RelationScalarExpr: row.ProjectSQLRelationScalar,
         CastExpr: row.ProjectSQLCast,
     }
     read_uses: list[object] = []
@@ -2678,7 +2705,13 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = (node.value,)
             elif isinstance(
                 node,
-                (LiteralExpr, NameExpr, DottedNameExpr, ast_nodes.RelationExistsExpr),
+                (
+                    LiteralExpr,
+                    NameExpr,
+                    DottedNameExpr,
+                    ast_nodes.RelationExistsExpr,
+                    ast_nodes.RelationScalarExpr,
+                ),
             ):
                 children = ()
             elif isinstance(node, ParameterRefExpr):
@@ -3021,7 +3054,9 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = (local[id(node.value)].ref,)
                 if value.value is not children[0]:
                     return False
-            elif isinstance(value, row.ProjectSQLRelationExists):
+            elif isinstance(
+                value, (row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar)
+            ):
                 # The read names exactly the block use retained for this node,
                 # consumed by this site's own definition, in WHERE or SELECT.
                 bindings = plan.bindings
@@ -3049,8 +3084,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                         row.ProjectSQLExpressionRole.WHERE,
                         row.ProjectSQLExpressionRole.SELECT,
                     }
-                    or value.value_type.resolved_type.name != "Bool"
-                    or value.value_type.nullability.value != "non_null"
+                    or value.value_type != _block_read_type(value, block_use.edge)
                 ):
                     return False
                 read_uses.append(block_use)
@@ -3211,7 +3245,9 @@ def _row_origins_and_demands(plan):
                 ),
             )
             else (value.use,)
-            if isinstance(value, row.ProjectSQLRelationExists)
+            if isinstance(
+                value, (row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar)
+            )
             else ()
         )
         specs.append(

@@ -561,6 +561,34 @@ def executed_operations(records, relation):
     return found
 
 
+# Operators of an expression block use: each has no operand of its own.
+BLOCK_READ_OPERATORS = (("exists", "exists"), ("scalar", "scalar"))
+
+
+def scalar_read_port(records, operation):
+    """The producer output a scalar read operation reads through its block use.
+
+    It is the producer's port whose ordinal is the block use's ``column``; an
+    existence read, a missing use or a missing port has none.
+    """
+    uses = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "expression_block_use" and r.get("operation") == operation
+    )
+    if len(uses) != 1 or records[operation].get("operator") != ("scalar", "scalar"):
+        return None
+    producer, column = uses[0].get("producer"), uses[0].get("column")
+    ports = tuple(
+        r.address
+        for r in records.values()
+        if r.address.kind == "port"
+        and r.get("owner") == producer
+        and r.get("ordinal") == column
+    )
+    return ports[0] if len(ports) == 1 and type(column) is int else None
+
+
 def selected_relations(records, entry):
     """Current execution closure; retained request roots are checked separately.
 
@@ -594,7 +622,11 @@ def selected_relations(records, entry):
 
 
 def selected_records(records, entry):
-    """Follow the actual selected relation/scalar inputs, never a supplied set."""
+    """Follow the actual selected relation/scalar inputs, never a supplied set.
+
+    A scalar read has no operand; it reaches the producer port its block use
+    names, which no record value of a source scanned by no stage references.
+    """
     reached = set()
     pending = list(selected_relations(records, entry))
     while pending:
@@ -604,4 +636,9 @@ def selected_records(records, entry):
         elif type(value) is Address and value not in reached:
             reached.add(value)
             pending.extend(records[value].values)
+            if value.kind == "operation" and records[value].get("operator") == (
+                "scalar",
+                "scalar",
+            ):
+                pending.append(scalar_read_port(records, value))
     return frozenset(reached)
