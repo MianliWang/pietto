@@ -794,7 +794,9 @@ def _run_explain(
             diagnostics=diagnostics,
         )
 
-    ir_result = ir_api.build_ir(parse_result.ast, semantic_result.model)
+    ir_result = ir_api.build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     diagnostics = (*diagnostics, *ir_result.diagnostics)
     if _has_errors(ir_result.diagnostics):
         return _render_explain_failure(
@@ -815,7 +817,7 @@ def _run_explain(
 
     artifact = build_semantic_metadata_artifact(
         path=path,
-        script=parse_result.ast,
+        script=semantic_result.script or parse_result.ast,
         semantic_result=semantic_result,
         ir=ir_result.ir,
         diagnostics=diagnostics,
@@ -1006,7 +1008,9 @@ def _run_emit_sql_json(
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
-    ir_result = ir_api.build_ir(parse_result.ast, semantic_result.model)
+    ir_result = ir_api.build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     diagnostics = (*diagnostics, *ir_result.diagnostics)
     if _has_errors(ir_result.diagnostics):
         _print_emit_sql_json(
@@ -1164,7 +1168,9 @@ def _run_emit_sql(
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    ir_result = ir_api.build_ir(parse_result.ast, semantic_result.model)
+    ir_result = ir_api.build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     _render_diagnostics(ir_result.diagnostics, fallback_path=path)
     if _has_errors(ir_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR

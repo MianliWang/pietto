@@ -40,6 +40,7 @@ from pietto.ast_nodes import (
     Expression,
     FieldDef,
     FromClause,
+    FunctionDef,
     GroupByClause,
     GroupByItem,
     Header,
@@ -125,6 +126,56 @@ else:
 
 _MAX_NUMERIC_LITERAL_LENGTH = 4096
 _AntlrContext = Any
+_HEADER_LINE_THEN_BLOCK = (
+    "This clause already has its content on the header line after ':'; "
+    "an indented block cannot follow it."
+)
+_WHERE_LINE_THEN_BLOCK = (
+    "A `where` condition ends with its line; write one condition per line in "
+    "a `where:` block, or continue a condition inside parentheses."
+)
+_TRAILING_COMMA = (
+    "A trailing comma does not continue a list on the next line; remove the comma."
+)
+_WINDOW_ITEM_LINE = "A window item must be on its own line in a `select:` block."
+_COMPOUND_SAME_LINE = (
+    "A compound clause cannot follow ':' on the same line; put the window "
+    "clauses in an indented block."
+)
+# Precedence levels that wrap a single operand build no AST node of their own,
+# nor do parentheses; the builder steps through them without recursing.
+_PASS_THROUGH = (
+    PiettoParser.ExpressionContext,
+    PiettoParser.ConditionalExpressionContext,
+    PiettoParser.OrExpressionContext,
+    PiettoParser.AndExpressionContext,
+    PiettoParser.NotExpressionContext,
+    PiettoParser.ComparisonExpressionContext,
+    PiettoParser.AdditiveExpressionContext,
+    PiettoParser.MultiplicativeExpressionContext,
+    PiettoParser.UnaryExpressionContext,
+    PiettoParser.QualifyExpressionContext,
+    PiettoParser.QualifyConditionalExpressionContext,
+    PiettoParser.QualifyOrExpressionContext,
+    PiettoParser.QualifyAndExpressionContext,
+    PiettoParser.QualifyNotExpressionContext,
+    PiettoParser.QualifyComparisonExpressionContext,
+    PiettoParser.QualifyAdditiveExpressionContext,
+    PiettoParser.QualifyMultiplicativeExpressionContext,
+    PiettoParser.QualifyUnaryExpressionContext,
+)
+_PRIMARY = (
+    PiettoParser.PrimaryExpressionContext,
+    PiettoParser.QualifyPrimaryExpressionContext,
+)
+_LAYOUT_TOKEN_TYPES = frozenset(
+    {Token.EOF, PiettoParser.NEWLINE, PiettoParser.INDENT, PiettoParser.DEDENT}
+)
+_PREDICATE_LINE_OPERATOR = (
+    "A condition line cannot start with `and` or `or`; the lines of a "
+    "condition block are joined with `and`, and parentheses continue one "
+    "condition across lines."
+)
 
 
 class _TerminalNode(Protocol):
@@ -146,6 +197,27 @@ class AstBuilder(PiettoVisitor):
         self._header: dict[str, tuple[int, QueryParameter]] = {}
         # Capture names of the let body being built, with their line ordinals.
         self._captures: dict[str, int] = {}
+        # The start token of the most recently entered context, which locates
+        # a recursion-limit failure at the deepest construct reached.
+        self.deepest: Token | None = None
+
+    def visit(self, tree: Any) -> Any:
+        """Visit one tree, stepping iteratively through operand-only wrappers."""
+
+        while True:
+            if isinstance(tree, _PASS_THROUGH) and tree.getChildCount() == 1:
+                tree = tree.getChild(0)
+            elif (
+                isinstance(tree, _PRIMARY)
+                and tree.getChildCount() == 3
+                and tree.LPAREN() is not None
+            ):
+                tree = tree.getChild(1)
+            else:
+                break
+        if isinstance(tree, ParserRuleContext):
+            self.deepest = tree.start
+        return cast(Any, tree).accept(self)
 
     def visitScript(self, ctx: _AntlrContext) -> Script:
         """Build the root script node."""
@@ -261,6 +333,7 @@ class AstBuilder(PiettoVisitor):
         | QueryDef
         | SetRelationDef
         | BlockRelationDef
+        | FunctionDef
     ):
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
@@ -276,6 +349,8 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.sourceDefinition())
         if ctx.tableDefinition() is not None:
             return self.visit(ctx.tableDefinition())
+        if ctx.functionDefinition() is not None:
+            return self.visit(ctx.functionDefinition())
         return self.visit(ctx.queryDefinition())
 
     def visitTypeDefinition(self, ctx: _AntlrContext) -> TypeDef:
@@ -324,7 +399,9 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             name=ctx.identifier().getText(),
             members=tuple(
-                item.identifier().getText() for item in ctx.enumBody().enumItem()
+                item.getText()
+                for line in self._clause_lines(ctx, "enumLine", "enumBody")
+                for item in line.identifier()
             ),
         )
 
@@ -350,6 +427,31 @@ class AstBuilder(PiettoVisitor):
             parameters=self._parameters(ctx.parameterList()),
             return_type=self.visit(ctx.typeExpression()),
             body=self.visit(ctx.deriveBody().expression()),
+        )
+
+    def visitFunctionDefinition(self, ctx: _AntlrContext) -> FunctionDef:
+        """Build a pure inline function whose types state their nullability."""
+
+        parameters = self._parameters(ctx.parameterList())
+        return_type = cast(TypeExpr, self.visit(ctx.typeExpression()))
+        for type_expr, role in (
+            *((parameter.type, "parameter") for parameter in parameters),
+            (return_type, "return type"),
+        ):
+            if type_expr.nullability is Nullability.IMPLICIT:
+                raise AstBuildError(
+                    f"A `def` {role} must state its nullability: write "
+                    "`nullable` or `not null` after the type.",
+                    line=type_expr.span.line,
+                    column=type_expr.span.column,
+                )
+        body = ctx.functionBody()
+        return FunctionDef(
+            span=self._span(ctx),
+            name=ctx.identifier().getText(),
+            parameters=parameters,
+            return_type=return_type,
+            body=self.visit((body or ctx).expression()),
         )
 
     def visitShapeDefinition(self, ctx: _AntlrContext) -> ShapeDef:
@@ -379,7 +481,7 @@ class AstBuilder(PiettoVisitor):
         modifiers = ctx.fieldModifier()
         return FieldDef(
             span=self._span(ctx),
-            name=ctx.identifier().getText(),
+            name=ctx.fieldName().getText(),
             type_expr=self.visit(field_type),
             # Grammar placement makes derive singular and keeps it ahead of
             # repeatable annotations and ensure clauses.
@@ -424,27 +526,25 @@ class AstBuilder(PiettoVisitor):
         return CheckDef(
             span=self._span(ctx),
             name=ctx.identifier().getText(),
-            expression=self.visit(ctx.checkBody().expression()),
+            expression=self._predicate_suite(ctx.predicateSuite()),
         )
 
     def visitUniqueDefinition(self, ctx: _AntlrContext) -> UniqueDef:
         """Build a unique clause without resolving or deduplicating fields."""
 
-        identifiers = ctx.identifier()
         return UniqueDef(
             span=self._span(ctx),
-            name=identifiers[0].getText(),
-            field_names=tuple(identifier.getText() for identifier in identifiers[1:]),
+            name=ctx.identifier().getText(),
+            field_names=tuple(name.getText() for name in ctx.fieldName()),
         )
 
     def visitIndexDefinition(self, ctx: _AntlrContext) -> IndexDef:
         """Build an index clause without applying physical or semantic checks."""
 
-        identifiers = ctx.identifier()
         return IndexDef(
             span=self._span(ctx),
-            name=identifiers[0].getText(),
-            field_names=tuple(identifier.getText() for identifier in identifiers[1:]),
+            name=ctx.identifier().getText(),
+            field_names=tuple(name.getText() for name in ctx.fieldName()),
             predicate=(
                 self.visit(ctx.expression()) if ctx.expression() is not None else None
             ),
@@ -465,6 +565,8 @@ class AstBuilder(PiettoVisitor):
         """Build parse-only relationship metadata outside semantic definitions."""
 
         body = ctx.relationshipBody()
+        if body is None:
+            return self._one_line_relationship(ctx)
         endpoints = tuple(self.visit(item) for item in body.relationshipEndpoint())
         assert len(endpoints) == 2
         match_clause = body.relationshipMatchClause()
@@ -473,6 +575,73 @@ class AstBuilder(PiettoVisitor):
             name=ctx.identifier().getText(),
             endpoints=(endpoints[0], endpoints[1]),
             base_match=(None if match_clause is None else self.visit(match_clause)),
+        )
+
+    def _one_line_relationship(self, ctx: _AntlrContext) -> RelationshipMetadata:
+        """Desugar ``relationship r: a.x == b.y and ...`` to its endpoint block.
+
+        Each endpoint role is its relation name, in first-occurrence order and
+        located at that occurrence, exactly as the block form
+        ``endpoint a: a`` / ``endpoint b: b`` / ``on <expression>`` would be.
+        """
+
+        expression = cast(Expression, self.visit(ctx.expression()))
+        first_seen: dict[str, Span] = {}
+        pending: list[Expression] = [expression]
+        while pending:
+            item = pending.pop()
+            if type(item) is BinaryExpr and item.operator == "and":
+                pending.extend((item.right, item.left))
+                continue
+            sides = (
+                (item.left, item.right)
+                if type(item) is ComparisonExpr and item.operator == "=="
+                else ()
+            )
+            names = tuple(
+                side.parts[0]
+                for side in sides
+                if type(side) is DottedNameExpr and len(side.parts) == 2
+            )
+            if len(names) != 2 or names[0] == names[1]:
+                raise self._relationship_shape_error(item.span)
+            for side, name in zip(sides, names, strict=True):
+                start = side.span
+                first_seen.setdefault(
+                    name,
+                    Span(
+                        path=self.path,
+                        line=start.line,
+                        column=start.column,
+                        end_line=start.line,
+                        end_column=start.column + len(name),
+                    ),
+                )
+            if len(first_seen) > 2:
+                raise self._relationship_shape_error(item.span)
+        if len(first_seen) != 2:
+            raise self._relationship_shape_error(expression.span)
+        first, second = (
+            RelationshipEndpoint(span=span, local_name=name, relation_name=name)
+            for name, span in first_seen.items()
+        )
+        return RelationshipMetadata(
+            span=self._span(ctx),
+            name=ctx.identifier().getText(),
+            endpoints=(first, second),
+            base_match=RelationshipMatchClause(
+                span=expression.span, expression=expression
+            ),
+        )
+
+    @staticmethod
+    def _relationship_shape_error(span: Span) -> AstBuildError:
+        return AstBuildError(
+            "A one-line relationship compares fields of two different relations "
+            "with `==`, joined by `and`, as in `a.x == b.y`; use the endpoint "
+            "block form for any other match.",
+            line=span.line,
+            column=span.column,
         )
 
     def visitRelationshipEndpoint(self, ctx: _AntlrContext) -> RelationshipEndpoint:
@@ -516,7 +685,7 @@ class AstBuilder(PiettoVisitor):
             parameters = tuple(
                 QueryParameter(
                     span=self._span(item),
-                    name=item.identifier().getText(),
+                    name=item.fieldName().getText(),
                     type=self.visit(item.typeExpression()),
                 )
                 for item in header.parameterList().parameter()
@@ -642,7 +811,7 @@ class AstBuilder(PiettoVisitor):
             columns=tuple(
                 ValuesColumn(
                     span=self._span(item),
-                    name=item.identifier().getText(),
+                    name=item.fieldName().getText(),
                     type=self.visit(item.typeExpression()),
                 )
                 for item in ctx.parameterList().parameter()
@@ -701,20 +870,30 @@ class AstBuilder(PiettoVisitor):
 
         identifiers = ctx.identifier()
         body = ctx.joinBody()
+        inline = ctx.joinInlineStep()
+        if body is not None:
+            source = body.identifier()
+            steps = list(body.joinTraversalStep())
+            on_clause = body.joinOnClause()
+        elif inline is not None:
+            source = inline.identifier()
+            steps = (
+                []
+                if inline.joinTraversalStep() is None
+                else [inline.joinTraversalStep()]
+            )
+            on_clause = inline.joinOnClause()
+        else:
+            # A bare JOIN has neither a block nor a header-line step.
+            source, steps, on_clause = None, [], None
         return JoinClause(
             span=self._span(ctx),
             kind=AuthoredJoinKind(ctx.start.text),
             target_relation_name=identifiers[0].getText(),
             target_binding_name=identifiers[1].getText(),
-            source_binding_name=body.identifier().getText(),
-            traversal_steps=tuple(
-                self.visit(step) for step in body.joinTraversalStep()
-            ),
-            on_clause=(
-                self.visit(body.joinOnClause())
-                if body.joinOnClause() is not None
-                else None
-            ),
+            source_binding_name=None if source is None else source.getText(),
+            traversal_steps=tuple(self.visit(step) for step in steps),
+            on_clause=None if on_clause is None else self.visit(on_clause),
         )
 
     def visitJoinOnClause(self, ctx: _AntlrContext) -> JoinOnClause:
@@ -746,28 +925,36 @@ class AstBuilder(PiettoVisitor):
     def visitJoinTraversalStep(self, ctx: _AntlrContext) -> JoinTraversalStep:
         """Retain one source-ordered VIA step with exact endpoint roles."""
 
-        identifiers = ctx.identifier()
+        relationship, *roles = ctx.identifier()
+        source, target = (None, None) if not roles else roles
         return JoinTraversalStep(
             span=self._span(ctx),
-            relationship_name=identifiers[0].getText(),
-            source_endpoint_role=identifiers[1].getText(),
-            target_endpoint_role=identifiers[2].getText(),
+            relationship_name=relationship.getText(),
+            source_endpoint_role=None if source is None else source.getText(),
+            target_endpoint_role=None if target is None else target.getText(),
         )
 
     def visitWhereClause(self, ctx: _AntlrContext) -> WhereClause:
         """Build a relation filter without checking its expression type."""
 
-        return WhereClause(
-            span=self._span(ctx),
-            expression=self.visit(ctx.expression()),
-        )
+        if ctx.COLON() is not None:
+            expression = self._predicate_suite(ctx.predicateSuite())
+        elif ctx.predicateBody() is not None:
+            raise self._error(_WHERE_LINE_THEN_BLOCK, ctx.INDENT().getSymbol())
+        else:
+            expression = self.visit(ctx.expression())
+        return WhereClause(span=self._span(ctx), expression=expression)
 
     def visitLetClause(self, ctx: _AntlrContext) -> LetClause:
         """Build a parse-only let block without binding or type checks."""
 
         return LetClause(
             span=self._span(ctx),
-            bindings=tuple(self.visit(item) for item in ctx.letBody().letBinding()),
+            bindings=tuple(
+                self.visit(item)
+                for line in self._clause_lines(ctx, "letLine", "letBody")
+                for item in line.letBinding()
+            ),
         )
 
     def visitLetBinding(self, ctx: _AntlrContext) -> LetBinding:
@@ -775,7 +962,7 @@ class AstBuilder(PiettoVisitor):
 
         return LetBinding(
             span=self._span(ctx),
-            name=ctx.identifier().getText(),
+            name=ctx.fieldName().getText(),
             expression=self.visit(ctx.expression()),
         )
 
@@ -784,34 +971,63 @@ class AstBuilder(PiettoVisitor):
 
         return GroupByClause(
             span=self._span(ctx),
-            items=tuple(self.visit(item) for item in ctx.groupByBody().groupByItem()),
+            items=tuple(
+                self.visit(item)
+                for line in self._clause_lines(ctx, "groupByLine", "groupByBody")
+                for item in line.groupByItem()
+            ),
         )
 
     def visitGroupByItem(self, ctx: _AntlrContext) -> GroupByItem:
         """Build one grouping key from the restricted dotted-name syntax."""
 
+        if ctx.NUMBER() is not None:
+            raise self._error(
+                "Ordinal GROUP BY expressions are not supported.",
+                ctx.NUMBER().getSymbol(),
+            )
         return GroupByItem(
             span=self._span(ctx),
             key=self._dotted_name_expr(ctx.dottedName()),
         )
+
+    def _select_items(self, ctx: _AntlrContext) -> tuple[SelectItem, ...]:
+        """Build the projections of a ``select:`` header line or block lines."""
+
+        header = ctx.selectLine()
+        items: list[SelectItem] = []
+        for line in self._clause_lines(ctx, "selectLine", "selectBody"):
+            window = line.selectWindowItem()
+            if window is not None and (line is header or line.selectItem()):
+                raise self._error(_WINDOW_ITEM_LINE, window.start)
+            items.extend(self.visit(item) for item in line.selectItem())
+            if window is not None:
+                items.append(self.visit(window))
+        return tuple(items)
 
     def visitSelectItem(self, ctx: _AntlrContext) -> SelectItem:
         """Build one projection; assignment syntax is confined to this rule."""
 
         return SelectItem(
             span=self._span(ctx),
-            alias=ctx.identifier().getText() if ctx.ASSIGN() is not None else None,
-            expression=self.visit(
-                ctx.windowExpression()
-                if ctx.windowExpression() is not None
-                else ctx.expression()
-            ),
+            alias=ctx.fieldName().getText() if ctx.ASSIGN() is not None else None,
+            expression=self.visit(ctx.expression()),
+        )
+
+    def visitSelectWindowItem(self, ctx: _AntlrContext) -> SelectItem:
+        """Build one aliased window projection written alone on its line."""
+
+        return SelectItem(
+            span=self._span(ctx),
+            alias=ctx.fieldName().getText(),
+            expression=self.visit(ctx.windowExpression()),
         )
 
     def visitWindowExpression(self, ctx: _AntlrContext) -> WindowExpr:
         """Preserve one direct call and its exact inline or named use."""
 
         use = ctx.windowSpec()
+        self._reject_inline_window_clause(use)
         identifier = use.identifier()
         base = (
             None
@@ -922,6 +1138,7 @@ class AstBuilder(PiettoVisitor):
     ) -> NamedWindowDeclaration:
         """Preserve one exact root, alias, or based declaration occurrence."""
 
+        self._reject_inline_window_clause(ctx)
         identifiers = ctx.identifier()
         base = (
             None
@@ -957,13 +1174,16 @@ class AstBuilder(PiettoVisitor):
         if partition_clause is not None:
             partition_by = tuple(
                 self.visit(item)
-                for item in partition_clause.windowPartitionBody().windowPartitionItem()
+                for line in self._clause_lines(
+                    partition_clause, "windowPartitionLine", "windowPartitionBody"
+                )
+                for item in line.windowPartitionItem()
             )
         order_by: tuple[OrderItem, ...] = ()
         if order_clause is not None:
             order_by = tuple(
                 self._order_item(item, reject_ordinal=False)
-                for item in order_clause.orderByBody().orderItem()
+                for item in self._order_items(order_clause)
             )
         frame_clause = body.windowFrameClause()
         frame = (
@@ -1044,7 +1264,7 @@ class AstBuilder(PiettoVisitor):
 
         return SatisfyingClause(
             span=self._span(ctx),
-            expression=self.visit(ctx.expression()),
+            expression=self._predicate_suite(ctx.predicateSuite()),
         )
 
     def visitQualifyClause(self, ctx: _AntlrContext) -> QualifyClause:
@@ -1060,8 +1280,81 @@ class AstBuilder(PiettoVisitor):
 
         return OrderByClause(
             span=self._span(ctx),
-            items=tuple(self.visit(item) for item in ctx.orderByBody().orderItem()),
+            items=tuple(self.visit(item) for item in self._order_items(ctx)),
         )
+
+    def _order_items(self, ctx: _AntlrContext) -> list[_AntlrContext]:
+        """Return the ordered item contexts of one ``order by:`` clause."""
+
+        return [
+            item
+            for line in self._clause_lines(ctx, "orderByLine", "orderByBody")
+            for item in line.orderItem()
+        ]
+
+    def _clause_lines(
+        self, ctx: _AntlrContext, line_rule: str, body_rule: str
+    ) -> list[_AntlrContext]:
+        """Return the header line or the block lines of one list clause.
+
+        A header line followed by an indented block, and a line ending in a
+        comma, parse only so that they fail here with a targeted message.
+        """
+
+        header = getattr(ctx, line_rule)()
+        body = getattr(ctx, body_rule)()
+        if header is not None and body is not None:
+            raise self._error(_HEADER_LINE_THEN_BLOCK, ctx.INDENT().getSymbol())
+        lines = [header] if header is not None else list(getattr(body, line_rule)())
+        for line in lines:
+            # A comma directly before a line's closing NEWLINE trails.
+            count = line.getChildCount()
+            tokens = [
+                cast(_TerminalNode, child).getSymbol()
+                for child in (line.getChild(count - 2), line.getChild(count - 1))
+                if isinstance(child, TerminalNode)
+            ]
+            if [token.type for token in tokens] == [
+                PiettoParser.COMMA,
+                PiettoParser.NEWLINE,
+            ]:
+                raise self._error(_TRAILING_COMMA, tokens[0])
+        return lines
+
+    def _predicate_suite(self, ctx: _AntlrContext) -> Expression:
+        """Join the lines of one condition block with ``and``, left to right.
+
+        Each line stays one operand, as if parenthesized, and every fold node
+        spans from the first line through the operand it adds.
+        """
+
+        lines = self._clause_lines(ctx, "predicateLine", "predicateBody")
+        for line in lines:
+            operator = line.AND() or line.OR()
+            if operator is not None:
+                raise self._error(_PREDICATE_LINE_OPERATOR, operator.getSymbol())
+        result = cast(Expression, self.visit(lines[0].expression()))
+        for line in lines[1:]:
+            result = BinaryExpr(
+                span=self._span_between(lines[0], line),
+                left=result,
+                operator="and",
+                right=self.visit(line.expression()),
+            )
+        return result
+
+    def _reject_inline_window_clause(self, ctx: _AntlrContext) -> None:
+        """Reject a window clause written on its window header line."""
+
+        inline = ctx.windowInlineClause()
+        if inline is not None:
+            raise self._error(_COMPOUND_SAME_LINE, inline.start)
+
+    @staticmethod
+    def _error(message: str, token: Token) -> AstBuildError:
+        """Build one source error located at a token."""
+
+        return AstBuildError(message, line=token.line, column=token.column + 1)
 
     def visitOrderItem(self, ctx: _AntlrContext) -> OrderItem:
         """Build one sorting item while keeping omitted direction explicit."""
@@ -1134,10 +1427,7 @@ class AstBuilder(PiettoVisitor):
                 if ctx.groupByClause() is not None
                 else None
             ),
-            tuple(
-                self.visit(item)
-                for item in ctx.selectClause().selectBody().selectItem()
-            ),
+            self._select_items(ctx.selectClause()),
             tuple(self.visit(item) for item in ctx.namedWindowDeclaration()),
             (
                 self.visit(ctx.satisfyingClause())
@@ -1160,7 +1450,7 @@ class AstBuilder(PiettoVisitor):
     def visitParameter(self, ctx: _AntlrContext) -> Parameter:
         return Parameter(
             span=self._span(ctx),
-            name=ctx.identifier().getText(),
+            name=ctx.fieldName().getText(),
             type=self.visit(ctx.typeExpression()),
         )
 
@@ -1591,20 +1881,17 @@ class AstBuilder(PiettoVisitor):
     def _last_significant_token(node: Any) -> Token | None:
         """Find the last token that contributes source text to an AST node."""
 
-        if isinstance(node, TerminalNode):
-            token = cast(_TerminalNode, node).getSymbol()
-            ignored_types = {
-                Token.EOF,
-                PiettoParser.NEWLINE,
-                PiettoParser.INDENT,
-                PiettoParser.DEDENT,
-            }
-            return None if token.type in ignored_types else token
-
-        for child in reversed(getattr(node, "children", None) or ()):
-            token = AstBuilder._last_significant_token(child)
-            if token is not None:
-                return token
+        # Right-to-left depth-first order without recursion: the first token
+        # met that is not layout is the last one in source order.
+        pending = [node]
+        while pending:
+            current = pending.pop()
+            if isinstance(current, TerminalNode):
+                token = cast(_TerminalNode, current).getSymbol()
+                if token.type not in _LAYOUT_TOKEN_TYPES:
+                    return token
+                continue
+            pending.extend(getattr(current, "children", None) or ())
         return None
 
     @staticmethod

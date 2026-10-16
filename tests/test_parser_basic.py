@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
+import pytest
+
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 import pietto.parser_api as parser_api
-from pietto.ast_nodes import EnumDef, Header, Script, Span, TypeDef
+from pietto.ast_nodes import EnumDef, Header, Script, ShapeDef, Span, TypeDef
 from pietto.parser_api import parse_file, parse_source
 
 
@@ -157,3 +159,113 @@ def _assert_no_antlr_nodes(value: object) -> None:
         for key, item in value.items():
             _assert_no_antlr_nodes(key)
             _assert_no_antlr_nodes(item)
+
+
+def test_line_breaks_inside_parentheses_join_lines_with_real_positions() -> None:
+    result = parse_source(
+        "shape Row:\n"
+        "    amount: Decimal(10,\n"
+        "# a comment line\n"
+        "\n"
+        "            2) not null derive coalesce(\n"
+        "        amount, (1 +\n"
+        "  2))\n"
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    shape = result.ast.definitions[0]
+    assert isinstance(shape, ShapeDef)
+    field = shape.fields[0]
+    assert [argument.value.span.line for argument in field.type_expr.arguments] == [
+        2,
+        5,
+    ]
+    derive = field.derive_expression
+    assert derive is not None
+    assert (derive.span.line, derive.span.column) == (5, 32)
+    assert (derive.span.end_line, derive.span.end_column) == (7, 6)
+
+
+@pytest.mark.parametrize(
+    ("source", "line", "column"),
+    (
+        ("type Huge = Int(max = 1\n", 1, 16),
+        ("shape Row:\n    id: Int derive f(a, (b\n\nshape Next:\n", 2, 25),
+    ),
+)
+def test_an_unclosed_parenthesis_is_reported_once_at_the_innermost_open(
+    source: str, line: int, column: int
+) -> None:
+    result = parse_source(source, path="open.pietto")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-P1008", "'(' is never closed.", line, column)]
+
+
+def test_an_unmatched_closing_parenthesis_is_left_to_the_parser() -> None:
+    result = parse_source("type T = Int)\n")
+
+    assert result.ast is None
+    assert [item.code for item in result.diagnostics] == ["PIE-P1000"]
+
+
+def test_tabs_inside_joined_lines_are_still_reported() -> None:
+    result = parse_source("type T = Text(max =\n\t255)\n")
+
+    assert result.ast is None
+    assert [(item.code, item.location.line) for item in result.diagnostics] == [
+        ("PIE-P1004", 2)
+    ]
+
+
+def test_cr_only_line_endings_report_real_lines_and_columns() -> None:
+    source = "shape Row:\n    id: Int not null\n\ntype T = Int(\n"
+    lf = parse_source(source)
+    cr = parse_source(source.replace("\n", "\r"))
+    crlf = parse_source(source.replace("\n", "\r\n"))
+
+    assert lf.diagnostics == cr.diagnostics == crlf.diagnostics
+    assert [(item.location.line, item.location.column) for item in lf.diagnostics] == [
+        (4, 13)
+    ]
+    ok = parse_source("shape Row:\r    id: Int not null\r    name: Text\r")
+    assert ok.diagnostics == () and ok.ast is not None
+    shape = ok.ast.definitions[0]
+    assert isinstance(shape, ShapeDef)
+    assert [field.span.line for field in shape.fields] == [2, 3]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "    shape A:\n        id: Int not null\nshape B:\n    id: Int not null\n",
+        "# c\n    shape A:\n        id: Int not null\n",
+        "\n    type T = Int\n",
+    ),
+)
+def test_first_line_indentation_is_rejected_like_any_unexpected_indent(
+    source: str,
+) -> None:
+    result = parse_source(source)
+
+    assert result.ast is None
+    assert [item.code for item in result.diagnostics][:1] == ["PIE-P1000"]
+
+
+@pytest.mark.parametrize(
+    "separator", ("\f", "\v", "\x1c", "\x1d", "\x1e", "\x85", " ", " ")
+)
+def test_only_lexer_line_breaks_start_an_indentation_line(separator: str) -> None:
+    valid = parse_source(
+        f'# note{separator}\tmore\ntype T = Text ensure self != "x{separator}\ty"\n'
+    )
+    tab = parse_source(f"# a{separator}b\nshape Row:\n\tid: Int\n")
+
+    assert valid.diagnostics == ()
+    assert [(item.code, item.location.line) for item in tab.diagnostics][:1] == [
+        ("PIE-P1004", 3)
+    ]

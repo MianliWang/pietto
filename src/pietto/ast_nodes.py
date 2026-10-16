@@ -513,6 +513,19 @@ class DeriveDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FunctionDef(Node):
+    """A pure inline function ``def name(parameters) -> type: return body``.
+
+    Every parameter type and the return type state their nullability.
+    """
+
+    name: str
+    parameters: tuple[Parameter, ...]
+    return_type: TypeExpr
+    body: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceDef(Node):
     """A parse-only binding from a Pietto name to a connector expression."""
 
@@ -625,21 +638,33 @@ class JoinOnClause(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JoinTraversalStep(Node):
-    """One exact authored relationship traversal step."""
+    """One exact authored relationship traversal step.
+
+    ``via r`` without ``: source -> target`` leaves both roles absent (None)
+    for semantic inference; the roles are authored together or not at all.
+    """
 
     relationship_name: str
-    source_endpoint_role: str
-    target_endpoint_role: str
+    source_endpoint_role: str | None
+    target_endpoint_role: str | None
+
+    def __post_init__(self) -> None:
+        if (self.source_endpoint_role is None) != (self.target_endpoint_role is None):
+            raise ValueError("join traversal roles are authored together or not")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JoinClause(Node):
-    """One authored JOIN with independently retained VIA and optional ON."""
+    """One authored JOIN with independently retained VIA and optional ON.
+
+    A JOIN written without ``from`` leaves ``source_binding_name`` absent
+    (None) for semantic inference.
+    """
 
     kind: AuthoredJoinKind
     target_relation_name: str
     target_binding_name: str
-    source_binding_name: str
+    source_binding_name: str | None
     traversal_steps: tuple[JoinTraversalStep, ...] = ()
     on_clause: JoinOnClause | None = None
 
@@ -1139,6 +1164,7 @@ Definition = (
     | QueryDef
     | SetRelationDef
     | BlockRelationDef
+    | FunctionDef
 )
 
 

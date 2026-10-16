@@ -41,11 +41,15 @@ definition
     | sourceDefinition
     | tableDefinition
     | queryDefinition
+    | functionDefinition
     ;
 
-// Relationship declarations remain metadata outside semantic definitions.
+// Relationship declarations remain metadata outside semantic definitions.  The
+// one-line form names its two endpoints by their relations; the builder checks
+// its shape.
 relationshipDefinition
     : RELATIONSHIP identifier COLON NEWLINE NEWLINE* INDENT relationshipBody DEDENT
+    | RELATIONSHIP identifier COLON expression NEWLINE
     ;
 
 relationshipBody
@@ -147,16 +151,21 @@ typeArgumentName
     | ENCODING
     ;
 
+// A list clause puts its items on the header line after ':' or in an indented
+// block whose every line may itself be a comma list.  The optional block after
+// a header line and a trailing comma are parsed only so the builder can reject
+// them with a targeted message.
 enumDefinition
     : ENUM identifier COLON NEWLINE NEWLINE* INDENT enumBody DEDENT
+    | ENUM identifier COLON enumLine (INDENT enumBody DEDENT)?
     ;
 
 enumBody
-    : (enumItem | NEWLINE)+
+    : (enumLine | NEWLINE)+
     ;
 
-enumItem
-    : identifier NEWLINE
+enumLine
+    : identifier (COMMA identifier)* COMMA? NEWLINE
     ;
 
 // Phase 1 parses any return TypeExpr; semantic analysis later requires Bool.
@@ -169,11 +178,22 @@ parameterList
     ;
 
 parameter
-    : identifier COLON typeExpression
+    : fieldName COLON typeExpression
     ;
 
 constraintBody
     : NEWLINE* expression NEWLINE NEWLINE*
+    ;
+
+// A pure inline function returns one expression, on its header line or as the
+// only statement of its block.
+functionDefinition
+    : DEF identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT functionBody DEDENT
+    | DEF identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON RETURN expression NEWLINE
+    ;
+
+functionBody
+    : NEWLINE* RETURN expression NEWLINE NEWLINE*
     ;
 
 // Derive signatures and bodies are parsed only; Phase 2 checks their semantics.
@@ -202,7 +222,7 @@ shapeItem
     ;
 
 fieldDefinition
-    : identifier COLON typeExpression fieldDeriveClause? fieldModifier* NEWLINE
+    : fieldName COLON typeExpression fieldDeriveClause? fieldModifier* NEWLINE
     ;
 
 // Field derive is parse-only and must precede annotations and ensure clauses.
@@ -224,23 +244,19 @@ fieldEnsureClause
     : ENSURE expression
     ;
 
-// Shape checks are named, single-expression blocks parsed only in Phase 1.
+// Shape checks are named predicate clauses parsed only in Phase 1.
 checkDefinition
-    : CHECK identifier COLON NEWLINE NEWLINE* INDENT checkBody DEDENT
-    ;
-
-checkBody
-    : NEWLINE* expression NEWLINE NEWLINE*
+    : CHECK identifier COLON predicateSuite
     ;
 
 // Shape unique clauses record names and target fields only in Phase 1.
 uniqueDefinition
-    : UNIQUE identifier ON identifier (COMMA identifier)* NEWLINE
+    : UNIQUE identifier ON fieldName (COMMA fieldName)* NEWLINE
     ;
 
 // Shape index clauses are parse-only physical-design hints in Phase 1.
 indexDefinition
-    : INDEX identifier ON identifier (COMMA identifier)* (WHEN expression)? NEWLINE
+    : INDEX identifier ON fieldName (COMMA fieldName)* (WHEN expression)? NEWLINE
     ;
 
 // Source bindings retain connector expressions without validating or executing them.
@@ -293,16 +309,30 @@ fromClause
     : FROM identifier (NEWLINE | callSuffix AS identifier NEWLINE)
     ;
 
+// A JOIN may omit its block, or put one step on its header line; an omitted
+// `from` binding or omitted VIA roles stay absent in the AST for inference.
 joinClause
-    : (INNER | LEFT | CROSS | RIGHT | FULL | SEMI | ANTI) JOIN identifier AS identifier COLON NEWLINE NEWLINE* INDENT joinBody DEDENT
+    : joinKind JOIN identifier AS identifier COLON NEWLINE NEWLINE* INDENT joinBody DEDENT
+    | joinKind JOIN identifier AS identifier NEWLINE
+    | joinKind JOIN identifier AS identifier COLON joinInlineStep
+    ;
+
+joinKind
+    : INNER | LEFT | CROSS | RIGHT | FULL | SEMI | ANTI
+    ;
+
+joinInlineStep
+    : FROM identifier NEWLINE
+    | joinTraversalStep
+    | joinOnClause
     ;
 
 joinBody
-    : NEWLINE* FROM identifier NEWLINE NEWLINE* (joinTraversalStep NEWLINE*)* joinOnClause? NEWLINE*
+    : NEWLINE* (FROM identifier NEWLINE NEWLINE*)? (joinTraversalStep NEWLINE*)* joinOnClause? NEWLINE*
     ;
 
 joinTraversalStep
-    : VIA identifier COLON identifier ARROW identifier NEWLINE
+    : VIA identifier (COLON identifier ARROW identifier)? NEWLINE
     ;
 
 joinOnClause
@@ -327,45 +357,85 @@ setOperand
 
 letClause
     : LET COLON NEWLINE NEWLINE* INDENT letBody DEDENT
+    | LET COLON letLine (INDENT letBody DEDENT)?
     ;
 
 letBody
-    : NEWLINE* letBinding (letBinding | NEWLINE)*
+    : NEWLINE* letLine (letLine | NEWLINE)*
+    ;
+
+letLine
+    : letBinding (COMMA letBinding)* COMMA? NEWLINE
     ;
 
 letBinding
-    : identifier ASSIGN expression NEWLINE
+    : fieldName ASSIGN expression
     ;
 
 whereClause
-    : WHERE expression NEWLINE
+    : WHERE expression NEWLINE (INDENT predicateBody DEDENT)?
+    | WHERE COLON predicateSuite
+    ;
+
+// A predicate clause holds one condition on its header line, or one condition
+// per line of an indented block; the builder joins block lines with `and`,
+// each line as one operand.  A line may not start with `and` or `or`.
+predicateSuite
+    : NEWLINE NEWLINE* INDENT predicateBody DEDENT
+    | predicateLine (INDENT predicateBody DEDENT)?
+    ;
+
+predicateBody
+    : NEWLINE* predicateLine (predicateLine | NEWLINE)*
+    ;
+
+predicateLine
+    : expression NEWLINE
+    | (AND | OR) expression NEWLINE
     ;
 
 groupByClause
     : GROUP BY COLON NEWLINE NEWLINE* INDENT groupByBody DEDENT
+    | GROUP BY COLON groupByLine (INDENT groupByBody DEDENT)?
     ;
 
 groupByBody
-    : NEWLINE* groupByItem (groupByItem | NEWLINE)*
+    : NEWLINE* groupByLine (groupByLine | NEWLINE)*
+    ;
+
+groupByLine
+    : groupByItem (COMMA groupByItem)* COMMA? NEWLINE
     ;
 
 groupByItem
-    : dottedName NEWLINE
+    : dottedName
+    | NUMBER
     ;
 
 selectClause
     : SELECT DISTINCT? COLON NEWLINE NEWLINE* INDENT selectBody DEDENT
+    | SELECT DISTINCT? COLON selectLine (INDENT selectBody DEDENT)?
     ;
 
 selectBody
-    : NEWLINE* selectItem (selectItem | NEWLINE)*
+    : NEWLINE* selectLine (selectLine | NEWLINE)*
+    ;
+
+// A window item ends with its own window use, a name line or a block, so the
+// builder accepts it only alone on a block line.
+selectLine
+    : (selectItem COMMA)* selectWindowItem
+    | selectItem (COMMA selectItem)* COMMA? NEWLINE
     ;
 
 // Alias assignment is local to select items, never a general expression.
+selectWindowItem
+    : fieldName ASSIGN windowExpression
+    ;
+
 selectItem
-    : identifier ASSIGN windowExpression
-    | identifier ASSIGN expression NEWLINE
-    | expression NEWLINE
+    : fieldName ASSIGN expression
+    | expression
     ;
 
 windowExpression
@@ -380,10 +450,13 @@ nullTreatment
     : (RESPECT | IGNORE) NULLS
     ;
 
+// A window block holds compound clauses, so like a Python compound statement
+// it never starts on its header line; that form is parsed only to be rejected.
 windowSpec
     : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
     | WINDOW identifier NEWLINE
     | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    | WINDOW identifier? COLON windowInlineClause
     ;
 
 qualifyInlineWindowSpec
@@ -393,6 +466,13 @@ qualifyInlineWindowSpec
 namedWindowDeclaration
     : WINDOW identifier (ASSIGN identifier)? NEWLINE
     | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    | WINDOW identifier (ASSIGN identifier)? COLON windowInlineClause
+    ;
+
+windowInlineClause
+    : partitionByClause
+    | orderByClause
+    | windowFrameClause
     ;
 
 windowSpecBody
@@ -403,14 +483,19 @@ windowSpecBody
 
 partitionByClause
     : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT
+    | PARTITION BY COLON windowPartitionLine (INDENT windowPartitionBody DEDENT)?
     ;
 
 windowPartitionBody
-    : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)*
+    : NEWLINE* windowPartitionLine (windowPartitionLine | NEWLINE)*
+    ;
+
+windowPartitionLine
+    : windowPartitionItem (COMMA windowPartitionItem)* COMMA? NEWLINE
     ;
 
 windowPartitionItem
-    : expression NEWLINE
+    : expression
     ;
 
 windowFrameClause
@@ -425,7 +510,7 @@ frameBound
     ;
 
 satisfyingClause
-    : SATISFYING COLON NEWLINE NEWLINE* INDENT expression NEWLINE NEWLINE* DEDENT
+    : SATISFYING COLON predicateSuite
     ;
 
 qualifyClause
@@ -495,14 +580,19 @@ qualifyCallSuffix
 
 orderByClause
     : ORDER BY COLON NEWLINE NEWLINE* INDENT orderByBody DEDENT
+    | ORDER BY COLON orderByLine (INDENT orderByBody DEDENT)?
     ;
 
 orderByBody
-    : NEWLINE* orderItem (orderItem | NEWLINE)*
+    : NEWLINE* orderByLine (orderByLine | NEWLINE)*
+    ;
+
+orderByLine
+    : orderItem (COMMA orderItem)* COMMA? NEWLINE
     ;
 
 orderItem
-    : expression (ASC | DESC)? NEWLINE
+    : expression (ASC | DESC)?
     ;
 
 // Semantic analysis restricts the captured operand to a bounded static integer.
@@ -579,34 +669,25 @@ dottedName
     : namePart (DOT namePart)*
     ;
 
+// A name read in an expression, or a declared field, output, let binding or
+// parameter name, may also be a soft keyword: a declaration or clause word
+// that cannot start or continue an expression where a name is read.  Operator,
+// literal and modifier words (`and`, `or`, `not`, `null`, `true`, `false`,
+// `between`, `like`, `nullable`) and `window` stay reserved.
 namePart
     : identifier
-    | CHECK
-    | UNIQUE
-    | ON
-    | INDEX
-    | WHEN
-    | SOURCE
+    | softKeyword
+    ;
+
+fieldName
+    : namePart
+    ;
+
+softKeyword
+    : PIETTO | MODE | DIALECT | ENCODING | LOOSE | CHECKED | STRICT
+    | TYPE | ENUM | CONSTRAINT | DERIVE | SHAPE | CHECK | UNIQUE | ON | INDEX
+    | WHEN | SOURCE | TABLE | FROM | WHERE | SELECT | QUERY | LIMIT | ENSURE
     | IS
-    | TABLE
-    | FROM
-    | LET
-    | WHERE
-    | GROUP
-    | SELECT
-    | QUERY
-    | LIMIT
-    | SATISFYING
-    | QUALIFY
-    | RELATIONSHIP
-    | ENDPOINT
-    | INNER
-    | LEFT
-    | JOIN
-    | VIA
-    | CROSS | RIGHT | FULL | SEMI | ANTI
-    | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
-    | IF | ELSE | IN | CAST
     ;
 
 // New language keywords remain valid in identifier positions for compatibility.
@@ -651,6 +732,7 @@ identifier
     | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
     | IF | ELSE | IN | CAST
     | VALUES | EXISTS | CAPTURE | SCALAR
+    | DEF | RETURN
     ;
 
 callSuffix
@@ -752,6 +834,8 @@ VALUES: 'values';
 EXISTS: 'exists';
 CAPTURE: 'capture';
 SCALAR: 'scalar';
+DEF: 'def';
+RETURN: 'return';
 TRUE: 'true';
 FALSE: 'false';
 
@@ -784,6 +868,13 @@ NUMBER
 STRING
     : '"' (ESCAPE_SEQUENCE | ~["\\\r\n])* '"'
     | '\'' (ESCAPE_SEQUENCE | ~['\\\r\n])* '\''
+    ;
+
+// A quote whose string reaches the end of its line; never a valid token, it
+// lets the parser API report the literal itself instead of a lone quote.
+UNTERMINATED_STRING
+    : '"' (ESCAPE_SEQUENCE | ~["\\\r\n])*
+    | '\'' (ESCAPE_SEQUENCE | ~['\\\r\n])*
     ;
 
 IDENTIFIER

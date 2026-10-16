@@ -158,9 +158,7 @@ def test_grammar_keeps_relation_order_surface_narrow() -> None:
     )
     assert order_item is not None
     assert identifier is not None
-    assert " ".join(order_item.group("body").split()) == (
-        "expression (ASC | DESC)? NEWLINE"
-    )
+    assert " ".join(order_item.group("body").split()) == "expression (ASC | DESC)?"
     assert "| NULLS" in identifier.group("body")
 
 

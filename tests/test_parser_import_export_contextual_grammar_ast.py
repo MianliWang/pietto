@@ -69,25 +69,14 @@ MODULE_SUFFIX = (
     "    query selected\n"
 )
 NEGATIVE_DIAGNOSTICS = {
-    "invalid-import-0.pietto": (
-        ("PIE-P1000", 1, 18, None, None),
-        ("PIE-P1000", 2, 1, None, None),
-    ),
+    "invalid-import-0.pietto": (("PIE-P1000", 1, 18, None, None),),
     "invalid-import-1.pietto": (("PIE-P1000", 1, 8, None, None),),
-    "invalid-import-2.pietto": (
-        ("PIE-P1000", 2, 5, None, None),
-        ("PIE-P1000", 3, 1, None, None),
-    ),
+    "invalid-import-2.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-import-3.pietto": (("PIE-P1000", 2, 13, None, None),),
     "invalid-import-4.pietto": (("PIE-P1000", 2, 18, None, None),),
     "invalid-import-5.pietto": (("PIE-P1000", 2, 25, None, None),),
-    "invalid-import-6.pietto": (
-        ("PIE-P1000", 2, 5, None, None),
-        ("PIE-P1000", 2, 17, None, None),
-        ("PIE-P1000", 3, 1, None, None),
-    ),
+    "invalid-import-6.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-import-7.pietto": (
-        ("PIE-P1000", 1, 19, None, None),
         ("PIE-P1005", 1, 19, None, None),
         ("PIE-P1005", 1, 28, None, None),
     ),
@@ -96,56 +85,26 @@ NEGATIVE_DIAGNOSTICS = {
     "invalid-import-10.pietto": (("PIE-P1000", 1, 8, None, None),),
     "invalid-export-0.pietto": (("PIE-P1000", 1, 8, None, None),),
     "invalid-export-1.pietto": (("PIE-P1000", 2, 12, None, None),),
-    "invalid-export-2.pietto": (
-        ("PIE-P1000", 2, 5, None, None),
-        ("PIE-P1000", 3, 1, None, None),
-    ),
+    "invalid-export-2.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-export-3.pietto": (("PIE-P1000", 2, 13, None, None),),
     "invalid-export-4.pietto": (("PIE-P1000", 1, 8, None, None),),
-    "invalid-export-5.pietto": (
-        ("PIE-P1000", 2, 5, None, None),
-        ("PIE-P1000", 2, 17, None, None),
-        ("PIE-P1000", 3, 1, None, None),
-    ),
+    "invalid-export-5.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-export-6.pietto": (
-        ("PIE-P1000", 1, 8, None, None),
         ("PIE-P1005", 1, 8, None, None),
         ("PIE-P1005", 1, 17, None, None),
     ),
     "invalid-export-7.pietto": (("PIE-P1000", 2, 11, None, None),),
-    "empty-module-0.pietto": (("PIE-P1000", 2, 1, None, None),),
-    "empty-module-1.pietto": (("PIE-P1000", 3, 1, None, None),),
-    "empty-module-2.pietto": (("PIE-P1000", 2, 1, None, None),),
-    "empty-module-3.pietto": (("PIE-P1000", 3, 1, None, None),),
-    "nested-module-0.pietto": (
-        ("PIE-P1000", 2, 12, None, None),
-        ("PIE-P1000", 2, 23, None, None),
-        ("PIE-P1000", 3, 9, None, None),
-        ("PIE-P1000", 4, 1, None, None),
-    ),
-    "nested-module-1.pietto": (
-        ("PIE-P1000", 3, 5, None, None),
-        ("PIE-P1000", 5, 1, None, None),
-    ),
-    "nested-module-2.pietto": (
-        ("PIE-P1000", 3, 5, None, None),
-        ("PIE-P1000", 5, 1, None, None),
-    ),
-    "nested-module-3.pietto": (
-        ("PIE-P1000", 3, 5, None, None),
-        ("PIE-P1000", 5, 1, None, None),
-    ),
+    "empty-module-0.pietto": (("PIE-P1000", 1, 19, None, None),),
+    "empty-module-1.pietto": (("PIE-P1000", 1, 19, None, None),),
+    "empty-module-2.pietto": (("PIE-P1000", 1, 8, None, None),),
+    "empty-module-3.pietto": (("PIE-P1000", 1, 8, None, None),),
+    "nested-module-0.pietto": (("PIE-P1000", 2, 12, None, None),),
+    "nested-module-1.pietto": (("PIE-P1000", 3, 5, None, None),),
+    "nested-module-2.pietto": (("PIE-P1000", 3, 5, None, None),),
+    "nested-module-3.pietto": (("PIE-P1000", 3, 5, None, None),),
     "module-indent-0.pietto": (("PIE-P1004", 2, 1, None, None),),
-    "module-indent-1.pietto": (
-        ("PIE-P1003", 3, 3, None, None),
-        ("PIE-P1000", 3, 10, None, None),
-        ("PIE-P1000", 4, 1, None, None),
-    ),
-    "module-indent-2.pietto": (
-        ("PIE-P1000", 3, 9, None, None),
-        ("PIE-P1000", 3, 16, None, None),
-        ("PIE-P1000", 4, 1, None, None),
-    ),
+    "module-indent-1.pietto": (("PIE-P1003", 3, 3, None, None),),
+    "module-indent-2.pietto": (("PIE-P1000", 3, 9, None, None),),
 }
 
 

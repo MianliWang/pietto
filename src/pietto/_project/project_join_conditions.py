@@ -230,7 +230,7 @@ class ProjectJoinConditionEnvironment:
         object.__setattr__(
             self,
             "source_candidates",
-            project_join_source_candidates(self.ledger, self.use),
+            project_join_source_candidates(self.ledger, self.use, self.root.uses.index),
         )
         object.__setattr__(self, "blocked_bindings", blocked)
         object.__setattr__(self, "_rows", rows)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from pietto._project.model import CompiledProjectInput
@@ -89,6 +89,7 @@ from pietto._project.project_phase62_verification import (
     verify_project_phase62,
 )
 from pietto.ast_nodes import (
+    JoinTraversalStep,
     QueryDef,
     SourceDef,
     TableDef,
@@ -765,6 +766,182 @@ def _fallback_diagnostic(
     )
 
 
+def _join_cause_diagnostics(
+    entry: ProjectEffectiveOutputCompletionEntry,
+    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
+) -> tuple[Diagnostic, ...]:
+    """PIE-S2333 for each JOIN of the relation whose relationship lookup says
+    why the relation is unavailable: at the JOIN when it omits `from` or VIA
+    roles, otherwise at the relation like the bare fallback."""
+    found: list[Diagnostic] = []
+    for ledger in () if uses is None else uses.ledgers:
+        if ledger.owner is not entry.owner:
+            continue
+        for use in ledger.uses:
+            cause = _join_cause(use, uses)
+            if cause is None:
+                continue
+            clause = use.clause
+            span = (
+                clause.span
+                if clause.source_binding_name is None
+                or any(
+                    step.source_endpoint_role is None for step in clause.traversal_steps
+                )
+                else entry.owner.definition.span
+            )
+            found.append(
+                Diagnostic(
+                    code="PIE-S2333",
+                    severity=Severity.ERROR,
+                    message=(
+                        "Project relation semantic completion is unavailable: "
+                        f"{entry.owner.identity.declared_name} ({cause})"
+                    ),
+                    location=SourceLocation(
+                        path=span.path,
+                        line=span.line,
+                        column=span.column,
+                        end_line=span.end_line,
+                        end_column=span.end_column,
+                    ),
+                )
+            )
+    return tuple(found)
+
+
+def _join_cause(
+    use: project_relationship_uses.ProjectJoinUse,
+    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
+) -> str | None:
+    """Why a JOIN's relationship lookup found no candidate or several.
+
+    Covers an omitted `from` (no earlier binding or several), a VIA step
+    without roles (a relationship of a relation to itself, or one that does
+    not end at the relation the step reaches), and a JOIN without VIA whose
+    source has several relationship directions to its target.
+    """
+    if (
+        uses is None
+        or type(use) is not project_relationship_uses.ProjectNonConcreteJoinUse
+    ):
+        return None
+    kinds = project_relationship_uses.ProjectJoinUseIssueKind
+    clause = use.clause
+    join = f"JOIN {clause.target_binding_name}"
+    target = use.target_binding.output
+
+    def via(
+        direction: project_relationship_match_guarantees.ProjectDirectionalRelationshipMatchGuarantee,
+    ) -> str:
+        (name,) = (
+            subject.occurrence.name
+            for subject in uses.relationships.subjects
+            if subject.occurrence.identity == direction.direction.declaration
+        )
+        return (
+            f"`via {name}: {direction.direction.source.authored_role} -> "
+            f"{direction.direction.target.authored_role}`"
+        )
+
+    for issue in use.issues:
+        if (
+            issue.kind is kinds.DIRECT_RELATIONSHIP_AMBIGUOUS
+            and use.source_binding is not None
+        ):
+            direct = cast(
+                project_relationship_paths.ProjectRelationshipDirectCandidateResult,
+                issue.causes[0],
+            )
+            return (
+                f"{join} matches {len(direct.candidates)} relationship directions "
+                f"from {use.source_binding.name}: "
+                f"{_and_list(tuple(via(item) for item in direct.candidates))}; "
+                "write one of them"
+            )
+        if clause.source_binding_name is None and issue.kind in {
+            kinds.AMBIGUOUS_SOURCE_BINDING,
+            kinds.UNKNOWN_SOURCE_BINDING,
+        }:
+            bindings = cast(
+                tuple[project_relationship_uses.ProjectRelationBindingOccurrence, ...],
+                issue.causes,
+            )
+            names = tuple(binding.name for binding in bindings)
+            if use.step_uses:
+                start = use.step_uses[0].directions[0].direction.source
+                read = (
+                    f"which {len(names)} earlier bindings read: {_and_list(names)}; "
+                    "write `from <binding>`"
+                    if issue.kind is kinds.AMBIGUOUS_SOURCE_BINDING
+                    else "which no earlier binding reads"
+                )
+                return (
+                    f"{join}: `via {clause.traversal_steps[0].relationship_name}` "
+                    f"starts at {start.authored_relation_spelling}, {read}"
+                )
+            if issue.kind is kinds.UNKNOWN_SOURCE_BINDING:
+                return (
+                    f"{join}: no relationship joins {_or_list(names)} to "
+                    f"{clause.target_relation_name}; declare one, or write "
+                    "`from` and `on`"
+                )
+            found = tuple(
+                f"{binding.name} {via(direction)}"
+                for binding in bindings
+                if binding.output is not None and target is not None
+                for direction in uses.index.resolve_direct(
+                    binding.output, target
+                ).candidates
+            )
+            return (
+                f"{join} matches relationships from {len(names)} earlier "
+                f"bindings: {_and_list(found)}; write `from <binding>`"
+                + (" and `via`" if len(found) > len(names) else "")
+            )
+        step = issue.site
+        if (
+            type(step) is not JoinTraversalStep
+            or step.source_endpoint_role is not None
+            or issue.kind
+            not in {
+                kinds.AMBIGUOUS_ENDPOINT_DIRECTION,
+                kinds.UNKNOWN_ENDPOINT_DIRECTION,
+            }
+        ):
+            continue
+        position = clause.traversal_steps.index(step)
+        relationship = use.step_uses[position].relationships[0].occurrence
+        first, second = relationship.endpoints
+        name = relationship.name
+        if issue.kind is kinds.AMBIGUOUS_ENDPOINT_DIRECTION:
+            return (
+                f"{join}: relationship {name} joins "
+                f"{first.authored_relation_spelling} to itself; write "
+                f"`via {name}: {first.authored_role} -> {second.authored_role}` "
+                f"or `via {name}: {second.authored_role} -> {first.authored_role}`"
+            )
+        if (
+            issue.kind is kinds.UNKNOWN_ENDPOINT_DIRECTION
+            and relationship.identity in uses.index.by_declaration
+        ):
+            following = use.step_uses[position + 1 :]
+            reached = (
+                following[0].directions[0].direction.source.authored_relation_spelling
+                if following
+                else clause.target_relation_name
+            )
+            return (
+                f"{join}: `via {name}` joins {first.authored_relation_spelling} "
+                f"and {second.authored_relation_spelling}, not {reached}"
+            )
+    return None
+
+
+def _or_list(names: tuple[str, ...]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
+
+
 def _fanout_cause(entry: ProjectEffectiveOutputCompletionEntry) -> str:
     """Name the JOINs that may repeat this relation's own aggregate rows.
 
@@ -1070,6 +1247,8 @@ def _final_diagnostics(
     relationships: tuple[Diagnostic, ...] = (),
 ) -> tuple[Diagnostic, ...]:
     retired_ids = {id(diagnostic) for diagnostic in retired}
+    conditions = effective_outputs.operative_conditions
+    uses = None if conditions is None else conditions.uses
     retained = [
         diagnostic
         for diagnostic in semantic_result.diagnostics
@@ -1115,7 +1294,9 @@ def _final_diagnostics(
             if id(diagnostic) not in retired_ids
         )
         if not errors and not completed:
-            errors = (_fallback_diagnostic(entry),)
+            errors = _join_cause_diagnostics(entry, uses) or (
+                _fallback_diagnostic(entry),
+            )
         for diagnostic in errors:
             if id(diagnostic) in retained_ids:
                 continue

@@ -457,7 +457,6 @@ def test_shape_ast_does_not_expose_antlr_nodes() -> None:
         'shape User:\n    id: UUID @pii("yes")\n',
         "shape User:\n    id: UUID ensure\n",
         "shape User:\n    id: UUID derive\n",
-        "shape User:\n    id: UUID derive normalize(\n",
         "shape User:\n    id: UUID derive normalize(id) derive normalize(id)\n",
         "shape User:\n    id: UUID @pii derive normalize(id)\n",
     ],
@@ -467,6 +466,16 @@ def test_malformed_shapes_return_syntax_diagnostic(source: str) -> None:
 
     assert result.ast is None
     assert _has_code(result, "PIE-P1000")
+
+
+def test_unclosed_derive_call_reports_the_open_parenthesis() -> None:
+    result = parse_source("shape User:\n    id: UUID derive normalize(\n")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-P1008", "'(' is never closed.", 2, 30)]
 
 
 def test_shape_brace_block_reports_unsupported_brace() -> None:
@@ -506,3 +515,63 @@ def _assert_no_antlr_nodes(value: object) -> None:
 
 def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)
+
+
+SOFT_KEYWORD_FIELD_NAMES = (
+    "type",
+    "source",
+    "mode",
+    "index",
+    "limit",
+    "check",
+    "unique",
+    "from",
+    "where",
+    "select",
+    "table",
+    "query",
+    "on",
+    "is",
+    "when",
+    "shape",
+    "enum",
+    "constraint",
+    "derive",
+    "ensure",
+    "pietto",
+    "dialect",
+    "encoding",
+    "loose",
+    "checked",
+    "strict",
+)
+
+
+@pytest.mark.parametrize("name", SOFT_KEYWORD_FIELD_NAMES)
+def test_soft_keywords_name_shape_fields_keys_and_expression_reads(name: str) -> None:
+    result = parse_source(
+        "shape Row:\n"
+        f"    {name}: Text not null\n"
+        f"    unique {name}_key on {name}\n"
+        f"    index {name}_idx on id, {name} when {name} != 'x'\n"
+        f"    check {name}_set: {name} is not null and row.{name} != ''\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    shape = result.ast.definitions[0]
+    assert isinstance(shape, ShapeDef)
+    assert [field.name for field in shape.fields] == [name]
+    assert shape.uniques[0].field_names == (name,)
+    assert shape.indexes[0].field_names == ("id", name)
+    assert shape.checks[0].name == f"{name}_set"
+
+
+@pytest.mark.parametrize(
+    "name", ("and", "or", "not", "null", "true", "false", "like", "between", "window")
+)
+def test_operator_literal_and_window_words_stay_reserved_field_names(
+    name: str,
+) -> None:
+    result = parse_source(f"shape Row:\n    {name}: Text not null\n")
+    assert result.ast is None
+    assert {item.code for item in result.diagnostics} == {"PIE-P1000"}

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 from collections import Counter
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, cast
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ParamSpec, cast
 
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
@@ -119,6 +121,112 @@ QUERY_PARAMETER_TYPES = ("Bool", "Int", "Float", "Text")
 _QUERY_PARAMETER_NULLABILITY = {
     Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
     Nullability.NULLABLE: EffectiveNullability.NULLABLE,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class InlinedArgument:
+    """One argument position of one inlined ``def`` call and its parameter."""
+
+    call: ast.Span
+    function: str
+    position: int
+    parameter: str
+    expected: ValueType
+
+
+_P = ParamSpec("_P")
+# Every argument of an inlined ``def`` call, by node identity: wherever the
+# expansion is typed, its argument is checked against the parameter here. An
+# entry keeps its node alive, so an id is never reused while it is registered.
+_INLINED_ARGUMENTS: dict[int, tuple[Expression, dict[InlinedArgument, None]]] = {}
+
+
+def register_inlined_argument(argument: Expression, slot: InlinedArgument) -> None:
+    """Check ``argument`` against ``slot`` wherever it is typed."""
+
+    _INLINED_ARGUMENTS.setdefault(id(argument), (argument, {}))[1][slot] = None
+
+
+def checks_inlined_arguments(
+    infer: Callable[_P, ValueType],
+) -> Callable[_P, ValueType]:
+    """Check each inlined argument a clause-specific typer types itself; it
+    takes the expression first and ``diagnostics`` by keyword."""
+
+    @functools.wraps(infer)
+    def checked(*args: _P.args, **kwargs: _P.kwargs) -> ValueType:
+        return _check_inlined_argument(
+            cast(Expression, args[0]),
+            infer(*args, **kwargs),
+            cast(list[Diagnostic], kwargs["diagnostics"]),
+            cast(
+                Mapping[TypeExpr, ResolvedType] | None,
+                kwargs.get("type_expansions"),
+            ),
+        )
+
+    return checked
+
+
+def _check_inlined_argument(
+    expression: Expression,
+    value_type: ValueType,
+    diagnostics: list[Diagnostic],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """An argument whose canonical type or nullability does not fit its
+    parameter is an error at the call; the argument then stays Unknown so the
+    expansion reports nothing else."""
+
+    entry = _INLINED_ARGUMENTS.get(id(expression))
+    if entry is None or entry[0] is not expression:
+        return value_type
+    if value_type.kind is ValueTypeKind.UNKNOWN:
+        return value_type
+    canonical = _canonical_resolved_type(value_type, type_expansions)
+    fits = True
+    for slot in entry[1]:
+        expected = slot.expected
+        if (
+            canonical is not None
+            and canonical.kind is TypeKind.BUILTIN
+            and canonical.name == expected.resolved_type.name
+            and (
+                expected.nullability is EffectiveNullability.NULLABLE
+                or value_type.nullability is EffectiveNullability.NON_NULL
+            )
+        ):
+            continue
+        fits = False
+        actual = (canonical or value_type.resolved_type).name
+        diagnostics.append(
+            Diagnostic(
+                code="PIE-S2395",
+                severity=Severity.ERROR,
+                message=(
+                    f"Invalid argument for def {slot.function} at position "
+                    f"{slot.position} ({slot.parameter}): expected "
+                    f"{expected.resolved_type.name} "
+                    f"{_NULLABILITY_TEXT[expected.nullability]}, got {actual} "
+                    f"{_NULLABILITY_TEXT[value_type.nullability]}"
+                ),
+                location=SourceLocation(
+                    path=slot.call.path,
+                    line=slot.call.line,
+                    column=slot.call.column,
+                    end_line=slot.call.end_line,
+                    end_column=slot.call.end_column,
+                ),
+            )
+        )
+    return value_type if fits else _UNKNOWN_VALUE_TYPE
+
+
+_NULLABILITY_TEXT = {
+    EffectiveNullability.NON_NULL: "not null",
+    EffectiveNullability.NULLABLE: "nullable",
+    EffectiveNullability.UNKNOWN: "of unknown nullability",
 }
 
 
@@ -1033,6 +1141,12 @@ def _infer(
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
     existing = value_types.get(expression)
     if existing is not None:
+        if _INLINED_ARGUMENTS and id(expression) in _INLINED_ARGUMENTS:
+            # A caller may seed the type of a read it owns (a captured field,
+            # a scalar read, a QUALIFY output); the seed itself stays exact.
+            return _check_inlined_argument(
+                expression, existing, diagnostics, type_expansions
+            )
         return existing
 
     if isinstance(expression, WindowExpr):
@@ -1289,6 +1403,10 @@ def _infer(
         # accidentally checked through their child expressions.
         value_type = _UNKNOWN_VALUE_TYPE
 
+    if _INLINED_ARGUMENTS:
+        value_type = _check_inlined_argument(
+            expression, value_type, diagnostics, type_expansions
+        )
     value_types[expression] = value_type
     return value_type
 

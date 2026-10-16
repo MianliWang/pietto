@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import pytest
 from pathlib import Path
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 import json
 
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     BlockRelationDef,
     JoinOnClause,
+    JoinTraversalStep,
     SelectBody,
+    Span,
     QueryDef,
     TableDef,
     SetRelationDef,
@@ -526,7 +528,7 @@ def test_malformed_on_order_or_assignment_is_rejected(tail: str) -> None:
     assert parsed.ast is None and parsed.diagnostics
 
 
-def test_scalar_multiline_continuation_matches_existing_where_rejection() -> None:
+def test_scalar_multiline_continuation_is_joined_like_where() -> None:
     on = parse_source(
         _join("inner", "        on (lhs.id == r.id\n            and true)\n")
     )
@@ -534,8 +536,18 @@ def test_scalar_multiline_continuation_matches_existing_where_rejection() -> Non
         BASE
         + "query q:\n    from lhs\n    where (id == id\n        and true)\n    select:\n        id\n"
     )
-    assert on.ast is None and where.ast is None
-    assert on.diagnostics[0].code == where.diagnostics[0].code == "PIE-P1000"
+    assert on.diagnostics == where.diagnostics == ()
+    assert on.ast is not None and where.ast is not None
+    joined = on.ast.definitions[-1]
+    filtered = where.ast.definitions[-1]
+    assert isinstance(joined, QueryDef) and isinstance(filtered, QueryDef)
+    on_clause = joined.join_clauses[0].on_clause
+    assert on_clause is not None and filtered.where_clause is not None
+    spans = (on_clause.expression.span, filtered.where_clause.expression.span)
+    assert [(s.line, s.column, s.end_line, s.end_column) for s in spans] == [
+        (13, 13, 14, 21),
+        (11, 12, 12, 17),
+    ]
 
 
 @pytest.mark.parametrize("dialect", ("postgres", "mysql"))
@@ -760,3 +772,89 @@ def test_precise_earlier_errors_precede_availability_diagnostics() -> None:
     codes = tuple(d.code for d in result.diagnostics)
     assert codes.index("PIE-S2001") < codes.index("PIE-S2334")
     assert "PIE-S2005" in codes  # Existing implicit-nullability warnings survive.
+
+
+def _layout_free(value: object) -> object:
+    if type(value) is Span:
+        return None
+    if type(value) is tuple:
+        return tuple(_layout_free(item) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return (
+            type(value).__name__,
+            tuple(
+                (item.name, _layout_free(getattr(value, item.name)))
+                for item in fields(value)
+            ),
+        )
+    return value
+
+
+def _joined(join: str) -> str:
+    return BASE + f"query q:\n    from lhs\n{join}    select:\n        id = lhs.id\n"
+
+
+HEADER_LINE_JOINS = {
+    "from": (
+        "    inner join rhs as r: from lhs\n",
+        "    inner join rhs as r:\n        from lhs\n",
+    ),
+    "via_with_roles": (
+        "    left join rhs as r: via link: l -> r\n",
+        "    left join rhs as r:\n        via link: l -> r\n",
+    ),
+    "via_without_roles": (
+        "    inner join rhs as r: via link\n",
+        "    inner join rhs as r:\n        via link\n",
+    ),
+    "on": (
+        "    inner join rhs as r: on lhs.id == r.id\n",
+        "    inner join rhs as r:\n        on lhs.id == r.id\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(HEADER_LINE_JOINS))
+def test_a_header_line_join_step_is_its_one_line_block(case: str) -> None:
+    short, long = (parse_source(_joined(text)) for text in HEADER_LINE_JOINS[case])
+    assert short.diagnostics == long.diagnostics == ()
+    assert short.ast is not None and long.ast is not None
+    assert _layout_free(short.ast) == _layout_free(long.ast)
+
+
+def test_omitted_join_parts_stay_absent_for_inference() -> None:
+    result = parse_source(
+        _joined(
+            "    inner join rhs as r\n"
+            "    inner join rhs as r2: via link\n"
+            "    cross join rhs as r3:\n        via link\n        on true\n"
+        )
+    )
+    assert result.diagnostics == () and result.ast is not None
+    query = result.ast.definitions[-1]
+    assert isinstance(query, QueryDef)
+    bare, via, block = query.join_clauses
+    assert (bare.source_binding_name, bare.traversal_steps, bare.on_clause) == (
+        None,
+        (),
+        None,
+    )
+    assert (bare.span.line, bare.span.column, bare.span.end_column) == (11, 5, 24)
+    (step,) = via.traversal_steps
+    assert via.source_binding_name is None
+    assert (step.relationship_name, step.source_endpoint_role) == ("link", None)
+    assert step.target_endpoint_role is None
+    assert (step.span.line, step.span.column, step.span.end_column) == (12, 27, 35)
+    assert block.kind is AuthoredJoinKind.CROSS and block.source_binding_name is None
+    assert block.on_clause is not None
+
+
+def test_traversal_roles_are_authored_together_or_not_at_all() -> None:
+    span = Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    with pytest.raises(ValueError, match="authored together"):
+        JoinTraversalStep(
+            span=span,
+            relationship_name="link",
+            source_endpoint_role="l",
+            target_endpoint_role=None,
+        )

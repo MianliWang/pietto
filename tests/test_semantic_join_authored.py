@@ -19,6 +19,9 @@ from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
     build_empty_project_semantic_result,
 )
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto._project.project_ir import ProjectIRSnapshotScope
 from pietto._project.project_ir_composition import build_project_ir_project_plan
 from pietto._project.project_ir_construction import (
@@ -1006,3 +1009,346 @@ def test_private_closed_vocabularies_and_slice11_boundaries() -> None:
         "chasm",
     ):
         assert forbidden not in source
+
+
+_INFERENCE = """shape Employee:
+    id: Int not null
+    boss_id: Int nullable
+    dept_id: Int not null
+    unique employee_key on id
+shape Department:
+    id: Int not null
+    site_id: Int not null
+    unique department_key on id
+shape Site:
+    id: Int not null
+    unique site_key on id
+source employees: Employee is postgres.table("employees")
+source departments: Department is postgres.table("departments")
+source sites: Site is postgres.table("sites")
+relationship reports_to:
+    endpoint report: employees
+    endpoint boss: employees
+    on report.boss_id == boss.id
+relationship works_in: employees.dept_id == departments.id
+relationship located_at: departments.site_id == sites.id
+query chain_inferred:
+    from employees
+    inner join departments as d
+    left join sites as s: via located_at
+    select:
+        id = employees.id
+query chain_explicit:
+    from employees
+    inner join departments as d:
+        from employees
+    left join sites as s:
+        from d
+        via located_at: departments -> sites
+    select:
+        id = employees.id
+query hops_inferred:
+    from employees
+    inner join sites as s:
+        via works_in
+        via located_at
+    select:
+        id = employees.id
+query hops_explicit:
+    from employees
+    inner join sites as s:
+        from employees
+        via works_in: employees -> departments
+        via located_at: departments -> sites
+    select:
+        id = employees.id
+query boss_inferred:
+    from employees
+    left join employees as boss: via reports_to: report -> boss
+    select:
+        id = employees.id
+query boss_explicit:
+    from employees
+    left join employees as boss:
+        from employees
+        via reports_to: report -> boss
+    select:
+        id = employees.id
+query self_direct:
+    from employees
+    left join employees as boss
+    select:
+        id = employees.id
+query self_roles_omitted:
+    from employees
+    left join employees as boss: via reports_to
+    select:
+        id = employees.id
+query two_sources:
+    from employees
+    left join employees as boss: via reports_to: report -> boss
+    inner join departments as d
+    select:
+        id = employees.id
+query two_sources_via:
+    from employees
+    left join employees as boss: via reports_to: report -> boss
+    inner join departments as d: via works_in
+    select:
+        id = employees.id
+query no_relationship:
+    from employees
+    inner join sites as s
+    select:
+        id = employees.id
+query start_unread:
+    from sites
+    inner join departments as d: via works_in
+    select:
+        id = sites.id
+query end_unreached:
+    from employees
+    inner join sites as s: via works_in
+    select:
+        id = employees.id
+query semi_hidden:
+    from employees
+    semi join departments as d
+    inner join sites as s: via located_at
+    select:
+        id = employees.id
+query blocked_input:
+    from employees
+    inner join chain_explicit as joined:
+        from employees
+    inner join departments as d
+    select:
+        id = employees.id
+"""
+
+
+@pytest.fixture(scope="module")
+def inferred(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    root = tmp_path_factory.mktemp("inferred-joins")
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (root / "main.pietto").write_text(_INFERENCE, encoding="utf-8")
+    parsed = project_check.check_project_parse_only(root)
+    assert parsed.ok, parsed.diagnostics
+    return build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    )
+
+
+def _inferred_ledger(completed: Any, name: str) -> uses.ProjectRelationJoinUseLedger:
+    (ledger,) = (
+        ledger
+        for ledger in completed.roots.join_conditions.uses.ledgers
+        if ledger.owner.definition.name == name
+    )
+    return ledger
+
+
+@pytest.mark.parametrize("pair", ("chain", "hops", "boss"))
+def test_an_omitted_from_or_via_roles_resolve_to_the_explicit_join(
+    inferred: Any, pair: str
+) -> None:
+    """Inference finds the authored source and directions; nothing else moves."""
+    found = _inferred_ledger(inferred, f"{pair}_inferred")
+    written = _inferred_ledger(inferred, f"{pair}_explicit")
+    assert len(found.uses) == len(written.uses)
+    for use, explicit in zip(found.uses, written.uses, strict=True):
+        assert isinstance(use, uses.ProjectConcreteJoinUse)
+        assert isinstance(explicit, uses.ProjectConcreteJoinUse)
+        assert (
+            use.source_binding.identity.binding_position
+            == explicit.source_binding.identity.binding_position
+        )
+        assert all(
+            left.guarantee is right.guarantee
+            for left, right in zip(use.path.steps, explicit.path.steps, strict=True)
+        )
+        assert [step.directions for step in use.step_uses] == [
+            step.directions for step in explicit.step_uses
+        ]
+    assert all(use.clause.source_binding_name is None for use in found.uses)
+    assert not any(f": {pair}_" in item.message for item in inferred.diagnostics)
+
+
+def test_an_inferred_join_keeps_every_candidate_and_never_picks_one(
+    inferred: Any,
+) -> None:
+    kinds = uses.ProjectJoinUseIssueKind
+
+    def failed(name: str, position: int = -1) -> uses.ProjectNonConcreteJoinUse:
+        use = _inferred_ledger(inferred, name).uses[position]
+        assert type(use) is uses.ProjectNonConcreteJoinUse
+        return use
+
+    # Zero VIA: one source with two directions of one self relationship.
+    direct = failed("self_direct")
+    assert [issue.kind for issue in direct.issues] == [
+        kinds.DIRECT_RELATIONSHIP_AMBIGUOUS
+    ]
+    assert (
+        direct.source_binding is _inferred_ledger(inferred, "self_direct").bindings[0]
+    )
+    assert direct.direct_result is not None
+    assert len(direct.direct_result.candidates) == 2
+    # VIA without roles over a relation joined to itself keeps both directions.
+    (step,) = failed("self_roles_omitted").step_uses
+    assert [issue.kind for issue in step.issues] == [kinds.AMBIGUOUS_ENDPOINT_DIRECTION]
+    assert len(step.directions) == 2
+    # Two earlier bindings of employees: both stay, in binding order.
+    for name in ("two_sources", "two_sources_via"):
+        ledger = _inferred_ledger(inferred, name)
+        use = failed(name)
+        assert [issue.kind for issue in use.issues] == [kinds.AMBIGUOUS_SOURCE_BINDING]
+        assert use.issues[0].causes == ledger.bindings[:2]
+        assert use.source_binding is None
+    # No candidate: the issue retains every visible binding it checked; a
+    # SEMI JOIN target is not visible to later JOINs.
+    for name, checked in (
+        ("no_relationship", (0,)),
+        ("start_unread", (0,)),
+        ("semi_hidden", (0,)),
+    ):
+        ledger = _inferred_ledger(inferred, name)
+        use = failed(name)
+        assert [issue.kind for issue in use.issues] == [kinds.UNKNOWN_SOURCE_BINDING]
+        assert use.issues[0].causes == tuple(ledger.bindings[i] for i in checked)
+    (step,) = failed("end_unreached").step_uses
+    assert [issue.kind for issue in step.issues] == [kinds.UNKNOWN_ENDPOINT_DIRECTION]
+    # An earlier binding without concrete authority leaves the lookup blocked.
+    ledger = _inferred_ledger(inferred, "blocked_input")
+    blocked = failed("blocked_input")
+    assert [issue.kind for issue in blocked.issues] == [kinds.BLOCKED_SOURCE_BINDING]
+    assert blocked.issues[0].causes == (ledger.bindings[1],)
+
+
+def test_an_inferred_join_failure_names_its_cause_at_the_join(inferred: Any) -> None:
+    unavailable = "Project relation semantic completion is unavailable: "
+    roles = "`via reports_to: report -> boss`"
+    reverse = "`via reports_to: boss -> report`"
+    works_in = "`via works_in: employees -> departments`"
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in inferred.diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            f"{unavailable}self_direct (JOIN boss matches 2 relationship directions "
+            f"from employees: {roles} and {reverse}; write one of them)",
+            66,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}self_roles_omitted (JOIN boss: relationship reports_to "
+            f"joins employees to itself; write {roles} or {reverse})",
+            71,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}two_sources (JOIN d matches relationships from 2 earlier "
+            f"bindings: employees {works_in} and boss {works_in}; write "
+            "`from <binding>`)",
+            77,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}two_sources_via (JOIN d: `via works_in` starts at "
+            "employees, which 2 earlier bindings read: employees and boss; write "
+            "`from <binding>`)",
+            83,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}no_relationship (JOIN s: no relationship joins employees "
+            "to sites; declare one, or write `from` and `on`)",
+            88,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}start_unread (JOIN d: `via works_in` starts at "
+            "employees, which no earlier binding reads)",
+            93,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}end_unreached (JOIN s: `via works_in` joins employees "
+            "and departments, not sites)",
+            98,
+            5,
+        ),
+        (
+            "PIE-S2334",
+            "SEMI JOIN is available only when an EXPLICIT_MODULES project "
+            "(schema version 2) completes it.",
+            103,
+            5,
+        ),
+        ("PIE-S2333", f"{unavailable}blocked_input", 107, 1),
+    ]
+
+
+def test_an_explicit_direct_join_names_its_ambiguous_directions(
+    tmp_path: Path,
+) -> None:
+    """Zero VIA with `from` keeps its location and gains the candidate list."""
+    root = tmp_path / "explicit"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (root / "main.pietto").write_text(
+        _INFERENCE.split("query chain_inferred:")[0]
+        + "query self_from:\n    from employees\n    left join employees as boss:\n"
+        "        from employees\n    select:\n        id = employees.id\n",
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(
+            project_check.check_project_parse_only(root)
+        )
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in completed.diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: self_from (JOIN "
+            "boss matches 2 relationship directions from employees: `via "
+            "reports_to: report -> boss` and `via reports_to: boss -> report`; "
+            "write one of them)",
+            22,
+            1,
+        )
+    ]
+
+
+def test_single_file_check_treats_an_inferred_join_like_its_explicit_form() -> None:
+    """Single-file checks do not resolve JOIN sources or roles either way."""
+    head = _INFERENCE.split("query chain_inferred:")[0]
+    for body in (
+        "query q:\n    from employees\n    inner join departments as d\n"
+        "    left join sites as s: via located_at\n    select:\n        id\n",
+        "query q:\n    from employees\n    inner join departments as d:\n"
+        "        from employees\n    left join sites as s:\n        from d\n"
+        "        via located_at: departments -> sites\n    select:\n        id\n",
+    ):
+        script = _parse(head + body)
+        semantic = analyze(script)
+        assert semantic.diagnostics == ()
+        assert [item.code for item in build_ir(script, semantic.model).diagnostics] == [
+            "PIE-I1000"
+        ]

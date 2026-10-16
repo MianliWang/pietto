@@ -360,10 +360,17 @@ class ProjectTraversalStepUse:
             for relationship in self.relationships
         ):
             raise ValueError("Traversal relationship candidates must match its name.")
+        # A step without roles takes its direction from the relation it reaches.
         if any(
-            direction.direction.source.authored_role != self.step.source_endpoint_role
-            or direction.direction.target.authored_role
-            != self.step.target_endpoint_role
+            (
+                self.step.source_endpoint_role is not None
+                and (
+                    direction.direction.source.authored_role
+                    != self.step.source_endpoint_role
+                    or direction.direction.target.authored_role
+                    != self.step.target_endpoint_role
+                )
+            )
             or not any(
                 type(relationship) is ProjectConcreteRelationshipSubject
                 and relationship.occurrence.identity == direction.direction.declaration
@@ -403,11 +410,12 @@ class ProjectConcreteJoinUse:
             )
         if self.kind is not self.clause.kind:
             raise ValueError("Concrete JOIN use must retain its authored kind.")
+        # A JOIN without `from` retains the source its lookup inferred.
         if (
             self.source_binding.state is not ProjectJoinUseState.CONCRETE
             or self.target_binding.state is not ProjectJoinUseState.CONCRETE
             or self.source_binding.owner is not self.owner
-            or self.source_binding.name != self.clause.source_binding_name
+            or self.clause.source_binding_name not in {None, self.source_binding.name}
             or self.source_binding.identity.binding_position
             > self.identity.join_position
             or self.target_binding.owner is not self.owner
@@ -524,7 +532,8 @@ class ProjectNonConcreteJoinUse:
                 self.source_binding is not None
                 and (
                     self.source_binding.owner is not self.owner
-                    or self.source_binding.name != self.clause.source_binding_name
+                    or self.clause.source_binding_name
+                    not in {None, self.source_binding.name}
                     or self.source_binding.identity.binding_position
                     > self.identity.join_position
                 )
@@ -890,6 +899,7 @@ def _step_use(
     step: JoinTraversalStep,
     relationships: tuple[ProjectRelationshipSubject, ...],
     index: ProjectRelationshipJoinShapeIndex,
+    reached: ProjectIROutputRelationalProperties | None,
 ) -> ProjectTraversalStepUse:
     candidates: tuple[ProjectRelationshipSubject, ...] = tuple(
         relationship
@@ -932,33 +942,76 @@ def _step_use(
             issues=(issue,),
         )
     endpoints = relationship.occurrence.endpoints
-    sources = tuple(
-        endpoint
-        for endpoint in endpoints
-        if endpoint.authored_role == step.source_endpoint_role
-    )
-    targets = tuple(
-        endpoint
-        for endpoint in endpoints
-        if endpoint.authored_role == step.target_endpoint_role
-    )
-    if len(sources) != 1 or len(targets) != 1 or sources[0] is targets[0]:
-        issue = _issue(
-            ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION, step, relationship
+    declared = index.by_declaration.get(relationship.occurrence.identity, ())
+    if step.source_endpoint_role is None:
+        # Without roles the step takes the one direction that ends at the
+        # relation it reaches; a relationship of one relation to itself has
+        # two such directions, so its roles stay required.
+        relations = {
+            id(endpoint.target.target_occurrence)
+            for endpoint in endpoints
+            if endpoint.target is not None
+        }
+        if len(relations) == 1:
+            directions = declared
+        elif reached is None:
+            issue = _issue(
+                ProjectJoinUseIssueKind.BLOCKED_ENDPOINT_DIRECTION, step, relationship
+            )
+            return ProjectTraversalStepUse(
+                identity=identity,
+                step=step,
+                state=issue.state,
+                relationships=candidates,
+                issues=(issue,),
+            )
+        else:
+            directions = tuple(
+                direction
+                for direction in declared
+                if direction.target_output is reached
+            )
+            if not directions and declared:
+                issue = _issue(
+                    ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION,
+                    step,
+                    relationship,
+                )
+                return ProjectTraversalStepUse(
+                    identity=identity,
+                    step=step,
+                    state=issue.state,
+                    relationships=candidates,
+                    issues=(issue,),
+                )
+    else:
+        sources = tuple(
+            endpoint
+            for endpoint in endpoints
+            if endpoint.authored_role == step.source_endpoint_role
         )
-        return ProjectTraversalStepUse(
-            identity=identity,
-            step=step,
-            state=issue.state,
-            relationships=candidates,
-            issues=(issue,),
+        targets = tuple(
+            endpoint
+            for endpoint in endpoints
+            if endpoint.authored_role == step.target_endpoint_role
         )
-    directions = tuple(
-        direction
-        for direction in index.by_declaration.get(relationship.occurrence.identity, ())
-        if direction.direction.source is sources[0]
-        and direction.direction.target is targets[0]
-    )
+        if len(sources) != 1 or len(targets) != 1 or sources[0] is targets[0]:
+            issue = _issue(
+                ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION, step, relationship
+            )
+            return ProjectTraversalStepUse(
+                identity=identity,
+                step=step,
+                state=issue.state,
+                relationships=candidates,
+                issues=(issue,),
+            )
+        directions = tuple(
+            direction
+            for direction in declared
+            if direction.direction.source is sources[0]
+            and direction.direction.target is targets[0]
+        )
     if len(directions) == 1:
         return ProjectTraversalStepUse(
             identity=identity,
@@ -994,6 +1047,68 @@ def _step_use(
         relationships=candidates,
         directions=directions,
         issues=(issue,),
+    )
+
+
+def _step_uses(
+    *,
+    join: ProjectJoinUseIdentity,
+    clause: JoinClause,
+    target: ProjectRelationBindingOccurrence,
+    relationships: tuple[ProjectRelationshipSubject, ...],
+    index: ProjectRelationshipJoinShapeIndex,
+) -> tuple[ProjectTraversalStepUse, ...]:
+    """Resolve VIA steps from the JOIN target back toward its source.
+
+    A step reaches the JOIN target or the start of the next step; a step
+    without roles cannot resolve once the relation it reaches is unknown.
+    """
+    reached = target.output
+    resolved: list[ProjectTraversalStepUse] = []
+    for position in reversed(range(len(clause.traversal_steps))):
+        use = _step_use(
+            identity=ProjectTraversalStepUseIdentity(join=join, step_position=position),
+            step=clause.traversal_steps[position],
+            relationships=relationships,
+            index=index,
+            reached=reached,
+        )
+        reached = (
+            use.directions[0].source_output
+            if use.state is ProjectJoinUseState.CONCRETE
+            else None
+        )
+        resolved.append(use)
+    return tuple(reversed(resolved))
+
+
+def _inferred_sources(
+    earlier: tuple[ProjectRelationBindingOccurrence, ...],
+    target: ProjectRelationBindingOccurrence,
+    step_uses: tuple[ProjectTraversalStepUse, ...],
+    index: ProjectRelationshipJoinShapeIndex,
+) -> tuple[ProjectRelationBindingOccurrence, ...] | None:
+    """Every visible earlier binding a JOIN without `from` may start at.
+
+    With VIA steps that is each binding of the relation the first step starts
+    at; without them, each binding with a direct relationship direction to the
+    target. Nothing is chosen while a binding, the target or a step is not
+    concrete (None), since its candidates are then unknown.
+    """
+    if (
+        target.output is None
+        or any(binding.output is None for binding in earlier)
+        or any(use.state is not ProjectJoinUseState.CONCRETE for use in step_uses)
+    ):
+        return None
+    if step_uses:
+        start = step_uses[0].directions[0].source_output
+        return tuple(binding for binding in earlier if binding.output is start)
+    return tuple(
+        binding
+        for binding in earlier
+        if binding.output is not None
+        and index.resolve_direct(binding.output, target.output).candidates
     )
 
 
@@ -1058,18 +1173,29 @@ def project_join_binding_visible(
 
 
 def project_join_source_candidates(
-    ledger: ProjectRelationJoinUseLedger, use: ProjectJoinUse
+    ledger: ProjectRelationJoinUseLedger,
+    use: ProjectJoinUse,
+    index: ProjectRelationshipJoinShapeIndex,
 ) -> tuple[ProjectRelationBindingOccurrence, ...]:
-    """Keep every available earlier source; never choose a duplicate winner."""
+    """Keep every available earlier source; never choose a duplicate winner.
+
+    A JOIN without `from` keeps every source its relationship lookup finds.
+    """
     if not any(use is retained for retained in ledger.uses):
         raise ValueError("Pre-match source requires its exact JOIN ledger.")
-    return tuple(
+    visible = tuple(
         binding
         for binding in ledger.bindings[: use.identity.join_position + 1]
-        if binding.name == use.clause.source_binding_name
-        and project_join_binding_visible(
+        if project_join_binding_visible(
             binding, ledger.uses[: use.identity.join_position]
         )
+    )
+    if use.clause.source_binding_name is None:
+        return (
+            _inferred_sources(visible, use.target_binding, use.step_uses, index) or ()
+        )
+    return tuple(
+        binding for binding in visible if binding.name == use.clause.source_binding_name
     )
 
 
@@ -1131,16 +1257,12 @@ def _build_use(
     step_uses = (
         retained_steps
         if retained_steps is not None
-        else tuple(
-            _step_use(
-                identity=ProjectTraversalStepUseIdentity(
-                    join=identity, step_position=step_position
-                ),
-                step=step,
-                relationships=relationship_subjects,
-                index=index,
-            )
-            for step_position, step in enumerate(clause.traversal_steps)
+        else _step_uses(
+            join=identity,
+            clause=clause,
+            target=target,
+            relationships=relationship_subjects,
+            index=index,
         )
     )
     step_issues = tuple(issue for use in step_uses for issue in use.issues)
@@ -1157,12 +1279,67 @@ def _build_use(
             ),
         )
     earlier = bindings[: position + 1]
-    matches: tuple[ProjectRelationBindingOccurrence, ...] = tuple(
-        binding
-        for binding in earlier
-        if binding.name == clause.source_binding_name
-        and project_join_binding_visible(binding, prior_uses)
-    )
+    if clause.source_binding_name is None:
+        visible = tuple(
+            binding
+            for binding in earlier
+            if project_join_binding_visible(binding, prior_uses)
+        )
+        inferred = _inferred_sources(visible, target, step_uses, index)
+        if inferred is None:
+            unavailable = tuple(
+                binding
+                for binding in visible
+                if binding.state is not ProjectJoinUseState.CONCRETE
+            )
+            return _non_concrete_use(
+                identity=identity,
+                owner=owner,
+                clause=clause,
+                target=target,
+                step_uses=step_uses,
+                issues=(
+                    *(
+                        (
+                            _issue(
+                                ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING,
+                                clause,
+                                *unavailable,
+                            ),
+                        )
+                        if unavailable
+                        else ()
+                    ),
+                    *(
+                        (_binding_issue(target, clause, source=False),)
+                        if target.state is not ProjectJoinUseState.CONCRETE
+                        else ()
+                    ),
+                    *step_issues,
+                ),
+            )
+        if not inferred:
+            # Retains every binding the lookup checked.
+            return _non_concrete_use(
+                identity=identity,
+                owner=owner,
+                clause=clause,
+                target=target,
+                step_uses=step_uses,
+                issues=(
+                    _issue(
+                        ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING, clause, *visible
+                    ),
+                ),
+            )
+        matches = inferred
+    else:
+        matches = tuple(
+            binding
+            for binding in earlier
+            if binding.name == clause.source_binding_name
+            and project_join_binding_visible(binding, prior_uses)
+        )
     if not matches:
         later = tuple(
             binding

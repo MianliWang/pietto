@@ -29,7 +29,10 @@ def find_leading_tab_diagnostics(
     diagnostics: list[Diagnostic] = []
     path_text = source_path(path)
 
-    for line_number, line in enumerate(source.splitlines(), start=1):
+    # Lines end only where the lexer ends them: comments and strings may hold
+    # other separators, such as form feed or U+2028, that ``splitlines`` uses.
+    lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for line_number, line in enumerate(lines, start=1):
         leading = line[: len(line) - len(line.lstrip(" \t"))]
         tab_column = leading.find("\t")
         if tab_column >= 0:
@@ -50,6 +53,65 @@ def find_leading_tab_diagnostics(
     return tuple(diagnostics)
 
 
+def join_parenthesized_lines(
+    tokens: Sequence[Token],
+    *,
+    newline_type: int,
+    open_type: int,
+    close_type: int,
+    window_type: int,
+    colon_type: int,
+    path: str | Path | None,
+) -> IndentationResult:
+    """Drop the line breaks inside parentheses, like Python implicit joining.
+
+    Continuation lines inside ``(`` ... ``)`` carry no NEWLINE, so their
+    indentation, blank lines and comments never reach the block logic; every
+    token keeps its source position. An unmatched ``)`` is left to the parser.
+    A window block opened inside parentheses and a ``(`` still open at EOF are
+    reported; either makes the parser input meaningless.
+    """
+
+    output: list[Token] = []
+    diagnostics: list[Diagnostic] = []
+    open_parens: list[Token] = []
+    reported: set[int] = set()
+    path_text = source_path(path)
+    for token in tokens:
+        if token.type == newline_type and open_parens:
+            # ``window:`` or ``window name:`` ending a joined line opens a block.
+            recent = [item.type for item in output[-3:]]
+            if recent[-2:] == [window_type, colon_type] or (
+                recent[:1] == [window_type] and recent[-1:] == [colon_type]
+            ):
+                window = output[-2] if recent[-2] == window_type else output[-3]
+                if window.start in reported:
+                    continue
+                reported.add(window.start)
+                diagnostics.append(
+                    _diagnostic(
+                        "PIE-P1010",
+                        "A window block cannot be inside parentheses; remove "
+                        "the parentheses around the window function.",
+                        path_text,
+                        window,
+                    )
+                )
+            continue
+        if token.type == open_type:
+            open_parens.append(token)
+        elif token.type == close_type and open_parens:
+            open_parens.pop()
+        elif token.type == Token.EOF and open_parens:
+            diagnostics.append(
+                _diagnostic(
+                    "PIE-P1008", "'(' is never closed.", path_text, open_parens[-1]
+                )
+            )
+        output.append(token)
+    return IndentationResult(tokens=tuple(output), diagnostics=tuple(diagnostics))
+
+
 def inject_indentation(
     tokens: Sequence[Token],
     *,
@@ -67,6 +129,13 @@ def inject_indentation(
     # Zero is the permanent baseline; nested block widths are pushed and popped.
     indentation_stack = [0]
     path_text = source_path(path)
+    first = tokens[0] if tokens else None
+    if first is not None and first.type not in {newline_type, Token.EOF}:
+        # Like any later line, an indented first line opens a block, which
+        # the parser rejects as unexpected indentation.
+        if first.column > 0:
+            indentation_stack.append(first.column)
+            output.append(_synthetic_token(first, indent_type, " " * first.column))
 
     for index, token in enumerate(tokens):
         if token.type == Token.EOF:
@@ -123,6 +192,17 @@ def inject_indentation(
     return IndentationResult(
         tokens=tuple(output),
         diagnostics=tuple(diagnostics),
+    )
+
+
+def _diagnostic(code: str, message: str, path: str | None, token: Token) -> Diagnostic:
+    """Build one error diagnostic located at a source token."""
+
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(path=path, line=token.line, column=token.column + 1),
     )
 
 

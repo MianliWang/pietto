@@ -37,6 +37,7 @@ from pietto._project.trusted_source import (
     _load_trusted_source,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.semantic.inline_functions import inline_functions
 
 _PROJECT_ROOT_PATH = "."
 _PROJECT_CONFIG_PATH = "pietto.toml"
@@ -194,31 +195,33 @@ def _parse_selected_input(
             ),
             diagnostics,
         )
+    gate = unadmitted_syntax_diagnostics(
+        parse_result.ast, explicit_modules=explicit_modules
+    )
+    script = parse_result.ast
+    inlined: tuple[Diagnostic, ...] = ()
+    if explicit_modules and not gate:
+        # Every later reader, and the capture and header checks, see each
+        # module-local def call inlined.
+        script, inlined = inline_functions(script)
     diagnostics = (
         *diagnostics,
         *(
             _with_project_relative_path(diagnostic, selected_input.identity.path)
             for diagnostic in (
-                # Capture refusals are pre-admission diagnostics: one source
-                # order with the gate's, then the header checks.
-                *sorted(
-                    (
-                        *unadmitted_syntax_diagnostics(
-                            parse_result.ast, explicit_modules=explicit_modules
+                inlined
+                or (
+                    # Capture refusals are pre-admission diagnostics: one
+                    # source order with the gate's, then the header checks.
+                    *sorted(
+                        (
+                            *gate,
+                            *(capture_diagnostics(script) if explicit_modules else ()),
                         ),
-                        *(
-                            capture_diagnostics(parse_result.ast)
-                            if explicit_modules
-                            else ()
-                        ),
+                        key=source_order,
                     ),
-                    key=source_order,
-                ),
-                *(
-                    query_parameter_diagnostics(parse_result.ast)
-                    if explicit_modules
-                    else ()
-                ),
+                    *(query_parameter_diagnostics(script) if explicit_modules else ()),
+                )
             )
         ),
     )
@@ -226,7 +229,7 @@ def _parse_selected_input(
         ProjectInput(path=selected_input.identity.path, status=_PARSED_STATUS),
         ProjectParsedInput(
             path=selected_input.identity.path,
-            script=parse_result.ast,
+            script=script,
         ),
         trusted_source,
         (),

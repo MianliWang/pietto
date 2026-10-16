@@ -247,7 +247,7 @@ def test_group_by_grammar_and_diagnostics_are_registered() -> None:
         "groupByBody",
         "groupByItem",
         ": GROUP BY COLON NEWLINE NEWLINE* INDENT groupByBody DEDENT",
-        ": dottedName NEWLINE",
+        ": groupByItem (COMMA groupByItem)* COMMA? NEWLINE",
     ):
         assert required in grammar
 

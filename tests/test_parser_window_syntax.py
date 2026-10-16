@@ -117,8 +117,12 @@ def _window_select_items(tree: Any) -> tuple[Any, ...]:
         relation = query if query is not None else table
         if relation is None:
             continue
-        items.extend(relation.tableBody().selectClause().selectBody().selectItem())
-    return tuple(item for item in items if item.windowExpression() is not None)
+        items.extend(
+            line.selectWindowItem()
+            for line in relation.tableBody().selectClause().selectBody().selectLine()
+            if line.selectWindowItem() is not None
+        )
+    return tuple(items)
 
 
 RAW_POSITIVE_CASES = (
@@ -481,16 +485,19 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
     grammar = _read(GRAMMAR_REL)
     normalized = " ".join(grammar.split())
     for rule in (
-        "selectItem : identifier ASSIGN windowExpression | identifier ASSIGN expression NEWLINE | expression NEWLINE ;",
+        "selectLine : (selectItem COMMA)* selectWindowItem | selectItem (COMMA selectItem)* COMMA? NEWLINE ;",
+        "selectWindowItem : fieldName ASSIGN windowExpression ;",
+        "selectItem : fieldName ASSIGN expression | expression ;",
         "windowExpression : dottedName callSuffix nthValueDirection? nullTreatment? windowSpec ;",
         "nthValueDirection : FROM (FIRST | LAST) ;",
         "nullTreatment : (RESPECT | IGNORE) NULLS ;",
-        "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier NEWLINE | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
-        "namedWindowDeclaration : WINDOW identifier (ASSIGN identifier)? NEWLINE | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
+        "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier NEWLINE | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier? COLON windowInlineClause ;",
+        "namedWindowDeclaration : WINDOW identifier (ASSIGN identifier)? NEWLINE | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier (ASSIGN identifier)? COLON windowInlineClause ;",
         "windowSpecBody : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE* windowFrameClause? NEWLINE* | NEWLINE* orderByClause NEWLINE* windowFrameClause? NEWLINE* | NEWLINE* windowFrameClause NEWLINE* ;",
-        "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT ;",
-        "windowPartitionBody : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)* ;",
-        "windowPartitionItem : expression NEWLINE ;",
+        "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT | PARTITION BY COLON windowPartitionLine (INDENT windowPartitionBody DEDENT)? ;",
+        "windowPartitionBody : NEWLINE* windowPartitionLine (windowPartitionLine | NEWLINE)* ;",
+        "windowPartitionLine : windowPartitionItem (COMMA windowPartitionItem)* COMMA? NEWLINE ;",
+        "windowPartitionItem : expression ;",
         "windowFrameClause : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) (EXCLUDE (NO OTHERS | CURRENT ROW | GROUP | TIES))? NEWLINE ;",
         "frameBound : UNBOUNDED (PRECEDING | FOLLOWING) | CURRENT ROW | expression (PRECEDING | FOLLOWING) ;",
     ):
@@ -550,18 +557,17 @@ def test_partition_and_order_items_accept_generic_expression_shapes(
     tree, _, diagnostics = _raw_parse(source)
     assert diagnostics == (), name
     window_spec = _window_select_items(tree)[0].windowExpression().windowSpec()
-    assert (
-        len(
-            window_spec.windowSpecBody()
-            .partitionByClause()
-            .windowPartitionBody()
-            .windowPartitionItem()
-        )
-        == 1
+    partition_lines = (
+        window_spec.windowSpecBody()
+        .partitionByClause()
+        .windowPartitionBody()
+        .windowPartitionLine()
     )
-    assert (
-        len(window_spec.windowSpecBody().orderByClause().orderByBody().orderItem()) == 1
+    order_lines = (
+        window_spec.windowSpecBody().orderByClause().orderByBody().orderByLine()
     )
+    assert [len(line.windowPartitionItem()) for line in partition_lines] == [1]
+    assert [len(line.orderItem()) for line in order_lines] == [1]
 
 
 @pytest.mark.parametrize(
@@ -672,3 +678,78 @@ def test_historical_unsupported_window_samples_remain_negative(
 
 
 # Phase 53 Slice 13 reader migration.
+
+
+def test_window_list_clauses_may_follow_their_header_on_one_line() -> None:
+    short = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        rn = row_number() window:\n"
+        "            partition by: account_id, region\n"
+        "            order by: observed_at desc, id\n"
+        "    window by_time:\n"
+        "        order by: observed_at\n"
+    )
+    long = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        rn = row_number() window:\n"
+        "            partition by:\n"
+        "                account_id\n"
+        "                region\n"
+        "            order by:\n"
+        "                observed_at desc\n"
+        "                id\n"
+        "    window by_time:\n"
+        "        order by:\n"
+        "            observed_at\n"
+    )
+    assert short.diagnostics == long.diagnostics == ()
+    assert short.ast is not None and long.ast is not None
+    short_query = cast(QueryDef, short.ast.definitions[0])
+    long_query = cast(QueryDef, long.ast.definitions[0])
+    short_window = cast(WindowExpr, short_query.select_items[0].expression)
+    long_window = cast(WindowExpr, long_query.select_items[0].expression)
+    assert [type(item).__name__ for item in short_window.spec.partition_by] == [
+        "NameExpr",
+        "NameExpr",
+    ]
+    assert [item.direction for item in short_window.spec.order_by] == ["desc", None]
+    assert [item.direction for item in long_window.spec.order_by] == ["desc", None]
+    assert short_query.named_windows[0].spec is not None
+    assert len(short_query.named_windows[0].spec.order_by) == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "line", "column"),
+    (
+        ("    select:\n        rn = row_number() window: order by: id\n", 4, 35),
+        (
+            "    select:\n        rn = row_number() window w: order by: id\n"
+            "    window w:\n        order by: id\n",
+            4,
+            37,
+        ),
+        ("    select: id\n    window w: partition by: id\n", 4, 15),
+        ("    select: id\n    window w = base: order by: id\n", 4, 22),
+    ),
+)
+def test_a_window_block_never_starts_on_its_header_line(
+    body: str, line: int, column: int
+) -> None:
+    result = parse_source("query q:\n    from rows\n" + body)
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            "A compound clause cannot follow ':' on the same line; put the window "
+            "clauses in an indented block.",
+            line,
+            column,
+        )
+    ]

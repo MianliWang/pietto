@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.ListTokenSource import ListTokenSource
+from antlr4.PredictionContext import PredictionContextCache
 from antlr4.Token import Token
+from antlr4.atn.ParserATNSimulator import ParserATNSimulator
+from antlr4.dfa.DFA import DFA
 
 from pietto.ast_builder import AstBuilder
 from pietto.ast_nodes import Script
@@ -18,6 +23,7 @@ from pietto.errors import (
     DiagnosticErrorListener,
     Severity,
     SourceLocation,
+    SyntaxErrorReporter,
     source_path,
 )
 from pietto.generated.PiettoLexer import PiettoLexer
@@ -25,6 +31,7 @@ from pietto.generated.PiettoParser import PiettoParser
 from pietto.indentation import (
     find_leading_tab_diagnostics,
     inject_indentation,
+    join_parenthesized_lines,
 )
 
 _MAX_SOURCE_UTF8_BYTES = 1_048_576
@@ -66,24 +73,28 @@ def parse_source(
     if source.startswith("\ufeff"):
         source = source[1:]
 
-    try:
-        return _parse_source(source, path=path)
-    except RecursionError:
-        return ParseResult(
-            ast=None,
-            diagnostics=(
-                Diagnostic(
-                    code="PIE-P1000",
-                    severity=Severity.ERROR,
-                    message="Parser recursion limit exceeded while processing source.",
-                    location=SourceLocation(
-                        path=source_path(path),
-                        line=1,
-                        column=1,
-                    ),
-                ),
-            ),
-        )
+    # A fresh thread starts at recursion depth zero, so the nesting that
+    # exhausts the parser, and where that is reported, never depend on how
+    # deep the caller's own stack is.
+    outcome: list[ParseResult | BaseException] = []
+
+    def contained() -> None:
+        try:
+            outcome.append(_parse_source(source, path=path))
+        except RecursionError:
+            outcome.append(
+                ParseResult(ast=None, diagnostics=(_recursion_diagnostic(path, None),))
+            )
+        except BaseException as error:  # re-raised in the calling thread
+            outcome.append(error)
+
+    worker = threading.Thread(target=contained, name="pietto-parse", daemon=True)
+    worker.start()
+    worker.join()
+    (result,) = outcome
+    if isinstance(result, BaseException):
+        raise result
+    return result
 
 
 def _parse_source(
@@ -93,6 +104,9 @@ def _parse_source(
 ) -> ParseResult:
     """Implement parsing inside the public recursion containment boundary."""
 
+    # A lone CR ends a line for the lexer but not for ANTLR's line counter;
+    # strings and comments never hold CR, so normalizing keeps every token.
+    source = source.replace("\r\n", "\n").replace("\r", "\n")
     lexer_listener = DiagnosticErrorListener(path)
     lexer = PiettoLexer(InputStream(source))
     lexer.removeErrorListeners()
@@ -104,9 +118,54 @@ def _parse_source(
     diagnostics = list(lexer_listener.diagnostics)
     diagnostics.extend(find_leading_tab_diagnostics(source, path=path))
     diagnostics.extend(_brace_diagnostics(raw_tokens, path=path))
+    unterminated = [
+        token for token in raw_tokens if token.type == PiettoLexer.UNTERMINATED_STRING
+    ]
+    for token in unterminated:
+        diagnostics.append(
+            _token_diagnostic(
+                "PIE-P1000",
+                "Unterminated string literal; close it with a matching quote on "
+                "the same line.",
+                path,
+                token,
+            )
+        )
+        # Parsed as a string, the rest of its line raises no follow-on errors.
+        token.type = PiettoLexer.STRING
 
-    indentation = inject_indentation(
+    joined = join_parenthesized_lines(
         raw_tokens,
+        newline_type=PiettoLexer.NEWLINE,
+        open_type=PiettoLexer.LPAREN,
+        close_type=PiettoLexer.RPAREN,
+        window_type=PiettoLexer.WINDOW,
+        colon_type=PiettoLexer.COLON,
+        path=path,
+    )
+    if joined.diagnostics:
+        # Parsing the rest of the file as one expression only adds noise; a
+        # parenthesis whose close an unterminated string swallowed is not news.
+        return ParseResult(
+            ast=None,
+            diagnostics=_source_ordered(
+                (
+                    *diagnostics,
+                    *(
+                        item
+                        for item in joined.diagnostics
+                        if not any(
+                            (string.line, string.column + 1)
+                            > (item.location.line, item.location.column)
+                            and string.line == item.location.line
+                            for string in unterminated
+                        )
+                    ),
+                )
+            ),
+        )
+    indentation = inject_indentation(
+        joined.tokens,
         newline_type=PiettoLexer.NEWLINE,
         indent_type=PiettoParser.INDENT,
         dedent_type=PiettoParser.DEDENT,
@@ -114,31 +173,31 @@ def _parse_source(
     )
     diagnostics.extend(indentation.diagnostics)
 
-    parser_listener = DiagnosticErrorListener(path)
-    token_source = ListTokenSource(list(indentation.tokens), source_path(path))
-    # ANTLR accepts any token source here, but its runtime annotation names Lexer.
-    token_stream = CommonTokenStream(cast(Any, token_source))
-    parser = PiettoParser(token_stream)
-    parser.removeErrorListeners()
-    parser.addErrorListener(parser_listener)
-    tree = parser.script()
-    diagnostics.extend(parser_listener.diagnostics)
+    tokens = list(indentation.tokens)
+    parsed = _run_parser(tokens, path=path, fresh=False)
+    if isinstance(parsed, Diagnostic):
+        return ParseResult(ast=None, diagnostics=(parsed,))
+    tree, reporter = parsed
+    if reporter.errors:
+        # Error text depends on the prediction cache that earlier parses in the
+        # process warmed; a parse with fresh caches reports deterministically.
+        parsed = _run_parser(tokens, path=path, fresh=True)
+        if isinstance(parsed, Diagnostic):
+            return ParseResult(ast=None, diagnostics=(parsed,))
+        tree, reporter = parsed
+        diagnostics.extend(_first_error_per_declaration(tokens, reporter, diagnostics))
 
-    ordered_diagnostics = tuple(
-        sorted(
-            diagnostics,
-            key=lambda item: (
-                item.location.line,
-                item.location.column,
-                item.code,
-            ),
-        )
-    )
+    ordered_diagnostics = _source_ordered(diagnostics)
     if any(item.severity is Severity.ERROR for item in ordered_diagnostics):
         return ParseResult(ast=None, diagnostics=ordered_diagnostics)
 
+    builder = AstBuilder(path)
     try:
-        ast = AstBuilder(path).visit(tree)
+        ast = builder.visit(tree)
+    except RecursionError:
+        return ParseResult(
+            ast=None, diagnostics=(_recursion_diagnostic(path, builder.deepest),)
+        )
     except AstBuildError as error:
         build_diagnostic = Diagnostic(
             code="PIE-P1000",
@@ -152,19 +211,119 @@ def _parse_source(
         )
         return ParseResult(
             ast=None,
-            diagnostics=tuple(
-                sorted(
-                    (*ordered_diagnostics, build_diagnostic),
-                    key=lambda item: (
-                        item.location.line,
-                        item.location.column,
-                        item.code,
-                    ),
-                )
-            ),
+            diagnostics=_source_ordered((*ordered_diagnostics, build_diagnostic)),
         )
 
     return ParseResult(ast=ast, diagnostics=ordered_diagnostics)
+
+
+def _run_parser(
+    tokens: list[Token], *, path: str | Path | None, fresh: bool
+) -> tuple[Any, SyntaxErrorReporter] | Diagnostic:
+    """Parse one token list; a fresh parser owns its own prediction caches."""
+
+    token_source = ListTokenSource(tokens, source_path(path))
+    # ANTLR accepts any token source here, but its runtime annotation names Lexer.
+    parser = PiettoParser(CommonTokenStream(cast(Any, token_source)))
+    if fresh:
+        parser._interp = ParserATNSimulator(
+            parser,
+            parser.atn,
+            [
+                DFA(state, index)
+                for index, state in enumerate(parser.atn.decisionToState)
+            ],
+            PredictionContextCache(),
+        )
+    parser.removeErrorListeners()
+    reporter = SyntaxErrorReporter(path, tokens)
+    parser._errHandler = reporter
+    try:
+        return parser.script(), reporter
+    except RecursionError:
+        return _recursion_diagnostic(path, parser.getCurrentToken())
+
+
+def _first_error_per_declaration(
+    tokens: list[Token],
+    reporter: SyntaxErrorReporter,
+    source_errors: list[Diagnostic],
+) -> list[Diagnostic]:
+    """Keep the first parser error of each top-level declaration.
+
+    Later errors in the same declaration are recovery noise, and a declaration
+    whose source already has a brace, indentation or string error gets none:
+    that error is the cause.
+    """
+
+    layout = {Token.EOF, PiettoLexer.NEWLINE, PiettoParser.INDENT, PiettoParser.DEDENT}
+    # A declaration starts with the first token of a logical line at column 0.
+    starts = [
+        index
+        for index, token in enumerate(tokens)
+        if token.column == 0
+        and token.type not in layout
+        and (index == 0 or tokens[index - 1].type in layout)
+    ]
+    start_lines = [tokens[index].line for index in starts]
+
+    def declaration(line: int) -> int:
+        return sum(1 for start in start_lines if start <= line)
+
+    blocked = {
+        declaration(item.location.line)
+        for item in source_errors
+        if item.code in {"PIE-P1003", "PIE-P1005"}
+        or item.message.startswith("Unterminated string literal")
+    }
+    kept: list[Diagnostic] = []
+    seen: set[int] = set()
+    for token_index, item in sorted(reporter.errors, key=lambda pair: pair[0]):
+        owner = sum(1 for start in starts if start <= token_index)
+        if owner in seen or owner in blocked:
+            continue
+        seen.add(owner)
+        kept.append(item)
+    return kept
+
+
+def _recursion_diagnostic(path: str | Path | None, token: Token | None) -> Diagnostic:
+    """Report recursion exhaustion at the deepest token reached."""
+
+    return Diagnostic(
+        code="PIE-P1000",
+        severity=Severity.ERROR,
+        message="Parser recursion limit exceeded while processing source.",
+        location=SourceLocation(
+            path=source_path(path),
+            line=1 if token is None else token.line,
+            column=1 if token is None else token.column + 1,
+        ),
+    )
+
+
+def _token_diagnostic(
+    code: str, message: str, path: str | Path | None, token: Token
+) -> Diagnostic:
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=source_path(path), line=token.line, column=token.column + 1
+        ),
+    )
+
+
+def _source_ordered(diagnostics: Iterable[Diagnostic]) -> tuple[Diagnostic, ...]:
+    """Order parser diagnostics by line, column and code."""
+
+    return tuple(
+        sorted(
+            diagnostics,
+            key=lambda item: (item.location.line, item.location.column, item.code),
+        )
+    )
 
 
 def parse_file(path: str | Path) -> ParseResult:

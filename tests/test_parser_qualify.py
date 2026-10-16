@@ -563,6 +563,50 @@ def test_qualify_clause_order_empty_duplicate_and_hidden_named_are_parser_negati
 
 
 @pytest.mark.parametrize(
+    ("window", "line", "column"),
+    (
+        ("        (row_number() window:\n", 10, 23),
+        ("        coalesce(rank() window w:\n", 10, 25),
+    ),
+)
+def test_a_window_block_inside_parentheses_has_a_dedicated_diagnostic(
+    window: str, line: int, column: int
+) -> None:
+    # Line joining inside parentheses removes the block layout, so the
+    # parenthesized spelling (never needed) is refused; unparenthesized, the
+    # same predicate keeps its exact AST.
+    block = "            order by:\n                item\n"
+    parsed = _parse(
+        MINIMAL_PREFIX
+        + "query bad:\n    from rows\n    select:\n        item\n    qualify:\n"
+        + window
+        + block
+        + "        ) <= 3\n"
+    )
+    assert parsed.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in parsed.diagnostics
+    ] == [
+        (
+            "PIE-P1010",
+            "A window block cannot be inside parentheses; remove the "
+            "parentheses around the window function.",
+            line,
+            column,
+        )
+    ]
+    unparenthesized = _parse(
+        MINIMAL_PREFIX
+        + "query ok:\n    from rows\n    select:\n        item\n    qualify:\n"
+        + "        row_number() window:\n"
+        + block
+        + "        <= 3\n"
+    )
+    assert unparenthesized.diagnostics == () and unparenthesized.ast is not None
+
+
+@pytest.mark.parametrize(
     "body",
     (
         "    where row_number() window:\n        order by:\n            item\n",

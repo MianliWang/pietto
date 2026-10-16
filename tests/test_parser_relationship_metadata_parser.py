@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 
 import pytest
@@ -260,3 +260,82 @@ def test_relationship_metadata_does_not_change_semantic_ir_or_sql() -> None:
     assert isinstance(metadata_ir.ir, ScriptIR)
     assert emit_postgres_sql(baseline_ir.ir) == emit_postgres_sql(metadata_ir.ir)
     assert emit_mysql_sql(baseline_ir.ir) == emit_mysql_sql(metadata_ir.ir)
+
+
+def _layout_free(value: object) -> object:
+    if type(value) is Span:
+        return None
+    if type(value) is tuple:
+        return tuple(_layout_free(item) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return (
+            type(value).__name__,
+            tuple(
+                (item.name, _layout_free(getattr(value, item.name)))
+                for item in fields(value)
+            ),
+        )
+    return value
+
+
+def test_one_line_relationship_is_its_endpoint_block_with_relation_roles() -> None:
+    one_line = parse_source(
+        "relationship item_region: order_items.region == regions.code"
+        " and order_items.country == regions.country\n"
+    )
+    block = parse_source(
+        "relationship item_region:\n"
+        "    endpoint order_items: order_items\n"
+        "    endpoint regions: regions\n"
+        "    on order_items.region == regions.code"
+        " and order_items.country == regions.country\n"
+    )
+
+    assert one_line.diagnostics == block.diagnostics == ()
+    assert one_line.ast is not None and block.ast is not None
+    assert _layout_free(one_line.ast) == _layout_free(block.ast)
+    (relationship,) = one_line.ast.relationships
+    assert [
+        (e.local_name, e.relation_name, e.span.line, e.span.column, e.span.end_column)
+        for e in relationship.endpoints
+    ] == [("order_items", "order_items", 1, 27, 38), ("regions", "regions", 1, 49, 56)]
+    span = relationship.span
+    assert (span.line, span.column, span.end_line, span.end_column) == (1, 1, 1, 104)
+    assert relationship.base_match is not None
+    assert relationship.base_match.span == relationship.base_match.expression.span
+    match = relationship.base_match.span
+    assert (match.column, match.end_column) == (27, 104)
+
+
+@pytest.mark.parametrize(
+    ("match", "column"),
+    (
+        ("employees.boss_id == employees.id", 17),
+        ("a.x == b.y and a.z == c.w", 32),
+        ("a.x < b.y", 17),
+        ("a.x == b.y or a.z == b.w", 17),
+        ("a.x == 1", 17),
+        ("a.x == b", 17),
+        ("s.a.x == b.y", 17),
+        ("a.x == b.y and true", 32),
+    ),
+)
+def test_one_line_relationship_shapes_outside_two_relation_equalities_fail(
+    match: str, column: int
+) -> None:
+    result = parse_source(f"relationship r: {match}\n")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            "A one-line relationship compares fields of two different relations "
+            "with `==`, joined by `and`, as in `a.x == b.y`; use the endpoint "
+            "block form for any other match.",
+            1,
+            column,
+        )
+    ]

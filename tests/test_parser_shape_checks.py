@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import (
+    BinaryExpr,
     CheckDef,
     ComparisonExpr,
     EnumDef,
@@ -206,15 +208,8 @@ def test_shape_check_ast_does_not_expose_antlr_nodes() -> None:
     [
         "shape Order:\n    check :\n        amount >= 0\n",
         "shape Order:\n    check valid_amount\n        amount >= 0\n",
-        "shape Order:\n    check valid_amount: amount >= 0\n",
         "shape Order:\n    check valid_amount:\n    amount >= 0\n",
         "shape Order:\n    check valid_amount:\n",
-        (
-            "shape Order:\n"
-            "    check valid_amount:\n"
-            "        amount >= 0\n"
-            "        amount <= 100\n"
-        ),
     ],
 )
 def test_malformed_shape_checks_return_syntax_diagnostic(source: str) -> None:
@@ -255,3 +250,26 @@ def _assert_no_antlr_nodes(value: object) -> None:
 
 def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)
+
+
+def test_shape_check_header_line_and_condition_lines_match_the_long_form() -> None:
+    header = parse_source("shape Order:\n    check sane: quantity > 0 and price >= 0\n")
+    lines = parse_source(
+        "shape Order:\n    check sane:\n        quantity > 0\n        price >= 0\n"
+    )
+    for result in (header, lines):
+        assert result.diagnostics == ()
+        assert result.ast is not None
+    assert header.ast is not None and lines.ast is not None
+    shapes = (header.ast.definitions[0], lines.ast.definitions[0])
+    assert all(isinstance(shape, ShapeDef) for shape in shapes)
+    first, second = (cast(ShapeDef, shape).items[0] for shape in shapes)
+    assert isinstance(first, CheckDef) and isinstance(second, CheckDef)
+    assert isinstance(first.expression, BinaryExpr)
+    assert isinstance(second.expression, BinaryExpr)
+    assert (first.expression.operator, second.expression.operator) == ("and", "and")
+    assert (second.span.line, second.span.end_line, second.span.end_column) == (
+        2,
+        4,
+        19,
+    )

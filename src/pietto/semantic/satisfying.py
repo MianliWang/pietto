@@ -34,6 +34,7 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import (
+    checks_inlined_arguments,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
@@ -282,6 +283,7 @@ def _is_direct_aggregate_projection(item: SelectItem) -> bool:
     )
 
 
+@checks_inlined_arguments
 def _infer_predicate(
     expression: Expression,
     output_scope: Mapping[str, _SatisfyingOutput],
@@ -381,6 +383,7 @@ def _infer_predicate(
     return _UNKNOWN_VALUE_TYPE
 
 
+@checks_inlined_arguments
 def _infer_value(
     expression: Expression,
     output_scope: Mapping[str, _SatisfyingOutput],
