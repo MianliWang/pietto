@@ -275,7 +275,8 @@ def _validate_selected_path(
         resolved_path = path.resolve(strict=True)
     except ProjectIdentityUnavailableError:
         raise
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
+        # ValueError: a Windows name-surrogate link os.readlink cannot read.
         _verify_pinned_root(pinned_root)
         return (
             None,

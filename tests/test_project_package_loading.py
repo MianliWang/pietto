@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields, replace
+import errno
 import hashlib
 import os
 from pathlib import Path
@@ -8,10 +9,17 @@ import struct
 
 import pytest
 
+from _pietto_project_path_trust import (
+    mutate_before_fallback_open,
+    report_reparse_point,
+)
+
 import pietto
 import pietto._project as project_package
 import pietto._project.package_loader as package_loader
+import pietto._project.path_trust as path_trust
 from pietto._project.model import (
+    ProjectDiscoveryError,
     ProjectDiscoveryErrorKind,
     ProjectRootPackageActivation,
 )
@@ -234,6 +242,34 @@ def test_asset_parent_symlink_traversal_is_rejected(tmp_path: Path) -> None:
     assert result.errors[0].path == "models/main.pietto"
 
 
+@pytest.mark.parametrize("fallback", (False, True))
+def test_asset_parent_junction_traversal_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback: bool,
+) -> None:
+    asset_path = "models/main.pietto"
+    located = _package(
+        tmp_path / "project",
+        package_path="pkg",
+        manifest=_manifest(assets=(asset_path,)),
+        assets=((asset_path, _VALID_SOURCE_A),),
+    )
+    monkeypatch.setattr(
+        path_trust, "_supports_directory_relative_open", lambda: not fallback
+    )
+    report_reparse_point(monkeypatch, located.canonical_path / "models")
+
+    result = _load_root_package(located)
+
+    assert not result.ok
+    assert result.errors[0] == ProjectDiscoveryError(
+        ProjectDiscoveryErrorKind.PROJECT_PATH,
+        "Package file path must not traverse symbolic links.",
+        asset_path,
+    )
+
+
 def test_distinct_declared_paths_cannot_alias_one_physical_file(
     tmp_path: Path,
 ) -> None:
@@ -436,6 +472,102 @@ def test_read_mutation_observed_by_filesystem_state_is_rejected(
     assert "changed while being read" in result.errors[0].message
 
 
+# A manifest replacement also rewrites the package root directory, so the located
+# root check reports it first; identity races use an asset below its own directory.
+@pytest.mark.parametrize(
+    ("target", "mutation", "suffix"),
+    (
+        ("manifest", "none", None),
+        ("manifest", "size", "file changed while being read."),
+        ("manifest", "mtime", "file changed while being read."),
+        ("asset", "none", None),
+        ("asset", "replace", "opened identity does not match the inspected file."),
+        ("asset", "size", "file changed while being read."),
+        ("asset", "mtime", "file changed while being read."),
+    ),
+)
+def test_fallback_open_race_fails_closed_with_precise_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    mutation: str,
+    suffix: str | None,
+) -> None:
+    located, logical_path, physical_path = _nested_asset_package(tmp_path, target)
+    fired = mutate_before_fallback_open(monkeypatch, physical_path, mutation)
+
+    result = _load_root_package(located)
+
+    assert fired == [True]
+    if suffix is None:
+        assert result.ok
+        return
+    label = "Package manifest" if target == "manifest" else "Package asset"
+    assert not result.ok and result.loaded_package is None
+    assert (result.errors[0].path, result.errors[0].message) == (
+        logical_path,
+        f"{label} {suffix}",
+    )
+
+
+@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize(
+    ("target", "failure", "suffix"),
+    (
+        ("manifest", "permission", "file does not exist or is not accessible."),
+        ("asset", "permission", "file does not exist or is not accessible."),
+        ("asset", "symlink", "opened identity does not match the inspected file."),
+    ),
+)
+def test_open_failures_keep_accurate_messages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback: bool,
+    target: str,
+    failure: str,
+    suffix: str,
+) -> None:
+    located, logical_path, physical_path = _nested_asset_package(tmp_path, target)
+    original_open = os.open
+    original_open_pinned_file = package_loader._open_pinned_file
+
+    def denied_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if os.path.basename(os.fspath(path)) == physical_path.name:
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    def symlink_before_open(pinned_root: object, path: Path) -> int:
+        if path == physical_path:
+            real = physical_path.with_name("real-" + physical_path.name)
+            real.write_bytes(physical_path.read_bytes())
+            physical_path.unlink()
+            physical_path.symlink_to(real.name)
+        return original_open_pinned_file(pinned_root, path)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        path_trust, "_supports_directory_relative_open", lambda: not fallback
+    )
+    if failure == "permission":
+        monkeypatch.setattr(os, "open", denied_open)
+    else:
+        monkeypatch.setattr(package_loader, "_open_pinned_file", symlink_before_open)
+
+    result = _load_root_package(located)
+
+    label = "Package manifest" if target == "manifest" else "Package asset"
+    assert not result.ok and result.loaded_package is None
+    assert (result.errors[0].path, result.errors[0].message) == (
+        logical_path,
+        f"{label} {suffix}",
+    )
+
+
 @pytest.mark.parametrize("target", ("project", "package"))
 def test_project_and_package_root_replacement_are_rejected(
     tmp_path: Path,
@@ -569,6 +701,25 @@ def test_loader_carriers_are_private_canonical_and_exactly_root_bound(
     ):
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
+
+
+def _nested_asset_package(
+    tmp_path: Path,
+    target: str,
+) -> tuple[LocatedRootPackage, str, Path]:
+    asset_path = "models/main.pietto"
+    located = _package(
+        tmp_path / "project",
+        package_path="pkg",
+        manifest=_manifest(assets=(asset_path,)),
+        assets=((asset_path, _VALID_SOURCE_A),),
+    )
+    logical_path = _MANIFEST_PATH if target == "manifest" else asset_path
+    return (
+        located,
+        logical_path,
+        located.canonical_path.joinpath(*logical_path.split("/")),
+    )
 
 
 def _package(

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import os
 from pathlib import Path
 import stat
+import sys
 
 __all__: tuple[str, ...] = ()
+
+# Windows CPython reports path-based st_ctime (os.stat, os.lstat) as the file
+# creation time but descriptor-based st_ctime (os.fstat) as the NTFS change time,
+# so ctime is not one comparable fact there and stays neutral.
+_CTIME_IS_COMPARABLE = sys.platform != "win32"
 
 
 class ProjectIdentityUnavailableError(OSError):
@@ -20,6 +26,14 @@ class ProjectRootChangedError(OSError):
 
 class ProjectSymbolicLinkTraversalError(OSError):
     """Signal that a trusted directory traversal encountered a symbolic link."""
+
+
+class ProjectOpenedFileChangedError(OSError):
+    """Signal that an opened file no longer matches its no-follow inspection."""
+
+    def __init__(self, *, identity_changed: bool) -> None:
+        super().__init__("Project stored canonical file changed while being opened.")
+        self.identity_changed = identity_changed
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -110,10 +124,20 @@ def _verify_pinned_root(pinned_root: ProjectPinnedRoot) -> None:
             )
 
 
+# Windows os.lstat reports a directory junction as a directory whose
+# st_reparse_tag is a name surrogate.  A name surrogate redirects path lookup
+# like a symbolic link, so every no-follow observation classifies it as one.
+_NAME_SURROGATE_REPARSE_TAG = 0x2000_0000
+
+
 def _lstat_state(path: Path) -> ProjectFilesystemState:
     """Return no-follow metadata consistency facts for one path."""
 
-    return _filesystem_state(os.lstat(path))
+    stat_result = os.lstat(path)
+    state = _filesystem_state(stat_result)
+    if getattr(stat_result, "st_reparse_tag", 0) & _NAME_SURROGATE_REPARSE_TAG:
+        return replace(state, file_type=stat.S_IFLNK)
+    return state
 
 
 def _stat_state(path: Path) -> ProjectFilesystemState:
@@ -139,7 +163,7 @@ def _filesystem_state(stat_result: os.stat_result) -> ProjectFilesystemState:
         file_type=stat.S_IFMT(stat_result.st_mode),
         size=stat_result.st_size,
         mtime_ns=stat_result.st_mtime_ns,
-        ctime_ns=stat_result.st_ctime_ns,
+        ctime_ns=stat_result.st_ctime_ns if _CTIME_IS_COMPARABLE else 0,
     )
 
 
@@ -379,6 +403,7 @@ def _open_pinned_file(pinned_root: ProjectPinnedRoot, path: Path) -> int:
             raise
         return file_descriptor
 
+    parent_state = _capture_pinned_directory_state(pinned_root, path.parent)
     try:
         inspected_state = _lstat_state(path)
     except ProjectIdentityUnavailableError:
@@ -409,7 +434,16 @@ def _open_pinned_file(pinned_root: ProjectPinnedRoot, path: Path) -> int:
             or opened_state != inspected_state
             or final_inspected_state != inspected_state
         ):
-            raise OSError("Project stored canonical file changed while being opened.")
+            raise ProjectOpenedFileChangedError(
+                identity_changed=(
+                    opened_state.physical_identity != inspected_state.physical_identity
+                    or final_inspected_state.physical_identity
+                    != inspected_state.physical_identity
+                )
+            )
+        final_parent_state = _capture_pinned_directory_state(pinned_root, path.parent)
+        if final_parent_state.physical_identity != parent_state.physical_identity:
+            raise ProjectOpenedFileChangedError(identity_changed=True)
     except BaseException:
         try:
             os.close(file_descriptor)

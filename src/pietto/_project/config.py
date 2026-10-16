@@ -15,6 +15,7 @@ from pietto._project.discovery import PROJECT_CONFIG_FILENAME
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.path_trust import (
     ProjectIdentityUnavailableError,
+    ProjectOpenedFileChangedError,
     ProjectPinnedRoot,
     ProjectRootChangedError,
     _fstat_state,
@@ -297,12 +298,21 @@ def _read_project_config_bytes(
     try:
         try:
             file_descriptor = _open_pinned_file(pinned_root, config_path)
-        except (ProjectRootChangedError, ProjectIdentityUnavailableError):
+        except (
+            ProjectRootChangedError,
+            ProjectIdentityUnavailableError,
+            PermissionError,
+        ):
             raise
         except OSError as error:
+            message = "Project configuration opened identity does not match the inspected file."
+            if (
+                isinstance(error, ProjectOpenedFileChangedError)
+                and not error.identity_changed
+            ):
+                message = "Project configuration file changed while being read."
             raise _ConfigTrustError(
-                ProjectDiscoveryErrorKind.CONFIG_READ,
-                "Project configuration opened identity does not match the inspected file.",
+                ProjectDiscoveryErrorKind.CONFIG_READ, message
             ) from error
         opened_state = _fstat_state(file_descriptor)
         if (

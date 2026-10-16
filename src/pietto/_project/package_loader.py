@@ -25,6 +25,7 @@ from pietto._project.package_manifest import (
 from pietto._project.path_trust import (
     ProjectFilesystemState,
     ProjectIdentityUnavailableError,
+    ProjectOpenedFileChangedError,
     ProjectPhysicalIdentity,
     ProjectPinnedRoot,
     ProjectRootChangedError,
@@ -580,13 +581,17 @@ def _read_trusted_package_file_at(
             return _project_root_changed_error()
         except ProjectIdentityUnavailableError:
             return _identity_unavailable_error()
-        except OSError:
+        except OSError as error:
             root_error = verify_root()
-            return root_error or _error(
-                kind,
-                f"{label} opened identity does not match the inspected file.",
-                logical_path,
-            )
+            message = f"{label} opened identity does not match the inspected file."
+            if isinstance(error, PermissionError):
+                message = f"{label} file does not exist or is not accessible."
+            elif (
+                isinstance(error, ProjectOpenedFileChangedError)
+                and not error.identity_changed
+            ):
+                message = f"{label} file changed while being read."
+            return root_error or _error(kind, message, logical_path)
 
         opened_state = _fstat_state(file_descriptor)
         if not stat.S_ISREG(opened_state.file_type) or opened_state != inspected_state:

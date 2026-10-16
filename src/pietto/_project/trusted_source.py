@@ -12,6 +12,7 @@ from pietto._project.module_carrier import ProjectModuleIdentity
 from pietto._project.path_trust import (
     ProjectFilesystemState,
     ProjectIdentityUnavailableError,
+    ProjectOpenedFileChangedError,
     ProjectPinnedRoot,
     ProjectRootChangedError,
     _fstat_state,
@@ -140,6 +141,12 @@ def _load_trusted_source(
             final_opened_state = _fstat_state(source_file.fileno())
     except ProjectTrustedSourceError:
         raise
+    except ProjectOpenedFileChangedError as error:
+        raise ProjectTrustedSourceError(
+            ProjectTrustedSourceFailure.OPENED_IDENTITY_MISMATCH
+            if error.identity_changed
+            else ProjectTrustedSourceFailure.SOURCE_CHANGED
+        ) from error
     except ProjectRootChangedError as error:
         raise ProjectTrustedSourceError(
             ProjectTrustedSourceFailure.ROOT_CHANGED
@@ -216,7 +223,8 @@ def _verify_selected_input(
     current_is_symlink = stat.S_ISLNK(logical_state.file_type)
     try:
         symlink_target = os.readlink(logical_path) if current_is_symlink else None
-    except OSError as error:
+    except (OSError, ValueError) as error:
+        # ValueError: a Windows name-surrogate link os.readlink cannot read.
         _verify_trusted_root(pinned_root)
         reason = (
             ProjectTrustedSourceFailure.READ_MUTATION

@@ -25,6 +25,7 @@ from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.path_trust import (
     ProjectFilesystemState,
     ProjectIdentityUnavailableError,
+    ProjectOpenedFileChangedError,
     ProjectPinnedRoot,
     ProjectRootChangedError,
     _fstat_state,
@@ -422,6 +423,12 @@ def _read_contract(
         return InputError(
             "emission_contract_read",
             "Project filesystem identity is unavailable.",
+            logical,
+        )
+    except ProjectOpenedFileChangedError:
+        return InputError(
+            "emission_contract_read",
+            "Emission contract file changed while being read.",
             logical,
         )
     except (OSError, ValueError):

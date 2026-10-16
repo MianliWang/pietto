@@ -9,6 +9,8 @@ import stat
 
 import pytest
 
+from _pietto_project_path_trust import report_reparse_point
+
 import pietto
 import pietto._project as project_package
 import pietto._project.package_locator as package_locator
@@ -124,6 +126,32 @@ def test_intermediate_package_directory_symlink_is_rejected(tmp_path: Path) -> N
 
     assert result.located_root is None
     assert result.errors[0].kind is ProjectDiscoveryErrorKind.PROJECT_PATH
+
+
+@pytest.mark.parametrize("fallback", (False, True))
+def test_package_directory_junction_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback: bool,
+) -> None:
+    root = tmp_path / "project"
+    (root / "pkg").mkdir(parents=True)
+    pinned_root, activation = _authority(root, "pkg")
+    monkeypatch.setattr(
+        path_trust, "_supports_directory_relative_open", lambda: not fallback
+    )
+    report_reparse_point(monkeypatch, pinned_root.canonical_path / "pkg")
+
+    result = _locate_root_package(pinned_root, activation)
+
+    assert result.located_root is None
+    assert result.errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.PROJECT_PATH,
+            "Project package root path must not traverse symbolic links.",
+            "pkg",
+        ),
+    )
 
 
 def test_project_root_replacement_is_project_root_error(tmp_path: Path) -> None:

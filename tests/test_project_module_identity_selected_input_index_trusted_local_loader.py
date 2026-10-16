@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields, replace
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
+import sys
 from types import MappingProxyType
 
 import pytest
+
+from _pietto_project_path_trust import (
+    LX_SYMLINK_TAG,
+    later_descriptor_ctime,
+    mutate_before_fallback_open,
+    report_reparse_point,
+)
 
 import pietto
 import pietto._project.check as project_check
@@ -41,6 +50,9 @@ from pietto.errors import Diagnostic
 import pietto.parser_api as parser_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_POSIX_CTIME = pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows ctime is not an identity fact"
+)
 SELF_PATH = (
     REPO_ROOT
     / "tests/test_project_module_identity_selected_input_index_trusted_local_loader.py"
@@ -361,6 +373,246 @@ def test_config_opened_identity_and_read_mutation_fail_closed(
     )
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("none", None),
+        (
+            "replace",
+            "Project configuration opened identity does not match the inspected file.",
+        ),
+        ("size", "Project configuration file changed while being read."),
+        ("mtime", "Project configuration file changed while being read."),
+        pytest.param(
+            "chmod",
+            "Project configuration file changed while being read.",
+            marks=_POSIX_CTIME,
+        ),
+    ),
+)
+def test_fallback_config_open_race_fails_closed_with_precise_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str | None,
+) -> None:
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    fired = mutate_before_fallback_open(monkeypatch, root / "pietto.toml", mutation)
+
+    result = load_project_config(root)
+
+    assert path_trust._CTIME_IS_COMPARABLE is (sys.platform != "win32")
+    assert fired == [True]
+    if message is None:
+        assert result.ok
+    else:
+        assert _single_error(result.errors) == ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            message,
+            "pietto.toml",
+        )
+
+
+@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    (
+        ("permission", "Project configuration file is not readable."),
+        (
+            "symlink",
+            "Project configuration opened identity does not match the inspected file.",
+        ),
+        (
+            "unlink",
+            "Project configuration opened identity does not match the inspected file.",
+        ),
+    ),
+)
+def test_config_open_failures_keep_accurate_messages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback: bool,
+    failure: str,
+    message: str,
+) -> None:
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    config = root / "pietto.toml"
+    original_open = os.open
+    original_open_pinned_file = project_config._open_pinned_file
+
+    def denied_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if os.path.basename(os.fspath(path)) == "pietto.toml":
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    def racing_open_pinned_file(*args: object) -> int:
+        if failure == "symlink":
+            (root / "real.toml").write_bytes(config.read_bytes())
+            config.unlink()
+            config.symlink_to("real.toml")
+        else:
+            config.unlink()
+        return original_open_pinned_file(*args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        path_trust, "_supports_directory_relative_open", lambda: not fallback
+    )
+    if failure == "permission":
+        monkeypatch.setattr(os, "open", denied_open)
+    else:
+        monkeypatch.setattr(
+            project_config, "_open_pinned_file", racing_open_pinned_file
+        )
+
+    result = load_project_config(root)
+
+    assert _single_error(result.errors) == ProjectDiscoveryError(
+        ProjectDiscoveryErrorKind.CONFIG_READ,
+        message,
+        "pietto.toml",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("none", None),
+        (
+            "replace",
+            "Project source opened identity does not match the selected file.",
+        ),
+        ("size", "Project source file changed after selection."),
+        ("mtime", "Project source file changed after selection."),
+        pytest.param(
+            "chmod", "Project source file changed after selection.", marks=_POSIX_CTIME
+        ),
+    ),
+)
+def test_fallback_source_open_race_fails_closed_with_precise_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str | None,
+) -> None:
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    source = _write(root, "row.pietto", "shape Row:\n    id: Int\n")
+    selection = select_project_sources(root, load_project_config(root))
+    entry = _required_index(selection).entries[0]
+    fired = mutate_before_fallback_open(monkeypatch, source, mutation)
+    if message is not None:
+        monkeypatch.setattr(
+            project_check.parser_api,
+            "parse_source",
+            lambda *args, **kwargs: pytest.fail("parser must not run"),
+        )
+
+    parsed = project_check._parse_selected_input(
+        _required_pinned_root(selection),
+        entry,
+    )
+
+    assert fired == [True]
+    if message is None:
+        assert parsed[3] == () and parsed[2] is not None
+    else:
+        assert parsed[3] == (
+            ProjectDiscoveryError(
+                ProjectDiscoveryErrorKind.SOURCE_READ,
+                message,
+                "row.pietto",
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "ctime_is_comparable", "message"),
+    (
+        ("parent-link", True, "Project source file is not readable."),
+        (
+            "parent-dir",
+            False,
+            "Project source opened identity does not match the selected file.",
+        ),
+    ),
+)
+def test_fallback_parent_swap_around_open_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    ctime_is_comparable: bool,
+    message: str,
+) -> None:
+    """The fallback re-captures the parent directory after the open."""
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    source = _write(root, "sub/row.pietto", "shape Row:\n    id: Int\n")
+    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", ctime_is_comparable)
+    selection = select_project_sources(root, load_project_config(root))
+    entry = _required_index(selection).entries[0]
+    fired = mutate_before_fallback_open(monkeypatch, source, mutation)
+    monkeypatch.setattr(
+        project_check.parser_api,
+        "parse_source",
+        lambda *args, **kwargs: pytest.fail("parser must not run"),
+    )
+
+    parsed = project_check._parse_selected_input(
+        _required_pinned_root(selection),
+        entry,
+    )
+
+    assert fired == [True]
+    assert parsed[3] == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.SOURCE_READ,
+            message,
+            "sub/row.pietto",
+        ),
+    )
+
+
+@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize("ctime_is_comparable", (False, True))
+def test_descriptor_ctime_split_is_tolerated_only_where_ctime_is_not_comparable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback: bool,
+    ctime_is_comparable: bool,
+) -> None:
+    """Simulated Windows CPython: os.fstat reports a later st_ctime than os.lstat."""
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    _write(root, "row.pietto", "shape Row:\n    id: Int\n")
+    monkeypatch.setattr(
+        path_trust, "_supports_directory_relative_open", lambda: not fallback
+    )
+    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", ctime_is_comparable)
+    selection = select_project_sources(root, load_project_config(root))
+    entry = _required_index(selection).entries[0]
+    later_descriptor_ctime(monkeypatch)
+
+    config_result = load_project_config(root)
+    parsed = project_check._parse_selected_input(
+        _required_pinned_root(selection),
+        entry,
+    )
+
+    if ctime_is_comparable:
+        assert _single_error(config_result.errors).message == (
+            "Project configuration file changed while being read."
+        )
+        assert tuple(error.message for error in parsed[3]) == (
+            "Project source file changed after selection.",
+        )
+    else:
+        assert config_result.ok
+        assert parsed[3] == () and parsed[2] is not None
+
+
 def test_regular_selected_source_builds_trusted_snapshot_and_exact_digest(
     tmp_path: Path,
 ) -> None:
@@ -443,6 +695,70 @@ def test_symlink_directory_traversal_remains_excluded(tmp_path: Path) -> None:
     assert selection.ok
     assert tuple(item.path for item in selection.inputs) == ("root.pietto",)
     assert _required_index(selection).find_path("linked/hidden.pietto") is None
+
+
+def test_junction_directory_traversal_remains_excluded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    _write(root, "root.pietto", "shape Root:\n    id: Int\n")
+    _write(root, "linked/hidden.pietto", "shape Hidden:\n    id: Int\n")
+    report_reparse_point(monkeypatch, (root / "linked").resolve())
+
+    selection = select_project_sources(root, load_project_config(root))
+    assert selection.ok
+    assert tuple(item.path for item in selection.inputs) == ("root.pietto",)
+    assert _required_index(selection).find_path("linked/hidden.pietto") is None
+
+
+def test_unreadable_name_surrogate_leaf_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Simulated Windows: os.readlink cannot read a WSL symlink's target."""
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    _write(root, "root.pietto", "shape Root:\n    id: Int\n")
+    linked = _write(root, "linked.pietto", "shape Linked:\n    id: Int\n").resolve()
+    _report_unreadable_link(monkeypatch, linked)
+
+    selection = select_project_sources(root, load_project_config(root))
+
+    assert tuple(item.path for item in selection.inputs) == ("root.pietto",)
+    assert selection.errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.SOURCE_READ,
+            "Project source file does not exist or is not accessible.",
+            "linked.pietto",
+        ),
+    )
+
+    monkeypatch.undo()
+    selection = select_project_sources(root, load_project_config(root))
+    entry = _required_index(selection).find_path("linked.pietto")
+    assert entry is not None
+    _report_unreadable_link(monkeypatch, linked)
+    parsed = project_check._parse_selected_input(
+        _required_pinned_root(selection),
+        entry,
+    )
+    assert tuple(error.message for error in parsed[3]) == (
+        "Project source symbolic link changed after selection.",
+    )
+
+
+def _report_unreadable_link(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+    report_reparse_point(monkeypatch, path, LX_SYMLINK_TAG)
+    original_readlink = os.readlink
+
+    def readlink(
+        target: str | os.PathLike[str], *args: object, **kwargs: object
+    ) -> str:
+        if os.fspath(target) == os.fspath(path):
+            raise ValueError("not a symbolic link")
+        return original_readlink(target, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "readlink", readlink)
 
 
 def test_source_symlink_retarget_after_selection_fails_before_parser(

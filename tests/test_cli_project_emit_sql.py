@@ -25,8 +25,16 @@ from typing import Any
 
 import pytest
 
+from _pietto_project_path_trust import (
+    CLOUD_FILE_TAG,
+    JUNCTION_TAG,
+    later_descriptor_ctime,
+    mutate_before_fallback_open,
+    report_reparse_point,
+)
 import _pietto_sql_emission as probe
 from pietto import cli
+from pietto._project import path_trust
 from pietto._project import project_sql_emission_cli as emission_cli
 from pietto._project.path_trust import (
     ProjectIdentityUnavailableError,
@@ -546,10 +554,14 @@ def test_a_correlated_order_and_limit_read_emits_only_for_postgres(
 # --- contract read boundary ------------------------------------------------------
 
 
+@pytest.mark.parametrize("fallback", (False, True))
 @pytest.mark.parametrize("target", TARGETS)
 def test_contract_read_is_contained_bounded_and_closes_descriptors(
-    tmp_path: Path, target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, fallback: bool
 ) -> None:
+    monkeypatch.setattr(
+        path_trust, "_supports_directory_relative_open", lambda: not fallback
+    )
     root, item = project(tmp_path, target)
     expected = api_bytes(tmp_path, item)
     outside = tmp_path / "outside.json"
@@ -558,6 +570,9 @@ def test_contract_read_is_contained_bounded_and_closes_descriptors(
     (root / "sub" / "contract.json").write_text(item["contract"])
     os.symlink(outside, root / "link.json")
     os.symlink(root / "sub", root / "linkdir")
+    (tmp_path / "escape").mkdir()
+    (tmp_path / "escape" / "contract.json").write_text(item["contract"])
+    os.symlink(tmp_path / "escape", root / "escape")
     (root / "hard.json").hardlink_to(outside)
     os.mkfifo(root / "fifo.json")
     (root / "dir.json").mkdir()
@@ -573,6 +588,7 @@ def test_contract_read_is_contained_bounded_and_closes_descriptors(
         ("", None),
         ("link.json", "link.json"),
         ("linkdir/contract.json", "linkdir/contract.json"),
+        ("escape/contract.json", "escape/contract.json"),
         ("fifo.json", "fifo.json"),
         ("dir.json", "dir.json"),
         ("absent.json", "absent.json"),
@@ -582,6 +598,10 @@ def test_contract_read_is_contained_bounded_and_closes_descriptors(
         assert (code, err) == (2, ""), contract
         assert kinds(out) == [(read, path)], contract
         assert str(root) not in out.decode() and str(outside) not in out.decode()
+        if contract in {"linkdir/contract.json", "escape/contract.json"}:
+            assert failure(out)["cli_errors"][0]["message"] == (
+                "Emission contract file could not be opened inside the project root."
+            )
     assert open_descriptors() == before
     # A hard link to a regular file inside the root is a regular file.
     assert run(argv(root, target, emission_contract="hard.json")) == (0, expected, "")
@@ -601,6 +621,35 @@ def test_contract_read_is_contained_bounded_and_closes_descriptors(
     assert kinds(out) == [(read, "over.json")]
     assert str(MAX_INPUT_BYTES) in failure(out)["cli_errors"][0]["message"]
     assert open_descriptors() == before
+
+
+@pytest.mark.parametrize(
+    ("reparse_tag", "admitted"),
+    ((JUNCTION_TAG, False), (CLOUD_FILE_TAG, True)),
+    ids=("junction", "cloud-file"),
+)
+def test_contract_parent_name_surrogate_is_not_traversed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reparse_tag: int, admitted: bool
+) -> None:
+    """Simulated Windows: a junction parent is refused; other reparse tags are not links."""
+    root, item = project(tmp_path, "postgres")
+    (root / "sub").mkdir()
+    (root / "sub" / "contract.json").write_text(item["contract"])
+    monkeypatch.setattr(path_trust, "_supports_directory_relative_open", lambda: False)
+    report_reparse_point(monkeypatch, (root / "sub").resolve(), reparse_tag)
+
+    code, out, err = run(argv(root, "postgres", emission_contract="sub/contract.json"))
+
+    if admitted:
+        assert (code, err) == (0, "")
+        assert probe.decode_public(out)["status"] == "VERIFIED"
+        return
+    assert (code, err) == (2, "") and kinds(out) == [
+        ("emission_contract_read", "sub/contract.json")
+    ]
+    assert failure(out)["cli_errors"][0]["message"] == (
+        "Emission contract file could not be opened inside the project root."
+    )
 
 
 def test_contract_identity_controls_are_mapped_without_traceback(
@@ -656,6 +705,54 @@ def test_contract_identity_controls_are_mapped_without_traceback(
         ]
         assert failure(out)["cli_errors"][0]["message"] == message
         assert SENTINEL not in out.decode()
+
+
+@pytest.mark.parametrize("mutation", ("none", "replace", "size", "mtime"))
+def test_fallback_contract_open_race_is_reported_as_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """Real files: the contract changes between the fallback's inspection and open."""
+    root, _ = project(tmp_path, "postgres")
+    fired = mutate_before_fallback_open(monkeypatch, root / "contract.json", mutation)
+    code, out, err = run(argv(root, "postgres"))
+
+    assert fired == [True]
+    if mutation == "none":
+        assert (code, err) == (0, "")
+        assert probe.decode_public(out)["status"] == "VERIFIED"
+        return
+    assert (code, err) == (2, "") and kinds(out) == [
+        ("emission_contract_read", "contract.json")
+    ]
+    assert (
+        failure(out)["cli_errors"][0]["message"]
+        == "Emission contract file changed while being read."
+    )
+
+
+def test_descriptor_ctime_split_is_tolerated_only_where_ctime_is_not_comparable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulated Windows CPython: os.fstat reports a later st_ctime than os.lstat."""
+    root, _ = project(tmp_path, "postgres")
+    contract = os.stat(root / "contract.json")
+    monkeypatch.setattr(path_trust, "_supports_directory_relative_open", lambda: False)
+    later_descriptor_ctime(monkeypatch)
+    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", False)
+    code, out, err = run(argv(root, "postgres"))
+    assert (code, err) == (0, "")
+    assert probe.decode_public(out)["status"] == "VERIFIED"
+
+    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", True)
+    later_descriptor_ctime(monkeypatch, only=(contract.st_dev, contract.st_ino))
+    code, out, err = run(argv(root, "postgres"))
+    assert (code, err) == (2, "") and kinds(out) == [
+        ("emission_contract_read", "contract.json")
+    ]
+    assert (
+        failure(out)["cli_errors"][0]["message"]
+        == "Emission contract file changed while being read."
+    )
 
 
 # --- strict input and compiler outcomes -------------------------------------------
