@@ -46,7 +46,8 @@ database.
 Saved-result APIs are public alpha surface. Their Python calls are explicit:
 callers name a workspace, durable operation identities, records and any source
 or sink authority. The CLI remains compilation-only; it neither opens a
-workspace nor connects to a database.
+workspace nor connects to a database. The workspace and saved-result calls are
+Linux-only (see [Known limitations](#known-limitations)).
 
 ## Support matrix
 
@@ -1427,3 +1428,12 @@ still running. Interpreter exit waits for the deadline timer, up to
   and PostgreSQL 18.6 with TLS, channel binding and SCRAM-SHA-256, and the
   loopback `sslmode="disable"` case; other interpreters, platforms, server
   versions and setups are not covered by it.
+- The workspace and saved-result names of `pietto.execution` are Linux-only:
+  their modules import the POSIX `fcntl` module, which Windows CPython does not
+  have. On Windows, reading any of them, from `create_workspace`, `save` and
+  `open_saved_read` to `verified_export`, `recover` and `inspect_job`, raises
+  `ModuleNotFoundError` for `fcntl`, and so does
+  `from pietto.execution import *`. `import pietto.execution`,
+  `compile_query`, `execute`, `export_bundle`, `load_bundle`, their access,
+  error and result names, and `create_reference_sink` with
+  `ReferenceSinkDescriptor` do not import `fcntl`.

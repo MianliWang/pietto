@@ -44,6 +44,13 @@ The modes are explicit compatibility boundaries. A newer branch does not
 silently fall back to an older catalog or source-selection path, and private
 facts do not automatically become public CLI/JSON/IR/SQL fields.
 
+A legacy-flat (`schema_version = 1`) project check does not run all the
+expression checks of explicit-module projects and single-file `check`: for
+example `Int + Text`, an invalid cast, an `Int` field compared with a text
+literal, or an unknown field of a JOIN binding can pass it. It does not check
+relationship declarations yet either. Use `schema_version = 2` for complete
+checking.
+
 Schema v4 has no implicit or default target or compiler profile. Package
 manifest v2 capability requirements remain owned by their declaring packages;
 the profile/target environment is project-owned. Bundled catalog availability
@@ -61,7 +68,17 @@ digest. Schema-v2 extension requirements remain valid legacy unbound data.
 The project root, configuration file, and selected sources are opened through
 checked descriptors. Pietto validates path containment, regular-file posture,
 pre/post-read identity, byte limits, and UTF-8 before accepting source text.
-Symlink and replacement races fail closed.
+Symlink and replacement races fail closed. On Windows, directory junctions and
+other name-surrogate reparse points are treated as symbolic links: trusted
+reads refuse to traverse them, source selection does not descend into them,
+and a link whose target Windows cannot read fails closed as an inaccessible
+source. Windows CPython reports a different `st_ctime` meaning for path-based
+and descriptor-based stat (creation time versus change time), so Windows
+trusted reads do not use ctime as an identity fact; device and inode identity,
+file type, size, and modification time are still compared. The Windows
+trusted-open fallback checks the parent directories before and after opening;
+a concurrent writer inside the project tree that swaps an intermediate
+directory and restores it within that window is not detected.
 
 The trusted-source SHA-256 is computed over the exact accepted opened bytes.
 It is product content identity, not governance hashing. Module/package layers
@@ -281,6 +298,11 @@ pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
 distributions. This `0.1.3` candidate is available only when its accepted
 files appear on its versioned release channels. Git publication and natural
 exact-head CI remain the lifecycle authority.
+
+These proofs belong to project SQL emission, not to `check --project`: the
+check accepts, for example, `sum` over an `Int`, `Decimal` or `Float` field,
+and `emit-sql --project` then reports the table or query BLOCKED with
+`PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
 
 ## Optional Arrow dependency
 

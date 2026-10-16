@@ -171,7 +171,9 @@ Object member order is not significant.
 | `cli_errors` | array | Handled command, file, or usage errors |
 
 `check` performs parsing and semantic analysis only. It does not build IR or
-emit SQL.
+emit SQL, so `ok: true` from `check` does not mean that `emit-sql` succeeds
+for the same file: IR lowering (`PIE-I1000`, also reported by `explain`) or
+the selected backend (`PIE-B1000`) can still refuse it.
 
 ## Emit-SQL Result
 

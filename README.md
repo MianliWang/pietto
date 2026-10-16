@@ -27,7 +27,9 @@ the explicit Python API, never from a Pietto CLI command.
 - Deterministic parser, semantic, and backend diagnostics with source locations
   where the relevant stage has them.
 - Single-file `check`, `explain`, and `emit-sql` commands, with applicable JSON
-  output.
+  output, for tables and queries over one relation; JOINs, set operations,
+  DISTINCT, relation lets, relation reads, query header parameters, typed
+  VALUES bodies and `generate_series` need an explicit-module project.
 - Explicit-project `emit-sql` for one selected table or query, one selected
   dialect and an explicit emission contract, producing the versioned
   `pietto.sql-emission.v1` artifact.
@@ -215,11 +217,21 @@ Generate PostgreSQL SQL:
 uv run pietto emit-sql active_users.pietto --dialect postgres
 ```
 
-`check` does not generate or execute SQL. `emit-sql` writes SQL to stdout by
-default and can atomically replace an explicitly selected regular output file.
+`check` does not generate or execute SQL, so a file that passes `check` can
+still be refused by `explain` and `emit-sql` (an authored `qualify:` block is
+`PIE-I1000`) or by the selected dialect (`ignore nulls` is `PIE-B1000`); only
+`emit-sql --dialect X` shows that a file emits for X. `emit-sql` writes SQL to
+stdout by default and can atomically replace an explicitly selected regular
+output file. Text output lists the SQL bodies in backend order separated by
+one blank line, without artifact names or `;`; use `--format json` to see which
+artifact is which. When there is no SQL to write, for example for a file
+without a table or query, `emit-sql --output` exits `2` and leaves the target
+file untouched. `pietto` with no arguments prints the top-level help to stdout
+and exits `0`.
 Terminal text uses the terminal's selected encoding; if it cannot represent an
 output, Pietto exits `2` with an ASCII-safe error instead of replacing or
-partially writing SQL. SQL files selected with `--output` remain UTF-8.
+partially writing SQL. SQL files selected with `--output` remain UTF-8 and use
+LF line endings on every platform.
 `check`, `explain`, and `emit-sql` take `--check-mode loose`, `checked` (the
 default), or `strict` for one file. The
 [language guide](https://github.com/MianliWang/pietto/blob/v0.1.3/docs/language.md#source-structure)
@@ -336,6 +348,14 @@ table active_items:
   ]
 }
 ```
+
+This table compiles to one plain `SELECT`. On PostgreSQL, a table or query whose
+SQL needs named stages (a `WITH` clause), for example one with `where`,
+`group by`, `order by`, a window, a JOIN, a relation let or a set operation,
+also needs the statement premise
+`{"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}` in
+`environment`; without it the artifact is BLOCKED with `PIE-B1004`
+(`identifier_case_declaration_missing`).
 
 Emit the artifact as JSON on stdout (`--format json` and
 `--literal-policy preserve` are the defaults; the contract path is relative to

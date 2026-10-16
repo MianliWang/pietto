@@ -25,14 +25,65 @@ them as warnings, and `strict` reports them as errors. Project commands reject
 `--check-mode`. SQL emission always takes its dialect from `--dialect`;
 PostgreSQL and MySQL are the current backends.
 
-A file may still begin with the older header lines `pietto`, `mode`,
-`dialect`, and `encoding`, in that order. They are accepted for now and will
-be retired later. Only `mode` has an effect, and only in single-file commands,
-where `--check-mode` overrides it.
+A file may still begin with the older header lines `pietto <number>`,
+`mode <mode>`, `dialect <name>`, and `encoding <name>`, each optional but in
+that order, for example `pietto 0.9` followed by `mode checked`. The number is
+digits with at most one `.` between them, such as `1` or `0.9`: a bare `pietto`
+line or a three-part version such as `pietto 0.1.3` is a syntax error
+(PIE-P1000), and the number is not compared with the Pietto version. These
+lines are accepted for now and will be retired later. Only `mode` has an
+effect, and only in single-file commands, where `--check-mode` overrides it;
+`dialect` never selects the SQL backend.
 
 Top-level declarations are `type`, `enum`, `constraint`, `derive`, `shape`,
 `source`, `table`, and `query`. Relationship metadata and module `import` /
 `export` statements are also accepted at top level.
+
+## Single files and projects
+
+`check FILE`, `explain FILE` and `emit-sql FILE --dialect ...` read one file. A
+table or query there reads one relation with `from` and may add a row `let:`
+block, `where`, grouping and aggregates, `satisfying`, window calls, `order by`
+and `limit`.
+
+The following forms need an explicit-module project (`schema_version = 2`, see
+[Projects and packages](project-package.md#schema-compatibility)): JOIN kinds
+other than an `inner` or `left` relationship traversal, a JOIN `on` condition,
+`select distinct:`, set operations (`union`, `intersect`, `except`), relation
+lets (`let NAME:`), query header parameters, typed VALUES bodies,
+`generate_series`, and `exists`, `scalar` and `in` relation reads.
+`check --project` checks them, and `emit-sql --project` emits one selected
+table or query for one dialect under an emission contract, within the target
+limits and contract premises described below. Single-file commands
+refuse them with an ERROR: PIE-S2334 for the JOIN forms, DISTINCT and set
+operations, and PIE-S2345 to PIE-S2352 for relation lets, header parameters,
+VALUES bodies, relation reads, `capture` lines and table functions. Each of
+these messages says that the form is available in EXPLICIT_MODULES projects
+(schema version 2), except the DISTINCT one, which says that DISTINCT requires
+explicit-module semantics. An `inner` or `left` relationship traversal passes
+single-file `check` only while nothing reads its joined binding (a read such as
+`customer.id` is PIE-S2102, whose message says that JOIN binding fields are not
+available in single-file mode), and single-file `explain` and `emit-sql` then
+refuse it with PIE-I1000; JOIN SQL needs `emit-sql --project`.
+
+Common SQL forms map to these project forms:
+
+| SQL | Pietto |
+| --- | --- |
+| `WITH x AS (...)` | a relation let `let x:` at the start of the body |
+| `FROM (subquery)` | a relation let `let x:`, read with `from x` |
+| `EXISTS (subquery)` | `exists x` over a relation or let `x` |
+| `value IN (subquery)` | `value in x`, where `x` has one output column |
+| `(SELECT c FROM ...)` | `scalar x.c` |
+| `UNION`, `INTERSECT`, `EXCEPT` | `union all:`, `intersect distinct:`, `except all:` and so on, with named operands |
+
+A single file that passes `check` can still fail to emit. `check` stops after
+semantic analysis. `explain` and `emit-sql` also build IR, which refuses an
+authored `qualify:` block and a relationship JOIN with PIE-I1000. `emit-sql
+--dialect X` then asks the X backend, which refuses with PIE-B1000 forms it
+does not support, for example `ignore nulls` and `from last` on both backends,
+GROUPS and EXCLUDE frames on MySQL, and a source whose connector is not
+`X.table`. Only `emit-sql --dialect X` shows that a file emits for X.
 
 ## Types and shapes
 
@@ -270,7 +321,8 @@ Named DISTINCT outputs compose through imports/reexports, replay and supported
 JOIN inputs. Single-file/LEGACY_FLAT/PACKAGE_ROOT, Project Explain and old IR/SQL
 keep their existing availability boundaries. Private combined DISTINCT IR
 retains the exact visible comparison, quotient origin and ORDER/type proofs
-for independent verification and inspection; no DISTINCT SQL is emitted here.
+for independent verification and inspection, and project SQL emission
+(`emit-sql --project`) emits it as `SELECT DISTINCT`.
 
 Single-match semantic checking is available through explicit private requests on
 completed EXPLICIT_MODULES roots. Ordinary authored compilation supplies no
@@ -304,8 +356,10 @@ Changed semantic roots require rebuilding the overlay and fresh verification.
 Historical Project row facts and single-relation IR retain
 `AUTHORED_JOIN_DEFERRED`. The completed EXPLICIT_MODULES path adds combined JOIN
 rows, joined scalar lookup, null-extension evidence, final outputs and private
-Query-block IR. Legacy Script IR rejects authored JOIN with `PIE-I1000`;
-multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged.
+Query-block IR, and project SQL emission (`emit-sql --project`) emits the
+JOINs. The single-file legacy Script IR has no JOIN lowering: single-file
+`explain` and `emit-sql` reject an authored JOIN that passes `check` with
+`PIE-I1000`. Join-free behavior is unchanged.
 
 ## Relation blocks and relation references
 
@@ -993,8 +1047,14 @@ emission (PIE-B1003), as the same default literals are.
 ## Expressions
 
 Expressions include literals, names and dotted names, calls, parentheses,
-unary `+`/`-`, arithmetic `+ - * / %`, comparisons, `between`, `is null`,
-`is not null`, `and`, and `or`. Semantic support is intentionally narrower
+unary `+`/`-`, arithmetic `+ - * / %`, comparisons, `like`/`not like`,
+`between`, `is null`, `is not null`, `in`/`not in` literal lists, `not`, `and`,
+`or`, `cast(value as Type)`, and the conditional `when_true if condition else
+when_false`. The conditional binds loosest and nests to the right, so
+`"a" if n > 1 else "b" if n > 0 else "c"` reads as `"a" if n > 1 else ("b" if
+n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
+both are syntax errors (PIE-P1000), and `+` does not join `Text` values
+(PIE-S2105). Semantic support is intentionally narrower
 than parsing for some type/operator pairs; rejected pairs use diagnostics
 rather than implicit conversions.
 
@@ -1039,7 +1099,10 @@ requires exactly two. `substr` is one-based and requires a statically admitted
 positive start and nonnegative count. PostgreSQL additionally requires each
 static `substr` index to fit its signed `int32` argument range. `cast(value as
 Float)` is the only scalar cast: it accepts `Int` and may lose binary64
-precision. `in`/`not in`, `not`,
+precision. Its target is the bare name `Float`, with no nullability marker or
+type arguments. Every other cast, such as `Float` to `Int`, `Int` to `Text`, a
+same-type `cast(n as Int)` or `cast(n as Float not null)`, is PIE-S2105.
+`in`/`not in`, `not`,
 conditional expressions, `like`/`not like` with `ESCAPE '!'`, and `between`
 retain their ordinary SQL NULL behavior. `matches` remains outside the selected
 project SQL scalar subset.
@@ -1081,8 +1144,11 @@ field values. The selected project numeric boundary admits Int unary `+`/`-`
 and binary `+`, `-`, `*` only when the compiler can propagate a signed range
 that fits the selected physical carrier. It also admits `avg(Int)` for a direct
 Int input with `int_range` evidence, casting that input to the target Float
-carrier before aggregation. Empty and all-NULL inputs remain NULL. `sum(Int)`
-is rejected until an aggregate-range proof exists; Decimal `sum`/`avg` require
+carrier before aggregation. Empty and all-NULL inputs remain NULL. Project SQL
+emission (`emit-sql --project`) reports `sum(Int)` BLOCKED with `PIE-B1004`
+(`sum_int_aggregate_range_proof_missing`) until an aggregate-range proof
+exists, although `check --project` accepts it and single-file `emit-sql` emits
+`SUM`; Decimal `sum`/`avg` require
 an exact aggregate range/scale and division proof, and Float `sum`/`avg`
 require a finite-result proof. A source range, free JSON declaration, renderer
 spelling, or database default rounding rule is not such proof. `min` and `max`
@@ -1095,6 +1161,100 @@ links no JOIN side, so the group keys alone must fix every side.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
+
+In an explicit-module project a JOIN must not let an aggregate see one input
+row several times. A JOIN repeats the rows of one side when the other side may
+match a row more than once, and in a chain of JOINs a later JOIN can repeat
+them again. An aggregate whose argument reads the fields of one JOIN input is
+refused, with PIE-S2333 at the query, unless every JOIN that could repeat
+those rows is covered by one of these proofs about the other side of that
+JOIN:
+
+- a group key that is a unique key of the other side, declared with
+  `unique ... on` over fields that are all `not null`, such as
+  `group by: orders.id` with `unique order_key on id` and `id: Int not null`
+  when the aggregates read customer fields. This proof works for every JOIN
+  kind, a JOIN `on` condition and CROSS JOIN included;
+- for a relationship JOIN, a `unique ... on` declaration that covers the other
+  side's matched field, declared on the shape of the source that field comes
+  from; the field may be `nullable`. With `from orders` and
+  `on order.customer_id == customer.id`, `unique customer_key on id` on the
+  customers shape proves an aggregate over order fields for an INNER, LEFT,
+  RIGHT or FULL JOIN, and `unique order_customer on customer_id` on the orders
+  shape proves an aggregate over customer fields for an INNER or RIGHT JOIN
+  only. An INNER or LEFT JOIN along several `via` lines takes such a key for
+  every hop, each under the same rule. A JOIN `on` condition without `via` and
+  a CROSS JOIN get no such proof.
+
+A unique key of the aggregated side itself does not help, neither declared nor
+as a group key. `count()` without an argument counts the joined rows and needs
+no proof; `min`, `max` and `count_distinct` get no exemption. In this example
+the aggregates read order fields, and each order matches at most one customer:
+
+```pietto
+shape Customer:
+    id: Int not null
+    name: Text not null
+    unique customer_key on id
+
+shape Order:
+    id: Int not null
+    customer_id: Int not null
+    amount: Int not null
+
+source customers: Customer is postgres.table("customers")
+source orders: Order is postgres.table("orders")
+
+relationship order_customer:
+    endpoint order: orders
+    endpoint customer: customers
+    on order.customer_id == customer.id
+
+query orders_per_customer:
+    from orders
+    inner join customers as customer:
+        from orders
+        via order_customer: order -> customer
+    group by:
+        customer.name
+    select:
+        customer_name = customer.name
+        order_count = count(orders.id)
+        largest = max(orders.amount)
+```
+
+`check --project` accepts it, and `emit-sql --project` emits the INNER JOIN
+before the GROUP BY. Without the `unique` line `count(orders.id)` and
+`max(orders.amount)` could see an order once per matching customer, and the
+query is PIE-S2333:
+
+```text
+main.pietto:18:1 PIE-S2333 error: Project relation semantic completion is unavailable: orders_per_customer (an aggregate may read rows repeated by JOIN customer; declare a unique key on customers.id (matched by JOIN customer), or group by a unique key of customer whose fields are all not null)
+```
+
+The message names, in source order, the JOINs where the aggregated rows
+repeat, which in a chain of JOINs may be later ones; when the aggregate reads
+no JOIN input, for example `max(level)` over `let: level = 3`, it says
+`rows that a JOIN repeats` instead. It then gives up to two remedies, either of
+which removes the fan-out cause on its own: declaring every listed unique key,
+or grouping by a unique key, whose fields are all not null, of each listed
+binding. Each unique key is named by the source's own field and listed once
+with every JOIN it serves, such as `customers.id (matched by JOIN customer)` or
+`customers.id (matched by JOINs c1 and c2)`; a key over two fields reads
+`customers (a, b)`. A key that is already proven is not listed. The message
+names a unique key only on a source matched by a relationship JOIN with at
+most one `via` line and no `on`: the target field for an INNER or LEFT JOIN,
+and the FROM field for an INNER JOIN. It names the group key only for a
+binding that is a source or an input that already has such a key. A remedy it
+cannot confirm is left out, so it may name only the group key, even where a
+declared unique key would be accepted (for example on a RIGHT JOIN), or no
+remedy at all, for example for a JOIN along several `via` lines, a JOIN of a
+query or a UNION input. An ungrouped aggregate followed by ORDER BY, a window
+or QUALIFY stays refused after the key remedy, with a bare PIE-S2333. A
+relation that only reads the refused one, such as a query
+`from orders_per_customer`, reports a bare PIE-S2333. With
+`total = sum(orders.amount)` added, the check still passes and the emission is
+BLOCKED by the `sum(Int)` rule above.
 
 Grouped relations preserve group-key order and selected aggregate output
 identity. `satisfying` and grouped result ordering use the current selected
@@ -1113,7 +1273,8 @@ key's selected output; without JOIN inputs a `satisfying` reference to that
 output keeps its existing rejection. With JOIN inputs the key records every JOIN
 side its value reads, including both sides of `agg.rid > r.rid`, but it never
 proves that a side is unique per group, so it never removes a fan-out refusal;
-only direct field keys protect a JOIN side. There, `satisfying` and grouped
+only direct field keys that form a strict unique key, as described above, can
+do that. There, `satisfying` and grouped
 result ordering may name the key's selected output, while a window or QUALIFY
 reference to it keeps the unknown-name rejection (`PIE-S2102`, `PIE-S2332`). A
 `let` alias of a computed binding, window references to the key, single-file
@@ -1134,8 +1295,10 @@ query ranked:
 
 The bounded window identities are `row_number`, `rank`, `dense_rank`,
 `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first_value`,
-`last_value`, and `nth_value`. Partition and resolved order items preserve
-source order, duplicates, qualification, and direction.
+`last_value`, and `nth_value`. Aggregates are not window functions yet:
+`sum(n) window:` and the other aggregates over a window report PIE-S2103.
+Partition and resolved order items preserve source order, duplicates,
+qualification, and direction.
 Window specifications recognize authored ROWS, RANGE, and GROUPS forms with
 optional EXCLUDE:
 
@@ -1153,7 +1316,8 @@ groups current row exclude group
 
 Bounds may use `unbounded preceding`, an expression plus `preceding`, `current
 row`, an expression plus `following`, or `unbounded following`. Ranking,
-distribution, `lag`, and `lead` remain frame-insensitive. `first_value`,
+distribution, `ntile`, `lag`, and `lead` remain frame-insensitive, and an
+explicit ROWS, RANGE or GROUPS frame on them is PIE-S2104. `first_value`,
 `last_value`, and `nth_value` are frame-sensitive and use a concrete Pietto
 effective frame even when source omits one. RANGE offsets retain unresolved
 Phase 64 type/arithmetic requirements. GROUPS uses canonical peer groups;
@@ -1173,9 +1337,11 @@ nth = nth_value(value, 2) from last ignore nulls window:
 
 Omitted NULL treatment means `RESPECT NULLS`; omitted `nth_value` direction
 means `FROM FIRST`. Modifiers belong only to the concrete function use and are
-never inherited from a named-window template. Unsupported backend combinations
-such as PostgreSQL/MySQL `IGNORE NULLS`, `FROM LAST`, or MySQL GROUPS/EXCLUDE
-fail closed.
+never inherited from a named-window template. `check` accepts these forms, but
+unsupported backend combinations such as PostgreSQL/MySQL `IGNORE NULLS`,
+`FROM LAST`, or MySQL GROUPS/EXCLUDE fail closed when SQL is emitted:
+single-file `emit-sql` reports `PIE-B1000`, and project SQL emission reports
+the table or query BLOCKED with `PIE-B1003`.
 
 Each table or query body may declare query-local named-window templates after
 `select:`:
@@ -1210,7 +1376,7 @@ representable. Unsupported target shapes fail closed without erasing semantic
 provenance. Named windows do not cross relation blocks. Arbitrary nesting and
 window expressions in unsupported clauses remain rejected.
 
-Joined query blocks may add one `qualify:` block after named-window declarations
+Query blocks may add one `qualify:` block after named-window declarations
 and optional `satisfying`, but before relation `order by` and `limit`:
 
 ```pietto
@@ -1241,9 +1407,11 @@ An authored QUALIFY requires at least one selected or hidden window computation.
 Its predicate reuses the existing scalar and Bool kernels; a known nullable Bool
 is legal. SQL truth retains only TRUE and drops FALSE or UNKNOWN. Completed
 EXPLICIT_MODULES semantics and private Query-block IR retain QUALIFY, final
-relation ordering and output. Legacy Script IR rejects every authored QUALIFY
-with `PIE-I1000`; SQL lowering remains unavailable, including for a constant-true
-predicate. This corrects the former silent omission without changing parsing.
+relation ordering and output, and project SQL emission (`emit-sql --project`)
+renders QUALIFY as a filter over the window stage. The single-file legacy
+Script IR has no QUALIFY lowering: single-file `check` accepts an authored
+QUALIFY, but single-file `explain` and `emit-sql` reject every one with
+`PIE-I1000`, including a constant-true predicate.
 
 ## Modules and relationships
 
@@ -1283,12 +1451,51 @@ relationship order_customer:
     on order.customer_id == customer.id
 ```
 
-Endpoint-only declarations remain valid and carry no inferred field match. A
-private Project-side analysis recognizes only ordered non-empty conjunctions
-of exact cross-endpoint field equality as proof-capable correspondence. It does
-not infer same-name fields, keys, cardinality, JOIN use, or SQL. Relationship
-declarations have a separate namespace and remain outside Semantic IR, SQL
-JOIN lowering, and relationship-aware query resolution.
+Endpoint-only declarations remain valid and carry no inferred field match.
+`check FILE` and an EXPLICIT_MODULES `check --project` check every relationship
+declaration, whether or not a query uses it, except that in `check FILE` a
+pre-admission diagnostic (PIE-S2345 to PIE-S2352) stops the file before
+relationships are checked:
+
+- each endpoint names a `source`, `table` or `query` (PIE-S2601, at the
+  endpoint);
+- a relationship name is declared only once in a file or module (PIE-S2602, at
+  the later declaration);
+- the two endpoint names differ (PIE-S2603, at the later endpoint);
+- in each `and`-joined equality `role.field == role.field` of `on`, the role is
+  one of the two endpoint names and the field is a field of that endpoint's
+  relation; and when the equality compares the two endpoints and neither field
+  is `Decimal`, `Json`, `Any` or `Bytes`, the two fields have the same type
+  after alias expansion (`Int` and `Float` are different types; enums compare
+  by declaration, so same-named enums of two modules differ and the message
+  names each module, for example `Status from a.pietto`). Otherwise the check
+  reports PIE-S2604 at the operand, or at the equality when the types differ,
+  for example `Unknown relationship condition endpoint role: custx`,
+  `Unknown relationship condition field: customer.region_id` or
+  `Incompatible relationship condition operands: customer.name (Text) == region.id (Int)`.
+  An equality within one endpoint and a `Decimal`, `Json`, `Any` or `Bytes`
+  equality are not type-checked, and other condition forms such as `<`, `or`
+  or a literal are not checked at all.
+
+A JOIN `via` a relationship needs an `on` made only of such equalities over
+field types other than `Decimal`, `Json`, `Any` and `Bytes`. With no `on`, with
+another condition form such as `<`, `or`, a literal or an equality within one
+endpoint, with a `Decimal`, `Json`, `Any` or `Bytes` equality, or with one of
+the errors above, an INNER or LEFT JOIN through the relationship reports
+PIE-S2333 at the query, and a RIGHT, FULL, SEMI or ANTI JOIN through it
+reports PIE-S2334 and PIE-S2335 at the JOIN; the forms that are not errors
+still pass `check` while no query uses the relationship. A declaration alone
+infers no same-name fields, keys or cardinality and adds no JOIN or SQL. A
+project with `schema_version = 1` does not check relationship declarations
+yet.
+
+Relationship declarations have a separate namespace. In an EXPLICIT_MODULES
+project a relationship traversal of any JOIN kind (`inner`, `left`, `right`,
+`full`, `semi` or `anti`) resolves through them, and project SQL emission
+(`emit-sql --project`) writes the relationship's field match as the JOIN
+condition, inside `EXISTS` or `NOT EXISTS` for SEMI and ANTI. The single-file
+legacy Script IR has no relationship JOIN lowering: single-file `explain` and
+`emit-sql` refuse a relationship JOIN with `PIE-I1000`.
 
 ## Diagnostics, IR, SQL, and output
 
