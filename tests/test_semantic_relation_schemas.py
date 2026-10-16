@@ -148,6 +148,74 @@ def test_aliased_bare_name_that_is_no_field_reports_s2102_and_unknown_schema(
     assert result.model.relation_row_schemas[table].is_unknown is True
 
 
+_UNKNOWN_TYPED_INPUT = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    amount: Int not null\n"
+    "    price: Float not null\n"
+    "    qty: Float not null\n"
+    'source rows: Row is postgres.table("rows")\n'
+    "table rates:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        id\n"
+    "        per = amount / id\n"
+    "        unit_price = price / qty\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "output"),
+    (
+        # R1: rename an input field whose type is unknown.
+        ("    from rates\n    select:\n        id\n        ratio = per\n", "ratio"),
+        # R4: the same through a WHERE on the renamed field.
+        (
+            "    from rates\n    where unit_price > 1.0\n    select:\n"
+            "        id\n        p = unit_price\n",
+            "p",
+        ),
+        # R5: an alias equal to the field name.
+        ("    from rates\n    select:\n        id\n        per = per\n", "per"),
+        # R9: with ORDER BY on the input field.
+        (
+            "    from rates\n    select:\n        id\n        ratio = per\n"
+            "    order by:\n        per desc\n",
+            "ratio",
+        ),
+        # R10: beside a window item.
+        (
+            "    from rates\n    select:\n        id\n        ratio = per\n"
+            "        rn = row_number() window:\n            order by:\n"
+            "                id asc\n",
+            "ratio",
+        ),
+        # R11: through a pass-through table.
+        (
+            "    from passed\n    select:\n        r = per\n",
+            "r",
+        ),
+    ),
+)
+def test_aliased_read_of_an_input_field_of_unknown_type_is_a_computed_output(
+    body: str, output: str
+) -> None:
+    result = analyze(
+        _parse(
+            _UNKNOWN_TYPED_INPUT
+            + "table passed:\n    from rates\n    select:\n        id\n        per\n"
+            + "query q:\n"
+            + body
+        )
+    )
+    query = _relation(result, "q", QueryDef)
+    schema = result.model.relation_row_schemas[query]
+
+    assert result.diagnostics == ()
+    assert schema.is_unknown is False
+    assert output in schema.fields
+
+
 def test_semantic_diagnostic_uses_canonical_code_format() -> None:
     result = analyze(
         _parse(

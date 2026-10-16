@@ -15,7 +15,7 @@ from pietto.errors import Severity
 from pietto.ir import FieldRefIR, RelationIR, ScriptIR, build_ir
 from pietto.ir.model import OrderDirectionIR, OrderItemIR
 from pietto.parser_api import parse_source
-from pietto.semantic import analyze
+from pietto.semantic import CheckMode, analyze
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -234,6 +234,34 @@ def test_projection_alias_is_not_an_order_by_name_scope() -> None:
             "`let:`)",
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        # An unknown relation already has its error: no ORDER BY cascade.
+        (
+            "query selected:\n    from broken\n    select:\n        a = x\n"
+            "    order by:\n        a asc\n",
+            [("PIE-S2301", "Unknown relation: broken")],
+        ),
+        # A source without a shape: the unknown input row is not refused.
+        (
+            'source users is postgres.table("users")\n'
+            "query selected:\n    from users\n    select:\n        a = lower(email)\n"
+            "    order by:\n        a asc\n",
+            [],
+        ),
+    ),
+)
+def test_order_by_over_an_unknown_input_row_names_no_select_output(
+    source: str, expected: list[tuple[str, str]]
+) -> None:
+    result = analyze(_parse(source), mode_override=CheckMode.LOOSE)
+
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == expected
 
 
 def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:

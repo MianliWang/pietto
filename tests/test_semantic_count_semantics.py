@@ -6,6 +6,7 @@ from pietto.ast_nodes import QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import (
+    CheckMode,
     EffectiveNullability,
     SemanticResult,
     TypeKind,
@@ -256,8 +257,17 @@ def test_mixed_count_projection_does_not_publish_precise_count_schema() -> None:
 
 
 @pytest.mark.parametrize("group_by", ("", "    group by:\n        id\n"))
-def test_aggregate_of_an_input_field_of_unknown_type_reports_s2314(
-    group_by: str,
+@pytest.mark.parametrize(
+    ("per", "expected"),
+    (
+        # A silent unknown type: refused only when SQL is emitted (PIE-B1000).
+        ("amount / id", []),
+        # An upstream error is reported once, with no aggregate cascade.
+        ("amount + nosuch", [("PIE-S2102", "Unknown field: nosuch")]),
+    ),
+)
+def test_aggregate_of_an_input_field_of_unknown_type_is_not_refused_at_check(
+    group_by: str, per: str, expected: list[tuple[str, str]]
 ) -> None:
     script = _parse(
         "shape Row:\n"
@@ -268,7 +278,7 @@ def test_aggregate_of_an_input_field_of_unknown_type_reports_s2314(
         "    from rows\n"
         "    select:\n"
         "        id\n"
-        "        per = amount / id\n"
+        f"        per = {per}\n"
         "query totals:\n"
         "    from rates\n"
         + group_by
@@ -281,18 +291,25 @@ def test_aggregate_of_an_input_field_of_unknown_type_reports_s2314(
     assert [
         (diagnostic.code, diagnostic.message)
         for diagnostic in analyze(script).diagnostics
-    ] == [
-        (
-            "PIE-S2314",
-            "Aggregate function count expects concrete non-Any field argument, "
-            "got an unknown type",
-        ),
-        (
-            "PIE-S2314",
-            "Aggregate function max expects Int, Float, Decimal, Date, or "
-            "Timestamp field argument, got an unknown type",
-        ),
-    ]
+    ] == expected
+
+
+def test_aggregate_over_a_table_of_an_unshaped_source_is_not_refused_at_check() -> None:
+    script = _parse(
+        'source events is postgres.table("events")\n'
+        "table projected:\n"
+        "    from events\n"
+        "    select:\n"
+        "        id\n"
+        "        amount\n"
+        "query totals:\n"
+        "    from projected\n"
+        "    select:\n"
+        "        total = sum(amount)\n"
+        "        n = count(id)\n"
+    )
+
+    assert analyze(script, mode_override=CheckMode.LOOSE).diagnostics == ()
 
 
 def test_count_with_unknown_argument_suppresses_wrong_arity_cascade() -> None:

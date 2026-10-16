@@ -84,8 +84,14 @@ def check_satisfying_clauses(
     ]
     | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    record_unknown: bool = False,
 ) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
-    """Validate parsed satisfying clauses and collect lowering facts."""
+    """Validate parsed satisfying clauses and collect lowering facts.
+
+    A predicate of unknown type is not refused for that alone. With
+    `record_unknown`, its fact is still collected so that single-file emission
+    can refuse it deterministically; without it, the predicate has no fact.
+    """
 
     result_predicates: dict[DerivedRelation, SatisfyingResultPredicateInfo] = {}
     diagnostics: list[Diagnostic] = []
@@ -137,15 +143,16 @@ def check_satisfying_clauses(
             diagnostics.append(bool_diagnostic)
             continue
         if value_type.kind is ValueTypeKind.UNKNOWN:
-            # Lowering needs a validated predicate; name a silent Unknown leaf.
-            unvalidated = _silent_unknown_leaf(expression, output_scope)
-            if unvalidated is not None:
+            null_literal = _null_literal_leaf(expression)
+            if null_literal is not None:
                 diagnostics.append(
                     _unsupported_expression_diagnostic(
-                        unvalidated[0], form=unvalidated[1]
+                        null_literal, form="null literal"
                     )
                 )
-            continue
+                continue
+            if not record_unknown:
+                continue
 
         assert definition.satisfying_clause is not None
         result_predicates[definition] = SatisfyingResultPredicateInfo(
@@ -161,31 +168,15 @@ def check_satisfying_clauses(
     return result_predicates, diagnostics
 
 
-def _silent_unknown_leaf(
-    expression: Expression,
-    output_scope: Mapping[str, _SatisfyingOutput],
-) -> tuple[Expression, str] | None:
-    """Return the first null literal or unknown-typed output in a predicate.
+def _null_literal_leaf(expression: Expression) -> LiteralExpr | None:
+    """Return the first null literal compared or combined in a predicate."""
 
-    Neither has a diagnostic of its own, unlike an unknown or unsupported name.
-    """
-
-    if isinstance(expression, LiteralExpr) and expression.value is None:
-        return expression, "null literal"
-    if isinstance(expression, NameExpr):
-        scoped = output_scope.get(expression.name)
-        if (
-            scoped is not None
-            and scoped.supported
-            and scoped.field is not None
-            and scoped.field.resolved_type.kind is TypeKind.UNKNOWN
-        ):
-            return expression, f"output {expression.name} of unknown type"
-        return None
+    if isinstance(expression, LiteralExpr):
+        return expression if expression.value is None else None
     if isinstance(expression, (ComparisonExpr, BinaryExpr)):
-        return _silent_unknown_leaf(
-            expression.left, output_scope
-        ) or _silent_unknown_leaf(expression.right, output_scope)
+        return _null_literal_leaf(expression.left) or _null_literal_leaf(
+            expression.right
+        )
     return None
 
 
@@ -632,12 +623,39 @@ def _unsupported_expression_diagnostic(
     *,
     form: str | None = None,
 ) -> Diagnostic:
-    label = form or type(expression).__name__
+    label = form or _form_name(expression)
     return _diagnostic(
         expression,
         code="PIE-S2327",
         message=f"Unsupported satisfying expression form: {label}",
     )
+
+
+# Plain names for the expression forms a satisfying predicate cannot use.
+_FORM_NAMES = {
+    "CallExpr": "function call",
+    "DottedNameExpr": "qualified name",
+    "ConditionalExpr": "conditional expression",
+    "MembershipExpr": "`in` list",
+    "RelationMembershipExpr": "`in` relation",
+    "BetweenExpr": "`between` test",
+    "IsNullExpr": "null test",
+    "CastExpr": "cast",
+    "LiteralExpr": "literal",
+    "WindowExpr": "window call",
+    "RelationExistsExpr": "`exists` read",
+    "RelationScalarExpr": "`scalar` read",
+    "CapturedFieldExpr": "captured field",
+    "ParameterRefExpr": "query parameter",
+    "NameExpr": "name",
+}
+
+
+def _form_name(expression: Expression) -> str:
+    operator = getattr(expression, "operator", None)
+    if type(operator) is str:
+        return f"operator `{operator}`"
+    return _FORM_NAMES.get(type(expression).__name__, "expression")
 
 
 def _bool_predicate_diagnostic(

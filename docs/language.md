@@ -139,8 +139,10 @@ than 63 UTF-8 bytes with PIE-B1000, because PostgreSQL would truncate it. A
 string with more than one dot or an empty part fails `check` with `PIE-S2306`
 at the string, except that an empty `mysql.table("")` keeps its existing
 `PIE-S2306` on the whole connector call. An argument that is not a string
-literal also fails single-file `check` with `PIE-S2306`, for an unquoted name
-such as `public.users` at the argument. Project mode does not split or
+literal also fails single-file `check`: a bare unquoted name such as `users` with
+`PIE-S2102`, and an unquoted dotted name such as `public.users` or another
+expression with `PIE-S2306` at the argument, unless the connector call already
+has an error of its own. Project mode does not split or
 interpret the name, although its check still rejects an empty `mysql.table`
 string; project SQL emission takes the physical relation from its emission
 contract.
@@ -189,9 +191,10 @@ case-insensitively, or on PostgreSQL any unaliased computed item, which it
 names implicitly), the emitted SQL qualifies the key with the name FROM already
 gives the input, as in `FROM "sales"."orders" ... ORDER BY "orders"."amount"`;
 the FROM clause is unchanged. Single-file
-lowering inlines a `let` binding wherever it is read, so a binding or
+lowering inlines a `let` binding wherever a relation expression reads it, so an
 expression that would exceed 256 nested levels or 100,000 expression nodes once
-inlined fails `check` with PIE-S2328. Selected project SQL admits the
+the bindings it reads are inlined fails `check` with PIE-S2328; a binding that
+nothing reads is not counted. Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
 

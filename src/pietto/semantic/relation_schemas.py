@@ -30,7 +30,6 @@ from pietto.semantic.aggregates import (
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
-    is_unknown_type_field,
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
     nested_semantic_aggregate,
@@ -157,7 +156,6 @@ def _project_schema(
         definition,
         expression_value_types=expression_value_types,
         let_expansions=let_expansions,
-        input_schema=input_schema,
     )
     diagnostics.extend(aggregate_diagnostics)
 
@@ -196,10 +194,17 @@ def _project_schema(
             continue
         if input_field is None:
             if isinstance(expression, NameExpr):
-                if _has_known_expression_type(
-                    expression,
-                    expression_value_types=expression_value_types,
-                ) or (item.alias is not None and expression.name in let_names):
+                # An aliased read of an input field of any type, an admitted
+                # let or a typed name is a computed output; only a name that is
+                # none of these is unknown.
+                if (
+                    expression.name in input_schema.fields
+                    or (item.alias is not None and expression.name in let_names)
+                    or _has_known_expression_type(
+                        expression,
+                        expression_value_types=expression_value_types,
+                    )
+                ):
                     fields[output_name] = _computed_row_field(
                         output_name,
                         expression,
@@ -242,7 +247,6 @@ def _aggregate_projection_diagnostics(
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
-    input_schema: RowSchema,
 ) -> tuple[list[Diagnostic], set[SelectItem]]:
     """Validate the direct aliased no-GROUP aggregate projection shape."""
 
@@ -306,16 +310,6 @@ def _aggregate_projection_diagnostics(
                 if not has_unknown_reference:
                     diagnostics.append(
                         deferred_argument_expression_diagnostic(expression)
-                    )
-                elif is_unknown_type_field(
-                    effective_argument,
-                    input_schema,
-                    qualifier=definition.from_clause.source_name,
-                ):
-                    diagnostics.append(
-                        wrong_argument_type_diagnostic(
-                            expression, actual_name="an unknown type"
-                        )
                     )
                 invalid_items.add(item)
                 continue

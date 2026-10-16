@@ -277,3 +277,82 @@ def _assert_no_antlr_nodes(value: object) -> None:
     elif isinstance(value, (list, tuple)):
         for item in value:
             _assert_no_antlr_nodes(item)
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    (
+        (
+            "unique k on id, id",
+            ("PIE-S2503", "Duplicate target field in unique k: id", 3),
+        ),
+        (
+            "index i on id, id",
+            ("PIE-S2503", "Duplicate target field in index i: id", 3),
+        ),
+        (
+            "unique k on nosuch",
+            ("PIE-S2502", "Unknown target field in shape C: nosuch", 3),
+        ),
+        (
+            "unique k on id\n    unique k on id",
+            ("PIE-S2501", "Duplicate shape item name in shape C: k", 4),
+        ),
+    ),
+)
+def test_project_check_reports_the_single_file_shape_item_diagnostics(
+    tmp_path: Path, item: str, expected: tuple[str, str, int]
+) -> None:
+    from _pietto_project_join import _completed
+
+    result = _completed(
+        tmp_path,
+        f"shape C:\n    id: Int not null\n    {item}\n"
+        'source cs: C is postgres.table("cs")\n'
+        "query q:\n    from cs\n    select:\n        id\n",
+    )
+
+    assert not result.ok
+    assert [(d.code, d.message, d.location.line) for d in result.diagnostics] == [
+        expected
+    ]
+
+
+def test_project_check_orders_shape_item_diagnostics_by_module(tmp_path: Path) -> None:
+    from pietto._project.check import check_project_parse_only
+    from pietto._project.model import build_empty_project_semantic_result
+    from pietto._project.project_completed_semantics import (
+        build_project_completed_semantic_result,
+    )
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "a.pietto").write_text(
+        "shape A:\n    id: Int not null\n    unique k on nosuch\n"
+        'source as_: A is postgres.table("as_")\n'
+        "relationship r:\n    endpoint x: as_\n    endpoint y: nowhere\n"
+        "    on x.id == y.id\n"
+        "query qa:\n    from as_\n    select:\n        id\n"
+    )
+    (tmp_path / "b.pietto").write_text(
+        "shape B:\n    id: Int not null\n    index i on id, id\n"
+        'source bs: B is postgres.table("bs")\n'
+        "query qb:\n    from bs\n    select:\n        missing\n"
+    )
+    parsed = check_project_parse_only(tmp_path)
+    assert parsed.ok, parsed.diagnostics
+    result = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    )
+
+    # After the semantic analysis diagnostics, per module in selected-module
+    # order, and before the relationship declaration diagnostics.
+    assert [(d.location.path, d.location.line, d.code) for d in result.diagnostics][
+        :4
+    ] == [
+        ("b.pietto", 8, "PIE-S2102"),
+        ("a.pietto", 3, "PIE-S2502"),
+        ("b.pietto", 3, "PIE-S2503"),
+        ("a.pietto", 7, "PIE-S2601"),
+    ]

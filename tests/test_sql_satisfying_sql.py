@@ -34,6 +34,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.ir.model import LimitIR, OrderDirectionIR, OrderItemIR
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
@@ -521,6 +522,57 @@ def test_private_mysql_source_pipeline_renders_satisfying_having() -> None:
         "HAVING\n"
         "    SUM(`amount`) > 1000"
     )
+
+
+@pytest.mark.parametrize("connector", ("postgres.table", "mysql.table"))
+@pytest.mark.parametrize(
+    ("shape", "body"),
+    (
+        # A group key whose type is unknown (a division result upstream).
+        (
+            "shape Order:\n    id: Int not null\n    amount: Int not null\n",
+            "table rates:\n    from orders\n    select:\n        id\n"
+            "        per = amount / id\n"
+            "query q:\n    from rates\n    group by:\n        per\n"
+            "    select:\n        per\n        n = count()\n"
+            "    satisfying:\n        per >= 0\n",
+        ),
+        # An unknown input row: a source without a shape.
+        (
+            "",
+            "query q:\n    from orders\n    group by:\n        uid\n"
+            "    select:\n        uid\n        n = count()\n"
+            "    satisfying:\n        n > 1\n",
+        ),
+    ),
+)
+def test_satisfying_of_unknown_type_fails_closed_at_emission_not_in_ir(
+    connector: str, shape: str, body: str
+) -> None:
+    source = (
+        shape
+        + "source orders"
+        + (": Order" if shape else "")
+        + f' is {connector}("orders")\n'
+        + body
+    )
+    parse_result = parse_source(source)
+    assert parse_result.diagnostics == () and parse_result.ast is not None
+    semantic_result = analyze(parse_result.ast)
+    # Gradual typing: an unknown predicate type is not refused at check.
+    assert all(d.severity is not Severity.ERROR for d in semantic_result.diagnostics)
+    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    assert ir_result.diagnostics == () and ir_result.ir is not None
+
+    emitter = emit_postgres_sql if connector == "postgres.table" else emit_mysql_sql
+    result = emitter(ir_result.ir)
+
+    prefix = "PostgreSQL" if connector == "postgres.table" else "MySQL"
+    assert [d.code for d in result.diagnostics] == ["PIE-B1000"]
+    assert result.diagnostics[0].message.endswith(
+        f"{prefix} result predicate requires a known Bool type"
+    )
+    assert not any(artifact.name == "q" for artifact in result.artifacts)
 
 
 def _script(

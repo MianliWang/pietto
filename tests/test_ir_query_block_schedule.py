@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
+import pytest
+
 
 from _pietto_repository_facts import REPOSITORY_FACTS
 from pietto._project import project_completion as completion
@@ -961,3 +963,69 @@ def test_join_over_an_input_with_deferred_history_stays_unavailable(tmp_path) ->
     assert [(d.code, d.message, d.location.line) for d in result.diagnostics] == [
         ("PIE-S2333", "Project relation semantic completion is unavailable: q", 17)
     ]
+
+
+_GLOBAL_JOIN_SOURCE = """shape Row:
+    id: Int not null
+source left_rows: Row is postgres.table("left_rows")
+source right_rows: Row is postgres.table("right_rows")
+query global_left:
+    from left_rows
+    select:
+        total = count()
+query global_right:
+    from right_rows
+    select:
+        total = count()
+relationship globals:
+    endpoint left: global_left
+    endpoint right: global_right
+    on left.total == right.total
+query global_join:
+    from global_left
+    inner join global_right as right:
+        from global_left
+        via globals: left -> right
+    select:
+        total
+"""
+_DEFERRED_HISTORY_JOINS = [
+    "aligned_join",
+    "comparable_join",
+    "global_join",
+    "incompatible_join",
+    "self_fact_join",
+]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("join_differential", _DEFERRED_HISTORY_JOINS),
+        ("project_aggregate", _DEFERRED_HISTORY_JOINS),
+        ("global_join", ["global_join"]),
+    ),
+)
+def test_project_check_of_test_join_sources_reports_instead_of_raising(
+    tmp_path, source: str, expected: list[str]
+) -> None:
+    from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE
+    from _pietto_project_aggregate import _source as aggregate_source
+    from _pietto_project_join import _completed
+
+    text = {
+        "join_differential": PRIMARY_MAIN_SOURCE,
+        "project_aggregate": aggregate_source(),
+        "global_join": _GLOBAL_JOIN_SOURCE,
+    }[source]
+    result = _completed(tmp_path, text)
+
+    unavailable = sorted(
+        entry.owner.identity.declared_name
+        for entry in result.completion.entries
+        if type(entry) is completion.ProjectEffectiveOutputTerminal
+        and entry.reason
+        is completion.ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
+    )
+    assert unavailable == expected
+    assert {d.code for d in result.diagnostics} == {"PIE-S2333"}

@@ -130,15 +130,18 @@ def check_join_references(
                 if binding == name and visible
             ]
             if not matches:
+                # bindings[position + 1] is the binding this JOIN introduces.
                 later = any(
-                    binding == name for binding, _, _ in bindings[position + 1 :]
+                    binding == name for binding, _, _ in bindings[position + 2 :]
                 )
                 diagnostics.append(
                     _join_diagnostic(
                         clause,
                         "PIE-S2335",
                         (
-                            f"JOIN source binding is bound only by a later JOIN: {name}"
+                            f"JOIN source binding is the binding this JOIN introduces: {name}"
+                            if name == clause.target_binding_name
+                            else f"JOIN source binding is bound only by a later JOIN: {name}"
                             if later
                             else f"Unknown JOIN source binding: {name}"
                         ),

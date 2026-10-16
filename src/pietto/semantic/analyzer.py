@@ -305,6 +305,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             let_scopes,
         ),
         type_expansions=type_expansions,
+        record_unknown=True,
     )
     diagnostics.extend(satisfying_diagnostics)
     diagnostics.extend(

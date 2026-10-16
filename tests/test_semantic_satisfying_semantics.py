@@ -176,7 +176,6 @@ def test_renamed_group_key_exposes_only_alias_to_satisfying() -> None:
     (
         ("null", "null literal", 9),
         ("n > null", "null literal", 13),
-        ("per >= 0", "output per of unknown type", 9),
     ),
 )
 def test_satisfying_that_cannot_be_validated_reports_s2327(
@@ -210,6 +209,55 @@ def test_satisfying_that_cannot_be_validated_reports_s2327(
             column,
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("satisfying", "form"),
+    (
+        ('upper(r) == "A"', "function call"),
+        ('high_value_regions.r == "A"', "qualified name"),
+        ("total_amount + 1 > 1000", "operator `+`"),
+    ),
+)
+def test_unsupported_satisfying_forms_are_named_in_plain_words(
+    satisfying: str, form: str
+) -> None:
+    result = analyze(
+        _parse(
+            _grouped_relation(
+                projections=("r = region", "total_amount = sum(amount)"),
+                satisfying=satisfying,
+            )
+        )
+    )
+
+    assert _errors(result) == [
+        ("PIE-S2327", f"Unsupported satisfying expression form: {form}")
+    ]
+
+
+def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> None:
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "table rates:\n"
+            "    from orders\n"
+            "    select:\n"
+            "        per = amount / tax\n"
+            "table buckets:\n"
+            "    from rates\n"
+            "    group by:\n"
+            "        per\n"
+            "    select:\n"
+            "        per\n"
+            "        n = count()\n"
+            "    satisfying:\n"
+            "        per >= 0\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    # Kept for lowering, so that emission refuses it (PIE-B1000) deterministically.
+    assert result.model.relation_symbols["buckets"] in result.model.result_predicates
 
 
 def test_computed_projection_output_in_satisfying_is_deferred() -> None:

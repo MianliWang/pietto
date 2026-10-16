@@ -628,6 +628,42 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
     ] == ([] if code is None else [(code, message, 17)])
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        # The operand reported its own error: no PIE-S2105 beside it.
+        (
+            "shape Person:\n    count: Int not null\n"
+            'source people: Person is postgres.table("people")\n'
+            "table projected:\n    from people\n    select:\n"
+            "        value = cast(missing as Text)\n",
+            [("PIE-S2102", "Unknown field: missing")],
+        ),
+        # The input row is unknown because its relation is: only that error.
+        (
+            "table projected:\n    from nowhere\n    select:\n"
+            "        value = cast(x as Text)\n",
+            [("PIE-S2301", "Unknown relation: nowhere")],
+        ),
+        # The input row is unknown because the source has no shape (gradual).
+        (
+            'source people is postgres.table("people")\n'
+            "table projected:\n    from people\n    select:\n"
+            "        value = cast(x as Text)\n",
+            [],
+        ),
+    ),
+)
+def test_cast_of_an_explained_unknown_operand_adds_no_s2105(
+    source: str, expected: list[tuple[str, str]]
+) -> None:
+    result = analyze(_parse(source), mode_override=CheckMode.LOOSE)
+
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == expected
+
+
 COMPARISON_SOURCE = (
     "type Age = Int not null\n"
     "enum Status:\n"
