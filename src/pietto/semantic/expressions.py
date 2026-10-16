@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, cast
 
 from pietto import ast_nodes as ast
@@ -297,13 +297,18 @@ def type_relation_expressions(
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]]
     | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_diagnostics: Sequence[Diagnostic] = (),
 ) -> tuple[
     dict[Expression, ValueType],
     list[Diagnostic],
     dict[WindowExpr, WindowExpressionAnalysis],
     dict[DerivedRelation, ResolvedNamedWindowNamespace],
 ]:
-    """Type supported table/query expressions without validating consumers."""
+    """Type supported table/query expressions without validating consumers.
+
+    ``let_diagnostics`` are the relation `let:` diagnostics; a window frame
+    offset that reads a binding with one of them reports no PIE-S2104.
+    """
 
     value_types: dict[Expression, ValueType] = {}
     diagnostics: list[Diagnostic] = []
@@ -331,6 +336,9 @@ def type_relation_expressions(
         let_value_types = relation_let_value_types.get(definition)
         let_expressions = relation_let_expressions.get(definition)
         rejected_lets = set(rejected_let_names(definition, let_value_types))
+        erroneous_lets = rejected_lets | _let_names_with_diagnostics(
+            definition, let_diagnostics
+        )
         named_window_namespace_failed = False
         named_window_namespace = None
         if definition.named_windows:
@@ -393,6 +401,7 @@ def type_relation_expressions(
                     analyze_window_expression,
                 )
 
+                window_diagnostic_count = len(diagnostics)
                 analysis = analyze_window_expression(
                     definition=definition,
                     item=item,
@@ -406,6 +415,16 @@ def type_relation_expressions(
                     let_expressions=let_expressions or {},
                     named_window_namespace=named_window_namespace,
                 )
+                # A window read of a let name PIE-S2329 refused reports nothing
+                # more. Dropping its unknown-field report afterwards keeps the
+                # analysis stopping there without a fallback in its place.
+                refused_reads = {f"Unknown field: {name}" for name in rejected_lets}
+                diagnostics[window_diagnostic_count:] = [
+                    diagnostic
+                    for diagnostic in diagnostics[window_diagnostic_count:]
+                    if diagnostic.code != "PIE-S2102"
+                    or diagnostic.message not in refused_reads
+                ]
                 from pietto.semantic.window_semantics import (
                     WindowExpressionAnalysis,
                     WindowResultAvailabilityKind,
@@ -419,7 +438,7 @@ def type_relation_expressions(
                             analysis,
                             input_schema,
                             let_expressions or {},
-                            rejected_lets,
+                            erroneous_lets,
                         )
                     )
                     result = analysis.semantic_fact.result
@@ -498,7 +517,20 @@ def type_relation_expressions(
                     and item.expression.name not in input_schema.fields
                 ):
                     diagnostics.append(
-                        _order_by_output_name_diagnostic(item.expression)
+                        _order_by_output_name_diagnostic(
+                            item.expression,
+                            tuple(
+                                selected.expression
+                                for name, selected in zip(
+                                    selected_output_names,
+                                    definition.select_items,
+                                    strict=True,
+                                )
+                                if name == item.expression.name
+                            ),
+                            input_schema,
+                            let_expressions,
+                        )
                     )
                     order_suppressed_names = {*rejected_lets, item.expression.name}
                 _infer(
@@ -542,14 +574,15 @@ def _window_literal_range_diagnostics(
     analysis: WindowExpressionAnalysis,
     input_schema: RowSchema,
     let_expressions: Mapping[str, Expression],
-    rejected_lets: set[str],
+    erroneous_lets: set[str],
 ) -> list[Diagnostic]:
     """Refuse window literals that no SQL target accepts, before emission.
 
     A ROWS or GROUPS offset, after the `let:` inlining emission performs, must
     be a nonnegative signed 64-bit Int literal, and a count argument may not
     exceed that range; the narrower PostgreSQL int4 count range is checked
-    when PostgreSQL SQL is emitted. A refused `let:` name already has its error.
+    when PostgreSQL SQL is emitted. An offset that reads a `let:` name in
+    `erroneous_lets` already has its error.
     """
 
     name = expression.identity.name
@@ -557,18 +590,20 @@ def _window_literal_range_diagnostics(
     frame = analysis.validated_specification.resolved.frame
     unit = frame.unit
     offsets = tuple(
-        let_value(bound.offset, input_schema, let_expressions)
+        (bound.offset, let_value(bound.offset, input_schema, let_expressions))
         for bound in (frame.start, frame.end)
         if bound is not None and bound.offset is not None
     )
     if (unit is WindowFrameUnit.ROWS or unit is WindowFrameUnit.GROUPS) and any(
         not (
-            type(offset) is LiteralExpr
-            and type(offset.value) is int
-            and 0 <= offset.value <= _SIGNED64_MAX
+            type(value) is LiteralExpr
+            and type(value.value) is int
+            and 0 <= value.value <= _SIGNED64_MAX
         )
-        and not (type(offset) is NameExpr and offset.name in rejected_lets)
-        for offset in offsets
+        and not _reads_erroneous_let(
+            offset, input_schema, let_expressions, erroneous_lets
+        )
+        for offset, value in offsets
     ):
         messages.append(
             f"Invalid window frame for function {name}: "
@@ -604,6 +639,49 @@ def _window_literal_range_diagnostics(
         )
         for message in messages
     ]
+
+
+def _reads_erroneous_let(
+    expression: Expression,
+    input_schema: RowSchema,
+    let_expressions: Mapping[str, Expression],
+    erroneous_lets: set[str],
+) -> bool:
+    """Whether the expression reads, through `let:` names, an erroneous let."""
+
+    pending = [expression]
+    expanded: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if type(node) is NameExpr and node.name not in input_schema.fields:
+            if node.name in erroneous_lets:
+                return True
+            if node.name in let_expressions and node.name not in expanded:
+                expanded.add(node.name)
+                pending.append(let_expressions[node.name])
+            continue
+        pending.extend(_captured_field_children(node))
+    return False
+
+
+def _let_names_with_diagnostics(
+    definition: TableDef | QueryDef,
+    diagnostics: Sequence[Diagnostic],
+) -> set[str]:
+    """Return the relation's let names whose binding has a diagnostic."""
+
+    if definition.let_clause is None:
+        return set()
+    return {
+        binding.name
+        for binding in definition.let_clause.bindings
+        for diagnostic in diagnostics
+        if (location := diagnostic.location) is not None
+        and location.path == binding.span.path
+        and (binding.span.line, binding.span.column)
+        <= (location.line, location.column)
+        < (binding.span.end_line, binding.span.end_column)
+    }
 
 
 def let_value(
@@ -642,10 +720,7 @@ def _order_key_problem(
     reads an input field outside an aggregate is rejected by the targets.
     """
 
-    key = let_value(expression, input_schema, let_expressions)
-    while type(key) is UnaryExpr and key.operator in {"+", "-"}:
-        key = let_value(key.operand, input_schema, let_expressions)
-    if type(key) is LiteralExpr:
+    if _is_bare_constant(expression, input_schema, let_expressions):
         return (
             "Constant ORDER BY key: a target reads a bare constant key as a "
             "column position or rejects it"
@@ -658,6 +733,19 @@ def _order_key_problem(
             "with aggregates and no GROUP BY, which SQL targets reject"
         )
     return None
+
+
+def _is_bare_constant(
+    expression: Expression,
+    input_schema: RowSchema,
+    let_expressions: Mapping[str, Expression] | None,
+) -> bool:
+    """Return whether a literal remains after `let:` inlining and unary signs."""
+
+    value = let_value(expression, input_schema, let_expressions)
+    while type(value) is UnaryExpr and value.operator in {"+", "-"}:
+        value = let_value(value.operand, input_schema, let_expressions)
+    return type(value) is LiteralExpr
 
 
 def _reads_input_field_outside_aggregate(
@@ -2592,17 +2680,38 @@ def _names_window_output(definition: TableDef | QueryDef, name: str) -> bool:
     )
 
 
-def _order_by_output_name_diagnostic(expression: NameExpr) -> Diagnostic:
-    """Report an ungrouped ORDER BY key that names only a SELECT output."""
+def _order_by_output_name_diagnostic(
+    expression: NameExpr,
+    outputs: tuple[Expression, ...],
+    input_schema: RowSchema,
+    let_expressions: Mapping[str, Expression] | None,
+) -> Diagnostic:
+    """Report an ungrouped ORDER BY key that names only a SELECT output.
+
+    ``outputs`` are the expressions selected under that name. An aggregate is
+    refused in an ungrouped ORDER BY key and in `let:` too, so for an
+    aggregate output the remedy is the grouped form instead; a bare constant
+    key is refused (PIE-S2380), so a constant output gets no remedy.
+    """
 
     span = expression.span
+    if any(contains_semantic_aggregate(output) for output in outputs):
+        remedy = (
+            ", and an aggregate output cannot be ordered there (a grouped "
+            "query can order by its name)"
+        )
+    elif any(
+        _is_bare_constant(output, input_schema, let_expressions) for output in outputs
+    ):
+        remedy = ", and a constant output sorts nothing and cannot be an ORDER BY key"
+    else:
+        remedy = " (restate its expression or bind it in `let:`)"
     return Diagnostic(
         code="PIE-S2102",
         severity=Severity.ERROR,
         message=(
             f"Unknown field: {expression.name}; outside a grouped query an "
-            "ORDER BY key cannot name a SELECT output (restate its expression "
-            "or bind it in `let:`)"
+            f"ORDER BY key cannot name a SELECT output{remedy}"
         ),
         location=SourceLocation(
             path=span.path,
