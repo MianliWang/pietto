@@ -264,6 +264,100 @@ def test_invalid_let_binding_cases_fail_closed(
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        (
+            "    let:\n"
+            "        gross = amount + tax\n"
+            "    where gross > 0\n"
+            "    select:\n"
+            "        id\n"
+            "        gross\n"
+            "        twice = gross * 2\n"
+            "    order by:\n"
+            "        gross asc\n"
+        ),
+        (
+            "    let:\n"
+            "        gross = amount + tax\n"
+            "    group by:\n"
+            "        id\n"
+            "    select:\n"
+            "        id\n"
+            "        gross\n"
+            "        n = count()\n"
+        ),
+    ],
+)
+def test_reads_of_a_refused_let_name_report_only_the_refusal(body: str) -> None:
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n    from orders\n" + body
+    )
+    assert relation.let_clause is not None
+    binding = relation.let_clause.bindings[0]
+
+    assert [(d.code, d.message) for d in semantic.diagnostics] == [
+        ("PIE-S2329", "Let binding conflicts with projection output name: gross")
+    ]
+    location = semantic.diagnostics[0].location
+    assert (location.line, location.column) == (binding.span.line, binding.span.column)
+
+
+def _let_chain(count: int, step: str) -> str:
+    lines = [
+        f"        v{i} = {step.format(previous=f'v{i - 1}')}" for i in range(1, count)
+    ]
+    return "\n".join(("    let:", "        v0 = amount", *lines)) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("count", "step", "select", "reported", "limit"),
+    [
+        (256, "{previous} + 1", "y = v255", None, None),
+        (257, "{previous} + 1", "y = v256", "v256", "256 nested levels"),
+        (500, "{previous} + 1", "y = v499", "v256", "256 nested levels"),
+        (16, "{previous} + {previous}", "y = v15", None, None),
+        (17, "{previous} + {previous}", "y = v16", "v16", "100000 expression nodes"),
+        (24, "{previous} + {previous}", "y = v23", "v16", "100000 expression nodes"),
+        (16, "{previous} + {previous}", "y = v15 + v15", "", "100000 expression nodes"),
+    ],
+)
+def test_let_inline_expansion_is_bounded_at_check(
+    count: int, step: str, select: str, reported: str | None, limit: str | None
+) -> None:
+    relation, semantic = _analyze_relation(
+        "query chained:\n    from orders\n"
+        + _let_chain(count, step)
+        + f"    select:\n        {select}\n"
+    )
+
+    messages = [(d.code, d.message) for d in semantic.diagnostics]
+    if reported is None:
+        assert messages == []
+        return
+    subject = "Expression exceeds" if reported == "" else "Let binding exceeds"
+    suffix = "" if reported == "" else f": {reported}"
+    assert messages == [
+        (
+            "PIE-S2328",
+            f"{subject} the single-file let inline expansion limit of {limit} "
+            f"after inlining the let bindings it reads{suffix}",
+        )
+    ]
+    node = (
+        relation.select_items[0].expression
+        if reported == ""
+        else next(
+            binding
+            for binding in (relation.let_clause.bindings if relation.let_clause else ())
+            if binding.name == reported
+        )
+    )
+    location = semantic.diagnostics[0].location
+    assert (location.line, location.column) == (node.span.line, node.span.column)
+
+
+@pytest.mark.parametrize(
     ("body", "expected_code"),
     [
         (

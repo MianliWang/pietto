@@ -768,7 +768,7 @@ def test_project_and_single_file_checks_agree_on_alias_comparison_operands(
     assert single_file == expected
 
 
-_NO_GROUP = "`satisfying` requires GROUP BY in the Phase 25 MVP"
+_NO_GROUP = "`satisfying` requires GROUP BY"
 _COUNT_IN_SATISFYING = (
     "Aggregate count() is not allowed in satisfying clause; "
     "use it only as a direct aliased select projection"

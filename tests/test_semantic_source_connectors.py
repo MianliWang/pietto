@@ -25,7 +25,7 @@ SHAPE = "shape UserRow:\n    id: UUID not null\n    email: Text not null\n"
         ('postgres.table("")', ("PIE-S2306",)),
         ('postgres.table("   ")', ()),
         ('mysql.table("   ")', ()),
-        ('postgres.table(trim("users"))', ()),
+        ('postgres.table(trim("users"))', ("PIE-S2306",)),
         ("postgres.table(123)", ("PIE-S2306",)),
         ('mysql.table("")', ("PIE-S2306",)),
         ('unknown.table("rows")', ("PIE-S2306",)),
@@ -52,7 +52,9 @@ def test_completed_source_rules_preserve_single_file_diagnostics(
     expected = analyze(_parse(text, path="main.pietto")).diagnostics
     completed = _completed(tmp_path, text)
     assert tuple(d.code for d in expected) == codes
-    completed_expected = () if connector == 'postgres.table("")' else expected
+    # The single-file table-string rule does not apply to projects.
+    single_file_only = {'postgres.table("")', 'postgres.table(trim("users"))'}
+    completed_expected = () if connector in single_file_only else expected
     assert completed.diagnostics == completed_expected
     assert completed.ok is (not completed_expected)
     assert all(d.severity is Severity.ERROR for d in completed.diagnostics)
@@ -350,6 +352,52 @@ def test_non_call_source_connector_reports_pie_s2306() -> None:
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
     ] == [("PIE-S2306", "Invalid source connector expression")]
+
+
+@pytest.mark.parametrize("connector_name", ["postgres.table", "mysql.table"])
+@pytest.mark.parametrize(
+    "argument",
+    ["public.users", "a.b.c", "null", 'lower("USERS")', 'coalesce(null, "users")'],
+)
+def test_single_file_argument_that_is_not_a_string_literal_reports_s2306(
+    tmp_path: Path, connector_name: str, argument: str
+) -> None:
+    from _pietto_project_join import (
+        _completed,
+    )
+
+    text = SHAPE + f"source users: UserRow is {connector_name}({argument})\n"
+    script = _parse(text, path="main.pietto")
+    source = script.definitions[-1]
+    assert isinstance(source, SourceDef)
+    assert isinstance(source.connector, CallExpr)
+    span = source.connector.arguments[0].span
+
+    diagnostics = analyze(script).diagnostics
+
+    if connector_name == "mysql.table" and argument.startswith(("lower", "coalesce")):
+        # A Text expression keeps its existing whole-call mysql.table refusal.
+        assert [(d.code, d.location.column) for d in diagnostics] == [
+            ("PIE-S2306", source.connector.span.column)
+        ]
+        return
+    assert [(d.code, d.severity, d.message) for d in diagnostics] == [
+        (
+            "PIE-S2306",
+            Severity.ERROR,
+            f"Invalid source connector arguments for {connector_name}: "
+            'expected a string literal "<table>" or "<schema>.<table>"',
+        )
+    ]
+    location = diagnostics[0].location
+    assert (
+        location.line,
+        location.column,
+        location.end_line,
+        location.end_column,
+    ) == (span.line, span.column, span.end_line, span.end_column)
+    # Project mode takes the physical relation from its emission contract.
+    assert _completed(tmp_path, text).diagnostics == ()
 
 
 @pytest.mark.parametrize("connector_name", ["postgres.table", "mysql.table"])

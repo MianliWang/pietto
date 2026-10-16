@@ -61,10 +61,11 @@ VALUES bodies, relation reads, `capture` lines and table functions. Each of
 these messages says that the form is available in EXPLICIT_MODULES projects
 (schema version 2), except the DISTINCT one, which says that DISTINCT requires
 explicit-module semantics. An `inner` or `left` relationship traversal passes
-single-file `check` only while nothing reads its joined binding (a read such as
-`customer.id` is PIE-S2102, whose message says that JOIN binding fields are not
-available in single-file mode), and single-file `explain` and `emit-sql` then
-refuse it with PIE-I1000; JOIN SQL needs `emit-sql --project`.
+single-file `check` only while its target, `from` binding and `via` steps
+resolve (PIE-S2301, PIE-S2335) and nothing reads its joined binding (a read
+such as `customer.id` is PIE-S2102, whose message says that JOIN binding fields
+are not available in single-file mode), and single-file `explain` and
+`emit-sql` then refuse it with PIE-I1000; JOIN SQL needs `emit-sql --project`.
 
 Common SQL forms map to these project forms:
 
@@ -137,7 +138,9 @@ PostgreSQL emission refuses any identifier, including an output name, longer
 than 63 UTF-8 bytes with PIE-B1000, because PostgreSQL would truncate it. A
 string with more than one dot or an empty part fails `check` with `PIE-S2306`
 at the string, except that an empty `mysql.table("")` keeps its existing
-`PIE-S2306` on the whole connector call. Project mode does not split or
+`PIE-S2306` on the whole connector call. An argument that is not a string
+literal also fails single-file `check` with `PIE-S2306`, for an unquoted name
+such as `public.users` at the argument. Project mode does not split or
 interpret the name, although its check still rejects an empty `mysql.table`
 string; project SQL emission takes the physical relation from its emission
 contract.
@@ -172,13 +175,18 @@ table active_users:
 ```
 
 Single-file checks require a selected `let` binding to take a new output name,
-as `normalized_email = normalized` does. An `order by` key must read a field,
-an aggregate or a window result, directly or through `let:` names; a constant
-key such as `label` with `let: label = "x"` is PIE-S2380. When a SELECT output
-of the same name would capture an input field key, the emitted SQL qualifies
-that key with the input name, as in `ORDER BY "orders"."amount"`. Selected
-project SQL admits the documented project scalar subset when its physical
-carrier requirements are established.
+as `normalized_email = normalized` does. Outside a grouped query a single-file
+`order by` key reads input fields, `let` bindings and selected window results,
+not other SELECT outputs (PIE-S2102). An `order by` key must read a field, an
+aggregate or a window result, directly or through `let:` names; a constant key
+such as `label` with `let: label = "x"` is PIE-S2380. When a SELECT output of
+the same name would capture an input field key, the emitted SQL qualifies that
+key with the input name, as in `ORDER BY "orders"."amount"`. Single-file
+lowering inlines a `let` binding wherever it is read, so a binding or
+expression that would exceed 256 nested levels or 100,000 expression nodes once
+inlined fails `check` with PIE-S2328. Selected project SQL admits the
+documented project scalar subset when its physical carrier requirements are
+established.
 
 `from` names the base relation. Authored relationship traversal may then add
 `inner join` or `left join` clauses with mandatory target bindings:

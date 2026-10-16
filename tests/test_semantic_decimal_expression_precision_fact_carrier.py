@@ -134,7 +134,8 @@ def test_expression_facts_do_not_cover_computed_let_alias_or_type_alias_refs() -
     alias_relation = _relation_ast(alias_script, "alias_scope")
     alias_leaf = _select_expression(alias_relation, "alias_leaf")
 
-    assert _error_codes(alias_result) == []
+    # A sibling SELECT alias is not an input field of the projection.
+    assert _error_codes(alias_result) == ["PIE-S2102"]
     assert isinstance(alias_leaf, NameExpr)
     assert alias_result.model.decimal_expression_precision_scale_for(alias_leaf) is None
 

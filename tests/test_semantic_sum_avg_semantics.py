@@ -196,7 +196,7 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             (
                 "PIE-S2315",
                 "Aggregate function avg requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -221,7 +221,7 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is deferred",
+                "composition around sum() is not supported yet",
             ),
         ),
         (

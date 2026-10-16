@@ -239,7 +239,7 @@ def test_deferred_decimal_numeric_aggregate_boundaries_remain_s2315(
         (
             "PIE-S2315",
             f"Aggregate function {function_name} requires a direct field "
-            "argument; expression arguments are deferred",
+            "argument; expression arguments are not supported yet",
         )
     ]
 

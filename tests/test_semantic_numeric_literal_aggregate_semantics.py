@@ -204,7 +204,7 @@ def test_unsupported_literal_and_expression_shapes_still_use_s2315(
         (
             "PIE-S2315",
             f"Aggregate function {function_name} requires a direct field argument; "
-            "expression arguments are deferred",
+            "expression arguments are not supported yet",
         )
     ]
 
@@ -234,7 +234,7 @@ def test_decimal_literal_multiplication_and_mixed_promotion_remain_deferred(
             "PIE-S2315",
             "Aggregate function "
             f"{projection.split('(', maxsplit=1)[0].removeprefix('value = ')} "
-            "requires a direct field argument; expression arguments are deferred",
+            "requires a direct field argument; expression arguments are not supported yet",
         )
     ]
 
@@ -259,7 +259,7 @@ def test_decimal_literal_multiplication_and_mixed_promotion_remain_deferred(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is deferred",
+                "composition around sum() is not supported yet",
             ),
         ),
     ],

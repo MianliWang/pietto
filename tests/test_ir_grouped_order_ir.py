@@ -198,7 +198,14 @@ def test_no_group_projection_alias_still_does_not_resolve_in_order_by() -> None:
         "        sort_key\n"
     )
 
-    assert _errors(analyze(script)) == [("PIE-S2102", "Unknown field: sort_key")]
+    assert _errors(analyze(script)) == [
+        (
+            "PIE-S2102",
+            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
+            "cannot name a SELECT output (restate its expression or bind it in "
+            "`let:`)",
+        )
+    ]
 
 
 def test_unsupported_grouped_order_fails_before_ir_with_s2321() -> None:

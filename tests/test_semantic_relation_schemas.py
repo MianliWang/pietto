@@ -111,6 +111,43 @@ def test_unknown_selected_field_reports_p2102_and_unknown_schema() -> None:
     assert result.model.relation_row_schemas[table].is_unknown is True
 
 
+@pytest.mark.parametrize(
+    ("selected", "name", "column"),
+    (
+        ("total = emial", "emial", 17),
+        ("first = email\n        second = first", "first", 18),
+    ),
+)
+def test_aliased_bare_name_that_is_no_field_reports_s2102_and_unknown_schema(
+    selected: str, name: str, column: int
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    let:\n"
+            "        normalized = lower(email)\n"
+            "    select:\n"
+            f"        {selected}\n"
+            "        kept = normalized\n"
+            "query downstream:\n"
+            "    from projected\n"
+            "    where total > 3\n"
+            "    select:\n"
+            "        t2 = second\n"
+        )
+    )
+    table = _relation(result, "projected", TableDef)
+
+    assert [
+        (code, message, diagnostic.location.column)
+        for (code, _, message), diagnostic in zip(
+            _diagnostics(result), result.diagnostics, strict=True
+        )
+    ] == [("PIE-S2102", f"Unknown field: {name}", column)]
+    assert result.model.relation_row_schemas[table].is_unknown is True
+
+
 def test_semantic_diagnostic_uses_canonical_code_format() -> None:
     result = analyze(
         _parse(

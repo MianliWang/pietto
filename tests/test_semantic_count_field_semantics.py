@@ -225,7 +225,7 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             (
                 "PIE-S2315",
                 "Aggregate function count requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -233,7 +233,7 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             (
                 "PIE-S2315",
                 "Aggregate function count requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -245,7 +245,7 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is deferred",
+                "composition around count() is not supported yet",
             ),
         ),
         (

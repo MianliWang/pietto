@@ -227,7 +227,12 @@ def test_projection_alias_is_not_an_order_by_name_scope() -> None:
     ]
 
     assert [(diagnostic.code, diagnostic.message) for diagnostic in errors] == [
-        ("PIE-S2102", "Unknown field: sort_key")
+        (
+            "PIE-S2102",
+            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
+            "cannot name a SELECT output (restate its expression or bind it in "
+            "`let:`)",
+        )
     ]
 
 

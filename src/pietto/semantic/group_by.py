@@ -31,6 +31,7 @@ from pietto.semantic.aggregates import (
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
+    is_unknown_type_field,
     nested_semantic_aggregate,
     nested_aggregate_diagnostic,
     semantic_aggregate_call_name,
@@ -85,8 +86,13 @@ def project_grouped_schema(
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None = None,
+    rejected_lets: frozenset[str] = frozenset(),
 ) -> tuple[RowSchema, list[Diagnostic]]:
-    """Build grouped row schema facts while keeping lowering fail-closed."""
+    """Build grouped row schema facts while keeping lowering fail-closed.
+
+    A bare read of a name in `rejected_lets` (a let binding PIE-S2329 already
+    refused) is not also reported as an unknown field.
+    """
 
     diagnostics: list[Diagnostic] = []
     if definition.group_by_clause is None:
@@ -100,6 +106,7 @@ def project_grouped_schema(
         definition,
         input_schema,
         let_expansions=let_expansions,
+        rejected_lets=rejected_lets,
     )
     diagnostics.extend(key_diagnostics)
 
@@ -161,6 +168,8 @@ def project_grouped_schema(
                 output_name=output_name,
                 expression_value_types=expression_value_types,
                 let_expansions=let_expansions,
+                input_schema=input_schema,
+                qualifier=definition.from_clause.source_name,
             )
             diagnostics.extend(aggregate_diagnostics)
             if aggregate_field is not None:
@@ -208,7 +217,10 @@ def project_grouped_schema(
                 input_schema,
             )
             if field is None:
-                if isinstance(item.expression, NameExpr):
+                if (
+                    isinstance(item.expression, NameExpr)
+                    and item.expression.name not in rejected_lets
+                ):
                     diagnostics.append(_unknown_field_diagnostic(item.expression))
                 if output_name is not None:
                     fields[output_name] = _unknown_row_field(output_name)
@@ -252,6 +264,7 @@ def _resolve_group_keys(
     input_schema: RowSchema,
     *,
     let_expansions: Mapping[str, Expression] | None,
+    rejected_lets: frozenset[str] = frozenset(),
 ) -> tuple[list[_GroupKey], set[str], list[Diagnostic]]:
     keys: list[_GroupKey] = []
     unknown_key_texts: set[str] = set()
@@ -268,7 +281,8 @@ def _resolve_group_keys(
         identity = _field_identity(definition, effective_key, input_schema)
         if identity is None:
             unknown_key_texts.add(_field_text(item.key))
-            diagnostics.append(_unknown_field_diagnostic(item.key))
+            if not (isinstance(item.key, NameExpr) and item.key.name in rejected_lets):
+                diagnostics.append(_unknown_field_diagnostic(item.key))
             continue
         field = input_schema.fields[identity]
         if identity in seen_identities:
@@ -339,6 +353,8 @@ def _aggregate_output_field(
     output_name: str | None,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
+    input_schema: RowSchema,
+    qualifier: str,
 ) -> tuple[RowField | None, list[Diagnostic], bool]:
     expression = item.expression
     diagnostics: list[Diagnostic] = []
@@ -391,6 +407,14 @@ def _aggregate_output_field(
         if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
             if not has_unknown_reference:
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
+            elif is_unknown_type_field(
+                effective_argument, input_schema, qualifier=qualifier
+            ):
+                diagnostics.append(
+                    wrong_argument_type_diagnostic(
+                        expression, actual_name="an unknown type"
+                    )
+                )
             return _unknown_row_field(item.alias), diagnostics, False
         if not is_supported_semantic_aggregate_argument(
             function_name,
@@ -630,7 +654,7 @@ def _scalar_grouped_projection_diagnostic(expression: Expression) -> Diagnostic:
     return _diagnostic(
         expression,
         code="PIE-S2319",
-        message="Grouped scalar projection expressions are deferred",
+        message="Grouped scalar projection expressions are not supported yet",
     )
 
 
@@ -639,7 +663,7 @@ def _pure_grouped_output_deferred_diagnostic(definition: DerivedRelation) -> Dia
     return _diagnostic(
         definition.group_by_clause,
         code="PIE-S2320",
-        message="Pure grouped output without an aggregate is deferred",
+        message="Grouped output without an aggregate is not supported yet",
     )
 
 

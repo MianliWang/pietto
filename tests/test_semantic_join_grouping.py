@@ -2116,3 +2116,35 @@ def test_scope_boundary_has_no_old_fact_forgery_ir_allocation_or_later_stage() -
         assert forbidden not in source
     assert source.count("analyze_project_joined_namespace_expression(") == 1
     assert "ProjectCompletion.entries" not in source
+
+
+def test_unknown_join_grain_with_an_aggregate_issue_reports_the_issue(
+    tmp_path: Path,
+) -> None:
+    from _pietto_project_join import _completed
+
+    result = _completed(
+        tmp_path,
+        "shape Customer:\n"
+        "    id: Int not null\n"
+        "    score: Int not null\n"
+        'source customers: Customer is postgres.table("customers")\n'
+        "query scores:\n"
+        "    from customers\n"
+        "    select:\n"
+        "        score\n"
+        "query q:\n"
+        "    from generate_series(1, 5, 1) as gs\n"
+        "    cross join scores as j0:\n"
+        "        from gs\n"
+        "    group by:\n"
+        "        j0.score\n"
+        "    select:\n"
+        "        a1 = min(j0.score)\n"
+        "        a2 = max(j0.id)\n",
+    )
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [("PIE-S2102", "Unknown field: j0.id", 17, 18)]

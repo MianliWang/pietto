@@ -72,7 +72,7 @@ def test_no_group_satisfying_is_rejected() -> None:
     )
 
     assert _errors(result) == [
-        ("PIE-S2323", "`satisfying` requires GROUP BY in the Phase 25 MVP"),
+        ("PIE-S2323", "`satisfying` requires GROUP BY"),
     ]
 
 
@@ -171,6 +171,47 @@ def test_renamed_group_key_exposes_only_alias_to_satisfying() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("satisfying", "form", "column"),
+    (
+        ("null", "null literal", 9),
+        ("n > null", "null literal", 13),
+        ("per >= 0", "output per of unknown type", 9),
+    ),
+)
+def test_satisfying_that_cannot_be_validated_reports_s2327(
+    satisfying: str, form: str, column: int
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "table rates:\n"
+            "    from orders\n"
+            "    select:\n"
+            "        per = amount / tax\n"
+            "table buckets:\n"
+            "    from rates\n"
+            "    group by:\n"
+            "        per\n"
+            "    select:\n"
+            "        per\n"
+            "        n = count()\n"
+            "    satisfying:\n"
+            f"        {satisfying}\n"
+        )
+    )
+
+    assert [
+        (diagnostic.code, diagnostic.message, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2327",
+            f"Unsupported satisfying expression form: {form}",
+            column,
+        )
+    ]
+
+
 def test_computed_projection_output_in_satisfying_is_deferred() -> None:
     result = analyze(
         _parse(
@@ -186,7 +227,7 @@ def test_computed_projection_output_in_satisfying_is_deferred() -> None:
     )
 
     assert _errors(result) == [
-        ("PIE-S2319", "Grouped scalar projection expressions are deferred"),
+        ("PIE-S2319", "Grouped scalar projection expressions are not supported yet"),
         (
             "PIE-S2326",
             "Satisfying output is not a group-key or direct aggregate projection: doubled",

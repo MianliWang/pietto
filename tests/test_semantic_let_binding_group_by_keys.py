@@ -287,7 +287,8 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    select:\n"
             "        key\n"
             "        total = count()\n",
-            "PIE-S2102",
+            # Refused at the binding; its reads report nothing more.
+            "PIE-S2329",
         ),
         (
             "    from orders\n"
@@ -345,10 +346,9 @@ def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
 ) -> None:
     """EXPLICIT_MODULES completes the relation; the other laws keep refusing it."""
 
+    # Reads of the refused binding name add no Unknown field diagnostics.
     assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == [
         ("PIE-S2329", "Let binding conflicts with projection output name: gross"),
-        ("PIE-S2102", "Unknown field: gross"),
-        ("PIE-S2102", "Unknown field: gross"),
     ]
 
     root = tmp_path / "project"

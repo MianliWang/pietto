@@ -205,7 +205,7 @@ def test_comparison_required_even_for_intersect_except_all(
     assert not completed.ok
     errors = tuple(d for d in completed.diagnostics if d.code == "PIE-S2344")
     assert len(errors) == 2 and all(
-        "float_equivalence_deferred" in d.message for d in errors
+        "Float equality is not supported yet" in d.message for d in errors
     )
     assert all(d.code not in {"PIE-S2337", "PIE-S2339"} for d in completed.diagnostics)
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pietto.ast_nodes import (
     CallExpr,
@@ -22,11 +22,17 @@ _MYSQL_TABLE = "mysql.table"
 _KNOWN_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
 
 
-def check_table_names(script: Script) -> list[Diagnostic]:
-    """Reject single-file table strings other than `<table>` or `<schema>.<table>`.
+def check_table_names(
+    script: Script,
+    reported: Sequence[Diagnostic],
+) -> list[Diagnostic]:
+    """Require one `<table>` or `<schema>.<table>` string per single-file connector.
 
-    Project mode takes physical names from its emission contract instead, so
-    only single-file analysis runs this check.
+    Single-file IR copies the argument as a static string, so an argument that
+    is not a string literal is reported at the argument, unless `reported` (the
+    connector argument and signature diagnostics) already has one inside the
+    connector call. Project mode takes physical names from its emission
+    contract instead, so only single-file analysis runs this check.
     """
 
     diagnostics: list[Diagnostic] = []
@@ -38,12 +44,21 @@ def check_table_names(script: Script) -> list[Diagnostic]:
             continue
         connector_name = _callee_name(connector)
         argument = connector.arguments[0]
-        if (
-            connector_name not in _KNOWN_CONNECTORS
-            or not isinstance(argument, LiteralExpr)
-            or not isinstance(argument.value, str)
-            or (connector_name == _MYSQL_TABLE and not argument.value)
-        ):
+        if connector_name not in _KNOWN_CONNECTORS:
+            continue
+        if not isinstance(argument, LiteralExpr) or not isinstance(argument.value, str):
+            if not any(_starts_within(d.location, connector) for d in reported):
+                diagnostics.append(
+                    _connector_diagnostic(
+                        argument,
+                        message=(
+                            f"Invalid source connector arguments for {connector_name}: "
+                            'expected a string literal "<table>" or "<schema>.<table>"'
+                        ),
+                    )
+                )
+            continue
+        if connector_name == _MYSQL_TABLE and not argument.value:
             continue
         parts = argument.value.split(".")
         if (len(parts) == 1 and parts[0]) or (len(parts) == 2 and all(parts)):
@@ -146,6 +161,16 @@ def _invalid_arguments_diagnostic(
     return _connector_diagnostic(
         expression,
         message=f"Invalid source connector arguments for {connector_name}",
+    )
+
+
+def _starts_within(location: SourceLocation, node: Node) -> bool:
+    """Return whether a diagnostic starts inside one node's half-open span."""
+
+    span = node.span
+    first, end = (span.line, span.column), (span.end_line, span.end_column)
+    return (
+        location.path == span.path and first <= (location.line, location.column) < end
     )
 
 

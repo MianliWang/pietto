@@ -185,7 +185,7 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             (
                 "PIE-S2315",
                 "Aggregate function min requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -201,7 +201,7 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around min() is deferred",
+                "composition around min() is not supported yet",
             ),
         ),
         (
@@ -209,7 +209,7 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around min() is deferred",
+                "composition around min() is not supported yet",
             ),
         ),
     ],

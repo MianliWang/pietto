@@ -59,7 +59,10 @@ from pietto.semantic.expressions import (
     type_source_connector_arguments,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
-from pietto.semantic.let_bindings import analyze_relation_let_bindings
+from pietto.semantic.let_bindings import (
+    analyze_relation_let_bindings,
+    let_expansion_diagnostics,
+)
 from pietto.semantic.model import (
     CheckMode,
     DecimalPrecisionScale,
@@ -81,7 +84,7 @@ from pietto.semantic.relationship_metadata import (
     check_relationship_conditions,
     check_relationship_metadata,
 )
-from pietto.semantic.relations import resolve_relation_inputs
+from pietto.semantic.relations import check_join_references, resolve_relation_inputs
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
 from pietto.semantic.source_connectors import (
     check_source_connectors,
@@ -160,6 +163,8 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             callable_symbols=callable_symbols,
             relation_symbols=relation_symbols,
         )
+        if isinstance(definition, EnumDef):
+            diagnostics.extend(_duplicate_enum_member_diagnostics(definition))
         if definition.name in namespace:
             diagnostics.append(_duplicate_diagnostic(definition, namespace_name))
             continue
@@ -222,6 +227,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         relation_symbols,
     )
     diagnostics.extend(relation_diagnostics)
+    diagnostics.extend(check_join_references(script, relation_symbols))
     cyclic_relations, cycle_diagnostics = check_relation_cycles(
         script,
         from_resolutions,
@@ -282,8 +288,13 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     expression_diagnostics.extend(relation_expression_diagnostics)
     diagnostics.extend(expression_diagnostics)
     diagnostics.extend(check_relation_limits(script))
-    diagnostics.extend(check_source_connectors(script, expression_value_types))
-    diagnostics.extend(check_table_names(script))
+    connector_diagnostics = check_source_connectors(script, expression_value_types)
+    diagnostics.extend(connector_diagnostics)
+    diagnostics.extend(
+        check_table_names(
+            script, (*connector_expression_diagnostics, *connector_diagnostics)
+        )
+    )
     diagnostics.extend(check_predicates(script, expression_value_types))
     result_predicates, satisfying_diagnostics = check_satisfying_clauses(
         script,
@@ -718,6 +729,11 @@ def _analyze_relation_schema_expressions(
     )
     relation_value_types.update(let_value_types)
     relation_expression_diagnostics.extend(let_diagnostics)
+    relation_expression_diagnostics.extend(
+        diagnostic
+        for definition, scope in let_scopes.items()
+        for diagnostic in let_expansion_diagnostics(definition, scope.value_types)
+    )
     final_schemas, schema_diagnostics = propagate_relation_schemas(
         script,
         mode=mode,
@@ -832,6 +848,36 @@ def _duplicate_diagnostic(
             end_column=span.end_column,
         ),
     )
+
+
+def _duplicate_enum_member_diagnostics(definition: EnumDef) -> list[Diagnostic]:
+    """Report each repeated member name once at the enum declaration.
+
+    Members carry no spans of their own.
+    """
+
+    seen: set[str] = set()
+    repeated: list[str] = []
+    for member in definition.members:
+        if member in seen and member not in repeated:
+            repeated.append(member)
+        seen.add(member)
+    span = definition.span
+    return [
+        Diagnostic(
+            code="PIE-S2001",
+            severity=Severity.ERROR,
+            message=f"Duplicate member name in enum {definition.name}: {member}",
+            location=SourceLocation(
+                path=span.path,
+                line=span.line,
+                column=span.column,
+                end_line=span.end_line,
+                end_column=span.end_column,
+            ),
+        )
+        for member in repeated
+    ]
 
 
 def _iter_type_expressions(script: Script) -> Iterator[TypeExpr]:

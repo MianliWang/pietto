@@ -150,7 +150,7 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is deferred",
+                "composition around count() is not supported yet",
             ),
         ),
         (
@@ -175,7 +175,7 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is deferred",
+                "composition around count() is not supported yet",
             ),
         ),
         (
@@ -253,6 +253,46 @@ def test_mixed_count_projection_does_not_publish_precise_count_schema() -> None:
     assert schema.fields["status"].resolved_type.name == "Text"
     assert schema.fields["total"].resolved_type.kind is TypeKind.UNKNOWN
     assert schema.fields["total"].nullability is EffectiveNullability.UNKNOWN
+
+
+@pytest.mark.parametrize("group_by", ("", "    group by:\n        id\n"))
+def test_aggregate_of_an_input_field_of_unknown_type_reports_s2314(
+    group_by: str,
+) -> None:
+    script = _parse(
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    amount: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table rates:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        per = amount / id\n"
+        "query totals:\n"
+        "    from rates\n"
+        + group_by
+        + "    select:\n"
+        + ("        id\n" if group_by else "")
+        + "        n = count(per)\n"
+        "        m = max(rates.per)\n"
+    )
+
+    assert [
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in analyze(script).diagnostics
+    ] == [
+        (
+            "PIE-S2314",
+            "Aggregate function count expects concrete non-Any field argument, "
+            "got an unknown type",
+        ),
+        (
+            "PIE-S2314",
+            "Aggregate function max expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got an unknown type",
+        ),
+    ]
 
 
 def test_count_with_unknown_argument_suppresses_wrong_arity_cascade() -> None:

@@ -137,6 +137,14 @@ def check_satisfying_clauses(
             diagnostics.append(bool_diagnostic)
             continue
         if value_type.kind is ValueTypeKind.UNKNOWN:
+            # Lowering needs a validated predicate; name a silent Unknown leaf.
+            unvalidated = _silent_unknown_leaf(expression, output_scope)
+            if unvalidated is not None:
+                diagnostics.append(
+                    _unsupported_expression_diagnostic(
+                        unvalidated[0], form=unvalidated[1]
+                    )
+                )
             continue
 
         assert definition.satisfying_clause is not None
@@ -151,6 +159,34 @@ def check_satisfying_clauses(
         )
 
     return result_predicates, diagnostics
+
+
+def _silent_unknown_leaf(
+    expression: Expression,
+    output_scope: Mapping[str, _SatisfyingOutput],
+) -> tuple[Expression, str] | None:
+    """Return the first null literal or unknown-typed output in a predicate.
+
+    Neither has a diagnostic of its own, unlike an unknown or unsupported name.
+    """
+
+    if isinstance(expression, LiteralExpr) and expression.value is None:
+        return expression, "null literal"
+    if isinstance(expression, NameExpr):
+        scoped = output_scope.get(expression.name)
+        if (
+            scoped is not None
+            and scoped.supported
+            and scoped.field is not None
+            and scoped.field.resolved_type.kind is TypeKind.UNKNOWN
+        ):
+            return expression, f"output {expression.name} of unknown type"
+        return None
+    if isinstance(expression, (ComparisonExpr, BinaryExpr)):
+        return _silent_unknown_leaf(
+            expression.left, output_scope
+        ) or _silent_unknown_leaf(expression.right, output_scope)
+    return None
 
 
 def _input_schema(
@@ -557,7 +593,7 @@ def _no_group_diagnostic(definition: DerivedRelation) -> Diagnostic:
     return _diagnostic(
         definition.satisfying_clause,
         code="PIE-S2323",
-        message="`satisfying` requires GROUP BY in the Phase 25 MVP",
+        message="`satisfying` requires GROUP BY",
     )
 
 
@@ -600,7 +636,7 @@ def _unsupported_expression_diagnostic(
     return _diagnostic(
         expression,
         code="PIE-S2327",
-        message=f"Unsupported satisfying expression form: {label} is deferred",
+        message=f"Unsupported satisfying expression form: {label}",
     )
 
 

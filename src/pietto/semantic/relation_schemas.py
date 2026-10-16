@@ -30,6 +30,7 @@ from pietto.semantic.aggregates import (
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
+    is_unknown_type_field,
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
     nested_semantic_aggregate,
@@ -37,6 +38,7 @@ from pietto.semantic.aggregates import (
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
+from pietto.semantic.expressions import rejected_let_names
 from pietto.semantic.group_by import project_grouped_schema
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
@@ -136,12 +138,15 @@ def _project_schema(
         input_schema,
         relation_let_expressions=relation_let_expressions,
     )
+    let_names = frozenset(let_expansions or ())
+    rejected_lets = rejected_let_names(definition, let_expansions)
     if definition.group_by_clause is not None:
         return project_grouped_schema(
             definition,
             input_schema,
             expression_value_types=expression_value_types,
             let_expansions=let_expansions,
+            rejected_lets=rejected_lets,
         )
 
     fields: dict[str, RowField] = {}
@@ -152,6 +157,7 @@ def _project_schema(
         definition,
         expression_value_types=expression_value_types,
         let_expansions=let_expansions,
+        input_schema=input_schema,
     )
     diagnostics.extend(aggregate_diagnostics)
 
@@ -189,11 +195,11 @@ def _project_schema(
             fields[output_name] = _unknown_row_field(output_name)
             continue
         if input_field is None:
-            if item.alias is None and isinstance(expression, NameExpr):
+            if isinstance(expression, NameExpr):
                 if _has_known_expression_type(
                     expression,
                     expression_value_types=expression_value_types,
-                ):
+                ) or (item.alias is not None and expression.name in let_names):
                     fields[output_name] = _computed_row_field(
                         output_name,
                         expression,
@@ -201,7 +207,8 @@ def _project_schema(
                     )
                     continue
                 else:
-                    diagnostics.append(_unknown_field_diagnostic(expression))
+                    if expression.name not in rejected_lets:
+                        diagnostics.append(_unknown_field_diagnostic(expression))
                     has_unknown_field = True
             elif isinstance(expression, DottedNameExpr):
                 has_unknown_field = True
@@ -235,6 +242,7 @@ def _aggregate_projection_diagnostics(
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
+    input_schema: RowSchema,
 ) -> tuple[list[Diagnostic], set[SelectItem]]:
     """Validate the direct aliased no-GROUP aggregate projection shape."""
 
@@ -298,6 +306,16 @@ def _aggregate_projection_diagnostics(
                 if not has_unknown_reference:
                     diagnostics.append(
                         deferred_argument_expression_diagnostic(expression)
+                    )
+                elif is_unknown_type_field(
+                    effective_argument,
+                    input_schema,
+                    qualifier=definition.from_clause.source_name,
+                ):
+                    diagnostics.append(
+                        wrong_argument_type_diagnostic(
+                            expression, actual_name="an unknown type"
+                        )
                     )
                 invalid_items.add(item)
                 continue

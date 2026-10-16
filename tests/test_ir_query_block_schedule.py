@@ -912,3 +912,52 @@ def test_the_ir_rejects_forged_lateral_capture_checkpoints(tmp_path) -> None:
         assert ProjectIRQueryBlockVerificationIssueKind.CAPTURE_USE in {
             issue.kind for issue in issues
         }, changes
+
+
+_GROUPED_ENDPOINT_SOURCE = """shape Sale:
+    id: Int not null
+    uid: Int not null
+    amount: Int not null
+source sales: Sale is postgres.table("sales")
+query per_user:
+    from sales
+    group by:
+        uid
+    select:
+        k = uid
+        total = sum(amount)
+relationship sale_user:
+    endpoint s: sales
+    endpoint u: per_user
+    on s.uid == u.k
+query q:
+    from per_user
+    left join sales as x:
+        from per_user
+        via sale_user: u -> s
+    select:
+        v = x.amount
+"""
+
+
+def test_join_over_an_input_with_deferred_history_stays_unavailable(tmp_path) -> None:
+    from _pietto_project_join import _completed
+
+    result = _completed(tmp_path, _GROUPED_ENDPOINT_SOURCE)
+    (entry,) = (
+        entry
+        for entry in result.completion.entries
+        if entry.owner.identity.declared_name == "q"
+    )
+    assert type(entry) is completion.ProjectEffectiveOutputTerminal
+    assert (
+        entry.reason
+        is completion.ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
+    )
+    assert (
+        entry.fragment.semantic_facts.state.reason
+        is ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+    )
+    assert [(d.code, d.message, d.location.line) for d in result.diagnostics] == [
+        ("PIE-S2333", "Project relation semantic completion is unavailable: q", 17)
+    ]
