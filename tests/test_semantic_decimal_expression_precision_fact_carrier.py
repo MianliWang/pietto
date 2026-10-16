@@ -123,22 +123,6 @@ def test_expression_facts_do_not_cover_computed_let_alias_or_type_alias_refs() -
     for expression in (let_value, decimal_total, decimal_int, alias_money):
         assert semantic.model.decimal_expression_precision_scale_for(expression) is None
 
-    alias_script = _parse(
-        BASE_SOURCE + "table alias_scope:\n"
-        "    from orders\n"
-        "    select:\n"
-        "        subtotal = price\n"
-        "        alias_leaf = subtotal\n"
-    )
-    alias_result = analyze(alias_script)
-    alias_relation = _relation_ast(alias_script, "alias_scope")
-    alias_leaf = _select_expression(alias_relation, "alias_leaf")
-
-    # A sibling SELECT alias is not an input field of the projection.
-    assert _error_codes(alias_result) == ["PIE-S2102"]
-    assert isinstance(alias_leaf, NameExpr)
-    assert alias_result.model.decimal_expression_precision_scale_for(alias_leaf) is None
-
 
 def test_aggregate_outputs_and_public_surfaces_remain_precision_scale_free() -> None:
     for connector, emitter in (

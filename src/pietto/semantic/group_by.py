@@ -31,7 +31,6 @@ from pietto.semantic.aggregates import (
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
-    is_unknown_type_field,
     nested_semantic_aggregate,
     nested_aggregate_diagnostic,
     semantic_aggregate_call_name,
@@ -168,8 +167,6 @@ def project_grouped_schema(
                 output_name=output_name,
                 expression_value_types=expression_value_types,
                 let_expansions=let_expansions,
-                input_schema=input_schema,
-                qualifier=definition.from_clause.source_name,
             )
             diagnostics.extend(aggregate_diagnostics)
             if aggregate_field is not None:
@@ -353,8 +350,6 @@ def _aggregate_output_field(
     output_name: str | None,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
-    input_schema: RowSchema,
-    qualifier: str,
 ) -> tuple[RowField | None, list[Diagnostic], bool]:
     expression = item.expression
     diagnostics: list[Diagnostic] = []
@@ -407,14 +402,6 @@ def _aggregate_output_field(
         if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
             if not has_unknown_reference:
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
-            elif is_unknown_type_field(
-                effective_argument, input_schema, qualifier=qualifier
-            ):
-                diagnostics.append(
-                    wrong_argument_type_diagnostic(
-                        expression, actual_name="an unknown type"
-                    )
-                )
             return _unknown_row_field(item.alias), diagnostics, False
         if not is_supported_semantic_aggregate_argument(
             function_name,

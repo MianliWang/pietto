@@ -26,7 +26,6 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
-    RowSchema,
     TypeKind,
     ValueType,
     ValueTypeKind,
@@ -520,31 +519,6 @@ def has_unknown_field_reference(
         has_unknown_field_reference(child, expression_value_types)
         for child in child_expressions(expression)
     )
-
-
-def is_unknown_type_field(
-    expression: Expression,
-    input_schema: RowSchema,
-    *,
-    qualifier: str,
-) -> bool:
-    """Return whether an aggregate argument names an input field of unknown type.
-
-    Such a field has no error of its own (a missing field does), so the
-    aggregate reports its argument type instead of staying silent.
-    """
-
-    if isinstance(expression, NameExpr):
-        field = input_schema.fields.get(expression.name)
-    elif (
-        isinstance(expression, DottedNameExpr)
-        and len(expression.parts) == 2
-        and expression.parts[0] == qualifier
-    ):
-        field = input_schema.fields.get(expression.parts[1])
-    else:
-        return False
-    return field is not None and field.resolved_type.kind is TypeKind.UNKNOWN
 
 
 def is_supported_numeric_argument(value_type: ValueType) -> bool:

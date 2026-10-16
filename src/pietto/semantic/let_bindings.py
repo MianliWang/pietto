@@ -140,50 +140,53 @@ def let_expansion_diagnostics(
     definition: DerivedRelation,
     admitted: Mapping[str, object],
 ) -> list[Diagnostic]:
-    """Refuse expressions whose single-file let inline expansion is too big.
+    """Refuse relation expressions whose single-file let inlining is too big.
 
-    Each binding and each relation expression that reads an admitted earlier
-    binding is measured after inlining it. Only the first expression past a
-    bound on a read path is reported (PIE-S2328).
+    Emission inlines a binding only where a relation expression reads it, so
+    only those reads are measured (PIE-S2328, at the reading expression); a
+    binding that nothing reads is never inlined and never refused.
     """
 
     if definition.let_clause is None:
         return []
-    diagnostics: list[Diagnostic] = []
-    # Per inlined binding: (node count, depth, it or a binding it reads exceeds).
-    measured: dict[str, tuple[int, int, bool]] = {}
+    # Per binding: (inlined node count, inlined depth, the first binding on its
+    # read path whose inlined form is past a bound, if any).
+    measured: dict[str, tuple[int, int, str | None]] = {}
 
-    def measure(expression: Expression) -> tuple[int, int, bool, bool]:
-        """Return node count, depth, an exceeding read, and any let read."""
+    def measure(expression: Expression) -> tuple[int, int, str | None, bool]:
+        """Return inlined node count, depth, first culprit, and any let read."""
 
         if type(expression) is NameExpr and expression.name in measured:
             return (*measured[expression.name], True)
-        size, depth, exceeded, inlined = 1, 0, False, False
+        size, depth, culprit, inlined = 1, 0, None, False
         for operand in _operands(expression):
-            operand_size, operand_depth, operand_exceeded, operand_inlined = measure(
+            operand_size, operand_depth, operand_culprit, operand_inlined = measure(
                 operand
             )
             size += operand_size
             depth = max(depth, operand_depth)
-            exceeded = exceeded or operand_exceeded
+            culprit = culprit or operand_culprit
             inlined = inlined or operand_inlined
-        return size, depth + 1, exceeded, inlined
-
-    def check(
-        node: Node, expression: Expression, binding: str | None
-    ) -> tuple[int, int, bool]:
-        size, depth, exceeded, inlined = measure(expression)
-        exceeds = inlined and (size > _MAX_INLINE_NODES or depth > _MAX_INLINE_DEPTH)
-        if exceeds and not exceeded:
-            diagnostics.append(_inline_expansion_diagnostic(node, binding, depth=depth))
-        return size, depth, exceeds or exceeded
+        return size, depth + 1, culprit, inlined
 
     for binding in definition.let_clause.bindings:
         if binding.name in admitted and binding.name not in measured:
-            measured[binding.name] = check(binding, binding.expression, binding.name)
+            size, depth, culprit, inlined = measure(binding.expression)
+            if culprit is None and inlined and _exceeds(size, depth):
+                culprit = binding.name
+            measured[binding.name] = (size, depth, culprit)
+    diagnostics: list[Diagnostic] = []
     for expression in _relation_expressions(definition):
-        check(expression, expression, None)
+        size, depth, culprit, inlined = measure(expression)
+        if inlined and _exceeds(size, depth):
+            diagnostics.append(
+                _inline_expansion_diagnostic(expression, culprit, depth=depth)
+            )
     return diagnostics
+
+
+def _exceeds(size: int, depth: int) -> bool:
+    return size > _MAX_INLINE_NODES or depth > _MAX_INLINE_DEPTH
 
 
 def _relation_expressions(definition: DerivedRelation) -> tuple[Expression, ...]:
@@ -248,9 +251,7 @@ def _inline_expansion_diagnostic(
     message = (
         "Expression exceeds the single-file let inline expansion limit of "
         f"{limit} after inlining the let bindings it reads"
-        if binding is None
-        else "Let binding exceeds the single-file let inline expansion limit of "
-        f"{limit} after inlining the let bindings it reads: {binding}"
+        + ("" if binding is None else f" (first at let binding {binding})")
     )
     span = node.span
     return Diagnostic(

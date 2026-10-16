@@ -18,6 +18,7 @@ from pietto.ir.model import (
     RelationIR,
     SourceIR,
     SymbolId,
+    TypeKindIR,
     WindowCallIR,
 )
 from pietto.sql.expressions import (
@@ -50,6 +51,8 @@ def render_relation_sql(
     )
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
+    if has_untyped_result_predicate(relation):
+        raise ValueError("PostgreSQL result predicate requires a known Bool type")
     if relation.result_predicate is not None and not relation.group_keys:
         raise ValueError("PostgreSQL result predicate requires GROUP BY")
     _validate_window_clause_boundaries(relation)
@@ -379,6 +382,22 @@ def _validate_grouped_order_by(
             "PostgreSQL grouped ORDER BY expression must match a selected GROUP BY "
             "key, aggregate projection, or window alias"
         )
+
+
+def has_untyped_result_predicate(relation: RelationIR) -> bool:
+    """Whether a result predicate was checked without a known Bool type.
+
+    Semantic analysis keeps a predicate of unknown type (gradual typing); no
+    target is asked to read it as a Bool.
+    """
+
+    if relation.result_predicate is None:
+        return False
+    value_type = relation.result_predicate.expression.value_type
+    return not (
+        value_type.canonical_kind is TypeKindIR.BUILTIN
+        and value_type.canonical_name == "Bool"
+    )
 
 
 def _validate_window_clause_boundaries(relation: RelationIR) -> None:

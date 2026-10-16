@@ -287,7 +287,6 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    select:\n"
             "        key\n"
             "        total = count()\n",
-            # Refused at the binding; its reads report nothing more.
             "PIE-S2329",
         ),
         (
@@ -315,6 +314,25 @@ def test_non_slice4_group_by_let_consumers_remain_rejected(
     semantic = _semantic_for("query grouped_orders:\n" + body)
 
     assert expected_code in _error_codes(semantic)
+
+
+def test_a_refused_let_group_key_reports_only_the_refusal() -> None:
+    semantic = _semantic_for(
+        "query grouped_orders:\n"
+        "    from orders\n"
+        "    let:\n"
+        "        key = status\n"
+        "    group by:\n"
+        "        key\n"
+        "    select:\n"
+        "        key\n"
+        "        total = count()\n"
+    )
+
+    # The GROUP BY key and SELECT reads of the refused name report nothing more.
+    assert _errors(semantic) == [
+        ("PIE-S2329", "Let binding conflicts with projection output name: key")
+    ]
 
 
 COMPUTED_KEY_RELATION = (

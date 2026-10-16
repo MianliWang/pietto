@@ -311,19 +311,21 @@ def _let_chain(count: int, step: str) -> str:
 
 
 @pytest.mark.parametrize(
-    ("count", "step", "select", "reported", "limit"),
+    ("count", "step", "select", "culprit", "limit"),
     [
         (256, "{previous} + 1", "y = v255", None, None),
         (257, "{previous} + 1", "y = v256", "v256", "256 nested levels"),
         (500, "{previous} + 1", "y = v499", "v256", "256 nested levels"),
+        # Emission inlines only what a relation expression reads.
+        (500, "{previous} + 1", "y = v100", None, None),
         (16, "{previous} + {previous}", "y = v15", None, None),
         (17, "{previous} + {previous}", "y = v16", "v16", "100000 expression nodes"),
         (24, "{previous} + {previous}", "y = v23", "v16", "100000 expression nodes"),
         (16, "{previous} + {previous}", "y = v15 + v15", "", "100000 expression nodes"),
     ],
 )
-def test_let_inline_expansion_is_bounded_at_check(
-    count: int, step: str, select: str, reported: str | None, limit: str | None
+def test_let_inline_expansion_is_bounded_on_read_paths(
+    count: int, step: str, select: str, culprit: str | None, limit: str | None
 ) -> None:
     relation, semantic = _analyze_relation(
         "query chained:\n    from orders\n"
@@ -332,27 +334,18 @@ def test_let_inline_expansion_is_bounded_at_check(
     )
 
     messages = [(d.code, d.message) for d in semantic.diagnostics]
-    if reported is None:
+    if culprit is None:
         assert messages == []
         return
-    subject = "Expression exceeds" if reported == "" else "Let binding exceeds"
-    suffix = "" if reported == "" else f": {reported}"
+    suffix = f" (first at let binding {culprit})" if culprit else ""
     assert messages == [
         (
             "PIE-S2328",
-            f"{subject} the single-file let inline expansion limit of {limit} "
-            f"after inlining the let bindings it reads{suffix}",
+            "Expression exceeds the single-file let inline expansion limit of "
+            f"{limit} after inlining the let bindings it reads{suffix}",
         )
     ]
-    node = (
-        relation.select_items[0].expression
-        if reported == ""
-        else next(
-            binding
-            for binding in (relation.let_clause.bindings if relation.let_clause else ())
-            if binding.name == reported
-        )
-    )
+    node = relation.select_items[0].expression
     location = semantic.diagnostics[0].location
     assert (location.line, location.column) == (node.span.line, node.span.column)
 

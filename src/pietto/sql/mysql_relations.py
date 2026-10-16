@@ -28,7 +28,10 @@ from pietto.sql.mysql_render import (
     MySqlRenderError,
     quote_identifier,
 )
-from pietto.sql.relations import qualify_alias_captured_order_fields
+from pietto.sql.relations import (
+    has_untyped_result_predicate,
+    qualify_alias_captured_order_fields,
+)
 from pietto.sql.window_strategy import (
     NamedWindowLoweringDecision,
     NamedWindowLoweringStrategy,
@@ -53,6 +56,8 @@ def render_mysql_relation(
     )
     if not relation.projections:
         raise MySqlRenderError("MySQL relation emission requires projections")
+    if has_untyped_result_predicate(relation):
+        raise MySqlRenderError("MySQL result predicate requires a known Bool type")
     if relation.result_predicate is not None and not relation.group_keys:
         raise MySqlRenderError("MySQL result predicate requires GROUP BY")
     _validate_window_clause_boundaries(relation)

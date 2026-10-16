@@ -768,6 +768,32 @@ query joined:
             [("PIE-S2335", "Unknown JOIN source binding: nowhere", 22, 5)],
         ),
         (
+            "    inner join b_rows as b:\n        from b\n        via ab: a -> b\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN source binding is the binding this JOIN introduces: b",
+                    22,
+                    5,
+                )
+            ],
+        ),
+        (
+            # A SEMI or ANTI binding is not visible to a later JOIN.
+            "    semi join b_rows as b:\n        from a_rows\n        via ab: a -> b\n"
+            "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n",
+            [
+                (
+                    "PIE-S2334",
+                    "SEMI JOIN is available only when an EXPLICIT_MODULES project "
+                    "(schema version 2) completes it.",
+                    22,
+                    5,
+                ),
+                ("PIE-S2335", "Unknown JOIN source binding: b", 25, 5),
+            ],
+        ),
+        (
             "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n"
             "    inner join b_rows as b:\n        from a_rows\n        via ab: a -> b\n",
             [
