@@ -368,6 +368,52 @@ def test_unsupported_let_cases_fail_closed_without_sql_artifacts(
     assert "PIE-S2328" not in codes
 
 
+def test_one_deep_let_binding_emits_the_sql_of_its_inline_form() -> None:
+    expression = "amount" + " + 1" * 300
+    inline = "query flat:\n    from orders\n    select:\n        y = " + expression
+    through_let = (
+        "query flat:\n    from orders\n    let:\n        v = " + expression + "\n"
+        "    select:\n        y = v"
+    )
+
+    # Before: the let form was refused with PIE-S2328 past 256 nested levels
+    # although the same expression written inline was accepted.
+    assert _postgres_sql(through_let + "\n") == _postgres_sql(inline + "\n")
+    assert _mysql_sql(through_let + "\n") == _mysql_sql(inline + "\n")
+
+
+@pytest.mark.parametrize(
+    ("count", "step"),
+    [
+        (767, "{previous}"),
+        (384, "{previous} + 1"),
+        (192, "coalesce({previous}, 0)"),
+    ],
+    ids=("alias", "operator", "call"),
+)
+def test_let_chains_at_the_inline_expansion_limit_emit(count: int, step: str) -> None:
+    lines = [
+        f"        v{i} = {step.format(previous=f'v{i - 1}')}" for i in range(1, count)
+    ]
+    source = "\n".join(
+        (
+            "query chained:",
+            "    from orders",
+            "    let:",
+            "        v0 = amount",
+            *lines,
+            "    select:",
+            f"        y = v{count - 1}",
+        )
+    )
+
+    # Before: an alias chain passed check at any length and emission raised
+    # RecursionError from about 1000 bindings; the longest chain the limit
+    # admits for each step kind now lowers and renders.
+    assert '"amount"' in _postgres_sql(source + "\n")
+    assert "`amount`" in _mysql_sql(source + "\n")
+
+
 def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
     result = parse_source(prefix + source, path="let_ir_sql.pietto")
     assert result.diagnostics == ()

@@ -453,8 +453,14 @@ def test_like_patterns_with_paired_or_inner_escapes_are_accepted() -> None:
         ("    where name like pattern\n    select:\n        name\n", 11, 11),
         ("    where name not like (alias)\n    select:\n        name\n", 11, 11),
         ("    select:\n        name\n        m = name like pattern\n", 13, 13),
+        (
+            "        m = name like alias\n    where m\n    select:\n        name\n",
+            11,
+            13,
+        ),
+        ("        m = name like pattern\n    select:\n        name\n", 11, 13),
     ],
-    ids=("where", "parenthesized-chain", "select"),
+    ids=("where", "parenthesized-chain", "select", "let-read", "let-unread"),
 )
 def test_let_bound_like_pattern_ending_in_the_escape_is_refused(
     body: str,
@@ -472,7 +478,8 @@ def test_let_bound_like_pattern_ending_in_the_escape_is_refused(
     )
 
     # Before: a let-bound "abc!" passed check and emitted the SQL the direct
-    # literal is refused for.
+    # literal is refused for; inside another binding it still passed, since
+    # let bodies were typed without the earlier bindings' expressions.
     assert [
         (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
         for diagnostic in result.diagnostics
@@ -480,20 +487,29 @@ def test_let_bound_like_pattern_ending_in_the_escape_is_refused(
 
 
 @pytest.mark.parametrize("target", ["Float", "Int"])
-def test_let_bound_null_cast_is_refused_like_the_null_literal(target: str) -> None:
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    select:\n        count\n        value = cast(nothing as {target})\n",
+        "        value = cast(nothing as {target})\n"
+        "    select:\n        count\n        copy = value\n",
+    ],
+    ids=("select", "let"),
+)
+def test_let_bound_null_cast_is_refused_like_the_null_literal(
+    target: str, body: str
+) -> None:
     result = analyze(
         _parse(
             Q1_SOURCE + "table projected:\n"
             "    from users\n"
             "    let:\n"
-            "        nothing = null\n"
-            "    select:\n"
-            "        count\n"
-            f"        value = cast(nothing as {target})\n"
+            "        nothing = null\n" + body.format(target=target)
         )
     )
 
-    # Before: `cast(nothing as Float)` passed check and emission refused it.
+    # Before: `cast(nothing as Float)` passed check and emission refused it,
+    # and inside another binding it still passed.
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
     ] == [

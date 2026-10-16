@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
+import pietto.semantic.let_bindings as let_bindings
 from pietto.ast_nodes import (
     BinaryExpr,
     ComparisonExpr,
@@ -344,11 +345,18 @@ def _let_chain(count: int, step: str) -> str:
 @pytest.mark.parametrize(
     ("count", "step", "select", "culprit", "limit"),
     [
-        (256, "{previous} + 1", "y = v255", None, None),
-        (257, "{previous} + 1", "y = v256", "v256", "256 nested levels"),
-        (500, "{previous} + 1", "y = v499", "v256", "256 nested levels"),
+        # One level for the `+` and one for each let substitution.
+        (384, "{previous} + 1", "y = v383", None, None),
+        (385, "{previous} + 1", "y = v384", "v384", "768 nested levels"),
+        (500, "{previous} + 1", "y = v499", "v384", "768 nested levels"),
         # Emission inlines only what a relation expression reads.
         (500, "{previous} + 1", "y = v100", None, None),
+        # A plain alias adds no operator, but each substitution is a level.
+        (767, "{previous}", "y = v766", None, None),
+        (1000, "{previous}", "y = v999", "v767", "768 nested levels"),
+        # A function call counts three levels.
+        (192, "coalesce({previous}, 0)", "y = v191", None, None),
+        (193, "coalesce({previous}, 0)", "y = v192", "v192", "768 nested levels"),
         (16, "{previous} + {previous}", "y = v15", None, None),
         (17, "{previous} + {previous}", "y = v16", "v16", "100000 expression nodes"),
         (24, "{previous} + {previous}", "y = v23", "v16", "100000 expression nodes"),
@@ -379,6 +387,32 @@ def test_let_inline_expansion_is_bounded_on_read_paths(
     node = relation.select_items[0].expression
     location = semantic.diagnostics[0].location
     assert (location.line, location.column) == (node.span.line, node.span.column)
+
+
+def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A binding that reads no other one cannot pass the real limit while
+    # PIE-S2006 admits it, so a smaller limit shows which binding is named.
+    monkeypatch.setattr(let_bindings, "_MAX_INLINE_LEVELS", 8)
+    _relation, semantic = _analyze_relation(
+        "query chained:\n    from orders\n"
+        "    let:\n"
+        "        c = amount + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1\n"
+        "        d = c + 1\n"
+        "    select:\n        y = d\n"
+    )
+
+    # Before: the message named d, which is past the limit only because it
+    # reads c.
+    assert [(d.code, d.message) for d in semantic.diagnostics] == [
+        (
+            "PIE-S2328",
+            "Expression exceeds the single-file let inline expansion limit of "
+            "8 nested levels after inlining the let bindings it reads "
+            "(first at let binding c)",
+        )
+    ]
 
 
 @pytest.mark.parametrize(

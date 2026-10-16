@@ -623,7 +623,8 @@ def test_bare_constant_key_is_refused_from_a_source_without_a_shape(
 
 
 def test_key_over_the_let_inline_limit_reports_only_that_error() -> None:
-    lets = "".join(f"        l{i} = l{i - 1} + 1\n" for i in range(1, 301))
+    # 400 `+ 1` steps weigh more than the 768-level inline limit.
+    lets = "".join(f"        l{i} = l{i - 1} + 1\n" for i in range(1, 401))
     source = (
         "shape Row:\n    amount: Int not null\n"
         'source rows: Row is postgres.table("rows")\n'
@@ -632,7 +633,7 @@ def test_key_over_the_let_inline_limit_reports_only_that_error() -> None:
         "    let:\n        l0 = amount\n" + lets + "    select:\n"
         "        n = count()\n"
         "    order by:\n"
-        "        l300\n"
+        "        l400\n"
     )
 
     # Before: PIE-S2380 joined the key's own PIE-S2328.

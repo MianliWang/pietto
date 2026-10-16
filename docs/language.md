@@ -193,9 +193,13 @@ names implicitly), the emitted SQL qualifies the key with the name FROM already
 gives the input, as in `FROM "sales"."orders" ... ORDER BY "orders"."amount"`;
 the FROM clause is unchanged. Single-file
 lowering inlines a `let` binding wherever a relation expression reads it, so an
-expression that would exceed 256 nested levels or 100,000 expression nodes once
-the bindings it reads are inlined fails `check` with PIE-S2328; a binding that
-nothing reads is not counted. Selected project SQL admits the
+expression that reads bindings and would exceed 768 nested levels or 100,000
+expression nodes once they are inlined fails `check` with PIE-S2328. A
+conditional or `in` list counts two levels, a function call three, and each let
+substitution, a plain alias `b = a` included, one more; a binding that nothing
+reads is not counted. An expression written inline is bounded only by
+PIE-S2006, and moving it into one binding read as `y = v` keeps it accepted.
+Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
 

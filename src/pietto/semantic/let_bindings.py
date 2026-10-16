@@ -131,9 +131,11 @@ def admitted_relation_let_expressions(
 
 
 # Single-file IR inlines every `let:` binding at each read, so the size and
-# depth of an expression after inlining bound the IR and SQL it produces.
+# nesting of an expression after inlining bound the IR and SQL it produces.
+# Levels are weighted by the recursion that lowering and SQL rendering spend
+# per level; an expression written inline is bounded by PIE-S2006 instead.
 _MAX_INLINE_NODES = 100_000
-_MAX_INLINE_DEPTH = 256
+_MAX_INLINE_LEVELS = 768
 
 
 def let_expansion_diagnostics(
@@ -144,49 +146,61 @@ def let_expansion_diagnostics(
 
     Emission inlines a binding only where a relation expression reads it, so
     only those reads are measured (PIE-S2328, at the reading expression); a
-    binding that nothing reads is never inlined and never refused.
+    binding that nothing reads is never inlined and never refused. Each let
+    substitution, a plain alias included, adds one nested level.
     """
 
     if definition.let_clause is None:
         return []
-    # Per binding: (inlined node count, inlined depth, the first binding on its
-    # read path whose inlined form is past a bound, if any).
+    # Per binding read: (inlined node count, inlined levels including the
+    # substitution, the first binding on its read path past a limit, if any).
     measured: dict[str, tuple[int, int, str | None]] = {}
 
     def measure(expression: Expression) -> tuple[int, int, str | None, bool]:
-        """Return inlined node count, depth, first culprit, and any let read."""
+        """Return inlined node count, levels, first culprit, and any let read."""
 
         if type(expression) is NameExpr and expression.name in measured:
             return (*measured[expression.name], True)
-        size, depth, culprit, inlined = 1, 0, None, False
+        size, levels, culprit, inlined = 1, 0, None, False
         for operand in _operands(expression):
-            operand_size, operand_depth, operand_culprit, operand_inlined = measure(
+            operand_size, operand_levels, operand_culprit, operand_inlined = measure(
                 operand
             )
             size += operand_size
-            depth = max(depth, operand_depth)
+            levels = max(levels, operand_levels)
             culprit = culprit or operand_culprit
             inlined = inlined or operand_inlined
-        return size, depth + 1, culprit, inlined
+        return size, levels + _level_weight(expression), culprit, inlined
 
     for binding in definition.let_clause.bindings:
         if binding.name in admitted and binding.name not in measured:
-            size, depth, culprit, inlined = measure(binding.expression)
-            if culprit is None and inlined and _exceeds(size, depth):
+            size, levels, culprit, _inlined = measure(binding.expression)
+            levels += 1
+            if culprit is None and _exceeds(size, levels):
                 culprit = binding.name
-            measured[binding.name] = (size, depth, culprit)
+            measured[binding.name] = (size, levels, culprit)
     diagnostics: list[Diagnostic] = []
     for expression in _relation_expressions(definition):
-        size, depth, culprit, inlined = measure(expression)
-        if inlined and _exceeds(size, depth):
+        size, levels, culprit, inlined = measure(expression)
+        if inlined and _exceeds(size, levels):
             diagnostics.append(
-                _inline_expansion_diagnostic(expression, culprit, depth=depth)
+                _inline_expansion_diagnostic(expression, culprit, levels=levels)
             )
     return diagnostics
 
 
-def _exceeds(size: int, depth: int) -> bool:
-    return size > _MAX_INLINE_NODES or depth > _MAX_INLINE_DEPTH
+def _level_weight(expression: Expression) -> int:
+    """Return the nested levels one expression node counts for."""
+
+    if isinstance(expression, CallExpr):
+        return 3
+    if isinstance(expression, (ConditionalExpr, MembershipExpr)):
+        return 2
+    return 1
+
+
+def _exceeds(size: int, levels: int) -> bool:
+    return size > _MAX_INLINE_NODES or levels > _MAX_INLINE_LEVELS
 
 
 def _relation_expressions(definition: DerivedRelation) -> tuple[Expression, ...]:
@@ -241,11 +255,11 @@ def _inline_expansion_diagnostic(
     node: Node,
     binding: str | None,
     *,
-    depth: int,
+    levels: int,
 ) -> Diagnostic:
     limit = (
-        f"{_MAX_INLINE_DEPTH} nested levels"
-        if depth > _MAX_INLINE_DEPTH
+        f"{_MAX_INLINE_LEVELS} nested levels"
+        if levels > _MAX_INLINE_LEVELS
         else f"{_MAX_INLINE_NODES} expression nodes"
     )
     message = (
@@ -303,6 +317,8 @@ def _analyze_relation_let_clause(
     diagnostics: list[Diagnostic] = []
     value_types: dict[Expression, ValueType] = {}
     scope_values: dict[str, ValueType] = {}
+    # Earlier admitted bindings, which `let_value` follows as emission inlines.
+    scope_expressions: dict[str, Expression] = {}
     seen_names: set[str] = set()
     all_names = tuple(binding.name for binding in definition.let_clause.bindings)
     all_name_set = set(all_names)
@@ -332,11 +348,13 @@ def _analyze_relation_let_clause(
             report_unknown_name=True,
             field_qualifier=definition.from_clause.source_name,
             bare_value_types=scope_values,
+            bare_value_expressions=scope_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
         )
         if binding.name not in invalid_binding_names and binding.name not in seen_names:
             scope_values[binding.name] = value_type
+            scope_expressions[binding.name] = binding.expression
         seen_names.add(binding.name)
 
     return (

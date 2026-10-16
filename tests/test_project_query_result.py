@@ -725,12 +725,25 @@ def test_explicit_project_cli_shares_the_comparison_family_check(
             "(write !! for a literal !)\n",
         ),
         (
+            '    let:\n        p = "a!"\n        m = name like p\n    where m\n'
+            "    select:\n        id\n",
+            "main.pietto:9:13 PIE-S2105 error: Invalid operands for operator like: "
+            "expected a pattern that does not end in the escape character ! "
+            "(write !! for a literal !)\n",
+        ),
+        (
             "    select:\n        id\n        c = cast(null as Float)\n",
             "main.pietto:9:13 PIE-S2105 error: Invalid cast: cast(null as Float) is "
             "not supported; expected cast(Int as Float), the only supported cast\n",
         ),
     ],
-    ids=("like-literal", "like-let-where", "like-let-select", "cast-null"),
+    ids=(
+        "like-literal",
+        "like-let-where",
+        "like-let-select",
+        "like-let-binding",
+        "cast-null",
+    ),
 )
 def test_explicit_project_check_refuses_like_escape_and_null_cast(
     tmp_path: Path,
