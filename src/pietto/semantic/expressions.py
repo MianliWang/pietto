@@ -414,6 +414,7 @@ def type_relation_expressions(
                     let_value_types=let_value_types or {},
                     let_expressions=let_expressions or {},
                     named_window_namespace=named_window_namespace,
+                    type_expansions=type_expansions,
                 )
                 # A window read of a let name PIE-S2329 refused reports nothing
                 # more. Dropping its unknown-field report afterwards keeps the
@@ -1328,12 +1329,9 @@ def _unary_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
-    if expression.operator == "not" and _is_canonical_builtin(
-        operand_type, "Bool", type_expansions
-    ):
-        result, expected = _builtin_value_type("Bool", operand_type.nullability), None
-    else:
-        result, expected = resolved_unary_value_type(expression.operator, operand_type)
+    result, expected = resolved_unary_value_type(
+        expression.operator, _canonical_value_type(operand_type, type_expansions)
+    )
     if expected is not None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -1657,12 +1655,11 @@ def _binary_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
-    if expression.operator == "/":
-        # Division reads a type alias as the type it expands to.
-        left_type = _canonical_value_type(left_type, type_expansions)
-        right_type = _canonical_value_type(right_type, type_expansions)
+    # An operator reads a type alias as the type it expands to.
     result, expected = resolved_binary_value_type(
-        expression.operator, left_type, right_type
+        expression.operator,
+        _canonical_value_type(left_type, type_expansions),
+        _canonical_value_type(right_type, type_expansions),
     )
     if expected is not None:
         diagnostics.append(
@@ -2359,18 +2356,22 @@ def _call_argument_types(
             )
             else None
         )
-        argument_type = _infer(
-            argument,
-            row_schema,
-            value_types,
-            temporary_diagnostics,
-            report_unknown_name=report_unknown_name,
-            field_qualifier=field_qualifier,
-            bare_value_types=argument_bare_value_types,
-            bare_value_expressions=bare_value_expressions,
-            suppressed_unknown_names=suppressed_unknown_names,
-            type_expansions=type_expansions,
-            relation_columns=relation_columns,
+        # An aggregate reads a type alias argument as the type it expands to.
+        argument_type = _canonical_value_type(
+            _infer(
+                argument,
+                row_schema,
+                value_types,
+                temporary_diagnostics,
+                report_unknown_name=report_unknown_name,
+                field_qualifier=field_qualifier,
+                bare_value_types=argument_bare_value_types,
+                bare_value_expressions=bare_value_expressions,
+                suppressed_unknown_names=suppressed_unknown_names,
+                type_expansions=type_expansions,
+                relation_columns=relation_columns,
+            ),
+            type_expansions,
         )
         if is_supported_semantic_aggregate_argument_expression(
             function_name,

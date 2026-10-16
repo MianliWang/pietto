@@ -97,6 +97,14 @@ nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 | Bool `and` / `or` | known non-Bool operands | currently rejected with existing `PIE-S2105`; Bool operators require Bool operands |
 | Bool `and` / `or` | unknown operands | currently deferred/unknown without an extra invalid-operand cascade |
 
+Every row above reads a type alias operand, including an alias chain, as the
+builtin type it expands to, and records that base type, not the alias, as the
+result: with `type Age = Int not null`, `age + 1` is `Int UNKNOWN` and `-age`
+is `Int`, and with `type Money = Decimal(12, 2) not null`, `money * 2` reports
+`PIE-S2105` as `Decimal` does. A later defect fix extended this from `/` to
+`+`, `-`, `*`, `%`, unary `+`/`-` and `and`/`or`; unary `not` already read it.
+An alias of an Enum or shape is not expanded.
+
 Text concatenation is not supported by Slice 7. `Text + Text` is not a string
 concatenation operator and must remain rejected under current numeric-operand
 rules.
@@ -202,10 +210,10 @@ Current diagnostic behavior is preserved exactly:
 - invalid known operator operands use existing `PIE-S2105` only where current
   repo behavior already emits it;
 - division `/` follows the Operator Result Matrix above, reading a type alias
-  operand as the type it expands to: a later defect fix gave `Int` and `Float`
-  division SQL semantics (`Int / Int` truncates to `Int`) and reports existing
-  `PIE-S2105` for every other known operand type that is not `Decimal`;
-  Decimal division stays deferred;
+  operand as the type it expands to as every operator there does: a later
+  defect fix gave `Int` and `Float` division SQL semantics (`Int / Int`
+  truncates to `Int`) and reports existing `PIE-S2105` for every other known
+  operand type that is not `Decimal`; Decimal division stays deferred;
 - unknown child value types suppress invalid-operator cascades under current
   behavior;
 - predicate diagnostics remain owned by the existing predicate paths and the

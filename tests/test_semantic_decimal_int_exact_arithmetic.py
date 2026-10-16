@@ -213,7 +213,7 @@ def test_decimal_int_aggregate_boundaries_remain_fail_closed(
     assert _error_codes(result) == ["PIE-S2315"]
 
 
-def test_projection_alias_let_and_type_alias_aggregate_arguments_stay_closed() -> None:
+def test_aggregates_refuse_projection_aliases_and_read_lets_and_type_aliases() -> None:
     projection_alias = analyze(
         _parse(
             _source(
@@ -248,19 +248,25 @@ def test_projection_alias_let_and_type_alias_aggregate_arguments_stay_closed() -
         "Decimal",
     )
 
-    type_alias = analyze(
-        _parse(
-            "type Money = Decimal(12, 2) not null\n"
-            "shape Order:\n"
-            "    money: Money not null\n"
-            'source orders: Order is postgres.table("orders")\n'
-            "table aggregate_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        value = sum(money)\n"
-        )
+    type_alias_script = _parse(
+        "type Money = Decimal(12, 2) not null\n"
+        "shape Order:\n"
+        "    money: Money not null\n"
+        'source orders: Order is postgres.table("orders")\n'
+        "table aggregate_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        value = sum(money)\n"
     )
-    assert "PIE-S2314" in _error_codes(type_alias)
+    type_alias = analyze(type_alias_script)
+    type_alias_relation = type_alias_script.definitions[-1]
+    assert isinstance(type_alias_relation, TableDef)
+    # A type alias argument reads as the Decimal it expands to.
+    assert type_alias.diagnostics == ()
+    _assert_value_type(
+        type_alias.model.relation_row_schemas[type_alias_relation].fields["value"],
+        "Decimal",
+    )
 
 
 def test_decimal_int_mvp_adds_no_public_precision_scale_fields() -> None:

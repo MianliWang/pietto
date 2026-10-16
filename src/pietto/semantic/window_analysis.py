@@ -19,6 +19,7 @@ from pietto.ast_nodes import (
     QueryDef,
     SelectItem,
     TableDef,
+    TypeExpr,
     WindowExpr,
     WindowUseKind,
 )
@@ -292,6 +293,7 @@ def analyze_window_expression(
     let_value_types: Mapping[str, ValueType] | None = None,
     let_expressions: Mapping[str, Expression] | None = None,
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Analyze one direct selected recognized window expression transiently."""
 
@@ -307,6 +309,7 @@ def analyze_window_expression(
         let_value_types=let_value_types,
         let_expressions=let_expressions,
         named_window_namespace=named_window_namespace,
+        type_expansions=type_expansions,
     )
 
 
@@ -330,6 +333,7 @@ def _analyze_recognized_window_expression(
     let_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Keep the selected-output API as a compatibility wrapper."""
 
@@ -440,6 +444,7 @@ def _analyze_recognized_window_expression(
             value_types=value_types,
             let_value_types=let_value_types,
             let_expressions=let_expressions,
+            type_expansions=type_expansions,
         )
         if (
             input_scope.kind is WindowInputScopeKind.GROUPED_RESULT

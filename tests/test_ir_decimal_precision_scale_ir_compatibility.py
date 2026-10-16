@@ -155,23 +155,39 @@ def test_decimal_precision_scale_aggregate_ir_and_sql_remain_unchanged() -> None
         )
 
 
-def test_alias_decimal_aggregate_boundary_remains_existing_fail_closed() -> None:
-    parse_result = parse_source(
+def test_alias_decimal_aggregate_arguments_lower_as_logical_decimal() -> None:
+    # An alias argument, alias chain included, aggregates as its base Decimal:
+    # the argument keeps its declared alias, the result is the base type.
+    _, _, script_ir = _compile(
         _source("postgres.table").replace(
-            "direct_average = avg(direct)",
-            "money_average = avg(money)",
-        ),
-        path="slice4.pietto",
+            "        direct_average = avg(direct)\n",
+            "        money_average = avg(money)\n        price_total = sum(price)\n",
+        )
     )
-    assert parse_result.diagnostics == ()
-    assert parse_result.ast is not None
+    projections = {
+        projection.name: projection.expression
+        for projection in _relation_ir(script_ir, "order_totals").projections
+    }
 
-    semantic_result = analyze(parse_result.ast)
-
-    assert [diagnostic.code for diagnostic in semantic_result.diagnostics] == [
-        "PIE-S2314"
-    ]
-    assert "Money" in semantic_result.diagnostics[0].message
+    for name, function, argument, declared_name in (
+        ("money_average", "avg", "money", "Money"),
+        ("price_total", "sum", "price", "Price"),
+    ):
+        aggregate = projections[name]
+        assert isinstance(aggregate, AggregateCallIR)
+        assert aggregate.function == function
+        assert isinstance(aggregate.arguments[0], FieldRefIR)
+        assert aggregate.arguments[0].name == argument
+        _assert_decimal_type_ref(
+            aggregate.arguments[0].value_type,
+            declared_name=declared_name,
+            nullability=aggregate.arguments[0].value_type.nullability,
+        )
+        _assert_decimal_type_ref(
+            aggregate.value_type,
+            declared_name="Decimal",
+            nullability=NullabilityIR.NULLABLE,
+        )
 
 
 def test_decimal_precision_scale_public_json_and_metadata_shapes_are_unchanged() -> (

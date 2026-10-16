@@ -188,26 +188,58 @@ def test_decimal_precision_scale_sql_output_remains_logical_and_unparameterized(
         )
 
 
-def test_decimal_precision_scale_alias_aggregate_arguments_remain_fail_closed() -> None:
-    semantic_result = analyze(
-        _parse(
-            _source(
-                "postgres.table",
-                "table decimal_stats:\n"
-                "    from orders\n"
-                "    select:\n"
-                "        alias_total = sum(money)\n",
-            )
-        )
+def test_decimal_precision_scale_alias_aggregate_arguments_read_as_decimal() -> None:
+    relation = (
+        "table decimal_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        alias_total = sum(money)\n"
+        "        alias_average = avg(money)\n"
+        "        alias_largest = max(money)\n"
+        "        alias_mixed = sum(money + amount)\n"
     )
-
-    assert _errors(semantic_result) == [
+    for connector, emitter, sql in (
         (
-            "PIE-S2314",
-            "Aggregate function sum expects Int, Float, or Decimal field "
-            "argument, got Money",
-        )
-    ]
+            "postgres.table",
+            emit_postgres_sql,
+            "SELECT\n"
+            '    SUM("money") AS "alias_total",\n'
+            '    AVG("money") AS "alias_average",\n'
+            '    MAX("money") AS "alias_largest",\n'
+            '    SUM(("money" + "amount")) AS "alias_mixed"\n'
+            'FROM "orders"',
+        ),
+        (
+            "mysql.table",
+            emit_mysql_sql,
+            "SELECT\n"
+            "    SUM(`money`) AS `alias_total`,\n"
+            "    AVG(`money`) AS `alias_average`,\n"
+            "    MAX(`money`) AS `alias_largest`,\n"
+            "    SUM((`money` + `amount`)) AS `alias_mixed`\n"
+            "FROM `orders`",
+        ),
+    ):
+        script, semantic_result, script_ir = _compile(_source(connector, relation))
+
+        # The alias keeps its precision-scale fact; the aggregate result is the
+        # logical, unparameterized Decimal its base type gives.
+        assert semantic_result.model.decimal_precision_scale_for(
+            _shape_field_type_expr(script, "money")
+        ) == DecimalPrecisionScale(12, 2)
+        semantic_fields = semantic_result.model.relation_row_schemas[
+            _relation_ast(script)
+        ].fields
+        for field_name in semantic_fields:
+            _assert_semantic_field(
+                semantic_fields[field_name],
+                "Decimal",
+                EffectiveNullability.NULLABLE,
+            )
+        sql_result = emitter(script_ir)
+        assert sql_result.diagnostics == ()
+        assert [artifact.sql for artifact in sql_result.artifacts] == [sql]
+        _assert_public_text_has_no_precision_scale(sql)
 
 
 @pytest.mark.parametrize(

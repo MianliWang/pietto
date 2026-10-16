@@ -660,6 +660,7 @@ def _analyze_relation_schema_expressions(
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
+        type_expansions=type_expansions,
     )
     derived_relation_count = sum(
         isinstance(definition, (TableDef, QueryDef))
@@ -697,6 +698,7 @@ def _analyze_relation_schema_expressions(
             source_row_schemas=source_row_schemas,
             cyclic_relations=cyclic_relations,
             expression_value_types=temporary_value_types,
+            type_expansions=type_expansions,
         )
         if _relation_schema_fingerprint(refined_schemas) == (
             _relation_schema_fingerprint(relation_row_schemas)
@@ -751,6 +753,7 @@ def _analyze_relation_schema_expressions(
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
         expression_value_types=relation_value_types,
+        type_expansions=type_expansions,
     )
     if stabilized:
         relation_row_schemas = final_schemas

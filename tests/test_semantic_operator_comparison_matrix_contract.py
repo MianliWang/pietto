@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pietto.semantic import EffectiveNullability, TypeKind, ValueTypeKind
+from pietto.ast_nodes import TableDef
+from pietto.parser_api import parse_source
+from pietto.semantic import EffectiveNullability, TypeKind, ValueTypeKind, analyze
 
 from _pietto_semantic_expressions import expression_facts
 
@@ -183,3 +185,110 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
     assert value.resolved_type.name == "Bool"
     assert value.nullability is EffectiveNullability.NON_NULL
     assert diagnostics == ()
+
+
+_ALIAS_TYPES = (
+    "type Age = Int not null\n"
+    "type Money = Decimal(12, 2) not null\n"
+    "type Cash = Money not null\n"
+    "type Ratio = Float not null\n"
+    "type Flag = Bool not null\n"
+    "type Doc = Json not null\n"
+)
+_ALIAS_FIELDS = (
+    ("age", "Age", "Int"),
+    ("bonus", "Age", "Int"),
+    ("amount", "Money", "Decimal(12, 2)"),
+    ("fee", "Money", "Decimal(12, 2)"),
+    ("cash", "Cash", "Decimal(12, 2)"),
+    ("ratio", "Ratio", "Float"),
+    ("flag", "Flag", "Bool"),
+    ("doc", "Doc", "Json"),
+)
+
+
+def _alias_operand_facts(
+    expression: str, *, aliased: bool
+) -> tuple[
+    tuple[str, str, EffectiveNullability], tuple[tuple[str, str, int, int], ...]
+]:
+    # The base-typed program keeps the alias lines blank, so both programs
+    # report at the same line and column.
+    source = (
+        (_ALIAS_TYPES if aliased else "\n" * _ALIAS_TYPES.count("\n"))
+        + "shape Row:\n"
+        + "".join(
+            f"    {name}: {alias if aliased else base} not null\n"
+            for name, alias, base in _ALIAS_FIELDS
+        )
+        + 'source rows: Row is postgres.table("rows")\n'
+        + "table projected:\n    from rows\n    select:\n"
+        + f"        value = {expression}\n"
+    )
+    script = parse_source(source).ast
+    assert script is not None
+    relation = script.definitions[-1]
+    assert isinstance(relation, TableDef)
+    result = analyze(script)
+    value = result.model.expression_value_types[relation.select_items[0].expression]
+    return (
+        (value.resolved_type.kind.name, value.resolved_type.name, value.nullability),
+        tuple(
+            (d.code, d.message, d.location.line, d.location.column)
+            for d in result.diagnostics
+        ),
+    )
+
+
+def test_type_alias_operands_read_as_their_base_type() -> None:
+    # Arithmetic, unary +/- and and/or read an alias (alias chains included) as
+    # the builtin type it expands to; the result is that base type, and every
+    # pair the base types refuse stays refused with the same diagnostic.
+    unknown = EffectiveNullability.UNKNOWN
+    non_null = EffectiveNullability.NON_NULL
+    for expression, expected in (
+        ("age + 1", ("BUILTIN", "Int", unknown)),
+        ("1 + age", ("BUILTIN", "Int", unknown)),
+        ("age - bonus", ("BUILTIN", "Int", unknown)),
+        ("age * 2", ("BUILTIN", "Int", unknown)),
+        ("age % 7", ("BUILTIN", "Int", unknown)),
+        ("-age", ("BUILTIN", "Int", non_null)),
+        ("+age", ("BUILTIN", "Int", non_null)),
+        ("amount + fee", ("BUILTIN", "Decimal", unknown)),
+        ("amount - 1", ("BUILTIN", "Decimal", unknown)),
+        ("1 + amount", ("BUILTIN", "Decimal", unknown)),
+        ("amount * fee", ("BUILTIN", "Decimal", unknown)),
+        ("cash + amount", ("BUILTIN", "Decimal", unknown)),
+        ("ratio * 2.5", ("BUILTIN", "Float", unknown)),
+        ("age + ratio", ("BUILTIN", "Float", unknown)),
+        ("flag and flag", ("BUILTIN", "Bool", unknown)),
+        ("flag or flag", ("BUILTIN", "Bool", unknown)),
+    ):
+        facts = _alias_operand_facts(expression, aliased=True)
+        assert facts == (expected, ()), expression
+        assert facts == _alias_operand_facts(expression, aliased=False), expression
+
+    refused = ("UNKNOWN", "<unknown>", unknown)
+    for expression, operator, operands in (
+        ("amount * 2", "*", "numeric operands"),
+        ("amount % 2", "%", "Int operands"),
+        ("1.0 + amount", "+", "numeric operands"),
+        ("-amount", "-", "numeric operand"),
+        ("doc + 1", "+", "numeric operands"),
+        ("flag + 1", "+", "numeric operands"),
+        ("age and flag", "and", "Bool operands"),
+        ("age % ratio", "%", "Int operands"),
+    ):
+        facts = _alias_operand_facts(expression, aliased=True)
+        assert facts == (
+            refused,
+            (
+                (
+                    "PIE-S2105",
+                    f"Invalid operands for operator {operator}: expected {operands}",
+                    20,
+                    17,
+                ),
+            ),
+        ), expression
+        assert facts == _alias_operand_facts(expression, aliased=False), expression
