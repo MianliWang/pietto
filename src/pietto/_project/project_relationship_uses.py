@@ -39,6 +39,7 @@ from pietto._project.project_relationship_paths import (
 from pietto._project.project_relationships import (
     ProjectConcreteRelationshipSubject,
     ProjectNonConcreteRelationshipSubject,
+    ProjectRelationshipDeclarationOccurrence,
     ProjectRelationshipConstructionState,
     ProjectRelationshipSet,
     ProjectRelationshipSubject,
@@ -1087,13 +1088,14 @@ def _inferred_sources(
 
     With VIA steps that is each binding of the relation the first step starts
     at; without them, each binding with a direct relationship direction to the
-    target. Nothing is chosen while a binding, the target or a step is not
-    concrete (None), since its candidates are then unknown.
+    target. Nothing is chosen (None) while the target or a step is not
+    concrete, or while an earlier binding without concrete relationship
+    authority may still be a candidate, since the candidates are then unknown.
     """
     if (
         target.output is None
-        or any(binding.output is None for binding in earlier)
         or any(use.state is not ProjectJoinUseState.CONCRETE for use in step_uses)
+        or project_join_blocking_bindings(index, earlier, target, step_uses)
     ):
         return None
     if step_uses:
@@ -1110,6 +1112,61 @@ def _inferred_sources(
     )
 
 
+def project_join_blocking_bindings(
+    index: ProjectRelationshipJoinShapeIndex,
+    earlier: tuple[ProjectRelationBindingOccurrence, ...],
+    target: ProjectRelationBindingOccurrence,
+    step_uses: tuple[ProjectTraversalStepUse, ...],
+) -> tuple[ProjectRelationBindingOccurrence, ...]:
+    """Earlier bindings without concrete relationship authority that may still
+    be the source of a JOIN without `from`, in binding order.
+
+    Such a binding (a JOIN query, set, VALUES body or table function, an
+    unresolved relation, or a name bound twice) is left out only when it
+    provably is not a candidate: its relation has no declared relationship to
+    the target or, with VIA steps, is not the relation the first step starts
+    at. Requires a concrete target and concrete steps.
+    """
+    if (
+        target.output is None
+        or target.target is None
+        or any(use.state is not ProjectJoinUseState.CONCRETE for use in step_uses)
+    ):
+        return ()
+    target_relation = target.target.target_occurrence
+    relationships = index.guarantees.conditions.relationships.subjects
+
+    def candidate(binding: ProjectRelationBindingOccurrence) -> bool:
+        if binding.target is None:
+            return True
+        relation = binding.target.target_occurrence
+        if step_uses:
+            start = step_uses[0].directions[0].direction.source.target
+            return start is None or relation is start.target_occurrence
+        return any(
+            _relates(subject.occurrence, relation, target_relation)
+            for subject in relationships
+        )
+
+    return tuple(
+        binding for binding in earlier if binding.output is None and candidate(binding)
+    )
+
+
+def _relates(
+    occurrence: ProjectRelationshipDeclarationOccurrence,
+    first: object,
+    second: object,
+) -> bool:
+    """Whether a relationship's two endpoints are exactly these relations."""
+    ends = tuple(
+        endpoint.target.target_occurrence
+        for endpoint in occurrence.endpoints
+        if endpoint.target is not None
+    )
+    return len(ends) == 2 and {id(end) for end in ends} == {id(first), id(second)}
+
+
 def project_unusable_relationships(
     index: ProjectRelationshipJoinShapeIndex,
     source: ProjectRelationBindingOccurrence,
@@ -1123,17 +1180,15 @@ def project_unusable_relationships(
     """
     if source.target is None or target.target is None:
         return ()
-    pair = {id(source.target.target_occurrence), id(target.target.target_occurrence)}
-    found: list[ProjectNonConcreteMatchGuaranteeSubject] = []
-    for item in index.non_concrete:
-        ends = tuple(
-            endpoint.target.target_occurrence
-            for endpoint in item.relationship.occurrence.endpoints
-            if endpoint.target is not None
+    return tuple(
+        item
+        for item in index.non_concrete
+        if _relates(
+            item.relationship.occurrence,
+            source.target.target_occurrence,
+            target.target.target_occurrence,
         )
-        if len(ends) == 2 and {id(end) for end in ends} == pair:
-            found.append(item)
-    return tuple(found)
+    )
 
 
 def _non_concrete_use(
@@ -1327,10 +1382,8 @@ def _build_use(
         )
         inferred = _inferred_sources(visible, target, step_uses, index)
         if inferred is None:
-            unavailable = tuple(
-                binding
-                for binding in visible
-                if binding.state is not ProjectJoinUseState.CONCRETE
+            unavailable = project_join_blocking_bindings(
+                index, visible, target, step_uses
             )
             return _non_concrete_use(
                 identity=identity,

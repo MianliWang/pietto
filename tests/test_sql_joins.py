@@ -652,6 +652,49 @@ def test_a_one_line_relationship_publishes_its_block_form(tmp_path, target):
     assert _authored_layout_free(found) == _authored_layout_free(written)
 
 
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("head", "source"),
+    (
+        (
+            "    let v:\n        values(id: Int not null):\n            1\n"
+            "    from lhs\n    inner join v as vv:\n        from lhs\n"
+            "        on vv.id == lhs.id\n",
+            "lhs",
+        ),
+        (
+            "    from generate_series(1, 3, 1) as n\n    inner join lhs as l:\n"
+            "        from n\n        on l.id == n.n\n",
+            "l",
+        ),
+    ),
+    ids=("values_let", "table_function"),
+)
+def test_an_inferred_join_after_an_unmodelled_input_publishes_its_explicit_form(
+    tmp_path, target, head, source
+):
+    """A VALUES or table-function binding with no relationship is no candidate."""
+    tail = "    select:\n        a = r.id\n"
+    written, found = (
+        document(
+            emit(
+                tmp_path / label,
+                target,
+                f"query result:\n{head}    inner join rhs as r{layout}{tail}",
+                link=True,
+            )
+        )
+        for label, layout in (
+            ("explicit", f":\n        from {source}\n"),
+            ("inferred", "\n"),
+        )
+    )
+    assert found["status"] == written["status"]
+    assert target == "mysql" or written["status"] == "VERIFIED"
+    assert found.get("sql") == written.get("sql")
+    assert _authored_layout_free(found) == _authored_layout_free(written)
+
+
 # --------------------------------------------------------------------------
 # Rejection controls over the published bytes
 # --------------------------------------------------------------------------

@@ -869,7 +869,11 @@ def _join_cause(
         subject: project_relationship_match_guarantees.ProjectNonConcreteMatchGuaranteeSubject,
     ) -> str:
         condition = subject.condition
-        if condition is None:
+        # An unknown endpoint role or field, or operands of different types,
+        # are PIE-S2604 errors of the declaration itself.
+        if condition is None or any(
+            issue.kind in _DECLARATION_ERRORS for issue in condition.issues
+        ):
             return "its declaration has errors"
         if (
             condition.state
@@ -920,6 +924,33 @@ def _join_cause(
         if clause.source_binding_name is None
         else None
     )
+    blocking = (
+        project_relationship_uses.project_join_blocking_bindings(
+            index,
+            project_relationship_uses.project_join_visible_bindings(ledger, use),
+            target,
+            use.step_uses,
+        )
+        if clause.source_binding_name is None and found is None
+        else ()
+    )
+    if blocking:
+        return (
+            f"{join}: "
+            + "; ".join(
+                f"earlier binding {binding.name} may be its source, but "
+                + (
+                    f"its relation {binding.relation_name} is not resolved"
+                    if binding.target is None
+                    else f"the name {binding.name} is bound more than once"
+                    if binding.state
+                    is project_relationship_uses.ProjectJoinUseState.AMBIGUOUS
+                    else f"a relationship JOIN cannot read {binding.relation_name}"
+                )
+                for binding in blocking
+            )
+            + "; write `from <binding>`"
+        )
     if found is not None and use.step_uses:
         if len(found) != 1:
             start = use.step_uses[0].directions[0].direction.source
@@ -1055,6 +1086,15 @@ def _join_cause(
             )
             return f"{join}: relationship {name} cannot be used: {reason(subject)}"
     return None
+
+
+_DECLARATION_ERRORS = frozenset(
+    {
+        project_relationship_conditions.ProjectRelationshipConditionIssueKind.UNKNOWN_ENDPOINT_ROLE,
+        project_relationship_conditions.ProjectRelationshipConditionIssueKind.UNKNOWN_FIELD,
+        project_relationship_conditions.ProjectRelationshipConditionIssueKind.INCOMPATIBLE_FIELD_TYPES,
+    }
+)
 
 
 def _or_list(names: tuple[str, ...]) -> str:

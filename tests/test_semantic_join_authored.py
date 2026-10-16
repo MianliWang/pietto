@@ -1234,11 +1234,12 @@ def test_an_inferred_join_keeps_every_candidate_and_never_picks_one(
         assert use.issues[0].causes == tuple(ledger.bindings[i] for i in checked)
     (step,) = failed("end_unreached").step_uses
     assert [issue.kind for issue in step.issues] == [kinds.UNKNOWN_ENDPOINT_DIRECTION]
-    # An earlier binding without concrete authority leaves the lookup blocked.
+    # An earlier binding without concrete authority (a JOIN query) is no
+    # candidate while no relationship joins its relation to the target.
     ledger = _inferred_ledger(inferred, "blocked_input")
-    blocked = failed("blocked_input")
-    assert [issue.kind for issue in blocked.issues] == [kinds.BLOCKED_SOURCE_BINDING]
-    assert blocked.issues[0].causes == (ledger.bindings[1],)
+    resolved = ledger.uses[1]
+    assert type(resolved) is uses.ProjectConcreteJoinUse
+    assert resolved.source_binding is ledger.bindings[0]
 
 
 def test_an_inferred_join_failure_names_its_cause_at_the_join(inferred: Any) -> None:
@@ -1587,4 +1588,110 @@ def test_a_via_line_is_offered_only_for_a_relationship_of_the_module(
     ] == [
         (f"{unavailable}written {cause}", "main.pietto", 5, 1),
         (f"{unavailable}inferred {cause}", "main.pietto", 13, 5),
+    ]
+
+
+@pytest.mark.parametrize(
+    "on",
+    ("    on p.nope == d.id\n", "    on x.dept_id == d.id\n"),
+    ids=("unknown_field", "unknown_role"),
+)
+def test_a_relationship_with_declaration_errors_is_named_as_such(
+    tmp_path: Path, on: str
+) -> None:
+    """Its PIE-S2604 is the declaration's error, not a non-equality `on`."""
+    completed = _completed_project(
+        tmp_path / "errors",
+        {"main.pietto": _UNUSABLE.format(on=on, kind="inner")},
+    )
+    assert [item.code for item in completed.diagnostics][:1] == ["PIE-S2604"]
+    assert (
+        "Project relation semantic completion is unavailable: one (JOIN d: no "
+        "relationship from projects to departments can be used: proj_dept (its "
+        "declaration has errors))"
+    ) in [item.message for item in completed.diagnostics]
+
+
+_UNMODELLED = """shape Employee:
+    id: Int not null
+    dept_id: Int not null
+    unique employee_key on id
+shape Department:
+    id: Int not null
+    unique department_key on id
+source employees: Employee is postgres.table("employees")
+source departments: Department is postgres.table("departments")
+relationship works_in: employees.dept_id == departments.id
+{relationship}query joined:
+    from employees
+    inner join departments as d
+    select:
+        id = d.id
+query result:
+    from employees
+    inner join joined as j:
+        from employees
+        on j.id == employees.id
+    inner join departments as d
+    select:
+        id = employees.id
+query series:
+    from generate_series(1, 3, 1) as n
+    inner join employees as e:
+        from n
+        on e.id == n.n
+    inner join departments as d
+    select:
+        id = e.id
+"""
+
+
+def test_an_unmodelled_earlier_binding_blocks_only_when_it_may_be_the_source(
+    tmp_path: Path,
+) -> None:
+    """A JOIN query or a table function binding has no relationship authority:
+    it is left out of the lookup unless a relationship joins its relation to
+    the target, and then the JOIN without `from` names it."""
+    clear = _completed_project(
+        tmp_path / "clear", {"main.pietto": _UNMODELLED.format(relationship="")}
+    )
+    assert clear.diagnostics == ()
+    for name, source in (("result", 0), ("series", 1)):
+        (condition,) = (
+            entry
+            for entry in clear.roots.join_conditions.entries
+            if entry.ledger.owner.definition.name == name
+            and entry.use.identity.join_position == 1
+        )
+        assert condition.ready
+        assert condition.environment.source_candidates == (
+            condition.ledger.bindings[source],
+        )
+    blocked = _completed_project(
+        tmp_path / "blocked",
+        {
+            "main.pietto": _UNMODELLED.format(
+                relationship="relationship joined_dept: joined.id == departments.id\n"
+            )
+        },
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in blocked.diagnostics
+    ] == [
+        (
+            "PIE-S2334",
+            "JOIN-local ON is available only when an EXPLICIT_MODULES project "
+            "(schema version 2) completes it.",
+            21,
+            9,
+        ),
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: result (JOIN d: "
+            "earlier binding j may be its source, but a relationship JOIN cannot "
+            "read joined; write `from <binding>`)",
+            22,
+            5,
+        ),
     ]

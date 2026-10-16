@@ -392,32 +392,38 @@ query enriched:
         order_id = orders.id
 ```
 
-`enriched` is the explicit query above, with the same semantics and SQL:
+`enriched` is the explicit query above, written for these one-line
+declarations, whose roles are the relation names (its VIA step reads `via
+customer_region: customers -> regions`): it has the same semantics and SQL, and
 `emit-sql --project` writes the same artifact for both, apart from source
 locations and the source size and digest (`byte_count` and `sha256`). In an
 EXPLICIT_MODULES project a JOIN without `from` and without VIA considers every
 earlier binding it can read, that is the FROM input and earlier JOIN targets
 but not SEMI or ANTI targets, and keeps each that has a declared relationship
-to its target, including a relationship a JOIN cannot use (no `on`, or an `on`
-that is not only field equalities), so such a binding is never passed over for
-another one. Exactly one binding is used, as if it were written with `from`,
-and it needs exactly one usable direction. A VIA step without roles takes the
-direction of its relationship that ends at the relation the step must reach
-(the JOIN target, or the start of the next step), and a JOIN without `from` but
-with VIA starts at the one earlier binding of the relation its first step
-starts at. No candidate is preferred, neither the FROM input nor the nearest
-binding. No candidate, several bindings, one binding whose relationships cannot
-be used, several directions from one binding (two relationships between the
-same relations, or a relationship of a relation to itself without roles) and a
-VIA step without roles whose relationship does not end at the relation it must
-reach or cannot be used are errors. Each is PIE-S2333 at the JOIN, whose
-message names every candidate with its relationship and direction, or the
-reason a relationship cannot be used, or every binding it checked when there is
-none. It offers a `via` line only for a relationship of the JOIN's own module,
-because a `via` cannot name a relationship of another module. After `from
-employees` and `left join employees as boss: via reports_to: report -> boss`,
-with `relationship works_in: employees.dept_id == departments.id`, the JOIN
-`inner join departments as d` reports a message that ends with:
+to its target, including a relationship a JOIN cannot use (no `on`, an `on`
+that is not only field equalities, or a declaration with errors), so such a
+binding is never passed over for another one. An earlier binding that a
+relationship JOIN cannot read (a JOIN query, set, VALUES body or table
+function) is a candidate only when a relationship joins its relation to the
+target; the JOIN then fails with a message that names it. Exactly one binding
+is used, as if it were written with `from`, and it needs exactly one usable
+direction. A VIA step without roles takes the direction of its relationship
+that ends at the relation the step must reach (the JOIN target, or the start of
+the next step), and a JOIN without `from` but with VIA starts at the one
+earlier binding of the relation its first step starts at. No candidate is
+preferred, neither the FROM input nor the nearest binding. No candidate,
+several bindings, one binding whose relationships cannot be used, several
+directions from one binding (two relationships between the same relations, or a
+relationship of a relation to itself without roles) and a VIA step without
+roles whose relationship does not end at the relation it must reach or cannot
+be used are errors. Each is PIE-S2333 at the JOIN, whose message names every
+candidate with its relationship and direction, or the reason a relationship
+cannot be used, or every binding it checked when there is none. It offers a
+`via` line only for a relationship of the JOIN's own module, because a `via`
+cannot name a relationship of another module. After `from employees` and `left
+join employees as boss: via reports_to: report -> boss`, with `relationship
+works_in: employees.dept_id == departments.id`, the JOIN `inner join
+departments as d` reports a message that ends with:
 
 ```text
 (JOIN d matches relationships from 2 earlier bindings: employees `via works_in: employees -> departments` and boss `via works_in: employees -> departments`; write `from <binding>`)
