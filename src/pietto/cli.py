@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import NoReturn
+from typing import IO, NoReturn
 
 import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
@@ -51,6 +51,7 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
+from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.3"
@@ -85,10 +86,6 @@ _OS_ERROR_ERRNO_REASONS: dict[int | None, str] = {
     errno.ENAMETOOLONG: "File name too long",
     errno.ELOOP: "Too many levels of symbolic links",
 }
-# Line and paragraph separators and the bidi marks, embeddings, overrides and
-# isolates; text presentation escapes them with the C1 controls.
-_UNICODE_CONTROLS = frozenset("؜‎‏  ‪‫‬‭‮⁦⁧⁨⁩")
-
 type _SqlEmitter = Callable[[ir_api.ScriptIR], sql_api.SqlResult]
 
 
@@ -105,16 +102,28 @@ class _StdoutWriteError(Exception):
 
 
 class _CliArgumentParser(argparse.ArgumentParser):
-    """Escape control characters in argparse error details."""
+    """Route argparse output through the CLI stream writers.
+
+    Help and --version are command output on stdout, so a closed or failing
+    stdout is handled like any other result; usage errors are escaped and go
+    to stderr, never falling back to stdout when stderr is closed.
+    """
+
+    def _print_message(self, message: str, file: object = None) -> None:
+        if not message:
+            return
+        if file is not None and file is sys.stderr:
+            _write_stderr(message)
+        else:
+            _write_stdout(message)
 
     def error(self, message: str) -> NoReturn:
         """Print one safe usage error and terminate argument parsing."""
 
-        self.print_usage(sys.stderr)
-        self.exit(
-            _EXIT_USAGE_ERROR,
-            f"{self.prog}: error: {_escape_cli_text(message)}\n",
+        _write_stderr(
+            f"{self.format_usage()}{self.prog}: error: {_escape_cli_text(message)}\n"
         )
+        self.exit(_EXIT_USAGE_ERROR)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -125,22 +134,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         _flush_stdout()
     except UnicodeEncodeError:
         _print_output_encoding_error()
-        return _EXIT_USAGE_ERROR
+        exit_code = _EXIT_USAGE_ERROR
     except _StdoutWriteError as error:
-        _discard_stdout()
+        _discard(sys.stdout)
         cause = error.__cause__
-        # A broken pipe means the reader wanted no more output: exit quietly.
         if error.args:
-            _write_stderr_line(str(error))
+            _write_stderr(f"{error}\n")
         elif not isinstance(cause, OSError):
-            _write_stderr_line("pietto: error: standard output is closed")
-        elif not isinstance(cause, BrokenPipeError):
-            _write_stderr_line(
+            _write_stderr("pietto: error: standard output is closed\n")
+        elif not _reader_closed(cause):
+            _write_stderr(
                 "pietto: error: standard output could not be written: "
-                f"{_cli_error_message(cause, None)}"
+                f"{_cli_error_message(cause, None)}\n"
             )
-        return _EXIT_USAGE_ERROR
+        exit_code = _EXIT_USAGE_ERROR
+    _flush_stderr()
     return exit_code
+
+
+def _reader_closed(error: OSError) -> bool:
+    """Whether stdout failed because its reader closed the pipe, a quiet exit.
+
+    Windows reports a pipe whose reader has gone as EINVAL rather than EPIPE,
+    which CPython also treats as a closed pipe (bpo-19612, bpo-30418).
+    """
+
+    return isinstance(error, BrokenPipeError) or (
+        sys.platform == "win32" and error.errno == errno.EINVAL
+    )
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
@@ -336,7 +357,7 @@ def _build_emit_sql_json_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class _JsonArgumentParser(argparse.ArgumentParser):
+class _JsonArgumentParser(_CliArgumentParser):
     """Raise command usage errors for JSON rendering instead of printing them."""
 
     def error(self, message: str) -> NoReturn:
@@ -1079,8 +1100,6 @@ def _run_project_emit_sql(arguments: Sequence[str]) -> int:
     """Run the explicit project emit-sql mode and write its exact stream bytes."""
 
     result = run_project_emit_sql(arguments)
-    if isinstance(result, int):
-        return result
     if result.stderr:
         _write_stderr(result.stderr)
     if result.stdout:
@@ -1349,18 +1368,26 @@ def _flush_stdout() -> None:
         raise _StdoutWriteError from error
 
 
-def _discard_stdout() -> None:
-    """Point a failed stdout at the null device, as the Python docs advise.
+def _discard(stream: IO[str] | None) -> None:
+    """Point a failed standard stream at the null device, as the Python docs advise.
 
     Output still buffered then cannot fail again in the interpreter's exit
-    flush, which would print "Exception ignored" and exit 120.
+    flush, which would print "Exception ignored" and exit 120. Only the
+    interpreter's own stdout and stderr are redirected, never a stream that a
+    caller installed.
     """
 
-    try:
-        descriptor = sys.stdout.fileno()
-        null = os.open(os.devnull, os.O_WRONLY)
-    except (AttributeError, OSError, ValueError):
+    if stream is None or (
+        stream is not sys.__stdout__ and stream is not sys.__stderr__
+    ):
         return
+    try:
+        descriptor = stream.fileno()
+        null = os.open(os.devnull, os.O_WRONLY)
+    except (OSError, ValueError):
+        return
+    if null == descriptor:
+        return  # The descriptor was closed and the null device now holds it.
     try:
         os.dup2(null, descriptor)
     except OSError:
@@ -1370,32 +1397,43 @@ def _discard_stdout() -> None:
 
 
 def _write_stderr(text: str) -> None:
-    """Write to stderr; a closed stderr (None) drops the text.
+    """Write to stderr without letting it change the command's result.
 
-    print(file=sys.stderr) would instead fall back to stdout and mix notices
-    into the command output.
+    A closed stderr (None) drops the text, where print(file=sys.stderr) would
+    fall back to stdout and mix notices into the command output. A failing
+    stderr is discarded, so the command still finishes, writes its stdout and
+    exits with its own code.
     """
 
-    if sys.stderr is not None:
-        sys.stderr.write(text)
-
-
-def _write_stderr_line(text: str) -> None:
-    """Write one ASCII notice to stderr; a failing stderr stays silent."""
-
+    stream = sys.stderr
+    if stream is None:
+        return
     try:
-        _write_stderr(f"{text}\n")
+        stream.write(text)
+    except UnicodeEncodeError:
+        raise
     except (OSError, ValueError):
-        pass
+        _discard(stream)
+
+
+def _flush_stderr() -> None:
+    """Flush stderr so its failure is handled before interpreter exit."""
+
+    stream = sys.stderr
+    if stream is None:
+        return
+    try:
+        stream.flush()
+    except (OSError, ValueError):
+        _discard(stream)
 
 
 def _escape_cli_text(value: str) -> str:
     r"""Escape controls for single-line terminal output.
 
-    C0 controls and DEL become \xNN escapes; C1 controls (U+0080..U+009F, NEL
-    and CSI among them), the line and paragraph separators and the bidi
-    controls become \uNNNN escapes, so source text cannot drive the terminal
-    or reorder the line.
+    Tab, LF and CR become \t, \n and \r, the other C0 controls and DEL
+    become \xNN, and C1, separator and bidi controls become \uNNNN, so source
+    text cannot drive the terminal, break the line or reorder it.
     """
 
     named_escapes = {
@@ -1413,11 +1451,9 @@ def _escape_cli_text(value: str) -> str:
             escaped.append(replacement)
         elif ord(character) < 0x20:
             escaped.append(f"\\x{ord(character):02x}")
-        elif 0x80 <= ord(character) <= 0x9F or character in _UNICODE_CONTROLS:
-            escaped.append(f"\\u{ord(character):04x}")
         else:
             escaped.append(character)
-    return "".join(escaped)
+    return escape_unicode_controls("".join(escaped))
 
 
 def _has_errors(diagnostics: tuple[Diagnostic, ...]) -> bool:

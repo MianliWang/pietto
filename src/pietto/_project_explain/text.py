@@ -25,6 +25,7 @@ from pietto._project_explain.model import (
 from pietto._project_explain.package_requirement_projection import (
     ProjectExplainCapabilityKey,
 )
+from pietto._terminal_text import escape_unicode_controls
 
 __all__: tuple[str, ...] = ()
 
@@ -46,7 +47,7 @@ def _text(value: str | None) -> str:
             escaped.append(f"\\x{ord(character):02x}")
         else:
             escaped.append(character)
-    return "".join(escaped)
+    return escape_unicode_controls("".join(escaped))
 
 
 def _positions(values: tuple[int, ...]) -> str:

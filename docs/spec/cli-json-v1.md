@@ -89,22 +89,25 @@ encoded` notice to stderr and exits `2`; it does not replace text or emit a
 partial SQL document. UTF-8 `--output` files and JSON v1 serialization remain
 unchanged.
 
-If stdout cannot receive the output of `check`, `explain`, or `emit-sql`, in
-either format and in single-file or project mode, the command exits `2`
-instead of reporting success and never prints a Python traceback or an
-interpreter `Exception ignored` notice. A broken pipe, such as a reader like
-`head` or `grep -q` that exits early, ends the command quietly. Any other
-write or flush failure writes the ASCII-only notice
+If stdout cannot receive the output of `check`, `explain`, or `emit-sql`,
+their help and `--version` text included, in either format and in single-file
+or project mode, the command exits `2` instead of reporting success and never
+prints a Python traceback or an interpreter `Exception ignored` notice. A
+reader that closes the pipe early, such as `head` or `grep -q`, ends the
+command quietly; on Windows, where a pipe without a reader reports `EINVAL`
+instead of a broken pipe, that error ends it quietly too. Any other write or
+flush failure writes the ASCII-only notice
 `pietto: error: standard output could not be written: ` followed by the fixed
 reason and codes described under [CLI Error Object](#cli-error-object), for
 example `No space left on device (errno 28)`, to stderr. A closed stdout
-writes `pietto: error: standard output is closed`. A closed stderr drops
-notices and diagnostics rather than mixing them into stdout, so when stderr
-is closed as well, the exit code is the only signal. Output written before
-the failure, including a replaced `--output` file, is kept. Project
-`emit-sql` keeps the notice of its
+writes `pietto: error: standard output is closed`. Stderr never changes the
+result: a closed or failing stderr drops notices, diagnostics, and usage
+errors instead of mixing them into stdout, and the command still writes its
+stdout and exits with its own code, so when stdout fails as well, exit `2` is
+the only signal. Output written before the failure, including a replaced
+`--output` file, is kept. Project `emit-sql` keeps the notice of its
 [Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)
-for every stdout failure, a broken pipe included.
+for every stdout failure, its `--help` text and a broken pipe included.
 
 JSON fields contain raw structured values. They are not passed through
 `_escape_cli_text()`, which remains exclusive to plain-text terminal and CI
@@ -463,18 +466,22 @@ The implemented outcomes are:
   missing file, a path under a regular file or an unsearchable directory, or a
   symbolic-link loop, reports `file_read` at the input path even when
   `--output` is given, including an output in the same uninspectable
-  directory.
+  directory. An output path that normalizes to the input path itself still
+  reports `output_path` first.
 
 ## Security And Presentation
 
 - JSON is serialized by `json.dumps`; JSON strings are not assembled manually.
 - Control-character presentation escaping belongs to text mode, not JSON field
-  values. Text mode escapes the user-supplied paths and the messages it
-  prints, including diagnostics and the `path:` line of `explain` text: C0
-  controls and DEL become `\xNN`, and C1 controls (U+0080 to U+009F, which
-  include NEL and CSI), U+2028, U+2029, and the bidirectional controls U+061C,
-  U+200E, U+200F, U+202A to U+202E, and U+2066 to U+2069 become `\uNNNN`, for
-  example `‮`. JSON keeps these characters raw.
+  values. Single-file text escapes the user-supplied paths and the messages it
+  prints, including diagnostics and the `path:` line of `explain` text: tab,
+  LF, and CR become `\t`, `\n`, and `\r`, the other C0 controls and DEL
+  become `\xNN`, and C1 controls (U+0080 to U+009F, which include NEL and
+  CSI), U+2028, U+2029, and the bidirectional controls U+061C, U+200E, U+200F,
+  U+202A to U+202E, and U+2066 to U+2069 become `\uNNNN`, for example
+  `\u202e` for U+202E. Project `check` text follows the same rule, and project
+  `emit-sql` and `explain` text apply the same `\uNNNN` escapes after their
+  own C0 escaping. JSON keeps these characters raw.
 - Decoded JSON values preserve the original structured path, message,
   suggestion, and SQL text.
 - Handled JSON errors must not expose Python tracebacks.

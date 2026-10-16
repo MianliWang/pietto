@@ -55,8 +55,11 @@ count, and `--` ends option parsing), argparse-style detection of
 `--project` and its abbreviations for `check`, fixed English
 reasons with errno codes for handled file errors, and `--output` rules that
 refuse zero SQL artifacts, write LF line endings on every platform, report a
-regular-file output parent as `output_write`, and report an unreadable input
-as `file_read`.
+regular-file or uninspectable output parent as `output_write` after
+compilation, and report an unreadable input as `file_read`. A closed or
+unwritable stdout exits `2` without a traceback, and text output writes C1,
+separator, and bidi controls as `\uNNNN` escapes; project mode follows both
+rules too.
 
 Phase 8 adds no command or option to this baseline.
 
@@ -111,7 +114,7 @@ Project mode preserves the existing process exit-code classes:
 |---:|---|
 | `0` | Successful command, including warning-only or info-only diagnostics |
 | `1` | Parser, semantic, IR, or backend error diagnostics |
-| `2` | Usage, configuration, root, path, source-read, dialect, or output error |
+| `2` | Usage, configuration, root, path, source-read, dialect, output, or standard-output error |
 
 Examples:
 
@@ -127,6 +130,7 @@ Examples:
 | Cross-file duplicate symbol or cycle | `1` |
 | IR or backend diagnostic error | `1` |
 | Output path protection or write failure | `2` |
+| Standard output closed or not writable | `2` |
 
 The JSON Boolean `ok` remains separate from the process exit code.
 
@@ -143,6 +147,9 @@ diagnostics and artifacts:
 - canonical absolute paths are not exposed unless needed to explain a
   root-level filesystem failure;
 - handled failures do not expose Python tracebacks;
+- text escapes control characters in the paths and messages it prints, and
+  C1, separator, and bidi controls become `\uNNNN`, as described in
+  [CLI JSON v1](cli-json-v1.md#security-and-presentation);
 - SQL artifacts remain raw generated data, not terminal-escaped diagnostic
   text;
 - project SQL artifacts use deterministic project ordering.
@@ -181,7 +188,10 @@ stream guarantees:
 - use the standard-library JSON encoder;
 - use `ensure_ascii=True`;
 - preserve raw structured values rather than text presentation escaping;
-- expose no Python traceback or internal exception object.
+- expose no Python traceback or internal exception object;
+- follow the CLI JSON v1
+  [stdout-failure rule](cli-json-v1.md#stream-and-encoding-contract) when
+  stdout is closed or cannot be written, exiting `2`.
 
 Errors before a recognized command, project mode, and JSON format can be
 identified may retain argparse-style text on stderr. Slice 5 does not implement

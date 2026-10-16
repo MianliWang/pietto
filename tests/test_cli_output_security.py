@@ -268,8 +268,12 @@ def test_control_characters_in_diagnostic_text_are_escaped(
     )
 
 
-# C1 controls (CSI and NEL included), line/paragraph separators, bidi controls.
-_UNICODE_CONTROLS = "\u0080\u0085\u009b\u009f  ؜‎‏‪‫‬‭‮⁦⁧⁨⁩"
+_UNICODE_CONTROLS = (
+    "\u0080\u0085\u009b\u009f"  # C1, including NEL and CSI
+    "\u2028\u2029"  # line and paragraph separators
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e"  # bidi
+    "\u2066\u2067\u2068\u2069"  # bidi isolates
+)
 
 
 @pytest.mark.parametrize("character", list(_UNICODE_CONTROLS))
@@ -296,14 +300,14 @@ def test_unicode_controls_in_diagnostic_text_are_u_escaped(
 def test_neighbors_of_escaped_unicode_controls_stay_raw(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    text = "~ é‧ ⁥⁪"
+    text = "~\u00a0\u00e9\u2027\u202f\u2065\u206a"
 
     cli._print_cli_error(Path(text), text)
 
     assert capsys.readouterr() == ("", f"{text}: error: {text}\n")
 
 
-@pytest.mark.parametrize("character", ["\u009b", " ", "‮"])
+@pytest.mark.parametrize("character", ["\u009b", "\u2028", "\u202e"])
 def test_source_unicode_controls_are_escaped_in_text_and_raw_in_json(
     character: str,
     tmp_path: Path,

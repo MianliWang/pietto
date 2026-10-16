@@ -56,6 +56,7 @@ from pietto._project.project_sql_emission_contract import (
 from pietto._project.project_sql_plan import build_project_sql_plan
 from pietto._project.project_sql_plan_literals import ProjectSQLLiteralPolicy
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+from pietto._terminal_text import escape_unicode_controls
 
 __all__: tuple[str, ...] = ()
 
@@ -115,9 +116,17 @@ class _UsageError(Exception):
     """A project-mode argument error rendered through the new failure family."""
 
 
+class _Help(Exception):
+    """The --help text, which the CLI writes to stdout like any result."""
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         raise _UsageError(message)
+
+    def _print_message(self, message: str, file: object = None) -> None:
+        # Only --help prints here; usage errors raise _UsageError instead.
+        raise _Help(message)
 
 
 class _Once(argparse.Action):
@@ -146,16 +155,16 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
-    """Run one project emit-sql invocation; an int is an argparse help exit."""
+def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
+    """Run one project emit-sql invocation, --help included."""
 
     text = text_presentation_requested(arguments)
     try:
         namespace = _build_parser().parse_args(list(arguments))
     except _UsageError as error:
         return _usage(str(error), text)
-    except SystemExit as error:
-        return error.code if type(error.code) is int else 0 if error.code is None else 1
+    except _Help as help_text:
+        return ProjectEmitResult(0, str(help_text).encode("utf-8"), "", False)
     if namespace.path is not None:
         return _usage("path and --project are mutually exclusive", text)
     missing = [
@@ -464,14 +473,22 @@ def _read_contract(
 
 
 def _validate_output(output: Path) -> InputError | None:
-    """Reject unsuitable destinations before any compilation or mutation."""
+    """Reject unsuitable destinations before any compilation or mutation.
 
-    if output.is_symlink():
-        return InputError("output_path", "Output path must not be a symbolic link.")
-    if output.exists() and not output.is_file():
-        return InputError("output_path", "Output path must be a regular file.")
-    if not output.parent.is_dir():
-        return InputError("output_path", "Output directory does not exist.")
+    Only a destination shown to be unsuitable is rejected. One that cannot be
+    inspected is left to the write, which cannot reach it either and reports
+    output_write.
+    """
+
+    try:
+        if output.is_symlink():
+            return InputError("output_path", "Output path must not be a symbolic link.")
+        if output.exists() and not output.is_file():
+            return InputError("output_path", "Output path must be a regular file.")
+        if not output.parent.is_dir():
+            return InputError("output_path", "Output directory does not exist.")
+    except OSError:
+        pass
     return None
 
 
@@ -528,13 +545,19 @@ def _publish(
 
 
 def _escape(value: str) -> str:
-    """Escape C0 controls and DEL for single-line terminal presentation."""
+    """Escape controls for single-line terminal presentation.
 
-    return "".join(
-        character
-        if ord(character) >= 0x20 and character != "\x7f"
-        else f"\\x{ord(character):02x}"
-        for character in value
+    C0 controls and DEL become \\xNN; C1, separator and bidi controls become
+    \\uNNNN, as in every CLI text output.
+    """
+
+    return escape_unicode_controls(
+        "".join(
+            character
+            if ord(character) >= 0x20 and character != "\x7f"
+            else f"\\x{ord(character):02x}"
+            for character in value
+        )
     )
 
 

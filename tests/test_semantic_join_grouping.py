@@ -1713,7 +1713,26 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
         assert _fanout_check(tmp_path, fix, files) == []
 
 
+@pytest.mark.parametrize(
+    ("first", "second", "spelled"),
+    [
+        (
+            "src.x == dst.x and src.y == dst.y",
+            "src.y == dst.y and src.x == dst.x",
+            "x, y",
+        ),
+        # The first match wins over field declaration and alphabetical order.
+        (
+            "src.y == dst.y and src.x == dst.x",
+            "src.x == dst.x and src.y == dst.y",
+            "y, x",
+        ),
+    ],
+)
 def test_a_composite_key_matched_in_two_field_orders_is_offered_once(
+    first: str,
+    second: str,
+    spelled: str,
     tmp_path: Path,
 ) -> None:
     """Two JOINs match the same composite key with their equalities in opposite
@@ -1729,10 +1748,7 @@ def test_a_composite_key_matched_in_two_field_orders_is_offered_once(
         + "".join(
             f"relationship {name}:\n    endpoint src: a\n    endpoint dst: b\n"
             f"    on {condition}\n"
-            for name, condition in (
-                ("ab1", "src.x == dst.x and src.y == dst.y"),
-                ("ab2", "src.y == dst.y and src.x == dst.x"),
-            )
+            for name, condition in (("ab1", first), ("ab2", second))
         )
         + "query q:\n    from a\n"
         + "".join(
@@ -1747,7 +1763,7 @@ def test_a_composite_key_matched_in_two_field_orders_is_offered_once(
         (
             "PIE-S2333",
             f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN b1 and "
-            "JOIN b2; declare a unique key on b (x, y) (matched by JOINs b1 and b2), "
+            f"JOIN b2; declare a unique key on b ({spelled}) (matched by JOINs b1 and b2), "
             "or group by unique keys of b1 and b2 whose fields are all not null)",
         )
     ]

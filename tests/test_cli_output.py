@@ -571,6 +571,12 @@ class _FailingStdout:
         ["check", "--project", "{project}"],
         ["check", "--project", "{project}", "--format", "json"],
         ["explain", "--project", "{project}", "--format", "json"],
+        # Help and --version are command output on stdout too.
+        [],
+        ["--help"],
+        ["--version"],
+        ["check", "--help"],
+        ["emit-sql", "{file}", "--format", "json", "--help"],
     ],
 )
 def test_stdout_failure_is_a_handled_cli_error_in_every_command(
@@ -602,6 +608,36 @@ def test_stdout_failure_is_a_handled_cli_error_in_every_command(
 
 
 @pytest.mark.parametrize(
+    ("platform", "expected_stderr"),
+    [
+        # Windows reports a pipe whose reader has gone as EINVAL, not EPIPE.
+        ("win32", ""),
+        (
+            "linux",
+            "pietto: error: standard output could not be written: "
+            f"Operating system error (errno {errno.EINVAL})\n",
+        ),
+    ],
+)
+def test_einval_is_a_closed_pipe_reader_only_on_windows(
+    platform: str,
+    expected_stderr: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _relation_file(tmp_path)
+    failing = _FailingStdout(OSError(errno.EINVAL, "Invalid argument"), "write")
+    monkeypatch.setattr(sys, "stdout", failing)
+    monkeypatch.setattr(sys, "platform", platform)
+    stderr = io.StringIO()
+
+    with contextlib.redirect_stderr(stderr):
+        code = cli.main(["check", str(path)])
+
+    assert (code, stderr.getvalue()) == (2, expected_stderr)
+
+
+@pytest.mark.parametrize(
     ("command", "expected_code"),
     [
         (["check", "{bad}"], 1),  # compiler diagnostics
@@ -609,6 +645,9 @@ def test_stdout_failure_is_a_handled_cli_error_in_every_command(
         (["check", "{bad}", "--project", "{project}"], 2),  # usage error
         (["check", "--project", "{missing}"], 2),  # project discovery error
         (["explain", "--project", "{project}"], 2),  # project explain failure text
+        (["check", "--bogus"], 2),  # argparse usage errors
+        (["emit-sql", "{bad}"], 2),
+        (["check", "{bad}", "--format", "yaml"], 2),
     ],
 )
 def test_closed_stderr_drops_notices_instead_of_writing_them_to_stdout(
@@ -638,7 +677,12 @@ def test_closed_stderr_drops_notices_instead_of_writing_them_to_stdout(
     assert stdout.getvalue() == ""
 
 
-def _stdout_failure_sink(sink: str) -> int | None:
+_NEEDS_DEV_FULL = pytest.mark.skipif(
+    not os.path.exists("/dev/full"), reason="needs /dev/full"
+)
+
+
+def _failing_sink(sink: str | None) -> int | None:
     if sink == "full":
         return os.open("/dev/full", os.O_WRONLY)
     if sink == "broken-pipe":
@@ -648,30 +692,8 @@ def _stdout_failure_sink(sink: str) -> int | None:
     return None
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32" or not os.path.exists("/dev/full"),
-    reason="needs POSIX pipes, /dev/full and sh",
-)
-@pytest.mark.parametrize(
-    ("sink", "command", "expected_stderr"),
-    [
-        # Output larger than the stdout buffer fails inside write().
-        ("broken-pipe", ["explain", "{large}"], ""),
-        # Small output fails only when it is flushed before exit.
-        ("broken-pipe", ["check", "{file}", "--format", "json"], ""),
-        ("full", ["emit-sql", "{large}", "--dialect", "postgres"], _STDOUT_NO_SPACE),
-        ("full", ["--version"], _STDOUT_NO_SPACE),
-        ("closed", ["emit-sql", "{file}", "--dialect", "postgres"], _STDOUT_CLOSED),
-    ],
-)
-def test_real_stdout_failure_exits_two_without_traceback(
-    sink: str,
-    command: list[str],
-    expected_stderr: str,
-    tmp_path: Path,
-) -> None:
-    path = _relation_file(tmp_path)
-    large = _write(
+def _large_source(tmp_path: Path) -> Path:
+    return _write(
         tmp_path,
         "large.pietto",
         "".join(
@@ -681,11 +703,45 @@ def test_real_stdout_failure_exits_two_without_traceback(
             for index in range(40)
         ),
     )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX pipes and sh")
+@pytest.mark.parametrize("unbuffered", [False, True])
+@pytest.mark.parametrize(
+    ("sink", "command", "expected_stderr"),
+    [
+        # Output larger than the stdout buffer fails inside write().
+        ("broken-pipe", ["explain", "{large}"], ""),
+        # Small output fails only when it is flushed before exit.
+        ("broken-pipe", ["check", "{file}", "--format", "json"], ""),
+        pytest.param(
+            "full",
+            ["emit-sql", "{large}", "--dialect", "postgres"],
+            _STDOUT_NO_SPACE,
+            marks=_NEEDS_DEV_FULL,
+        ),
+        pytest.param("full", ["--version"], _STDOUT_NO_SPACE, marks=_NEEDS_DEV_FULL),
+        ("closed", ["emit-sql", "{file}", "--dialect", "postgres"], _STDOUT_CLOSED),
+        ("closed", ["--version"], _STDOUT_CLOSED),
+    ],
+)
+def test_real_stdout_failure_exits_two_without_traceback(
+    sink: str,
+    command: list[str],
+    expected_stderr: str,
+    unbuffered: bool,
+    tmp_path: Path,
+) -> None:
+    path = _relation_file(tmp_path)
+    large = _large_source(tmp_path)
     arguments = [part.format(file=path, large=large) for part in command]
-    descriptor = _stdout_failure_sink(sink)
+    descriptor = _failing_sink(sink)
     try:
         completed = _run_cli(
-            arguments, stdout=descriptor, close_stdout=sink == "closed"
+            arguments,
+            stdout=descriptor,
+            close_stdout=sink == "closed",
+            unbuffered=unbuffered,
         )
     finally:
         if descriptor is not None:
@@ -694,6 +750,81 @@ def test_real_stdout_failure_exits_two_without_traceback(
     assert (completed.returncode, completed.stderr) == (
         2,
         expected_stderr.encode("ascii"),
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX pipes")
+@pytest.mark.parametrize(
+    "stderr_sink", [pytest.param("full", marks=_NEEDS_DEV_FULL), "broken-pipe"]
+)
+@pytest.mark.parametrize(
+    ("stdout_sink", "command", "expected_code"),
+    [
+        # A stdout failure exits 2 even when its notice cannot be written.
+        pytest.param("full", ["check", "{file}"], 2, marks=_NEEDS_DEV_FULL),
+        pytest.param(
+            "full",
+            ["emit-sql", "{large}", "--dialect", "postgres", "--format", "json"],
+            2,
+            marks=_NEEDS_DEV_FULL,
+        ),
+        # With a working stdout, the lost warning leaves the result intact.
+        (None, ["check", "{warning}"], 0),
+        (None, ["emit-sql", "{warning}", "--dialect", "postgres"], 0),
+    ],
+)
+def test_failing_stderr_keeps_the_command_result(
+    stdout_sink: str | None,
+    command: list[str],
+    expected_code: int,
+    stderr_sink: str,
+    tmp_path: Path,
+) -> None:
+    path = _relation_file(tmp_path)
+    large = _large_source(tmp_path)
+    warning = _write(
+        tmp_path,
+        "warning.pietto",
+        "shape User:\n"
+        "    email: Text\n"
+        'source users: User is postgres.table("users")\n'
+        "table user_emails:\n"
+        "    from users\n"
+        "    select:\n"
+        "        email\n",
+    )
+    arguments = [
+        part.format(file=path, large=large, warning=warning) for part in command
+    ]
+    stdout = _failing_sink(stdout_sink)
+    stderr = _failing_sink(stderr_sink)
+    try:
+        completed = _run_cli(arguments, stdout=stdout, stderr=stderr)
+    finally:
+        for descriptor in (stdout, stderr):
+            if descriptor is not None:
+                os.close(descriptor)
+
+    assert completed.returncode == expected_code
+    if stdout_sink is None and command[0] == "check":
+        assert completed.stdout == f"OK: {warning}\n".encode()
+    elif stdout_sink is None:
+        assert completed.stdout.startswith(b'SELECT\n    "email" AS "email"\n')
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX descriptors")
+def test_stdout_descriptor_closed_after_startup_exits_two(tmp_path: Path) -> None:
+    path = _relation_file(tmp_path)
+
+    # The null device opened to discard stdout lands on the freed descriptor 1.
+    completed = _run_cli(["check", str(path)], before_main="import os; os.close(1); ")
+
+    assert (completed.returncode, completed.stderr) == (
+        2,
+        (
+            "pietto: error: standard output could not be written: "
+            f"Operating system error (errno {errno.EBADF})\n"
+        ).encode("ascii"),
     )
 
 
@@ -753,14 +884,21 @@ def _run_cli(
     encoding: str | None = None,
     strict_stderr: bool = False,
     stdout: int | None = None,
+    stderr: int | None = None,
     close_stdout: bool = False,
+    unbuffered: bool = False,
+    before_main: str = "",
 ) -> subprocess.CompletedProcess[bytes]:
     environment = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")}
     if encoding is None:
         environment.pop("PYTHONIOENCODING", None)
     else:
         environment["PYTHONIOENCODING"] = encoding
-    program = "from pietto.cli import main; raise SystemExit(main())"
+    # Buffering decides when a write fails, so it is pinned, not inherited.
+    environment.pop("PYTHONUNBUFFERED", None)
+    if unbuffered:
+        environment["PYTHONUNBUFFERED"] = "1"
+    program = f"from pietto.cli import main; {before_main}raise SystemExit(main())"
     if strict_stderr:
         program = (
             "import os, sys; sys.stderr = os.fdopen("
@@ -773,7 +911,7 @@ def _run_cli(
     return subprocess.run(
         command,
         stdout=subprocess.PIPE if stdout is None else stdout,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.PIPE if stderr is None else stderr,
         check=False,
         env=environment,
     )

@@ -1019,6 +1019,13 @@ def test_failure_messages_never_echo_roots_or_raw_input(
     )
     code, out, err = run(argv(root, target, format="text"))
     assert code == 1 and "\x1b" not in err and "\\x1b" in err
+    # So are C1 controls (CSI here) and bidi controls (RIGHT-TO-LEFT OVERRIDE).
+    source = (root / "main.pietto").read_text()
+    for control in ("\u009b", "\u202e"):
+        (root / "main.pietto").write_text(source.replace("\x1b[31m", control))
+        code, out, err = run(argv(root, target, format="text"))
+        assert code == 1 and control not in err
+        assert f"input '\\u{ord(control):04x}'" in err
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1071,6 +1078,47 @@ def test_output_file_is_the_exact_artifact_and_replacement_is_atomic(
         code, out, err = run(argv(root, target, output=str(destination)))
         assert code == 2 and kinds(out) == [("output_path", None)]
     assert existing.read_bytes() == b"stale"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="needs POSIX directory permissions and names"
+)
+@pytest.mark.parametrize("presentation", ["json", "text"])
+@pytest.mark.parametrize("case", ["unsearchable-parent", "name-too-long"])
+def test_an_uninspectable_destination_is_an_output_write_error(
+    tmp_path: Path, case: str, presentation: str
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    locked = tmp_path / "locked"
+    if case == "unsearchable-parent":
+        if os.geteuid() == 0:
+            pytest.skip("needs POSIX directory permissions that bind the user")
+        locked.mkdir()
+        locked.chmod(0)
+        destination = locked / "artifact.json"
+    else:
+        longest = os.pathconf(tmp_path, "PC_NAME_MAX")
+        destination = tmp_path / f"{'a' * (longest + 1 - len('.json'))}.json"
+    arguments = argv(root, "postgres", output=str(destination))
+    if presentation == "text":
+        arguments += ["--format", "text"]
+    try:
+        code, out, err = run(arguments)
+    finally:
+        if locked.exists():
+            locked.chmod(0o700)
+    if presentation == "json":
+        assert (code, err) == (2, "")
+        assert [(e["kind"], e["message"]) for e in failure(out)["cli_errors"]] == [
+            ("output_write", "Output file could not be written.")
+        ]
+    else:
+        assert (code, out) == (2, b"")
+        assert err.startswith(
+            "pietto.sql-emission.v1 INPUT_REJECTED\n"
+            "error output_write: Output file could not be written.\n"
+        )
+    assert not tuple(tmp_path.rglob("*.tmp"))
 
 
 @pytest.mark.skipif(
@@ -1210,8 +1258,9 @@ def test_injected_file_faults_preserve_destinations_and_report_honestly(
     ]
     assert existing.read_bytes() == b"stale" and SENTINEL not in out.decode()
     monkeypatch.setattr(Path, "unlink", real_unlink)
-    for leftover in tmp_path.glob(".pietto-*.tmp"):
-        leftover.unlink()
+    leftovers = tuple(tmp_path.glob("*.tmp"))
+    assert len(leftovers) == 1  # the temporary file whose removal failed
+    leftovers[0].unlink()
     monkeypatch.setattr(emission_cli.os, "replace", real_replace)
     assert run(argv(root, "postgres", output=str(existing))) == (0, expected, "")
     assert existing.read_bytes() == expected
@@ -1262,12 +1311,13 @@ def test_stdout_failure_is_not_success_and_never_rolls_back_a_replaced_file(
 
     for stdout in (None, FullStdout()):
         monkeypatch.setattr(sys, "stdout", stdout)
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            code = cli.main(argv(root, "postgres"))
-        assert code == 2 and err.getvalue() == (
-            "pietto emit-sql: error: standard output could not be written\n"
-        )
+        for arguments in (argv(root, "postgres"), argv(root, "postgres") + ["--help"]):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = cli.main(arguments)
+            assert code == 2 and err.getvalue() == (
+                "pietto emit-sql: error: standard output could not be written\n"
+            )
     # A stream without a binary buffer still receives the exact UTF-8 text.
     plain = io.StringIO()
     monkeypatch.setattr(sys, "stdout", plain)
