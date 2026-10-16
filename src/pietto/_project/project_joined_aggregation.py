@@ -1710,11 +1710,13 @@ def _build_grain_linkages(
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
     protections: tuple[ProjectJoinedGroupProtection, ...],
 ) -> tuple[ProjectJoinedAggregateGrainLinkage, ...]:
-    if not aggregates:
-        return ()
     region = input_filter.joined_semantics.multifact_region
     index = region.grain_index
     final_grain = region.final_properties.relational.grain
+    # An UNKNOWN grain has no contextual factors; only a result that already
+    # has a group-key, aggregate or output issue reaches here with one.
+    if not aggregates or final_grain.state is ProjectGrainBasisState.UNKNOWN:
+        return ()
     protection_factors = _ordered_factors(
         final_grain.active,
         tuple(

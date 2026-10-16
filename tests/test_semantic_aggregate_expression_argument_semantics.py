@@ -219,7 +219,7 @@ def test_unsupported_aggregate_expression_arguments_use_s2315(
         (
             "PIE-S2315",
             f"Aggregate function {function_name} requires a direct field argument; "
-            "expression arguments are deferred",
+            "expression arguments are not supported yet",
         )
     ]
 
@@ -301,7 +301,7 @@ def test_projection_alias_is_not_an_aggregate_argument_leaf() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is deferred",
+                "composition around sum() is not supported yet",
             ),
         ),
     ],

@@ -20,6 +20,7 @@ from pietto.ast_nodes import (
     LetBinding,
     LiteralExpr,
     MembershipExpr,
+    Node,
     RelationExistsExpr,
     RelationScalarExpr,
     RelationMembershipExpr,
@@ -127,6 +128,143 @@ def admitted_relation_let_expressions(
             expressions[binding.name] = binding.expression
         seen_names.add(binding.name)
     return expressions
+
+
+# Single-file IR inlines every `let:` binding at each read, so the size and
+# depth of an expression after inlining bound the IR and SQL it produces.
+_MAX_INLINE_NODES = 100_000
+_MAX_INLINE_DEPTH = 256
+
+
+def let_expansion_diagnostics(
+    definition: DerivedRelation,
+    admitted: Mapping[str, object],
+) -> list[Diagnostic]:
+    """Refuse expressions whose single-file let inline expansion is too big.
+
+    Each binding and each relation expression that reads an admitted earlier
+    binding is measured after inlining it. Only the first expression past a
+    bound on a read path is reported (PIE-S2328).
+    """
+
+    if definition.let_clause is None:
+        return []
+    diagnostics: list[Diagnostic] = []
+    # Per inlined binding: (node count, depth, it or a binding it reads exceeds).
+    measured: dict[str, tuple[int, int, bool]] = {}
+
+    def measure(expression: Expression) -> tuple[int, int, bool, bool]:
+        """Return node count, depth, an exceeding read, and any let read."""
+
+        if type(expression) is NameExpr and expression.name in measured:
+            return (*measured[expression.name], True)
+        size, depth, exceeded, inlined = 1, 0, False, False
+        for operand in _operands(expression):
+            operand_size, operand_depth, operand_exceeded, operand_inlined = measure(
+                operand
+            )
+            size += operand_size
+            depth = max(depth, operand_depth)
+            exceeded = exceeded or operand_exceeded
+            inlined = inlined or operand_inlined
+        return size, depth + 1, exceeded, inlined
+
+    def check(
+        node: Node, expression: Expression, binding: str | None
+    ) -> tuple[int, int, bool]:
+        size, depth, exceeded, inlined = measure(expression)
+        exceeds = inlined and (size > _MAX_INLINE_NODES or depth > _MAX_INLINE_DEPTH)
+        if exceeds and not exceeded:
+            diagnostics.append(_inline_expansion_diagnostic(node, binding, depth=depth))
+        return size, depth, exceeds or exceeded
+
+    for binding in definition.let_clause.bindings:
+        if binding.name in admitted and binding.name not in measured:
+            measured[binding.name] = check(binding, binding.expression, binding.name)
+    for expression in _relation_expressions(definition):
+        check(expression, expression, None)
+    return diagnostics
+
+
+def _relation_expressions(definition: DerivedRelation) -> tuple[Expression, ...]:
+    """Return the relation expressions that single-file IR lowers with lets."""
+
+    return (
+        *(
+            ()
+            if definition.where_clause is None
+            else (definition.where_clause.expression,)
+        ),
+        *(
+            ()
+            if definition.group_by_clause is None
+            else tuple(item.key for item in definition.group_by_clause.items)
+        ),
+        *(item.expression for item in definition.select_items),
+        *(
+            ()
+            if definition.satisfying_clause is None
+            else (definition.satisfying_clause.expression,)
+        ),
+        *(
+            ()
+            if definition.order_by_clause is None
+            else tuple(item.expression for item in definition.order_by_clause.items)
+        ),
+    )
+
+
+def _operands(expression: Expression) -> tuple[Expression, ...]:
+    """Return the operands that let inline expansion descends into."""
+
+    if isinstance(expression, CallExpr):
+        return expression.arguments
+    if isinstance(expression, UnaryExpr):
+        return (expression.operand,)
+    if isinstance(expression, ConditionalExpr):
+        return (expression.when_true, expression.condition, expression.when_false)
+    if isinstance(expression, MembershipExpr):
+        return (expression.value, *expression.options)
+    if isinstance(expression, (CastExpr, IsNullExpr, RelationMembershipExpr)):
+        return (expression.value,)
+    if isinstance(expression, (BinaryExpr, ComparisonExpr)):
+        return (expression.left, expression.right)
+    if isinstance(expression, BetweenExpr):
+        return (expression.value, expression.lower, expression.upper)
+    return ()
+
+
+def _inline_expansion_diagnostic(
+    node: Node,
+    binding: str | None,
+    *,
+    depth: int,
+) -> Diagnostic:
+    limit = (
+        f"{_MAX_INLINE_DEPTH} nested levels"
+        if depth > _MAX_INLINE_DEPTH
+        else f"{_MAX_INLINE_NODES} expression nodes"
+    )
+    message = (
+        "Expression exceeds the single-file let inline expansion limit of "
+        f"{limit} after inlining the let bindings it reads"
+        if binding is None
+        else "Let binding exceeds the single-file let inline expansion limit of "
+        f"{limit} after inlining the let bindings it reads: {binding}"
+    )
+    span = node.span
+    return Diagnostic(
+        code="PIE-S2328",
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
 
 
 def let_projection_conflict_diagnostics(

@@ -68,6 +68,10 @@ def test_visible_float_is_unsupported(tmp_path: Path) -> None:
     result = _completed(tmp_path, _source("Float"))
     assert not result.ok
     assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
+    # The message words the reason; its retained identifier stays unchanged.
+    assert result.diagnostics[0].message.endswith(
+        "has unsupported row equivalence: Float equality is not supported yet."
+    )
 
 
 @pytest.mark.parametrize("kind", ("table", "query"))

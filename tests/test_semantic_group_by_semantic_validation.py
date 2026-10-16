@@ -160,7 +160,7 @@ def test_scalar_group_key_expression_projection_is_deferred() -> None:
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2319", "Grouped scalar projection expressions are deferred"),
+        ("PIE-S2319", "Grouped scalar projection expressions are not supported yet"),
     ]
     assert schema.fields["label"].resolved_type.kind is TypeKind.UNKNOWN
     assert schema.fields["label"].nullability is EffectiveNullability.UNKNOWN
@@ -204,7 +204,7 @@ def test_pure_grouping_without_aggregate_is_deferred_but_schema_is_known() -> No
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2320", "Pure grouped output without an aggregate is deferred"),
+        ("PIE-S2320", "Grouped output without an aggregate is not supported yet"),
     ]
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
 
@@ -249,7 +249,7 @@ def test_unsupported_grouped_order_by_items_emit_s2321(order_item: str) -> None:
             (
                 "PIE-S2315",
                 "Aggregate function sum requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -261,7 +261,7 @@ def test_unsupported_grouped_order_by_items_emit_s2321(order_item: str) -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is deferred",
+                "composition around sum() is not supported yet",
             ),
         ),
     ],

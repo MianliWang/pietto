@@ -78,7 +78,7 @@ COMPLETION = (
                 ("PIE-S2350", POSITION.format("SATISFYING"), 16, 9),
                 (
                     "PIE-S2323",
-                    "`satisfying` requires GROUP BY in the Phase 25 MVP",
+                    "`satisfying` requires GROUP BY",
                     15,
                     5,
                 ),

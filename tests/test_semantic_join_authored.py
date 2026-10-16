@@ -722,6 +722,144 @@ def test_single_file_join_binding_fields_say_why_they_are_unknown(
     ]
 
 
+_SINGLE_FILE_JOIN_PREFIX = """shape ARow:
+    id: Int not null
+    b_id: Int not null
+shape BRow:
+    id: Int not null
+    c_id: Int not null
+shape CRow:
+    id: Int not null
+source a_rows: ARow is postgres.table("a")
+source b_rows: BRow is postgres.table("b")
+source c_rows: CRow is postgres.table("c")
+relationship ab:
+    endpoint a: a_rows
+    endpoint b: b_rows
+    on a.b_id == b.id
+relationship bc:
+    endpoint b: b_rows
+    endpoint c: c_rows
+    on b.c_id == c.id
+query joined:
+    from a_rows
+"""
+
+
+@pytest.mark.parametrize(
+    ("joins", "expected"),
+    (
+        (
+            "    inner join b_rows as b:\n        from a_rows\n        via ab: a -> b\n",
+            [],
+        ),
+        (
+            "    left join c_rows as c:\n        from a_rows\n"
+            "        via ab: a -> b\n        via bc: b -> c\n",
+            [],
+        ),
+        (
+            "    inner join b_rows as b:\n        from a_rows\n"
+            "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n",
+            [],
+        ),
+        (
+            "    inner join b_rows as b:\n        from nowhere\n        via ab: a -> b\n",
+            [("PIE-S2335", "Unknown JOIN source binding: nowhere", 22, 5)],
+        ),
+        (
+            "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n"
+            "    inner join b_rows as b:\n        from a_rows\n        via ab: a -> b\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN source binding is bound only by a later JOIN: b",
+                    22,
+                    5,
+                )
+            ],
+        ),
+        (
+            "    inner join b_rows as b:\n        from a_rows\n"
+            "    inner join b_rows as b:\n        from a_rows\n"
+            "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n",
+            [("PIE-S2335", "Ambiguous JOIN source binding: b", 26, 5)],
+        ),
+        (
+            "    inner join nowhere as n:\n        from a_rows\n",
+            [("PIE-S2301", "Unknown relation: nowhere", 22, 5)],
+        ),
+        (
+            "    inner join b_rows as b:\n        from a_rows\n        via nope: a -> b\n",
+            [("PIE-S2335", "Unknown relationship in JOIN VIA: nope", 24, 9)],
+        ),
+        (
+            "    inner join b_rows as b:\n        from a_rows\n        via ab: a -> x\n",
+            [("PIE-S2335", "Unknown endpoint role in JOIN VIA ab: x", 24, 9)],
+        ),
+        (
+            "    inner join b_rows as b:\n        from a_rows\n        via ab: a -> a\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN VIA ab uses one endpoint role as both source and target: a",
+                    24,
+                    9,
+                )
+            ],
+        ),
+        (
+            "    inner join c_rows as c:\n        from a_rows\n"
+            "        via ab: a -> b\n        via ab: a -> b\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN VIA steps do not connect: a step ends at b_rows and the "
+                    "next starts at a_rows",
+                    22,
+                    5,
+                )
+            ],
+        ),
+        (
+            "    inner join a_rows as back:\n        from a_rows\n        via ab: b -> a\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN VIA path starts at b_rows, not at source binding a_rows "
+                    "(a_rows)",
+                    22,
+                    5,
+                )
+            ],
+        ),
+        (
+            "    inner join c_rows as c:\n        from a_rows\n        via ab: a -> b\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN VIA path ends at b_rows, not at the JOIN target c_rows",
+                    22,
+                    5,
+                )
+            ],
+        ),
+    ),
+)
+def test_single_file_join_reads_resolve_their_target_binding_and_via_steps(
+    joins: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    semantic = analyze(
+        _parse(
+            _SINGLE_FILE_JOIN_PREFIX + joins + "    select:\n        n = a_rows.id\n"
+        )
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == expected
+
+
 @pytest.mark.parametrize(
     ("join", "field", "hinted"),
     (

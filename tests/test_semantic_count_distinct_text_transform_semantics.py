@@ -132,7 +132,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -140,7 +140,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -148,7 +148,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -156,7 +156,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -164,7 +164,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -172,7 +172,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -180,7 +180,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function count requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -188,7 +188,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function min requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -196,7 +196,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             (
                 "PIE-S2315",
                 "Aggregate function max requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
     ],
@@ -243,7 +243,7 @@ def test_unsupported_count_distinct_transform_shapes_use_s2315(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count_distinct() is deferred",
+                "composition around count_distinct() is not supported yet",
             ),
         ),
     ],

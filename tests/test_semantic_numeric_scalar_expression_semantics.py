@@ -261,7 +261,7 @@ def test_decimal_multiplication_preserves_the_decimal_scalar_type() -> None:
             (
                 "PIE-S2315",
                 "Aggregate function sum requires a direct field argument; "
-                "expression arguments are deferred",
+                "expression arguments are not supported yet",
             ),
         ),
         (
@@ -269,7 +269,7 @@ def test_decimal_multiplication_preserves_the_decimal_scalar_type() -> None:
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -281,7 +281,7 @@ def test_decimal_multiplication_preserves_the_decimal_scalar_type() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is deferred",
+                "composition around sum() is not supported yet",
             ),
         ),
     ],

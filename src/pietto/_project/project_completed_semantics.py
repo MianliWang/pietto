@@ -419,6 +419,9 @@ class _ProjectCompletedSemanticRoots:
                         ),
                         *completed_set_admission_diagnostics(effective_outputs),
                     ),
+                    shapes=(
+                        verification.root.base_relational.origins.value_fds.row_keys.shape_diagnostics
+                    ),
                     relationships=(
                         verification.root.join_regions.uses.index.guarantees.conditions.diagnostics
                     ),
@@ -1063,6 +1066,7 @@ def _final_diagnostics(
     effective_outputs: ProjectEffectiveOutputCompletion,
     *,
     retired: tuple[Diagnostic, ...] = (),
+    shapes: tuple[Diagnostic, ...] = (),
     relationships: tuple[Diagnostic, ...] = (),
 ) -> tuple[Diagnostic, ...]:
     retired_ids = {id(diagnostic) for diagnostic in retired}
@@ -1071,7 +1075,9 @@ def _final_diagnostics(
         for diagnostic in semantic_result.diagnostics
         if id(diagnostic) not in retired_ids
     ]
-    # Relationship declarations are checked before the relations using them.
+    # Shape and relationship declarations are checked before the relations
+    # using them.
+    retained.extend(shapes)
     retained.extend(relationships)
     retained_ids = {id(diagnostic) for diagnostic in retained}
     semantic_facts = semantic_result.module_semantic_facts

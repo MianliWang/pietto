@@ -330,6 +330,7 @@ def type_relation_expressions(
         )
         let_value_types = relation_let_value_types.get(definition)
         let_expressions = relation_let_expressions.get(definition)
+        rejected_lets = set(rejected_let_names(definition, let_value_types))
         named_window_namespace_failed = False
         named_window_namespace = None
         if definition.named_windows:
@@ -380,6 +381,7 @@ def type_relation_expressions(
                 report_unknown_name=True,
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_value_types,
+                suppressed_unknown_names=rejected_lets,
                 type_expansions=type_expansions,
             )
         for selected_output_ordinal, item in enumerate(definition.select_items):
@@ -445,6 +447,7 @@ def type_relation_expressions(
                 allow_aggregate_projection=_is_direct_aggregate_projection(item),
                 bare_value_types=select_let_value_types,
                 bare_value_expressions=let_expressions,
+                suppressed_unknown_names=rejected_lets,
                 type_expansions=type_expansions,
             )
         if (
@@ -472,6 +475,20 @@ def type_relation_expressions(
                         item.expression.name: _UNKNOWN_VALUE_TYPE,
                         **(let_value_types or {}),
                     }
+                order_suppressed_names = rejected_lets
+                if (
+                    type(item.expression) is NameExpr
+                    and item.expression.name in selected_output_name_counts
+                    and not _names_window_output(definition, item.expression.name)
+                    and item.expression.name not in rejected_lets
+                    and item.expression.name not in (order_bare_value_types or {})
+                    and not input_schema.is_unknown
+                    and item.expression.name not in input_schema.fields
+                ):
+                    diagnostics.append(
+                        _order_by_output_name_diagnostic(item.expression)
+                    )
+                    order_suppressed_names = {*rejected_lets, item.expression.name}
                 _infer(
                     item.expression,
                     input_schema,
@@ -481,6 +498,7 @@ def type_relation_expressions(
                     field_qualifier=definition.from_clause.source_name,
                     bare_value_types=order_bare_value_types,
                     bare_value_expressions=let_expressions,
+                    suppressed_unknown_names=order_suppressed_names,
                     type_expansions=type_expansions,
                 )
                 if not input_schema.is_unknown and _is_constant_order_key(
@@ -619,6 +637,25 @@ def _constant_order_key_diagnostic(expression: Expression) -> Diagnostic:
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+    )
+
+
+def rejected_let_names(
+    definition: TableDef | QueryDef,
+    admitted: Mapping[str, object] | None,
+) -> frozenset[str]:
+    """Return the relation's let names that its scope did not admit.
+
+    PIE-S2329 already reports each such binding, so a read of its name does
+    not also report an unknown field.
+    """
+
+    if definition.let_clause is None or admitted is None:
+        return frozenset()
+    return frozenset(
+        binding.name
+        for binding in definition.let_clause.bindings
+        if binding.name not in admitted
     )
 
 
@@ -1355,6 +1392,7 @@ def _cast_value_type(
 ) -> ValueType:
     """Admit only the explicit portable Int-to-Float conversion."""
 
+    diagnostic_count = len(diagnostics)
     value_type = _infer(
         expression.value,
         row_schema,
@@ -1368,17 +1406,22 @@ def _cast_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    float_target = (
+        expression.target.name == "Float"
+        and not expression.target.arguments
+        and expression.target.nullability is Nullability.IMPLICIT
+    )
     if value_type.kind is ValueTypeKind.UNKNOWN:
-        if _is_null_literal(expression.value):
+        # A null operand and the target are known without the operand's type;
+        # a silent unknown operand is refused unless the cast is to Float.
+        explained = len(diagnostics) > diagnostic_count or row_schema.is_unknown
+        if _is_null_literal(expression.value) or not (explained or float_target):
             diagnostics.append(
                 _invalid_cast_diagnostic(expression, value_type, type_expansions)
             )
         return _UNKNOWN_VALUE_TYPE
-    if (
-        expression.target.name != "Float"
-        or expression.target.arguments
-        or expression.target.nullability is not Nullability.IMPLICIT
-        or not _is_canonical_builtin(value_type, "Int", type_expansions)
+    if not float_target or not _is_canonical_builtin(
+        value_type, "Int", type_expansions
     ):
         diagnostics.append(
             _invalid_cast_diagnostic(expression, value_type, type_expansions)
@@ -1655,9 +1698,15 @@ def _call_value_type(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
-    """Type one exact built-in call while suppressing Unknown cascades."""
+    """Type one exact built-in call while suppressing Unknown cascades.
+
+    An Unknown argument suppresses only the checks that need its type. When an
+    argument reported its own error or the input row is unknown, the call adds
+    nothing more; otherwise the name, arity and window checks still run.
+    """
 
     function_name = _callee_name(expression)
+    diagnostic_count = len(diagnostics)
     argument_types = _call_argument_types(
         expression,
         row_schema,
@@ -1671,6 +1720,11 @@ def _call_value_type(
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
         relation_columns=relation_columns,
+    )
+    # An unknown input row or an argument's own error explains an Unknown
+    # argument; the call then adds nothing.
+    cascade = (len(diagnostics) > diagnostic_count or row_schema.is_unknown) and any(
+        argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
     )
     if function_name in {"coalesce", "nullif"}:
         contextual = _contextual_null_literal_types(
@@ -1706,9 +1760,14 @@ def _call_value_type(
                 return result_type
         return _UNKNOWN_VALUE_TYPE
 
-    if any(
-        argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
-    ) and function_name in {"sign", "year", "month", "day"}:
+    if (
+        function_name in {"sign", "year", "month", "day"}
+        and any(
+            argument_type.kind is ValueTypeKind.UNKNOWN
+            for argument_type in argument_types
+        )
+        and (cascade or len(argument_types) == 1)
+    ):
         return _UNKNOWN_VALUE_TYPE
     if function_name == "sign":
         return _sign_value_type(
@@ -1721,10 +1780,14 @@ def _call_value_type(
 
     signature = BUILTIN_FUNCTIONS.get(function_name)
     if signature is None:
-        if any(
-            argument_type.kind is ValueTypeKind.UNKNOWN
-            for argument_type in argument_types
-        ):
+        if cascade:
+            return _UNKNOWN_VALUE_TYPE
+        from pietto.semantic.window_semantics import WINDOW_FUNCTION_NAMES
+
+        if function_name in WINDOW_FUNCTION_NAMES:
+            diagnostics.append(
+                _window_without_spec_diagnostic(expression, function_name)
+            )
             return _UNKNOWN_VALUE_TYPE
         diagnostics.append(_unknown_function_diagnostic(expression, function_name))
         return _UNKNOWN_VALUE_TYPE
@@ -2333,12 +2396,11 @@ def _invalid_cast_diagnostic(
 ) -> Diagnostic:
     """Report a rejected explicit conversion, echoing the attempted pair."""
 
-    canonical = _canonical_resolved_type(value_type, type_expansions)
-    source = (
-        "null"
-        if _is_null_literal(expression.value)
-        else (value_type.resolved_type if canonical is None else canonical).name
-    )
+    if value_type.kind is ValueTypeKind.UNKNOWN:
+        source = "null" if _is_null_literal(expression.value) else "unknown"
+    else:
+        canonical = _canonical_resolved_type(value_type, type_expansions)
+        source = (value_type.resolved_type if canonical is None else canonical).name
     target = _type_expression_text(expression.target)
     span = expression.span
     return Diagnostic(
@@ -2406,6 +2468,35 @@ def _unknown_field_diagnostic(expression: NameExpr | DottedNameExpr) -> Diagnost
     )
 
 
+def _names_window_output(definition: TableDef | QueryDef, name: str) -> bool:
+    return any(
+        type(item.expression) is WindowExpr and item.alias == name
+        for item in definition.select_items
+    )
+
+
+def _order_by_output_name_diagnostic(expression: NameExpr) -> Diagnostic:
+    """Report an ungrouped ORDER BY key that names only a SELECT output."""
+
+    span = expression.span
+    return Diagnostic(
+        code="PIE-S2102",
+        severity=Severity.ERROR,
+        message=(
+            f"Unknown field: {expression.name}; outside a grouped query an "
+            "ORDER BY key cannot name a SELECT output (restate its expression "
+            "or bind it in `let:`)"
+        ),
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
 def _unknown_function_diagnostic(
     expression: CallExpr,
     function_name: str,
@@ -2416,6 +2507,24 @@ def _unknown_function_diagnostic(
         expression,
         code="PIE-S2103",
         message=f"Unknown function: {function_name}",
+    )
+
+
+def _window_without_spec_diagnostic(
+    expression: CallExpr,
+    function_name: str,
+) -> Diagnostic:
+    """Report a window function called without a window specification."""
+
+    call = f"{function_name}({'...' if expression.arguments else ''})"
+    return _call_diagnostic(
+        expression,
+        code="PIE-S2103",
+        message=(
+            f"Window function needs a `window` specification: {function_name} "
+            f"(write `{call} window:` in a SELECT item, with an indented "
+            "`order by:`)"
+        ),
     )
 
 

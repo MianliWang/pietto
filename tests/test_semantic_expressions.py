@@ -497,6 +497,79 @@ def test_invalid_cast_echoes_the_attempted_pair(
     ]
 
 
+_WINDOW_HINT = "in a SELECT item, with an indented `order by:`)"
+_CAST_HINT = "is not supported; expected cast(Int as Float), the only supported cast"
+
+
+@pytest.mark.parametrize(
+    ("expression", "code", "message"),
+    [
+        ("frob(null)", "PIE-S2103", "Unknown function: frob"),
+        ("frob(count / 2)", "PIE-S2103", "Unknown function: frob"),
+        (
+            "month(count / 2, count / 2)",
+            "PIE-S2104",
+            "Invalid arguments for function month: expected 1, got 2",
+        ),
+        (
+            "cast(null as Int)",
+            "PIE-S2105",
+            f"Invalid cast: cast(null as Int) {_CAST_HINT}",
+        ),
+        (
+            "cast(null as Float)",
+            "PIE-S2105",
+            f"Invalid cast: cast(null as Float) {_CAST_HINT}",
+        ),
+        (
+            "cast(count / 2 as Text)",
+            "PIE-S2105",
+            f"Invalid cast: cast(unknown as Text) {_CAST_HINT}",
+        ),
+        (
+            "row_number()",
+            "PIE-S2103",
+            "Window function needs a `window` specification: row_number (write "
+            f"`row_number() window:` {_WINDOW_HINT}",
+        ),
+        (
+            "lag(count)",
+            "PIE-S2103",
+            "Window function needs a `window` specification: lag (write "
+            f"`lag(...) window:` {_WINDOW_HINT}",
+        ),
+        (
+            "first_value(count / 2)",
+            "PIE-S2103",
+            "Window function needs a `window` specification: first_value (write "
+            f"`first_value(...) window:` {_WINDOW_HINT}",
+        ),
+        ("cast(count / 2 as Float)", None, None),
+        ("lower(null)", None, None),
+    ],
+)
+def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
+    expression: str, code: str | None, message: str | None
+) -> None:
+    result = analyze(
+        _parse(
+            "shape Person:\n"
+            "    count: Int not null\n"
+            'source people: Person is postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    select:\n"
+            f"        value = {expression}\n"
+        )
+    )
+
+    assert [
+        (diagnostic.code, diagnostic.message, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == ([] if code is None else [(code, message, 17)])
+
+
 COMPARISON_SOURCE = (
     "type Age = Int not null\n"
     "enum Status:\n"

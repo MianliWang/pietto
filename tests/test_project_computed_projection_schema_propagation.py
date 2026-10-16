@@ -305,7 +305,14 @@ def test_projection_alias_does_not_enter_same_relation_order_by_scope() -> None:
 
     semantic = analyze(script)
 
-    assert _errors(semantic) == [("PIE-S2102", "Unknown field: value")]
+    assert _errors(semantic) == [
+        (
+            "PIE-S2102",
+            "Unknown field: value; outside a grouped query an ORDER BY key "
+            "cannot name a SELECT output (restate its expression or bind it in "
+            "`let:`)",
+        )
+    ]
     assert (
         semantic.model.relation_row_schemas[relation].fields["value"].resolved_type.name
         == "Int"

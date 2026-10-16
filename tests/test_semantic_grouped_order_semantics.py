@@ -225,7 +225,7 @@ def test_grouped_order_rejects_unsupported_computed_projection_output() -> None:
     )
 
     assert _errors(result) == [
-        ("PIE-S2319", "Grouped scalar projection expressions are deferred"),
+        ("PIE-S2319", "Grouped scalar projection expressions are not supported yet"),
         (
             "PIE-S2321",
             "Unsupported grouped ORDER BY item; expected a supported select output name",

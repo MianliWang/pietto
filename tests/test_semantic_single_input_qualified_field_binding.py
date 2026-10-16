@@ -265,7 +265,14 @@ def test_projection_alias_does_not_enter_order_by_input_scope() -> None:
         (diagnostic.code, diagnostic.message)
         for diagnostic in semantic.diagnostics
         if diagnostic.severity is Severity.ERROR
-    ] == [("PIE-S2102", "Unknown field: sort_key")]
+    ] == [
+        (
+            "PIE-S2102",
+            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
+            "cannot name a SELECT output (restate its expression or bind it in "
+            "`let:`)",
+        )
+    ]
 
 
 def test_relationship_metadata_does_not_participate_in_qualified_lookup() -> None:

@@ -172,7 +172,7 @@ def test_literal_only_and_leaf_policy_risks_remain_deferred(
         (
             "PIE-S2315",
             "Aggregate function count requires a direct field argument; "
-            "expression arguments are deferred",
+            "expression arguments are not supported yet",
         )
     ]
 
@@ -229,7 +229,7 @@ def test_direct_any_and_enum_count_field_rejections_remain_unchanged() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is deferred",
+                "composition around count() is not supported yet",
             ),
         ),
     ],

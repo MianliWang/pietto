@@ -227,7 +227,7 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -235,7 +235,7 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "
-                "argument; expression arguments are deferred",
+                "argument; expression arguments are not supported yet",
             ),
         ),
         (
@@ -247,7 +247,7 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count_distinct() is deferred",
+                "composition around count_distinct() is not supported yet",
             ),
         ),
         (

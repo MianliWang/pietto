@@ -148,6 +148,7 @@ from pietto._project.project_row_equivalence import (
     ProjectRowEquivalenceInput,
     ProjectRowEquivalenceField,
     compatible_row_types,
+    equivalence_reason_text,
 )
 from pietto._project.project_relationship_uses import ProjectJoinUseState
 from pietto._project.project_joined_aggregation import (
@@ -384,7 +385,7 @@ class ProjectDistinctUnsupported:
                 Diagnostic(
                     code="PIE-S2339",
                     severity=Severity.ERROR,
-                    message=f"DISTINCT field '{selected.output_name}' of type '{selected.field.resolved_type.name}' has unsupported row equivalence: {evidence.reason.value}.",
+                    message=f"DISTINCT field '{selected.output_name}' of type '{selected.field.resolved_type.name}' has unsupported row equivalence: {equivalence_reason_text(evidence.reason)}.",
                     location=SourceLocation(
                         path=span.path,
                         line=span.line,
@@ -5127,7 +5128,7 @@ def _complete_set_output(
                         set_diagnostic(
                             scope,
                             "PIE-S2344",
-                            f"Set operand {operand + 1}, field {position + 1} of type '{fact.selected.field.resolved_type.name}' lacks required row equivalence: {fact.reason.value}.",
+                            f"Set operand {operand + 1}, field {position + 1} of type '{fact.selected.field.resolved_type.name}' lacks required row equivalence: {equivalence_reason_text(fact.reason)}.",
                             operand,
                         )
                     )

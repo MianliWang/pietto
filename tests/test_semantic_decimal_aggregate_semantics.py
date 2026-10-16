@@ -140,7 +140,7 @@ def test_decimal_aggregate_expression_arguments_remain_deferred(
         (
             "PIE-S2315",
             f"Aggregate function {function_name} requires a direct field argument; "
-            "expression arguments are deferred",
+            "expression arguments are not supported yet",
         )
     ]
 
@@ -188,7 +188,7 @@ def test_existing_aggregate_expression_argument_diagnostics_remain_deferred(
         (
             "PIE-S2315",
             f"Aggregate function {function_name} requires a direct field argument; "
-            "expression arguments are deferred",
+            "expression arguments are not supported yet",
         )
     ]
 
@@ -248,7 +248,7 @@ def test_decimal_aggregate_slice_preserves_unsupported_direct_field_types(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is deferred",
+                "composition around sum() is not supported yet",
             ),
         ),
         (

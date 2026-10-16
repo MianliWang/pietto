@@ -1897,6 +1897,24 @@ class WindowNthDirection(StrEnum):
     FROM_LAST = "from_last"
 
 
+# The bounded builtin window function identities.
+WINDOW_FUNCTION_NAMES = frozenset(
+    {
+        "row_number",
+        "rank",
+        "dense_rank",
+        "percent_rank",
+        "cume_dist",
+        "ntile",
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ResolvedWindowFunctionModifiers:
     """Exact authored and effective use-local modifier evidence."""
@@ -1913,20 +1931,7 @@ class ResolvedWindowFunctionModifiers:
         if (
             self.identity.namespace != ()
             or self.identity.role is not WindowFunctionRole.WINDOW_FUNCTION
-            or self.identity.name
-            not in {
-                "row_number",
-                "rank",
-                "dense_rank",
-                "percent_rank",
-                "cume_dist",
-                "ntile",
-                "lag",
-                "lead",
-                "first_value",
-                "last_value",
-                "nth_value",
-            }
+            or self.identity.name not in WINDOW_FUNCTION_NAMES
         ):
             raise ValueError("window modifier identity must be one exact builtin")
         if (

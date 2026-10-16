@@ -183,6 +183,40 @@ def test_duplicate_diagnostic_uses_later_definition_span() -> None:
     assert diagnostic.location.end_column == duplicate.span.end_column
 
 
+def test_repeated_enum_member_reports_s2001_once_per_name_at_the_enum() -> None:
+    script = _parse(
+        "enum Status:\n    active\n    held\n    active\n    held\n    active\n"
+        "enum Other:\n    active\n",
+        path=Path("enum.pietto"),
+    )
+    enum = script.definitions[0]
+
+    diagnostics = analyze(script).diagnostics
+
+    assert [(d.code, d.severity, d.message) for d in diagnostics] == [
+        ("PIE-S2001", Severity.ERROR, "Duplicate member name in enum Status: active"),
+        ("PIE-S2001", Severity.ERROR, "Duplicate member name in enum Status: held"),
+    ]
+    assert {
+        (
+            d.location.path,
+            d.location.line,
+            d.location.column,
+            d.location.end_line,
+            d.location.end_column,
+        )
+        for d in diagnostics
+    } == {
+        (
+            enum.span.path,
+            enum.span.line,
+            enum.span.column,
+            enum.span.end_line,
+            enum.span.end_column,
+        )
+    }
+
+
 def test_first_symbol_remains_bound_after_duplicate() -> None:
     script = _parse("type Value = Int not null\ntype Value = Text not null\n")
     first = script.definitions[0]

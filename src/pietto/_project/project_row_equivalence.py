@@ -110,6 +110,13 @@ def resolved_builtin_equivalence_reason(
     return None
 
 
+def equivalence_reason_text(reason: ProjectRowEquivalenceReason) -> str:
+    """Diagnostic wording for one reason; the retained reason value is unchanged."""
+    if reason is ProjectRowEquivalenceReason.FLOAT_EQUIVALENCE_DEFERRED:
+        return "Float equality is not supported yet"
+    return reason.value
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectRowEquivalenceField:
     """Capability attached to one exact visible selected field and type root."""

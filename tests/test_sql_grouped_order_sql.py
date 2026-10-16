@@ -309,7 +309,14 @@ def test_no_group_projection_alias_still_fails_before_sql() -> None:
         (diagnostic.code, diagnostic.message)
         for diagnostic in result.diagnostics
         if diagnostic.severity is Severity.ERROR
-    ] == [("PIE-S2102", "Unknown field: sort_key")]
+    ] == [
+        (
+            "PIE-S2102",
+            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
+            "cannot name a SELECT output (restate its expression or bind it in "
+            "`let:`)",
+        )
+    ]
 
 
 def test_unsupported_grouped_order_source_fails_semantically_before_sql() -> None:
