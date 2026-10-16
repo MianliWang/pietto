@@ -457,9 +457,9 @@ def test_malformed_closed_future_dialect_extension_keys_are_unknown() -> None:
 def test_division_and_backend_gap_unknown_reasons_are_exact() -> None:
     division = CapabilityKey(
         CapabilityDomain.BINARY_OPERATOR,
-        subject="Int",
+        subject="Decimal",
         operation="/",
-        operands=("Int", "Int", "unknown"),
+        operands=("Decimal", "Decimal", "unknown"),
         context="expression",
     )
     matches_mysql = CapabilityKey(

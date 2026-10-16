@@ -158,7 +158,7 @@ def test_computed_alias_schema_propagates_through_query_to_query_multi_hop(
     )
 
 
-def test_unknown_null_division_stay_non_concrete_while_aggregate_is_concrete(
+def test_unknown_and_null_stay_non_concrete_while_division_and_aggregate_are_concrete(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -192,7 +192,16 @@ def test_unknown_null_division_stay_non_concrete_while_aggregate_is_concrete(
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
-    for name in ("nullish", "divided", "missing"):
+    divided = _derived_definition(parse_result, "divided")
+    ratio = semantic_result.model.relation_row_schemas[divided].fields["ratio"]
+    assert ratio.resolved_type.name == "Int"
+    _assert_state(
+        semantic_result,
+        divided,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+    )
+    for name in ("nullish", "missing"):
         definition = _derived_definition(parse_result, name)
         assert definition not in semantic_result.model.relation_row_schemas
         _assert_state(

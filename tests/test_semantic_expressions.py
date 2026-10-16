@@ -563,9 +563,9 @@ _CAST_HINT = "is not supported; expected cast(Int as Float), the only supported 
     ("expression", "code", "message"),
     [
         ("frob(null)", "PIE-S2103", "Unknown function: frob"),
-        ("frob(count / 2)", "PIE-S2103", "Unknown function: frob"),
+        ("frob(price / 2)", "PIE-S2103", "Unknown function: frob"),
         (
-            "month(count / 2, count / 2)",
+            "month(price / 2, price / 2)",
             "PIE-S2104",
             "Invalid arguments for function month: expected 1, got 2",
         ),
@@ -580,7 +580,7 @@ _CAST_HINT = "is not supported; expected cast(Int as Float), the only supported 
             f"Invalid cast: cast(null as Float) {_CAST_HINT}",
         ),
         (
-            "cast(count / 2 as Text)",
+            "cast(price / 2 as Text)",
             "PIE-S2105",
             f"Invalid cast: cast(unknown as Text) {_CAST_HINT}",
         ),
@@ -597,12 +597,12 @@ _CAST_HINT = "is not supported; expected cast(Int as Float), the only supported 
             f"`lag(...) window:` {_WINDOW_HINT}",
         ),
         (
-            "first_value(count / 2)",
+            "first_value(price / 2)",
             "PIE-S2103",
             "Window function needs a `window` specification: first_value (write "
             f"`first_value(...) window:` {_WINDOW_HINT}",
         ),
-        ("cast(count / 2 as Float)", None, None),
+        ("cast(price / 2 as Float)", None, None),
         ("lower(null)", None, None),
     ],
 )
@@ -613,6 +613,7 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
         _parse(
             "shape Person:\n"
             "    count: Int not null\n"
+            "    price: Decimal not null\n"
             'source people: Person is postgres.table("people")\n'
             "table projected:\n"
             "    from people\n"
@@ -621,6 +622,8 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
         )
     )
 
+    # Decimal division has no result type yet, so `price / 2` is a silent
+    # unknown operand.
     assert [
         (diagnostic.code, diagnostic.message, diagnostic.location.column)
         for diagnostic in result.diagnostics

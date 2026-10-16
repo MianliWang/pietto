@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 
 import pytest
 
@@ -406,6 +407,26 @@ def test_binary_ir_renders_supported_operators(
     )
 
     assert render_expression_sql(expression) == expected
+
+
+def test_division_renders_sql_division_without_a_cast() -> None:
+    left = FieldRefIR(
+        span=SPAN, value_type=INT_TYPE, name="n", qualifier=(), field=None
+    )
+    right = LiteralIR(span=SPAN, value_type=INT_TYPE, value=2)
+    integer = BinaryIR(
+        span=SPAN, value_type=INT_TYPE, left=left, operator="/", right=right
+    )
+
+    assert render_expression_sql(integer) == '"n" / 2'
+    for other in (
+        replace(
+            integer, value_type=FLOAT_TYPE, left=replace(left, value_type=FLOAT_TYPE)
+        ),
+        replace(integer, value_type=UNKNOWN_TYPE),
+        replace(integer, left=_field("n")),
+    ):
+        assert render_expression_sql(other) == '"n" / 2'
 
 
 def test_nested_compound_expressions_are_parenthesized() -> None:

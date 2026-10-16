@@ -89,7 +89,11 @@ nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 | Binary `+` / `-` / `*` | `Decimal` mixed with `Int` or `Float` | currently rejected with existing `PIE-S2105`; no mixed Decimal promotion |
 | Modulo `%` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Modulo `%` | all other known operand pairs | currently rejected with existing `PIE-S2105`; `%` requires Int operands |
-| Division `/` | all operand pairs | currently deferred/unknown; current behavior records `ValueTypeKind.UNKNOWN` and does not emit `PIE-S2105` |
+| Division `/` | `Int` / `Int` | currently accepted as `Int UNKNOWN`: SQL division truncating toward zero; PostgreSQL emits `a / b` and MySQL emits `a DIV b` |
+| Division `/` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN`; a bare `/` on both targets, with no inserted cast |
+| Division `/` | `Decimal` with `Decimal`, `Int` or `Float`, either side | currently deferred/unknown, unchanged pending a Decimal division decision: records `ValueTypeKind.UNKNOWN`, emits a bare `/` and does not emit `PIE-S2105` |
+| Division `/` | a `Text`, `Bool`, `Date`, `Timestamp` or `UUID` operand | currently rejected with existing `PIE-S2105` (`expected numeric operands`) |
+| Division `/` | `Any`, `Bytes`, `Json`, Enum or shape operands | currently deferred/unknown, unchanged; not checked |
 | Bool `and` / `or` | `Bool` / `Bool` | currently accepted as `Bool UNKNOWN` |
 | Bool `and` / `or` | known non-Bool operands | currently rejected with existing `PIE-S2105`; Bool operators require Bool operands |
 | Bool `and` / `or` | unknown operands | currently deferred/unknown without an extra invalid-operand cascade |
@@ -189,8 +193,11 @@ Current diagnostic behavior is preserved exactly:
 
 - invalid known operator operands use existing `PIE-S2105` only where current
   repo behavior already emits it;
-- division `/` remains deferred/unknown and does not become a new diagnostic
-  behavior;
+- division `/` follows the Operator Result Matrix above, reading a type alias
+  operand as the type it expands to: a later defect fix gave `Int` and `Float`
+  division SQL semantics (`Int / Int` truncates to `Int`) and reports existing
+  `PIE-S2105` for `Text`, `Bool`, `Date`, `Timestamp` or `UUID` operands;
+  Decimal division stays deferred;
 - unknown child value types suppress invalid-operator cascades under current
   behavior;
 - predicate diagnostics remain owned by the existing predicate paths and the

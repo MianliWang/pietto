@@ -267,8 +267,12 @@ def test_unary_operator_fact_is_exact(
         (17, "Float", "*", ("Float", "Float", "unknown")),
         (18, "Decimal", "*", ("Decimal", "Decimal", "unknown")),
         (19, "Int", "%", ("Int", "Int", "unknown")),
-        (20, "Bool", "and", ("Bool", "Bool", "unknown")),
-        (21, "Bool", "or", ("Bool", "Bool", "unknown")),
+        (20, "Int", "/", ("Int", "Int", "unknown")),
+        (21, "Int", "/", ("Float", "Float", "unknown")),
+        (22, "Float", "/", ("Int", "Float", "unknown")),
+        (23, "Float", "/", ("Float", "Float", "unknown")),
+        (24, "Bool", "and", ("Bool", "Bool", "unknown")),
+        (25, "Bool", "or", ("Bool", "Bool", "unknown")),
     ),
     ids=(
         "int-add-int",
@@ -291,6 +295,10 @@ def test_unary_operator_fact_is_exact(
         "float-mul-float",
         "decimal-mul-decimal",
         "int-mod-int",
+        "int-div-int",
+        "int-div-float",
+        "float-div-int",
+        "float-div-float",
         "bool-and-bool",
         "bool-or-bool",
     ),
@@ -414,9 +422,9 @@ def test_like_and_matches_backend_ledgers_are_scoped_without_precedence() -> Non
     (
         CapabilityKey(
             CapabilityDomain.BINARY_OPERATOR,
-            subject="Int",
+            subject="Decimal",
             operation="/",
-            operands=("Int", "Int", "unknown"),
+            operands=("Decimal", "Decimal", "unknown"),
             context="expression",
         ),
         CapabilityKey(
@@ -427,7 +435,7 @@ def test_like_and_matches_backend_ledgers_are_scoped_without_precedence() -> Non
             context="expression",
         ),
     ),
-    ids=("division", "text-concatenation"),
+    ids=("decimal-division", "text-concatenation"),
 )
 def test_omitted_operator_family_remains_incomplete(key: CapabilityKey) -> None:
     facts, complete, _ = _inputs(key)
@@ -694,9 +702,9 @@ def test_complete_schema_zero_match_lookup_is_absent() -> None:
 def test_incomplete_and_division_lookups_are_unknown_with_exact_reasons() -> None:
     division = CapabilityKey(
         CapabilityDomain.BINARY_OPERATOR,
-        subject="Int",
+        subject="Decimal",
         operation="/",
-        operands=("Int", "Int", "unknown"),
+        operands=("Decimal", "Decimal", "unknown"),
         context="expression",
     )
     matches_mysql = replace(

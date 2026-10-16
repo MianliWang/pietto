@@ -921,8 +921,8 @@ def test_deferred_relation_declaration_propagates_without_concretization(
         {
             "main.pietto": (
                 _SHAPE_PREFIX + "query pending:\n    from rows\n    select:\n"
-                "        divided = amount / 2\n"
-                "query result:\n    from pending\n    select:\n        divided\n"
+                "        unset = null\n"
+                "query result:\n    from pending\n    select:\n        unset\n"
             )
         },
     )

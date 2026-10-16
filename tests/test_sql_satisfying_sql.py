@@ -528,9 +528,9 @@ def test_private_mysql_source_pipeline_renders_satisfying_having() -> None:
 @pytest.mark.parametrize(
     ("shape", "body"),
     (
-        # A group key whose type is unknown (a division result upstream).
+        # A group key whose type is unknown (a Decimal division upstream).
         (
-            "shape Order:\n    id: Int not null\n    amount: Int not null\n",
+            "shape Order:\n    id: Int not null\n    amount: Decimal not null\n",
             "table rates:\n    from orders\n    select:\n        id\n"
             "        per = amount / id\n"
             "query q:\n    from rates\n    group by:\n        per\n"

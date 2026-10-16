@@ -157,7 +157,7 @@ def test_upstream_non_concrete_states_short_circuit_let_facts(
             "query deferred_seed:\n"
             "    from users\n"
             "    select:\n"
-            "        ratio = score / bonus\n"
+            "        ratio = null\n"
             "query from_deferred:\n"
             "    from deferred_seed\n"
             "    let:\n"

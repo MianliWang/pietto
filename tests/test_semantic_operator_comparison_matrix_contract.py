@@ -31,7 +31,7 @@ def test_unary_numeric_matrix_preserves_current_behavior() -> None:
                     f"Invalid operands for operator {operator}: expected numeric operand",
                 ),
             )
-        value, diagnostics = expression_facts(operator + "(amount / tax)")
+        value, diagnostics = expression_facts(operator + "null")
         assert value.kind is ValueTypeKind.UNKNOWN
         assert diagnostics == ()
 
@@ -83,9 +83,26 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
     for left in ("amount", "score", "price", "status", "active"):
         for right in ("amount", "score", "price", "status", "active"):
             value, diagnostics = expression_facts(f"{left} / {right}")
-            assert value.kind is ValueTypeKind.UNKNOWN
             assert value.nullability is EffectiveNullability.UNKNOWN
-            assert diagnostics == ()
+            if {left, right} <= {"amount", "score"}:
+                # SQL division: Int / Int truncates to Int; a Float gives Float.
+                assert value.kind is ValueTypeKind.KNOWN
+                assert value.resolved_type.name == (
+                    "Int" if left == right == "amount" else "Float"
+                )
+                assert diagnostics == ()
+            elif {left, right} <= {"amount", "score", "price"}:
+                # Decimal division keeps its deferred unknown result.
+                assert value.kind is ValueTypeKind.UNKNOWN
+                assert diagnostics == ()
+            else:
+                assert value.kind is ValueTypeKind.UNKNOWN
+                assert diagnostics == (
+                    (
+                        "PIE-S2105",
+                        "Invalid operands for operator /: expected numeric operands",
+                    ),
+                )
 
 
 def test_bool_operator_matrix_preserves_current_behavior() -> None:
@@ -105,8 +122,8 @@ def test_bool_operator_matrix_preserves_current_behavior() -> None:
                 ),
             )
         for left, right in (
-            ("active", "(amount / tax)"),
-            ("(amount / tax)", "active"),
+            ("active", "null"),
+            ("null", "active"),
         ):
             value, diagnostics = expression_facts(f"{left} {operator} {right}")
             assert value.kind is ValueTypeKind.UNKNOWN
@@ -123,7 +140,7 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
         "active != active",
         "order_date <= created_at",
         'created_at >= "2024-01-01"',
-        "(amount / tax) == status",
+        "null == status",
         "amount between tax and score",
     ):
         value, diagnostics = expression_facts(expression)
@@ -146,7 +163,7 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
             ),
         )
 
-    value, diagnostics = expression_facts("amount between (amount / tax) and 5")
+    value, diagnostics = expression_facts("amount between null and 5")
     assert value.kind is ValueTypeKind.UNKNOWN
     assert diagnostics == ()
     value, diagnostics = expression_facts("created_at is null")

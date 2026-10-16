@@ -385,9 +385,9 @@ def test_both_target_and_provider_unknown_retain_both_axes(
         (
             CapabilityKey(
                 CapabilityDomain.BINARY_OPERATOR,
-                subject="Int",
+                subject="Decimal",
                 operation="/",
-                operands=("Int", "Int", "unknown"),
+                operands=("Decimal", "Decimal", "unknown"),
                 context="expression",
             ),
             CapabilityReasonCode.NO_CURRENT_RESULT_RULE,

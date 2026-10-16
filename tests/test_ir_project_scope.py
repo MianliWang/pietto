@@ -665,11 +665,11 @@ def test_all_non_concrete_states_require_matching_exact_evidence(
         "query pending:\n"
         "    from rows\n"
         "    select:\n"
-        "        divided = amount / 2\n"
+        "        unset = null\n"
         "query result:\n"
         "    from pending\n"
         "    select:\n"
-        "        divided\n",
+        "        unset\n",
     )
     blocked = _semantic_project(
         tmp_path / "blocked",

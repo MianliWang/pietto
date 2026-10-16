@@ -893,8 +893,8 @@ def test_relation_declaration_states_concrete_unknown_deferred_and_blocked(
         (
             "deferred",
             _SHAPE_PREFIX + "query pending:\n    from rows\n    select:\n"
-            "        divided = amount / 2\n"
-            "query result:\n    from pending\n    select:\n        divided\n",
+            "        unset = null\n"
+            "query result:\n    from pending\n    select:\n        unset\n",
             ProjectRelationRowSchemaStatus.DEFERRED,
         ),
         (

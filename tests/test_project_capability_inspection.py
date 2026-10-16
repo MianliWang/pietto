@@ -520,9 +520,9 @@ def test_extension_release_and_bounded_provider_reason_are_canonical(
 
     key = CapabilityKey(
         CapabilityDomain.BINARY_OPERATOR,
-        subject="Int",
+        subject="Decimal",
         operation="/",
-        operands=("Int", "Int", "unknown"),
+        operands=("Decimal", "Decimal", "unknown"),
         context="expression",
     )
     composition = slice6._composition(_fact(key))

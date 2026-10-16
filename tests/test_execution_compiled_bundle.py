@@ -144,8 +144,10 @@ def test_original_scalar_rules_are_available_without_source_nodes():
     assert result.kind is ValueTypeKind.UNKNOWN and error == "Bool operands"
     result, error = resolved_unary_value_type(text)
     assert result.kind is ValueTypeKind.UNKNOWN and error == "numeric operand"
+    # Int / Int divides as SQL does: an Int truncated toward zero.
     result, error = resolved_binary_value_type("/", integer, integer)
-    assert result.kind is ValueTypeKind.UNKNOWN and error is None
+    assert result.resolved_type.name == "Int" and error is None
+    assert result.nullability is EffectiveNullability.UNKNOWN
     assert not math.copysign(1.0, -0.0) > 0
 
 

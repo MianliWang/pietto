@@ -223,6 +223,10 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
             expression.operator,
             "binary",
         )
+        if _is_integer_division(expression):
+            # MySQL `/` of integers is DECIMAL; DIV truncates toward zero as
+            # PostgreSQL's integer `/` does.
+            operator = "DIV"
         sql = (
             f"{_render_mysql_expression(expression.left, nested=True)} {operator} "
             f"{_render_mysql_expression(expression.right, nested=True)}"
@@ -233,6 +237,16 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+def _is_integer_division(expression: BinaryIR) -> bool:
+    """Whether `/` divides an Int by an Int into an Int."""
+
+    return expression.operator == "/" and all(
+        part.value_type.canonical_kind is TypeKindIR.BUILTIN
+        and part.value_type.canonical_name == "Int"
+        for part in (expression, expression.left, expression.right)
+    )
 
 
 def render_mysql_window_call(
