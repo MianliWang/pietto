@@ -983,6 +983,120 @@ def test_explicit_project_check_refuses_like_escape_and_null_cast(
     assert text.err == expected
 
 
+_LIKE_PATTERN = (
+    "PIE-S2105 error: Invalid operands for operator like: expected a pattern "
+    "that does not end in the escape character ! (write !! for a literal !)\n"
+)
+_UNAVAILABLE = (
+    "main.pietto:5:1 PIE-S2333 error: Project relation semantic completion is "
+    "unavailable: result\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    let:\n        n = null\n    select:\n        id\n        f = n\n",
+            _UNAVAILABLE,
+        ),
+        (
+            "    let:\n        n = null\n    select:\n        id\n        n\n",
+            _UNAVAILABLE,
+        ),
+        (
+            "    let:\n        n = null\n    select:\n        id\n"
+            "        f = n is null\n",
+            _UNAVAILABLE,
+        ),
+        (
+            '    let:\n        m = name like "a!"\n    select:\n        id\n'
+            "        mm = m\n",
+            "main.pietto:8:13 " + _LIKE_PATTERN,
+        ),
+        (
+            '    let:\n        p = "a!"\n        m = name like p\n    select:\n'
+            "        id\n        mm = m\n",
+            "main.pietto:9:13 " + _LIKE_PATTERN,
+        ),
+        (
+            "    let:\n        n = null\n        c = cast(n as Float)\n"
+            "    select:\n        id\n        cc = c\n",
+            "main.pietto:9:13 PIE-S2105 error: Invalid cast: cast(null as Float) is "
+            "not supported; expected cast(Int as Float), the only supported cast\n",
+        ),
+        (
+            "    let:\n        v = null\n    select:\n        id\n"
+            "        a = cast(v as Text)\n",
+            "main.pietto:11:13 PIE-S2105 error: Invalid cast: cast(null as Text) is "
+            "not supported; expected cast(Int as Float), the only supported cast\n",
+        ),
+        (
+            '    let:\n        p = "a!"\n        n = null\n    select:\n        id\n'
+            "        m = name like p\n",
+            "main.pietto:12:13 " + _LIKE_PATTERN,
+        ),
+        (
+            "    let:\n        n = null\n        n = 1\n    select:\n        id\n"
+            "        a = cast(n as Text)\n",
+            "main.pietto:9:9 PIE-S2329 error: Duplicate let binding name: n\n"
+            "main.pietto:12:13 PIE-S2105 error: Invalid cast: cast(unknown as Text) is "
+            "not supported; expected cast(Int as Float), the only supported cast\n",
+        ),
+        (
+            "    let:\n        f = zz\n    select:\n        id\n        g = f\n",
+            "main.pietto:8:13 PIE-S2102 error: Unknown field: zz\n",
+        ),
+        (
+            "    let:\n        n = 1\n        n = 2\n    select:\n        id\n"
+            "        f = n\n",
+            "main.pietto:9:9 PIE-S2329 error: Duplicate let binding name: n\n",
+        ),
+        (
+            "    let:\n        n = null\n    select:\n        id\n        f = n\n"
+            "        g = zz\n        h = rows.n\n",
+            "main.pietto:12:13 PIE-S2102 error: Unknown field: zz\n"
+            "main.pietto:13:13 PIE-S2102 error: Unknown field: rows.n\n",
+        ),
+    ],
+    ids=(
+        "unknown-type-aliased",
+        "unknown-type-unaliased",
+        "unknown-type-in-expression",
+        "own-error",
+        "own-error-through-let",
+        "null-cast-through-let",
+        "cast-of-let-bound-null",
+        "like-pattern-let-beside-untyped-let",
+        "cast-of-duplicate-let",
+        "unknown-name-in-let",
+        "duplicate-let",
+        "other-names-stay-unknown",
+    ),
+)
+def test_explicit_project_select_read_of_an_untyped_let_is_not_an_unknown_field(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+    expected: str,
+) -> None:
+    root = _project(
+        tmp_path / "q1",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    name: Text not null\n"
+        'source rows: Row is postgres.table("app.rows")\n'
+        "query result:\n"
+        "    from rows\n" + body,
+    )
+
+    # Before: each read of the let was also PIE-S2102 "Unknown field".
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == expected
+
+
 _NEVER_TRUE = "comparison with null is never true"
 
 

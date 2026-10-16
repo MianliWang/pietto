@@ -1535,9 +1535,8 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
         assert unavailable_schema is None or (
             unavailable_schema.is_unknown and not unavailable_schema.fields
         )
-        assert [
-            diagnostic.code for diagnostic in unavailable_relation.helper_diagnostics
-        ] == (["PIE-S2102"] if expression == "gross" else [])
+        # A read of the let is never an unknown field, even untyped.
+        assert unavailable_relation.helper_diagnostics == ()
         assert unavailable_selected.expression_schema is not None
         assert unavailable_selected.expression_schema.status.value == "unknown"
         assert unavailable_selected.expression_schema.reason.value in {
