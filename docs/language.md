@@ -185,8 +185,9 @@ label = "x"` or `-1`, is PIE-S2380, even from a source without a shape,
 because SQL reads an integer as a column position and PostgreSQL rejects other
 bare constants; a computed constant such
 as `1 + 1` sorts nothing and is accepted. In a query with aggregates and no
-GROUP BY, a key that reads an input field outside an aggregate is PIE-S2380
-too. A grouped key stays PIE-S2321. When a SELECT item would capture a bare
+GROUP BY whose input fields are known (a source with a shape, say), a key
+that reads an input field outside an aggregate is PIE-S2380 too. A grouped
+key stays PIE-S2321. When a SELECT item would capture a bare
 input field key (an output of the same name, which MySQL compares
 case-insensitively, or on PostgreSQL any unaliased computed item, which it
 names implicitly), the emitted SQL qualifies the key with the name FROM already
@@ -1103,8 +1104,9 @@ query rates:
 
 `amount * 1.0 / quantity` keeps the decimal digits the target computes
 (PostgreSQL `numeric`, MySQL DECIMAL), and `cast(amount as Float) / quantity`
-divides binary floating-point values. A `Text`, `Bool`, `Date`, `Timestamp` or
-`UUID` operand is PIE-S2105. Division by zero follows the target: PostgreSQL
+divides binary floating-point values. Any other known operand type, such as
+`Text`, `Bytes`, `Json`, `Any` or an enum, is PIE-S2105, as for `+`, `-` and
+`*`. Division by zero follows the target: PostgreSQL
 raises an error, while MySQL `/` and `DIV` return NULL. Dividing the smallest
 `Int` by -1 overflows the signed 64-bit range; what each target does then is
 not specified here. Division with a `Decimal` operand is not specified yet: it

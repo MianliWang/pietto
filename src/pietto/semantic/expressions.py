@@ -1676,7 +1676,7 @@ def resolved_binary_value_type(
     if operator == "/":
         # SQL division: Int / Int is Int, truncated toward zero, and a Float
         # operand gives Float. A Decimal operand has no decided rule and stays
-        # deferred, as do unchecked operand types.
+        # deferred; every other known operand type is not numeric.
         if _is_numeric(left_type) and _is_numeric(right_type):
             name = (
                 "Float"
@@ -1684,10 +1684,9 @@ def resolved_binary_value_type(
                 else "Int"
             )
             return _builtin_value_type(name, EffectiveNullability.UNKNOWN), None
-        if any(
-            _is_builtin(value_type, name)
+        if not all(
+            _is_numeric(value_type) or _is_builtin(value_type, "Decimal")
             for value_type in (left_type, right_type)
-            for name in _NON_NUMERIC_DIVISION_OPERANDS
         ):
             return _UNKNOWN_VALUE_TYPE, "numeric operands"
         return _UNKNOWN_VALUE_TYPE, None
@@ -1706,9 +1705,6 @@ def resolved_binary_value_type(
         return _UNKNOWN_VALUE_TYPE, "numeric operands"
     return _UNKNOWN_VALUE_TYPE, None
 
-
-# The checked non-numeric comparison families' types; see _COMPARISON_FAMILIES.
-_NON_NUMERIC_DIVISION_OPERANDS = ("Text", "Bool", "Date", "Timestamp", "UUID")
 
 # Builtin families from the canonical scalar type registry trait vocabulary.
 # Any, Bytes, Json, enums and shapes stay unchecked (deferred).

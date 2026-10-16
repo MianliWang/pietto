@@ -485,9 +485,15 @@ def _validate_output(output: Path) -> InputError | None:
             return InputError("output_path", "Output path must not be a symbolic link.")
         if output.exists() and not output.is_file():
             return InputError("output_path", "Output path must be a regular file.")
-        if not output.parent.is_dir():
+        try:
+            parent_mode = os.stat(output.parent).st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            return InputError("output_path", "Output directory does not exist.")
+        if not stat.S_ISDIR(parent_mode):
             return InputError("output_path", "Output directory does not exist.")
     except OSError:
+        # A parent that cannot be inspected (a symbolic-link loop, say) is not
+        # shown to be unsuitable; the write reports output_write.
         pass
     return None
 
@@ -500,14 +506,19 @@ def _publish(
     problem = _validate_output(output)
     if problem is not None:
         return (problem,)
-    resolved = output.resolve(strict=False)
+    try:
+        resolved: Path | None = output.resolve(strict=False)
+    except (OSError, RuntimeError):
+        resolved = None  # Python 3.12 reports a symbolic-link loop as RuntimeError.
     try:
         state = os.stat(output)
         identity: tuple[int, int] | None = (state.st_dev, state.st_ino)
     except OSError:
         identity = None
     for path, protected_identity in protected:
-        if resolved == path.resolve(strict=False) or identity == protected_identity:
+        if (
+            resolved is not None and resolved == path.resolve(strict=False)
+        ) or identity == protected_identity:
             return (
                 InputError(
                     "output_path",

@@ -1116,7 +1116,9 @@ def test_output_file_is_the_exact_artifact_and_replacement_is_atomic(
     sys.platform == "win32", reason="needs POSIX directory permissions and names"
 )
 @pytest.mark.parametrize("presentation", ["json", "text"])
-@pytest.mark.parametrize("case", ["unsearchable-parent", "name-too-long"])
+@pytest.mark.parametrize(
+    "case", ["unsearchable-parent", "link-loop-parent", "name-too-long"]
+)
 def test_an_uninspectable_destination_is_an_output_write_error(
     tmp_path: Path, case: str, presentation: str
 ) -> None:
@@ -1128,6 +1130,10 @@ def test_an_uninspectable_destination_is_an_output_write_error(
         locked.mkdir()
         locked.chmod(0)
         destination = locked / "artifact.json"
+    elif case == "link-loop-parent":
+        os.symlink(tmp_path / "loop-b", tmp_path / "loop-a")
+        os.symlink(tmp_path / "loop-a", tmp_path / "loop-b")
+        destination = tmp_path / "loop-a" / "artifact.json"
     else:
         longest = os.pathconf(tmp_path, "PC_NAME_MAX")
         destination = tmp_path / f"{'a' * (longest + 1 - len('.json'))}.json"

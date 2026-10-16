@@ -344,6 +344,35 @@ def test_division_of_non_numeric_operands_reports_s2105(value: str) -> None:
     assert [code for code, _ in _diagnostics(semantic)] == ["PIE-S2105"]
 
 
+_DIVISION_OPERANDS = (
+    "enum Color:\n    red\n    blue\n"
+    "type Money = Decimal(12, 2) not null\n"
+    "shape Row:\n    n: Int not null\n    d: Money not null\n"
+    "    blob: Bytes not null\n    doc: Json not null\n    any: Any nullable\n"
+    "    color: Color not null\n"
+    'source rows: Row is postgres.table("rows")\n'
+    "table projected:\n    from rows\n    select:\n"
+)
+
+
+@pytest.mark.parametrize("operand", ["blob", "doc", "any", "color"])
+def test_division_of_any_known_non_numeric_type_reports_s2105(operand: str) -> None:
+    semantic = analyze(_parse(_DIVISION_OPERANDS + f"        value = {operand} / n\n"))
+
+    assert [(code, message) for code, message in _diagnostics(semantic)] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator /: expected numeric operands",
+        )
+    ]
+
+
+def test_division_with_a_decimal_alias_operand_stays_deferred() -> None:
+    semantic = analyze(_parse(_DIVISION_OPERANDS + "        value = d / n\n"))
+
+    assert _diagnostics(semantic) == []
+
+
 def test_existing_unqualified_sql_bytes_remain_stable() -> None:
     _, _, script_ir = _compile(
         SOURCE_PREFIX + "table selected:\n    from rows\n    select:\n        text\n"
