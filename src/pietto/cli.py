@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import NoReturn
@@ -84,12 +85,23 @@ _OS_ERROR_ERRNO_REASONS: dict[int | None, str] = {
     errno.ENAMETOOLONG: "File name too long",
     errno.ELOOP: "Too many levels of symbolic links",
 }
+# Line and paragraph separators and the bidi marks, embeddings, overrides and
+# isolates; text presentation escapes them with the C1 controls.
+_UNICODE_CONTROLS = frozenset("؜‎‏  ‪‫‬‭‮⁦⁧⁨⁩")
 
 type _SqlEmitter = Callable[[ir_api.ScriptIR], sql_api.SqlResult]
 
 
 class _JsonUsageError(Exception):
     """A command argument error rendered through a JSON result contract."""
+
+
+class _StdoutWriteError(Exception):
+    """Standard output is closed or rejected command output; see __cause__.
+
+    An optional argument is a command's own notice, reported even for a
+    broken pipe in place of the default notices.
+    """
 
 
 class _CliArgumentParser(argparse.ArgumentParser):
@@ -109,10 +121,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run Pietto developer tooling and return a process exit code."""
 
     try:
-        return _main(argv)
+        exit_code = _main(argv)
+        _flush_stdout()
     except UnicodeEncodeError:
         _print_output_encoding_error()
         return _EXIT_USAGE_ERROR
+    except _StdoutWriteError as error:
+        _discard_stdout()
+        cause = error.__cause__
+        # A broken pipe means the reader wanted no more output: exit quietly.
+        if error.args:
+            _write_stderr_line(str(error))
+        elif not isinstance(cause, OSError):
+            _write_stderr_line("pietto: error: standard output is closed")
+        elif not isinstance(cause, BrokenPipeError):
+            _write_stderr_line(
+                "pietto: error: standard output could not be written: "
+                f"{_cli_error_message(cause, None)}"
+            )
+        return _EXIT_USAGE_ERROR
+    return exit_code
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
@@ -546,8 +574,7 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     if not semantic_ok:
         return _EXIT_DIAGNOSTIC_ERROR
 
-    print("Project check OK: .")
-    print(f"Files checked: {len(parse_result.inputs)}")
+    _write_stdout(f"Project check OK: .\nFiles checked: {len(parse_result.inputs)}\n")
     return 0
 
 
@@ -573,18 +600,17 @@ def _print_project_check_json(
         parse_result,
         semantic_diagnostics=semantic_diagnostics,
     )
-    print(render_project_json_document(document), end="")
+    _write_stdout(render_project_json_document(document))
 
 
 def _print_check_usage_error(message: str) -> None:
     """Render one check usage error after cross-argument validation."""
 
-    print(
+    _write_stderr(
         "usage: pietto check [-h] [--project PROJECT] [--format {text,json}]"
-        " [--check-mode {loose,checked,strict}] [path]",
-        file=sys.stderr,
+        " [--check-mode {loose,checked,strict}] [path]\n"
+        f"pietto check: error: {_escape_cli_text(message)}\n"
     )
-    print(f"pietto check: error: {_escape_cli_text(message)}", file=sys.stderr)
 
 
 def _print_project_error(error: ProjectDiscoveryError) -> None:
@@ -593,7 +619,7 @@ def _print_project_error(error: ProjectDiscoveryError) -> None:
     message = f"project error: {error.kind.value}: {_escape_cli_text(error.message)}"
     if error.path is not None:
         message = f"{message} (path: {_escape_cli_text(error.path)})"
-    print(message, file=sys.stderr)
+    _write_stderr(f"{message}\n")
 
 
 def _run_check(
@@ -639,7 +665,7 @@ def _run_check(
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    print(f"OK: {_escape_cli_text(str(path))}")
+    _write_stdout(f"OK: {_escape_cli_text(str(path))}\n")
     return 0
 
 
@@ -689,7 +715,7 @@ def _print_check_json(
         diagnostics=diagnostics,
         cli_errors=cli_errors,
     )
-    print(cli_json.render_json_document(document), end="")
+    _write_stdout(cli_json.render_json_document(document))
 
 
 def _run_explain(
@@ -776,7 +802,9 @@ def _run_explain(
         return 0
 
     _render_diagnostics(diagnostics, fallback_path=path)
-    print(render_semantic_metadata_text(artifact))
+    if artifact.path is not None:
+        artifact = replace(artifact, path=_escape_cli_text(artifact.path))
+    _write_stdout(f"{render_semantic_metadata_text(artifact)}\n")
     return 0
 
 
@@ -804,12 +832,11 @@ def _run_explain_command(namespace: argparse.Namespace) -> int:
 
 
 def _print_explain_usage_error(message: str) -> None:
-    print(
+    _write_stderr(
         "usage: pietto explain [-h] [--project PROJECT] [--format {text,json}]"
-        " [--check-mode {loose,checked,strict}] [path]",
-        file=sys.stderr,
+        " [--check-mode {loose,checked,strict}] [path]\n"
+        f"pietto explain: error: {_escape_cli_text(message)}\n"
     )
-    print(f"pietto explain: error: {_escape_cli_text(message)}", file=sys.stderr)
 
 
 def _run_project_explain(root: Path, *, output_format: str) -> int:
@@ -817,16 +844,11 @@ def _run_project_explain(root: Path, *, output_format: str) -> int:
 
     result = _build_project_explain_runtime(root)
     if output_format == _FORMAT_JSON:
-        sys.stdout.buffer.write(
-            serialize_project_explain_json_document(result.envelope)
-        )
+        _write_stdout(serialize_project_explain_json_document(result.envelope))
+    elif result.outcome is ProjectExplainRuntimeOutcome.SUCCESS:
+        _write_stdout(render_project_explain_text(result.envelope))
     else:
-        stream = (
-            sys.stdout
-            if result.outcome is ProjectExplainRuntimeOutcome.SUCCESS
-            else sys.stderr
-        )
-        stream.write(render_project_explain_text(result.envelope))
+        _write_stderr(render_project_explain_text(result.envelope))
     if result.outcome is ProjectExplainRuntimeOutcome.SUCCESS:
         return 0
     if result.outcome is ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR:
@@ -876,7 +898,7 @@ def _print_explain_failure_json(
 def _print_explain_json(document: dict[str, object]) -> None:
     """Print one complete Semantic Metadata Artifact v1 JSON document."""
 
-    print(cli_json.render_json_document(document), end="")
+    _write_stdout(cli_json.render_json_document(document))
 
 
 def _run_emit_sql_json(
@@ -1050,7 +1072,7 @@ def _print_emit_sql_json(
         artifacts=artifacts,
         output=output,
     )
-    print(cli_json.render_json_document(document), end="")
+    _write_stdout(cli_json.render_json_document(document))
 
 
 def _run_project_emit_sql(arguments: Sequence[str]) -> int:
@@ -1060,24 +1082,16 @@ def _run_project_emit_sql(arguments: Sequence[str]) -> int:
     if isinstance(result, int):
         return result
     if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
+        _write_stderr(result.stderr)
     if result.stdout:
         try:
-            buffer = getattr(sys.stdout, "buffer", None)
-            if buffer is None:
-                sys.stdout.write(result.stdout.decode("utf-8"))
-            else:
-                buffer.write(result.stdout)
-            sys.stdout.flush()
-        except (OSError, ValueError):
+            _write_stdout(result.stdout)
+            _flush_stdout()
+        except _StdoutWriteError as error:
             note = "pietto emit-sql: error: standard output could not be written"
             if result.written:
                 note += "; the replaced artifact file is kept"
-            try:
-                print(note, file=sys.stderr)
-            except (OSError, ValueError):
-                pass
-            return _EXIT_USAGE_ERROR
+            raise _StdoutWriteError(note) from error.__cause__
     return result.exit_code
 
 
@@ -1158,7 +1172,7 @@ def _print_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> None:
     """Print ordered SQL artifacts without changing their stored text."""
 
     if artifacts:
-        print(_format_sql_artifacts(artifacts))
+        _write_stdout(f"{_format_sql_artifacts(artifacts)}\n")
 
 
 def _write_sql_artifacts(
@@ -1177,7 +1191,8 @@ def _write_sql_artifacts(
             encoding="utf-8",
             newline="",
             dir=output_path.parent,
-            prefix=f".{output_path.name}.",
+            # A short fixed name keeps every output name the OS accepts usable.
+            prefix=".pietto-",
             suffix=".tmp",
             delete=False,
         ) as temporary:
@@ -1194,9 +1209,19 @@ def _write_sql_artifacts(
 
 
 def _validate_output_path(input_path: Path, output_path: Path) -> None:
-    """Reject unsafe output destinations before compilation begins."""
+    """Reject unsafe output destinations before compilation begins.
 
-    if output_path.is_symlink():
+    Only a provable symbolic link or same file is rejected. A path that cannot
+    be inspected is left to the later steps: the input read reports file_read,
+    and the output write, which cannot reach a path lstat or stat could not,
+    reports output_write.
+    """
+
+    try:
+        is_symlink = output_path.is_symlink()
+    except OSError:
+        is_symlink = False
+    if is_symlink:
         raise ValueError("output path must not be a symbolic link")
     if _paths_refer_to_same_file(input_path, output_path):
         raise ValueError("output path must differ from the input file")
@@ -1211,16 +1236,9 @@ def _paths_refer_to_same_file(input_path: Path, output_path: Path) -> bool:
     except RuntimeError:
         pass  # Python 3.12 reports a symbolic-link loop from resolve() this way.
     try:
-        input_state = input_path.stat()
+        return os.path.samestat(input_path.stat(), output_path.stat())
     except OSError:
-        # An input that cannot be inspected is not the output; reading it
-        # later reports the failure as file_read at the input path.
         return False
-    try:
-        output_state = output_path.stat()
-    except (FileNotFoundError, NotADirectoryError):
-        return False
-    return os.path.samestat(input_state, output_state)
 
 
 def _format_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> str:
@@ -1237,8 +1255,8 @@ def _render_diagnostics(
     """Render ordered diagnostics as stable single-line stderr records."""
 
     for diagnostic in diagnostics:
-        print(
-            _format_diagnostic(diagnostic, fallback_path=fallback_path), file=sys.stderr
+        _write_stderr(
+            f"{_format_diagnostic(diagnostic, fallback_path=fallback_path)}\n"
         )
 
 
@@ -1258,14 +1276,13 @@ def _format_diagnostic(diagnostic: Diagnostic, *, fallback_path: Path) -> str:
 def _print_cli_error(path: Path, message: str) -> None:
     """Render one escaped path-prefixed CLI error."""
 
-    print(
-        f"{_escape_cli_text(str(path))}: error: {_escape_cli_text(message)}",
-        file=sys.stderr,
+    _write_stderr(
+        f"{_escape_cli_text(str(path))}: error: {_escape_cli_text(message)}\n"
     )
 
 
-def _cli_error_message(error: Exception, path: Path) -> str:
-    """Describe a handled read/write error about one user path.
+def _cli_error_message(error: Exception, path: Path | None) -> str:
+    """Describe a handled read/write error about one user path or stdout.
 
     Non-OSError text is already fixed English and is kept; an OSError gets a
     fixed reason and its codes, never OS-supplied names or text.
@@ -1277,7 +1294,7 @@ def _cli_error_message(error: Exception, path: Path) -> str:
         (text for kind, text in _OS_ERROR_CLASS_REASONS if isinstance(error, kind)),
         _OS_ERROR_ERRNO_REASONS.get(error.errno, "Operating system error"),
     )
-    if isinstance(error, PermissionError):
+    if isinstance(error, PermissionError) and path is not None:
         # Windows reports opening or replacing a directory as EACCES; the stat
         # only words the message and never changes the failure.
         try:
@@ -1295,11 +1312,91 @@ def _cli_error_message(error: Exception, path: Path) -> str:
 def _print_output_encoding_error() -> None:
     """Report a terminal encoding failure without repeating unencodable text."""
 
-    sys.stderr.write("pietto: error: terminal output could not be encoded\n")
+    _write_stderr("pietto: error: terminal output could not be encoded\n")
+
+
+def _write_stdout(output: str | bytes) -> None:
+    """Write command output; bytes go to the binary buffer when there is one.
+
+    A closed stdout or a failed write raises _StdoutWriteError instead of
+    dropping the output or escaping as a traceback.
+    """
+
+    stream = sys.stdout
+    if stream is None:
+        raise _StdoutWriteError
+    try:
+        if isinstance(output, str):
+            stream.write(output)
+        elif (buffer := getattr(stream, "buffer", None)) is None:
+            stream.write(output.decode("utf-8"))
+        else:
+            buffer.write(output)
+    except UnicodeEncodeError:
+        raise
+    except (OSError, ValueError) as error:
+        raise _StdoutWriteError from error
+
+
+def _flush_stdout() -> None:
+    """Flush buffered output so its failure is handled before interpreter exit."""
+
+    if sys.stdout is None:
+        return
+    try:
+        sys.stdout.flush()
+    except (OSError, ValueError) as error:
+        raise _StdoutWriteError from error
+
+
+def _discard_stdout() -> None:
+    """Point a failed stdout at the null device, as the Python docs advise.
+
+    Output still buffered then cannot fail again in the interpreter's exit
+    flush, which would print "Exception ignored" and exit 120.
+    """
+
+    try:
+        descriptor = sys.stdout.fileno()
+        null = os.open(os.devnull, os.O_WRONLY)
+    except (AttributeError, OSError, ValueError):
+        return
+    try:
+        os.dup2(null, descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(null)
+
+
+def _write_stderr(text: str) -> None:
+    """Write to stderr; a closed stderr (None) drops the text.
+
+    print(file=sys.stderr) would instead fall back to stdout and mix notices
+    into the command output.
+    """
+
+    if sys.stderr is not None:
+        sys.stderr.write(text)
+
+
+def _write_stderr_line(text: str) -> None:
+    """Write one ASCII notice to stderr; a failing stderr stays silent."""
+
+    try:
+        _write_stderr(f"{text}\n")
+    except (OSError, ValueError):
+        pass
 
 
 def _escape_cli_text(value: str) -> str:
-    """Escape C0 controls and DEL for single-line terminal output."""
+    r"""Escape controls for single-line terminal output.
+
+    C0 controls and DEL become \xNN escapes; C1 controls (U+0080..U+009F, NEL
+    and CSI among them), the line and paragraph separators and the bidi
+    controls become \uNNNN escapes, so source text cannot drive the terminal
+    or reorder the line.
+    """
 
     named_escapes = {
         "\x00": r"\x00",
@@ -1316,6 +1413,8 @@ def _escape_cli_text(value: str) -> str:
             escaped.append(replacement)
         elif ord(character) < 0x20:
             escaped.append(f"\\x{ord(character):02x}")
+        elif 0x80 <= ord(character) <= 0x9F or character in _UNICODE_CONTROLS:
+            escaped.append(f"\\u{ord(character):04x}")
         else:
             escaped.append(character)
     return "".join(escaped)

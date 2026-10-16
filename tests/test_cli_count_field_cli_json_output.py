@@ -169,7 +169,7 @@ def test_cli_text_count_field_output_writes_exact_sql(
     assert captured.out == ""
     assert captured.err == ""
     assert output_path.read_bytes() == _golden_bytes(golden_name)
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -219,7 +219,7 @@ def test_cli_json_count_field_output_writes_exact_sql_and_keeps_artifacts(
         }
     ]
     assert output_path.read_bytes() == _golden_bytes(golden_name)
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_cli_text_count_field_semantic_error_stops_before_sql(

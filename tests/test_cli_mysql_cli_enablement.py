@@ -135,7 +135,7 @@ def test_mysql_output_file_success_is_atomic(
     assert captured.out == ""
     assert captured.err == ""
     assert output.read_bytes() == MYSQL_SQL_GOLDEN.read_bytes()
-    assert not tuple(tmp_path.glob(".mysql.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_mysql_json_output_file_uses_existing_v1_contract(
@@ -168,7 +168,7 @@ def test_mysql_json_output_file_uses_existing_v1_contract(
         "written": True,
     }
     assert output.read_bytes() == MYSQL_SQL_GOLDEN.read_bytes()
-    assert not tuple(tmp_path.glob(".mysql-json.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_mysql_backend_failure_does_not_replace_output(
@@ -196,7 +196,7 @@ def test_mysql_backend_failure_does_not_replace_output(
     assert captured.out == ""
     assert captured.err.count("PIE-B1000 error:") == 1
     assert output.read_text(encoding="utf-8") == "original SQL\n"
-    assert not tuple(tmp_path.glob(".mysql.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_unknown_text_and_json_dialects_still_exit_two_before_parsing(

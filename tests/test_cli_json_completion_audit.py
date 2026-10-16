@@ -274,7 +274,7 @@ def test_phase_6_json_output_failure_matrix(
     )
     assert cast(list[object], write_error["artifacts"])
     assert output.read_text(encoding="utf-8") == "original SQL\n"
-    assert not tuple(tmp_path.glob(".out.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_phase_6_json_stage_short_circuiting(

@@ -380,11 +380,15 @@ def test_emit_sql_json_output_write_error_reports_only_the_user_path(
     assert not tuple(tmp_path.rglob("*.tmp"))
 
 
+# The output inside the same uninspectable directory cannot be inspected
+# either; that does not take precedence over the input file_read.
+@pytest.mark.parametrize("output", ["o.sql", "locked/o.sql"])
 @pytest.mark.parametrize("presentation", ["text", "json"])
 @pytest.mark.parametrize("case", ["file-parent", "unsearchable-parent", "link-loop"])
 def test_uninspectable_input_is_a_file_read_error_with_output(
     case: str,
     presentation: str,
+    output: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -414,7 +418,7 @@ def test_uninspectable_input_is_a_file_read_error_with_output(
         (tmp_path / "loop-b").symlink_to("loop-a")
         source = Path("loop-a")
         reason = f"Too many levels of symbolic links (errno {errno.ELOOP})"
-    arguments = ["emit-sql", str(source), "--dialect", "postgres", "--output", "o.sql"]
+    arguments = ["emit-sql", str(source), "--dialect", "postgres", "--output", output]
     if presentation == "json":
         arguments.extend(["--format", "json"])
 
@@ -430,10 +434,62 @@ def test_uninspectable_input_is_a_file_read_error_with_output(
         assert result["cli_errors"] == [
             {"kind": "file_read", "message": reason, "path": str(source)}
         ]
-        assert result["output"] == {"path": "o.sql", "written": False}
+        assert result["output"] == {"path": str(Path(output)), "written": False}
     else:
         assert captured == ("", f"{source}: error: {reason}\n")
-    assert not (tmp_path / "o.sql").exists()
+    assert not (tmp_path / output).exists()
+
+
+@pytest.mark.parametrize("presentation", ["text", "json"])
+@pytest.mark.parametrize(
+    "case", ["unsearchable-parent", "unwritable-parent", "link-loop-parent"]
+)
+def test_unreachable_output_parent_is_an_output_write_error_after_compilation(
+    case: str,
+    presentation: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    if sys.platform == "win32":
+        pytest.skip("needs POSIX directory permissions and symbolic links")
+    if case != "link-loop-parent" and os.geteuid() == 0:
+        pytest.skip("needs POSIX directory permissions that bind the user")
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path, "input.pietto", RELATION)
+    parent = tmp_path / "parent"
+    if case == "link-loop-parent":
+        parent.symlink_to("parent")
+        reason = f"Too many levels of symbolic links (errno {errno.ELOOP})"
+    else:
+        parent.mkdir()
+        parent.chmod(0 if case == "unsearchable-parent" else 0o500)
+        reason = f"Permission denied (errno {errno.EACCES})"
+    output = Path("parent/o.sql")
+    arguments = ["emit-sql", "input.pietto", "--dialect", "postgres"]
+    arguments += ["--output", str(output)]
+    if presentation == "json":
+        arguments.extend(["--format", "json"])
+
+    try:
+        assert cli.main(arguments) == 2
+    finally:
+        if not parent.is_symlink():
+            parent.chmod(0o700)
+
+    captured = capsys.readouterr()
+    if presentation == "json":
+        result = _parse_json_document(captured.out, captured.err)
+        assert result["cli_errors"] == [
+            {"kind": "output_write", "message": reason, "path": str(output)}
+        ]
+        assert result["output"] == {"path": str(output), "written": False}
+        assert cast(list[dict[str, object]], result["artifacts"])[0]["sql"] == (
+            EXPECTED_SQL.removesuffix("\n")
+        )
+    else:
+        assert captured == ("", f"{output}: error: {reason}\n")
+    assert parent.is_symlink() or not tuple(parent.iterdir())
 
 
 @pytest.mark.skipif(
@@ -524,7 +580,7 @@ def test_emit_sql_json_zero_artifacts_refuse_the_output_file(
         assert output.read_text(encoding="utf-8") == "original SQL\n"
     else:
         assert not output.exists()
-    assert not tuple(tmp_path.glob(".out.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_emit_sql_json_replace_failure_preserves_old_output_and_cleans_temp(
@@ -551,7 +607,7 @@ def test_emit_sql_json_replace_failure_preserves_old_output_and_cleans_temp(
     ]
     assert cast(list[object], result["artifacts"])
     assert output.read_text(encoding="utf-8") == "original SQL\n"
-    assert not tuple(tmp_path.glob(".out.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_emit_sql_text_output_and_check_json_remain_unchanged(

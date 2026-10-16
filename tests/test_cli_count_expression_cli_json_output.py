@@ -233,7 +233,7 @@ def test_cli_text_output_writes_count_expression_sql_on_success(
     assert captured.out == ""
     assert captured.err == ""
     assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -291,7 +291,7 @@ def test_cli_json_output_writes_count_expression_sql_and_keeps_artifacts(
         }
     ]
     assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -347,7 +347,7 @@ def test_deferred_count_expression_forms_do_not_write_json_output(
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}
     assert output_path.read_text(encoding="utf-8") == "old SQL\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_public_mysql_api_remains_private() -> None:
