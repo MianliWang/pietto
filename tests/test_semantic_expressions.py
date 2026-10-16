@@ -448,6 +448,64 @@ def test_like_patterns_with_paired_or_inner_escapes_are_accepted() -> None:
 
 
 @pytest.mark.parametrize(
+    ("body", "line", "column"),
+    [
+        ("    where name like pattern\n    select:\n        name\n", 11, 11),
+        ("    where name not like (alias)\n    select:\n        name\n", 11, 11),
+        ("    select:\n        name\n        m = name like pattern\n", 13, 13),
+    ],
+    ids=("where", "parenthesized-chain", "select"),
+)
+def test_let_bound_like_pattern_ending_in_the_escape_is_refused(
+    body: str,
+    line: int,
+    column: int,
+) -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    let:\n"
+            '        pattern = "abc!"\n'
+            "        alias = pattern\n" + body
+        )
+    )
+
+    # Before: a let-bound "abc!" passed check and emitted the SQL the direct
+    # literal is refused for.
+    assert [
+        (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+    ] == [("PIE-S2105", line, column)]
+
+
+@pytest.mark.parametrize("target", ["Float", "Int"])
+def test_let_bound_null_cast_is_refused_like_the_null_literal(target: str) -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    let:\n"
+            "        nothing = null\n"
+            "    select:\n"
+            "        count\n"
+            f"        value = cast(nothing as {target})\n"
+        )
+    )
+
+    # Before: `cast(nothing as Float)` passed check and emission refused it.
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            f"Invalid cast: cast(null as {target}) is not supported; expected "
+            "cast(Int as Float), the only supported cast",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
     ("expression", "attempted"),
     [
         ("cast(count as Text)", "cast(Int as Text)"),

@@ -292,10 +292,21 @@ def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:
             '"created_at" + 1 ASC',
             "`created_at` + 1 ASC",
         ),
+        (
+            "    select:\n        id\n        lower(email)\n    order by:\n        id\n",
+            '"users"."id" ASC',
+            "`id` ASC",
+        ),
     ],
-    ids=("ungrouped", "grouped", "mysql-casefold", "expression-reads-input"),
+    ids=(
+        "ungrouped",
+        "grouped",
+        "mysql-casefold",
+        "expression-reads-input",
+        "postgres-unaliased-computed-item",
+    ),
 )
-def test_input_order_key_that_an_output_alias_would_capture_is_qualified(
+def test_input_order_key_that_a_select_item_would_capture_is_qualified(
     body: str,
     postgres_order: str,
     mysql_order: str,
@@ -311,9 +322,109 @@ def test_input_order_key_that_an_output_alias_would_capture_is_qualified(
         (mysql.artifacts[0].sql, "`", mysql_order),
     ):
         assert f"ORDER BY\n    {order}" in sql
-        qualified = f"{quote}users{quote}.{quote}"
-        alias = f"FROM {quote}users{quote} AS {quote}users{quote}"
-        assert (alias in sql) is (qualified in order)
+        assert f"\nFROM {quote}users{quote}\n" in sql
+
+
+@pytest.mark.parametrize(
+    ("function", "field"),
+    [("lower(email)", "lower"), ('coalesce(email, "x")', "coalesce")],
+)
+def test_postgresql_implicit_column_name_of_an_unaliased_item_is_not_bound(
+    function: str,
+    field: str,
+) -> None:
+    query = (
+        f"shape Row:\n    email: Text not null\n    {field}: Int not null\n"
+        'source rows: Row is {connector}.table("sales.rows")\n'
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        f"        {function}\n"
+        "    order by:\n"
+        f"        {field}\n"
+    )
+
+    postgres = sql_api.emit_postgres_sql(
+        _compile_ir(query.format(connector="postgres"))
+    )
+    mysql = emit_mysql_sql(_compile_ir(query.format(connector="mysql")))
+
+    # Before: `ORDER BY "lower"` bound to PostgreSQL's implicit column name.
+    assert postgres.artifacts[0].sql.endswith(
+        f'FROM "sales"."rows"\nORDER BY\n    "rows"."{field}" ASC'
+    )
+    # MySQL names the unaliased item by its expression text, so it stays bare.
+    assert mysql.artifacts[0].sql.endswith(
+        f"FROM `sales`.`rows`\nORDER BY\n    `{field}` ASC"
+    )
+
+
+def test_captured_key_uses_the_name_from_already_gives_the_input() -> None:
+    def source(connector: str, name: str, first: str) -> str:
+        return (
+            "shape Row:\n    id: Int not null\n    amount: Int not null\n"
+            "    other: Int not null\n"
+            f'source {name}: Row is {connector}.table("sales.orders")\n'
+            f"query q:\n    from {name}\n    select:\n        {first}\n"
+            "        amount = other\n    order by:\n        amount\n"
+        )
+
+    long_name = "s" * 70
+    for connector, emitter, quote in (
+        ("postgres", sql_api.emit_postgres_sql, '"'),
+        ("mysql", emit_mysql_sql, "`"),
+    ):
+        unaliased = emitter(_compile_ir(source(connector, long_name, "id")))
+        aliased = emitter(_compile_ir(source(connector, "o", "id = o.id")))
+
+        def q(name: str) -> str:
+            return f"{quote}{name}{quote}"
+
+        # Before: FROM gained `AS <70-character source name>`, which both
+        # targets refused as an identifier over their limit.
+        assert unaliased.artifacts[0].sql.endswith(
+            f"FROM {q('sales')}.{q('orders')}\n"
+            f"ORDER BY\n    {q('orders')}.{q('amount')} ASC"
+        )
+        # An authored qualified field already aliases FROM; the key reuses it.
+        assert aliased.artifacts[0].sql.endswith(
+            f"FROM {q('sales')}.{q('orders')} AS {q('o')}\n"
+            f"ORDER BY\n    {q('o')}.{q('amount')} ASC"
+        )
+
+
+@pytest.mark.parametrize(
+    "select_items",
+    [
+        ("amount = count()", "n = count()"),
+        ("m = count()", "n = count()"),
+    ],
+    ids=("colliding-output", "no-collision"),
+)
+def test_input_field_key_of_an_ungrouped_aggregate_query_is_refused(
+    select_items: tuple[str, ...],
+) -> None:
+    source = (
+        "shape Row:\n    amount: Int not null\n    other: Int not null\n"
+        'source orders: Row is postgres.table("orders")\n'
+        "query q:\n"
+        "    from orders\n"
+        "    select:\n"
+        + "".join(f"        {item}\n" for item in select_items)
+        + "    order by:\n"
+        "        amount\n"
+    )
+
+    result = analyze(_parse(source))
+
+    # Before: check passed and PostgreSQL rejects the ungrouped ORDER BY column.
+    assert [(d.code, d.message) for d in result.diagnostics] == [
+        (
+            "PIE-S2380",
+            "ORDER BY key reads an input field outside an aggregate in a query "
+            "with aggregates and no GROUP BY, which SQL targets reject",
+        )
+    ]
 
 
 def test_output_alias_reading_the_same_input_field_keeps_a_bare_order_key() -> None:
@@ -328,28 +439,9 @@ def test_output_alias_reading_the_same_input_field_keeps_a_bare_order_key() -> N
     assert mysql.artifacts[0].sql.endswith("ORDER BY\n    `created_at` ASC")
 
 
-@pytest.mark.parametrize(
-    ("let_lines", "key"),
-    [
-        ((), '"x"'),
-        ((), "1 + 1"),
-        ((), "-1"),
-        ((), "2.5"),
-        ((), "true"),
-        ((), "null"),
-        ((), 'lower("x")'),
-        (("position = 2",), "position"),
-        (("base = 2", "position = base + 1"), "position"),
-    ],
-)
-def test_constant_order_key_is_refused_at_check(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    let_lines: tuple[str, ...],
-    key: str,
-) -> None:
+def _keyed_body(key: str, let_lines: tuple[str, ...] = ()) -> str:
     let_clause = "".join(f"        {line}\n" for line in let_lines)
-    body = (
+    return (
         "query selected:\n"
         "    from users\n"
         + ("    let:\n" + let_clause if let_clause else "")
@@ -359,6 +451,29 @@ def test_constant_order_key_is_refused_at_check(
         f"        {key} asc\n"
         "        id\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("let_lines", "key"),
+    [
+        ((), '"x"'),
+        ((), "-1"),
+        ((), "+2"),
+        ((), "2.5"),
+        ((), "true"),
+        ((), "null"),
+        (("position = 2",), "position"),
+        (("position = -2",), "position"),
+        (("base = 2",), "-base"),
+    ],
+)
+def test_bare_constant_order_key_is_refused_at_check(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    let_lines: tuple[str, ...],
+    key: str,
+) -> None:
+    body = _keyed_body(key, let_lines)
     result = analyze(_parse(POSTGRES_PREFIX + body))
 
     key_line = 12 + (1 + len(let_lines) if let_lines else 0)
@@ -372,6 +487,46 @@ def test_constant_order_key_is_refused_at_check(
         path.write_text(prefix + body, encoding="utf-8")
         assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 1
         assert "PIE-S2380" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("let_lines", "key", "postgres_key", "mysql_key"),
+    [
+        ((), "1 + 1", "1 + 1", "1 + 1"),
+        ((), 'lower("x")', "lower('x')", "LOWER('x')"),
+        (("base = 2", "next = base + 1"), "next", "2 + 1", "2 + 1"),
+    ],
+)
+def test_computed_constant_order_key_still_emits_as_a_no_op_sort(
+    let_lines: tuple[str, ...],
+    key: str,
+    postgres_key: str,
+    mysql_key: str,
+) -> None:
+    body = _keyed_body(key, let_lines)
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + body))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + body))
+
+    assert f"ORDER BY\n    {postgres_key} ASC," in postgres.artifacts[0].sql
+    assert f"ORDER BY\n    {mysql_key} ASC," in mysql.artifacts[0].sql
+
+
+@pytest.mark.parametrize(
+    ("let_lines", "key", "code"),
+    [
+        ((), "foo()", "PIE-S2103"),
+        ((), '-"x"', "PIE-S2105"),
+        (("a = a + 1",), "a", "PIE-S2330"),
+    ],
+)
+def test_order_key_with_its_own_error_gets_no_constant_key_error(
+    let_lines: tuple[str, ...],
+    key: str,
+    code: str,
+) -> None:
+    result = analyze(_parse(POSTGRES_PREFIX + _keyed_body(key, let_lines)))
+
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [code]
 
 
 def test_order_keys_reading_fields_lets_or_windows_are_not_constant() -> None:

@@ -510,6 +510,55 @@ def test_backend_modifier_and_frame_limits_fail_closed() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "call",
+    ("ntile({n})", "lag(value, {n})", "lead(value, {n})", "nth_value(value, {n})"),
+)
+def test_postgresql_refuses_window_counts_outside_int32(call: str) -> None:
+    name = call.split("(", 1)[0]
+    accepted, _ = _compile(call.format(n=2147483647))
+    refused, _ = _compile(call.format(n=2147483648))
+    mysql, _ = _compile(call.format(n=2147483648), connector="mysql.table")
+
+    assert emit_postgres_sql(accepted).diagnostics == ()
+    # Before: PostgreSQL emission printed the count, which int4 cannot hold.
+    assert [
+        (
+            item.code,
+            f"PostgreSQL {name} integer argument is outside signed int32 range"
+            in item.message,
+        )
+        for item in emit_postgres_sql(refused).diagnostics
+    ] == [("PIE-B1000", True)]
+    mysql_sql = emit_mysql_sql(mysql)
+    assert mysql_sql.diagnostics == ()
+    assert "2147483648" in mysql_sql.artifacts[0].sql
+
+
+def test_let_bound_frame_offset_emits_its_inlined_literal() -> None:
+    for connector, emitter, frame_sql in (
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            "ROWS BETWEEN 2 PRECEDING AND CURRENT ROW",
+        ),
+        ("mysql.table", emit_mysql_sql, "ROWS BETWEEN 2 PRECEDING AND CURRENT ROW"),
+    ):
+        source = _source(
+            "first_value(value)",
+            frame="rows between n preceding and current row",
+            connector=connector,
+        ).replace("    from rows\n", "    from rows\n    let:\n        n = 2\n")
+        parsed = parse_source(source, path="frame.pietto")
+        assert parsed.ast is not None
+        semantic = analyze(parsed.ast)
+        assert semantic.diagnostics == ()
+        lowered = build_ir(parsed.ast, semantic.model)
+        assert lowered.ir is not None
+
+        assert frame_sql in emitter(lowered.ir).artifacts[0].sql
+
+
 def test_postgresql_rows_groups_offsets_and_exclusion_are_exact() -> None:
     rows, _ = _compile("first_value(value)", frame="rows 1 preceding")
     rows_sql = emit_postgres_sql(rows)
