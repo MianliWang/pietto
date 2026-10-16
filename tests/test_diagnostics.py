@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import signal
 import sys
-import threading
-from typing import Any
+from threading import Event, Thread
+from typing import Any, cast
 
 import pytest
+from antlr4 import CommonTokenStream, InputStream
 
 import pietto.parser_api as parser_api
+from pietto.ast_builder import AstBuilder
+from pietto.errors import ParseCancelled
+from pietto.generated.PiettoLexer import PiettoLexer
 from pietto.generated.PiettoParser import PiettoParser
 from pietto.parser_api import ParseResult, parse_source
 
@@ -180,6 +184,41 @@ def _query(body: str) -> str:
 
 
 PRESENTATION_CASES = {
+    # Build-time messages come in source order, also within one clause.
+    "trailing_comma_before_the_block_after_it": (
+        _query("    select: id,\n        amount\n"),
+        [
+            (
+                6,
+                15,
+                "A trailing comma does not continue a list on the next line; "
+                "remove the comma.",
+            )
+        ],
+    ),
+    "window_call_before_its_window_use": (
+        _query('    select:\n        n = lag("\\q") window: order by: a\n'),
+        [(7, 18, 'Unsupported string escape "\\q".')],
+    ),
+    "type_before_its_ensure": (
+        'type T = Text(max = "\\q") ensure self == "\\z"\n',
+        [(1, 22, 'Unsupported string escape "\\q".')],
+    ),
+    "def_parameter_before_its_return_type": (
+        'def f(x: Int) -> Text(max = "\\q") not null: return 1\n',
+        [
+            (
+                1,
+                10,
+                "A `def` parameter must state its nullability: write `nullable` "
+                "or `not null` after the type.",
+            )
+        ],
+    ),
+    "condition_line_before_the_lines_after_it": (
+        _query('    where:\n        "\\q" == a\n        and b\n    select: a\n'),
+        [(7, 10, 'Unsupported string escape "\\q".')],
+    ),
     # Build-time messages appear only without parser errors, first in the file.
     "only_the_first_build_message": (
         "relationship r: a.x < b.y\nenum A: a, b,\nenum B: c, d,\n",
@@ -514,6 +553,52 @@ def test_nesting_accepted_before_the_layout_rules_still_parses(
     assert result.diagnostics == () and result.ast is not None
 
 
+# In an argument list the parser itself sets the limit; these are the depths a
+# caller at module level reached there before the layout rules.
+_ARGUMENT_POSITIONS = {
+    "type_argument": lambda e: "type T = Text(max = " + e + ")\n",
+    "window_argument": lambda e: (
+        _ROWS + "    select:\n        w = lag(" + e + ") window:\n"
+        "            order by:\n                a\n"
+    ),
+    "named_window_argument": lambda e: (
+        _ROWS + "    select:\n        w = lag(" + e + ") window x\n"
+        "    window x:\n        order by:\n            a\n"
+    ),
+    "call_argument": lambda e: _ROWS + "    select:\n        y = abs(" + e + ")\n",
+    "qualify_window_argument": lambda e: (
+        _ROWS + "    select:\n        a\n    qualify:\n        lag(" + e + ") window:\n"
+        "            order by:\n                a\n        > 1\n"
+    ),
+}
+_ARGUMENT_NESTING = {
+    "type_argument": {"unary": 304, "not": 233, "if_else": 182, "parentheses": 25},
+    "window_argument": {"unary": 304, "not": 232, "if_else": 182, "parentheses": 25},
+    "named_window_argument": {
+        "unary": 304,
+        "not": 232,
+        "if_else": 182,
+        "parentheses": 25,
+    },
+    "call_argument": {"unary": 298, "not": 224, "if_else": 182, "parentheses": 24},
+    "qualify_window_argument": {
+        "unary": 297,
+        "not": 223,
+        "if_else": 181,
+        "parentheses": 24,
+    },
+}
+
+
+@pytest.mark.parametrize("position", sorted(_ARGUMENT_POSITIONS))
+@pytest.mark.parametrize("shape", ("unary", "not", "if_else", "parentheses"))
+def test_nesting_in_an_argument_list_still_parses(shape: str, position: str) -> None:
+    depth = _ARGUMENT_NESTING[position][shape]
+    _, build = _BASE_NESTING[shape]
+    result = parse_source(_ARGUMENT_POSITIONS[position](build(depth)))
+    assert result.diagnostics == () and result.ast is not None
+
+
 def test_recursion_exhaustion_is_reported_at_its_declaration() -> None:
     source = _query("    select: y = " + "(" * 400 + "a" + ")" * 400 + "\n")
     limit = sys.getrecursionlimit()
@@ -539,11 +624,26 @@ def test_recursion_exhaustion_is_reported_at_its_declaration() -> None:
 
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="needs POSIX timers")
-def test_an_interrupted_parse_leaves_no_parse_running() -> None:
+def test_an_interrupted_parse_is_cancelled_before_the_call_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     long = _SHAPE + "".join(
         f"query q{index}:\n    from r\n    where a > {index}\n    select: a\n"
         for index in range(3000)
     )
+    ends: list[str] = []
+    parse = parser_api._parse_source
+
+    def recorded(source: str, *, path: object, cancel: Any) -> ParseResult:
+        try:
+            result = parse(source, path=cast(Any, path), cancel=cancel)
+        except ParseCancelled:
+            ends.append("cancelled")
+            raise
+        ends.append("finished")
+        return result
+
+    monkeypatch.setattr(parser_api, "_parse_source", recorded)
 
     class Interrupted(Exception):
         pass
@@ -559,21 +659,52 @@ def test_an_interrupted_parse_leaves_no_parse_running() -> None:
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
-    assert [
-        item
-        for item in threading.enumerate()
-        if item.name == "pietto-parse" and item.is_alive()
-    ] == []
+    # The parse stopped at a cancellation check, and before the call returned.
+    assert ends == ["cancelled"]
     assert parse_source(_query("    select: a\n")).diagnostics == ()
+
+
+def test_a_cancelled_parse_stops_at_its_next_token_or_node() -> None:
+    source = _query("    select: a\n")
+    cancel = Event()
+    cancel.set()
+    with pytest.raises(ParseCancelled):
+        parser_api._parse_source(source, path=None, cancel=cancel)
+    tree = PiettoParser(CommonTokenStream(PiettoLexer(InputStream(source)))).script()
+    with pytest.raises(ParseCancelled):
+        AstBuilder(None, cancel=cancel).visit(tree)
 
 
 def test_a_parse_without_a_free_thread_runs_on_the_caller(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class NoThread(threading.Thread):
-        def start(self) -> None:
-            raise RuntimeError("can't start new thread")
+    def no_thread(*_: object) -> int:
+        raise RuntimeError("can't start new thread")
 
-    monkeypatch.setattr(parser_api, "Thread", NoThread)
+    monkeypatch.setattr(parser_api, "start_new_thread", no_thread)
     result = parse_source(_query("    select: a\n"))
     assert result.diagnostics == () and result.ast is not None
+
+
+def test_a_refused_thread_start_is_raised_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Refused(Exception):
+        pass
+
+    def refused(*_: object) -> int:  # such as an audit hook, before any thread
+        raise Refused
+
+    monkeypatch.setattr(parser_api, "start_new_thread", refused)
+    raised: list[BaseException] = []
+
+    def call() -> None:
+        try:
+            parse_source(_query("    select: a\n"))
+        except Refused as error:
+            raised.append(error)
+
+    caller = Thread(target=call, daemon=True)
+    caller.start()
+    caller.join(timeout=10)
+    assert not caller.is_alive() and len(raised) == 1

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import bisect
-from threading import Event, Thread
+from _thread import allocate_lock, start_new_thread
+from threading import Event
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,32 +73,47 @@ def parse_source(
     if source.startswith("\ufeff"):
         source = source[1:]
 
-    # A fresh thread starts at recursion depth zero, so the nesting the parser
-    # accepts never depends on how deep the caller's own stack is.  The caller
-    # always waits for it: an exception raised in the caller while it waits,
-    # such as KeyboardInterrupt or a signal-based timeout, cancels the parse,
-    # which stops at its next token or tree node, and is re-raised after the
-    # worker has finished, so no parse outlives its call.
+    # The parse runs on a fresh low-level thread whose first frame is
+    # ``contained``, so it reaches the parser two frames deep whoever calls,
+    # and never deeper than a caller's own stack would.  The caller always
+    # waits for it: an exception raised in the caller while it waits, such as
+    # KeyboardInterrupt or a signal-based timeout, cancels the parse, which
+    # stops at its next token or tree node, and is re-raised once the parse
+    # has stopped, so no parse outlives its call.
     cancel = Event()
+    finished = allocate_lock()
+    finished.acquire()
     outcome: list[ParseResult | BaseException] = []
 
     def contained() -> None:
         try:
-            outcome.append(_contained_parse(source, path=path, cancel=cancel))
+            outcome.append(_parse_source(source, path=path, cancel=cancel))
+        except RecursionError:
+            outcome.append(
+                ParseResult(
+                    ast=None, diagnostics=(_recursion_diagnostic(path, None, ()),)
+                )
+            )
         except BaseException as error:  # re-raised in the calling thread
             outcome.append(error)
+        finally:
+            finished.release()
 
-    worker = Thread(target=contained, name="pietto-parse", daemon=True)
+    # ``extend`` stores the started thread's ident without running bytecode in
+    # between, so ``started`` is empty exactly when no parse is running, even
+    # when a signal handler raises as the start returns.
+    started: list[int] = []
     try:
-        worker.start()
-    except RuntimeError:
-        # No thread is available: parse on the caller's own stack instead.
-        return _contained_parse(source, path=path, cancel=cancel)
-    try:
-        worker.join()
-    except BaseException:
+        started.extend(map(start_new_thread, (contained,), ((),)))
+        finished.acquire()
+    except BaseException as error:
+        if not started:
+            if isinstance(error, RuntimeError):
+                # No thread is available: parse on the caller's own stack.
+                return _contained_parse(source, path=path, cancel=cancel)
+            raise
         cancel.set()
-        worker.join()
+        finished.acquire()
         raise
     (result,) = outcome
     if isinstance(result, BaseException):
@@ -198,10 +214,25 @@ def _parse_source(
 
     tokens = list(indentation.tokens)
     starts = _declaration_starts(tokens)
-    parsed = _run_parser(tokens, path=path, starts=starts, cancel=cancel)
-    if isinstance(parsed, Diagnostic):
-        return ParseResult(ast=None, diagnostics=(parsed,))
-    tree, reporter = parsed
+    # Parsed inline rather than in a helper: every frame here is one less for
+    # the nesting the parser accepts.
+    token_source = _CancellableTokenSource(tokens, source_path(path), cancel)
+    # ANTLR accepts any token source here, but its runtime annotation names Lexer.
+    parser = PiettoParser(CommonTokenStream(cast(Any, token_source)))
+    parser.removeErrorListeners()
+    reporter = SyntaxErrorReporter(path, tokens)
+    parser._errHandler = reporter
+    try:
+        tree = parser.script()
+    except RecursionError:
+        return ParseResult(
+            ast=None,
+            diagnostics=(
+                _recursion_diagnostic(
+                    path, parser.getCurrentToken(), [tokens[index] for index in starts]
+                ),
+            ),
+        )
     if reporter.errors:
         diagnostics.extend(
             _first_error_per_declaration(tokens, starts, reporter, diagnostics)
@@ -253,29 +284,6 @@ class _CancellableTokenSource(ListTokenSource):
         if self._cancel.is_set():
             raise ParseCancelled
         return super().nextToken()
-
-
-def _run_parser(
-    tokens: list[Token],
-    *,
-    path: str | Path | None,
-    starts: list[int],
-    cancel: Event,
-) -> tuple[Any, SyntaxErrorReporter] | Diagnostic:
-    """Parse one token list with the Pietto error reporter."""
-
-    token_source = _CancellableTokenSource(tokens, source_path(path), cancel)
-    # ANTLR accepts any token source here, but its runtime annotation names Lexer.
-    parser = PiettoParser(CommonTokenStream(cast(Any, token_source)))
-    parser.removeErrorListeners()
-    reporter = SyntaxErrorReporter(path, tokens)
-    parser._errHandler = reporter
-    try:
-        return parser.script(), reporter
-    except RecursionError:
-        return _recursion_diagnostic(
-            path, parser.getCurrentToken(), [tokens[index] for index in starts]
-        )
 
 
 def _declaration_starts(tokens: list[Token]) -> list[int]:

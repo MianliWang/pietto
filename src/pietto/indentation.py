@@ -29,10 +29,9 @@ def find_leading_tab_diagnostics(
     diagnostics: list[Diagnostic] = []
     path_text = source_path(path)
 
-    # Lines end only where the lexer ends them: comments and strings may hold
-    # other separators, such as form feed or U+2028, that ``splitlines`` uses.
-    lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    for line_number, line in enumerate(lines, start=1):
+    # Lines are counted as they always were, with ``splitlines``: it also ends
+    # a line at a lone CR, form feed or U+2028 that a comment or string holds.
+    for line_number, line in enumerate(source.splitlines(), start=1):
         leading = line[: len(line) - len(line.lstrip(" \t"))]
         tab_column = leading.find("\t")
         if tab_column >= 0:
@@ -127,12 +126,13 @@ def inject_indentation(
     # Zero is the permanent baseline; nested block widths are pushed and popped.
     indentation_stack = [0]
     path_text = source_path(path)
+    # An indented first code line gets an INDENT that the parser rejects as
+    # unexpected indentation; its width opens no block, so the rest of the
+    # file is measured from column 0 and reports nothing that follows from it.
+    code_seen = False
     first = tokens[0] if tokens else None
     if first is not None and first.type not in {newline_type, Token.EOF}:
-        # Like any later line, an indented first line opens a block, which
-        # the parser rejects as unexpected indentation.
         if first.column > 0:
-            indentation_stack.append(first.column)
             output.append(_synthetic_token(first, indent_type, " " * first.column))
 
     for index, token in enumerate(tokens):
@@ -149,6 +149,7 @@ def inject_indentation(
 
         output.append(token)
         if token.type != newline_type:
+            code_seen = True
             continue
 
         next_token = tokens[index + 1] if index + 1 < len(tokens) else None
@@ -160,6 +161,10 @@ def inject_indentation(
         indentation = _trailing_indentation(token.text or "")
         width = len(indentation.replace("\t", " "))
         previous = indentation_stack[-1]
+        if not code_seen:
+            if width > 0:
+                output.append(_synthetic_token(next_token, indent_type, indentation))
+            continue
 
         if width > previous:
             indentation_stack.append(width)

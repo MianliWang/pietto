@@ -371,6 +371,8 @@ class AstBuilder(PiettoVisitor):
         return self.visit(ctx.queryDefinition())
 
     def visitTypeDefinition(self, ctx: _AntlrContext) -> TypeDef:
+        # The base type comes first in the source, so it is built first.
+        base = cast(TypeExpr, self.visit(ctx.typeExpression()))
         ensures: list[EnsureClause] = []
         if ctx.expression() is not None:
             expression = cast(Expression, self.visit(ctx.expression()))
@@ -386,7 +388,7 @@ class AstBuilder(PiettoVisitor):
         return TypeDef(
             span=self._span(ctx),
             name=ctx.identifier().getText(),
-            base=self.visit(ctx.typeExpression()),
+            base=base,
             ensures=tuple(ensures),
         )
 
@@ -449,19 +451,12 @@ class AstBuilder(PiettoVisitor):
     def visitFunctionDefinition(self, ctx: _AntlrContext) -> FunctionDef:
         """Build a pure inline function whose types state their nullability."""
 
+        # Each type is checked as it is built, so errors come in source order.
         parameters = self._parameters(ctx.parameterList())
+        for parameter in parameters:
+            self._require_nullability(parameter.type, "parameter")
         return_type = cast(TypeExpr, self.visit(ctx.typeExpression()))
-        for type_expr, role in (
-            *((parameter.type, "parameter") for parameter in parameters),
-            (return_type, "return type"),
-        ):
-            if type_expr.nullability is Nullability.IMPLICIT:
-                raise AstBuildError(
-                    f"A `def` {role} must state its nullability: write "
-                    "`nullable` or `not null` after the type.",
-                    line=type_expr.span.line,
-                    column=type_expr.span.column,
-                )
+        self._require_nullability(return_type, "return type")
         body = ctx.functionBody()
         return FunctionDef(
             span=self._span(ctx),
@@ -470,6 +465,16 @@ class AstBuilder(PiettoVisitor):
             return_type=return_type,
             body=self.visit((body or ctx).expression()),
         )
+
+    @staticmethod
+    def _require_nullability(type_expr: TypeExpr, role: str) -> None:
+        if type_expr.nullability is Nullability.IMPLICIT:
+            raise AstBuildError(
+                f"A `def` {role} must state its nullability: write "
+                "`nullable` or `not null` after the type.",
+                line=type_expr.span.line,
+                column=type_expr.span.column,
+            )
 
     def visitShapeDefinition(self, ctx: _AntlrContext) -> ShapeDef:
         """Build a shape while preserving mixed item source order."""
@@ -1044,7 +1049,6 @@ class AstBuilder(PiettoVisitor):
         """Preserve one direct call and its exact inline or named use."""
 
         use = ctx.windowSpec()
-        self._reject_inline_window_clause(use)
         identifier = use.identifier()
         base = (
             None
@@ -1061,10 +1065,7 @@ class AstBuilder(PiettoVisitor):
         else:
             use_kind = WindowUseKind.NAMED_EXTENDED
         return self._window_expression(
-            ctx,
-            specification=self.visit(use),
-            use_kind=use_kind,
-            base=base,
+            ctx, specification=use, use_kind=use_kind, base=base
         )
 
     def visitQualifyWindowExpression(self, ctx: _AntlrContext) -> WindowExpr:
@@ -1072,7 +1073,7 @@ class AstBuilder(PiettoVisitor):
 
         return self._window_expression(
             ctx,
-            specification=self.visit(ctx.qualifyInlineWindowSpec()),
+            specification=ctx.qualifyInlineWindowSpec(),
             use_kind=WindowUseKind.INLINE,
             base=None,
         )
@@ -1081,11 +1082,14 @@ class AstBuilder(PiettoVisitor):
         self,
         ctx: _AntlrContext,
         *,
-        specification: WindowSpec,
+        specification: _AntlrContext,
         use_kind: WindowUseKind,
         base: NamedWindowReference | None,
     ) -> WindowExpr:
-        """Share exact call, modifier, identity, and specification construction."""
+        """Share exact call, modifier, identity, and specification construction.
+
+        The call is built before its window use, which follows it in the source.
+        """
 
         call = self._call_expr(ctx.dottedName(), ctx.callSuffix())
         callee = call.callee
@@ -1114,10 +1118,13 @@ class AstBuilder(PiettoVisitor):
                 ),
             )
         )
+        if isinstance(specification, PiettoParser.WindowSpecContext):
+            self._reject_inline_window_clause(specification)
+        spec = cast(WindowSpec, self.visit(specification))
         return WindowExpr(
             span=self._span(ctx),
             call=call,
-            spec=specification,
+            spec=spec,
             identity=_window_identity.WindowFunctionIdentity(
                 namespace=parts[:-1],
                 name=parts[-1],
@@ -1300,28 +1307,25 @@ class AstBuilder(PiettoVisitor):
             items=tuple(self.visit(item) for item in self._order_items(ctx)),
         )
 
-    def _order_items(self, ctx: _AntlrContext) -> list[_AntlrContext]:
-        """Return the ordered item contexts of one ``order by:`` clause."""
+    def _order_items(self, ctx: _AntlrContext) -> Iterator[_AntlrContext]:
+        """Yield the ordered item contexts of one ``order by:`` clause."""
 
-        return [
-            item
-            for line in self._clause_lines(ctx, "orderByLine", "orderByBody")
-            for item in line.orderItem()
-        ]
+        for line in self._clause_lines(ctx, "orderByLine", "orderByBody"):
+            yield from line.orderItem()
 
     def _clause_lines(
         self, ctx: _AntlrContext, line_rule: str, body_rule: str
-    ) -> list[_AntlrContext]:
-        """Return the header line or the block lines of one list clause.
+    ) -> Iterator[_AntlrContext]:
+        """Yield the header line or the block lines of one list clause.
 
-        A header line followed by an indented block, and a line ending in a
-        comma, parse only so that they fail here with a targeted message.
+        A line ending in a comma, and a header line followed by an indented
+        block, parse only so that they fail here with a targeted message.  Each
+        fails when the caller's walk reaches it, after the lines before it were
+        built, so build errors come in source order.
         """
 
         header = getattr(ctx, line_rule)()
         body = getattr(ctx, body_rule)()
-        if header is not None and body is not None:
-            raise self._error(_HEADER_LINE_THEN_BLOCK, ctx.INDENT().getSymbol())
         lines = [header] if header is not None else list(getattr(body, line_rule)())
         for line in lines:
             # A comma directly before a line's closing NEWLINE trails.
@@ -1336,7 +1340,9 @@ class AstBuilder(PiettoVisitor):
                 PiettoParser.NEWLINE,
             ]:
                 raise self._error(_TRAILING_COMMA, tokens[0])
-        return lines
+            yield line
+        if header is not None and body is not None:
+            raise self._error(_HEADER_LINE_THEN_BLOCK, ctx.INDENT().getSymbol())
 
     def _predicate_suite(self, ctx: _AntlrContext) -> Expression:
         """Join the lines of one condition block with ``and``, left to right.
@@ -1345,19 +1351,23 @@ class AstBuilder(PiettoVisitor):
         spans from the first line through the operand it adds.
         """
 
-        lines = self._clause_lines(ctx, "predicateLine", "predicateBody")
-        for line in lines:
+        first: _AntlrContext | None = None
+        result: Expression | None = None
+        for line in self._clause_lines(ctx, "predicateLine", "predicateBody"):
             operator = line.AND() or line.OR()
             if operator is not None:
                 raise self._error(_PREDICATE_LINE_OPERATOR, operator.getSymbol())
-        result = cast(Expression, self.visit(lines[0].expression()))
-        for line in lines[1:]:
+            operand = cast(Expression, self.visit(line.expression()))
+            if first is None or result is None:
+                first, result = line, operand
+                continue
             result = BinaryExpr(
-                span=self._span_between(lines[0], line),
+                span=self._span_between(first, line),
                 left=result,
                 operator="and",
-                right=self.visit(line.expression()),
+                right=operand,
             )
+        assert result is not None
         return result
 
     def _reject_inline_window_clause(self, ctx: _AntlrContext) -> None:

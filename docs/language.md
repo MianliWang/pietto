@@ -43,9 +43,10 @@ Top-level declarations are `type`, `enum`, `constraint`, `derive`, `def`,
 
 Lines may end with LF, CRLF or CR. Positions count lines at LF only, so in a
 file whose lines end with CR alone every position, in diagnostics and in the
-AST, is on line 1, with columns running on as they always have. A file must
-not start indented: an indented first line is PIE-P1000
-(`Unexpected indentation.`).
+AST, is on line 1, with columns running on as they always have; only the
+PIE-P1004 tab check counts a lone CR as a line end. A file must not start
+indented: an indented first code line is PIE-P1000 (`Unexpected indentation.`)
+at that line, and the rest of the file is measured from column 0.
 
 A list clause, that is `select:`, `select distinct:`, `group by:`, `order by:`
 (of a relation or a window), `partition by:`, the row `let:` and `enum NAME:`,
@@ -85,8 +86,9 @@ accepted. The bodies of `shape`, `table`, `query`, `qualify:`, `import`,
 `export` and a relation let stay indented blocks.
 
 Inside parentheses, line breaks do not end the line, so an expression can
-continue over several lines. The indentation of the continuation lines does
-not matter, and blank lines and comments may appear between them:
+continue over several lines. The depth of the space indentation of the
+continuation lines does not matter (a tab there is still PIE-P1004), and blank
+lines and comments may appear between them:
 
 ```pietto
 where (region == "EU"    # Europe
@@ -122,8 +124,8 @@ lines or as a condition block parses to the same tree as its one-item-per-line
 form or its `and` chain, and checks and emits the same SQL. Rewritten with
 these forms (and the one-line `type T = Int not null ensure ...` form), a
 105-line single-file program of two tables and a window query becomes 85
-lines, and `emit-sql` writes byte-identical SQL for PostgreSQL and MySQL. One
-of its tables, before:
+lines, and `emit-sql` writes byte-identical SQL for PostgreSQL, and for MySQL
+with the source written as `mysql.table`. One of its tables, before:
 
 ```pietto
 shape Order:

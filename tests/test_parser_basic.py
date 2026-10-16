@@ -256,32 +256,50 @@ def test_line_endings_keep_the_positions_they_always_had(
 
 
 @pytest.mark.parametrize(
-    "source",
+    ("source", "line", "column"),
     (
-        "    shape A:\n        id: Int not null\nshape B:\n    id: Int not null\n",
-        "# c\n    shape A:\n        id: Int not null\n",
-        "\n    type T = Int\n",
+        (
+            "    shape A:\n        id: Int not null\nshape B:\n    id: Int not null\n",
+            1,
+            5,
+        ),
+        # Deeper than the next line: still the first line, and no PIE-P1003.
+        ("     shape S:\n    id: Int not null\n", 1, 6),
+        ("  shape S:\n    id: Int not null\n", 1, 3),
+        ("    shape S:\r    id: Int not null\r", 1, 5),
+        ("# c\n     shape A:\n    id: Int not null\n", 2, 6),
+        ("\n    type T = Int\n", 2, 5),
     ),
 )
-def test_first_line_indentation_is_rejected_like_any_unexpected_indent(
-    source: str,
+def test_an_indented_first_code_line_is_one_unexpected_indentation(
+    source: str, line: int, column: int
 ) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert [item.code for item in result.diagnostics][:1] == ["PIE-P1000"]
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", line, column, "Unexpected indentation.")]
 
 
 @pytest.mark.parametrize(
-    "separator", ("\f", "\v", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+    ("source", "line"),
+    (
+        ("shape Row:\n\tid: Int\n", 2),
+        ("shape Row:\r\n\tid: Int\r\n", 2),
+        # The tab check counts a lone CR as a line end, unlike every other
+        # position in a CR-only file.
+        ("shape S:\r    a: Int not null\r\tx: Int\r", 3),
+        # It also ends a line at a form feed inside a comment.
+        ("# a\fb\nshape Row:\n\tid: Int\n", 4),
+    ),
 )
-def test_only_lexer_line_breaks_start_an_indentation_line(separator: str) -> None:
-    valid = parse_source(
-        f'# note{separator}\tmore\ntype T = Text ensure self != "x{separator}\ty"\n'
-    )
-    tab = parse_source(f"# a{separator}b\nshape Row:\n\tid: Int\n")
+def test_tab_errors_count_lines_as_they_always_did(source: str, line: int) -> None:
+    result = parse_source(source)
 
-    assert valid.diagnostics == ()
-    assert [(item.code, item.location.line) for item in tab.diagnostics][:1] == [
-        ("PIE-P1004", 3)
-    ]
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in result.diagnostics
+        if item.code == "PIE-P1004"
+    ] == [("PIE-P1004", line, 1)]
