@@ -104,11 +104,18 @@ and symlinked directory aliases are therefore refused, and a different file that
 merely shares a name is not. Only VERIFIED publishes: the bytes are written to a
 same-directory temporary file with a short `.pietto-*.tmp` name and installed with
 one `os.replace` after
-compilation, verification and serialization are complete. A creation, write,
+compilation, verification and serialization are complete. A new destination
+gets `0o666` less the process umask, like any new file the process creates; a
+replaced regular file keeps its own read, write and execute permission bits
+where the file system stores them, but not its owner, group, set-id or sticky
+bits. An existing regular destination the user may not write (the `access`
+write check; the read-only attribute on Windows) is refused before a temporary
+file is created, as `output_write` with the message `Output file is read-only.`
+A creation, write,
 close, replacement or cleanup failure leaves an existing destination unchanged
 and an absent destination absent, removes only this invocation's temporary file,
-and reports `output_write` (cleanup failure as a second `output_write`) as an
-`INPUT_REJECTED` document with no success payload and exit 2.
+and reports `output_write` (cleanup failure as a second `output_write`). Each of
+these is an `INPUT_REJECTED` document with no success payload and exit 2.
 
 The file is replaced before the presentation is written. If stdout then fails
 (write or flush), the exit code is 2, stderr receives

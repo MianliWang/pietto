@@ -325,7 +325,7 @@ The stable v1 kinds are:
 |---|---|
 | `file_read` | Input file could not be read or decoded |
 | `output_path` | Requested output path failed safety validation |
-| `output_write` | Atomic output write or replacement failed, or was refused because there were no SQL artifacts to write |
+| `output_write` | Atomic output write or replacement failed, or was refused because there were no SQL artifacts to write or the output file is read-only |
 | `usage` | Recognized JSON command has invalid or missing arguments |
 | `unsupported_dialect` | Supplied SQL dialect is not supported |
 
@@ -437,13 +437,24 @@ The implemented outcomes are:
 
 - successful or warning-only compilation with at least one SQL artifact writes
   atomically, sets `output.written` to `true`, keeps artifacts in JSON, and
-  exits `0`;
+  exits `0`. A new output file gets the permissions of any new file the
+  process creates, `0o666` less the process umask; a replaced regular file
+  keeps its own read, write, and execute permission bits where the file system
+  stores them, but not its owner, group, set-id, or sticky bits;
 - successful or warning-only compilation without SQL artifacts does not write
   or create the output file, reports `output_write` with the message
   `no SQL artifacts to write; the output file was not changed`, sets
   `output.written` to `false`, and exits `2`; text mode prints the same message
   after `<output path>: error: ` on stderr. Without `--output`, zero artifacts
   remain a successful empty result with exit `0`;
+- an existing regular output file that the user running the command may not
+  write (the `access` write check, so mode bits, ACLs, and root count; on
+  Windows, the read-only attribute) is not replaced: after compilation the
+  command reports `output_write` with the message
+  `output file is read-only; the output file was not changed`, sets
+  `output.written` to `false`, keeps generated artifacts in JSON, leaves the
+  file unchanged, and exits `2`; text mode prints the same message after
+  `<output path>: error: ` on stderr;
 - parser, semantic, or IR errors do not write, set `output.written` to `false`,
   leave `cli_errors` empty, contain no SQL artifacts, and exit `1`;
 - backend errors do not write, set `output.written` to `false`, leave

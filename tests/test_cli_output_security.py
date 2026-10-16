@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -87,6 +88,81 @@ def test_successful_output_atomically_overwrites_regular_file(
     assert output.read_text(encoding="utf-8") == (
         'SELECT\n    "email" AS "email"\nFROM "users"\n'
     )
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+def test_new_output_file_mode_follows_the_umask(tmp_path: Path) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    for umask, expected in ((0o022, 0o644), (0o077, 0o600)):
+        output = tmp_path / f"new-{umask:03o}.sql"
+        previous = os.umask(umask)
+        try:
+            assert _emit(path, output) == 0
+        finally:
+            os.umask(previous)
+        assert stat.S_IMODE(output.stat().st_mode) == expected, oct(umask)
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+def test_replaced_output_file_keeps_its_permission_bits(tmp_path: Path) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    # Neither narrowed by the umask nor widened to it.
+    for mode, umask in ((0o664, 0o077), (0o600, 0o022)):
+        output = _write(tmp_path, f"kept-{mode:03o}.sql", "stale SQL\n")
+        output.chmod(mode)
+        previous = os.umask(umask)
+        try:
+            assert _emit(path, output) == 0
+        finally:
+            os.umask(previous)
+        assert stat.S_IMODE(output.stat().st_mode) == mode, oct(mode)
+        assert output.read_text(encoding="utf-8") == (
+            'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        )
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("presentation", ["text", "json"])
+def test_read_only_output_is_refused_and_left_unchanged(
+    presentation: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    output.chmod(0o444)
+    if os.access(output, os.W_OK):
+        pytest.skip("this user may write a read-only file")
+    before = output.stat()
+    arguments = ["emit-sql", str(path), "--dialect", "postgres"]
+    if presentation == "json":
+        arguments += ["--format", "json"]
+
+    assert cli.main([*arguments, "--output", str(output)]) == 2
+
+    message = "output file is read-only; the output file was not changed"
+    captured = capsys.readouterr()
+    if presentation == "json":
+        assert captured.err == ""
+        document = json.loads(captured.out)
+        assert document["cli_errors"] == [
+            {"kind": "output_write", "message": message, "path": str(output)}
+        ]
+        assert document["output"] == {"path": str(output), "written": False}
+        assert document["artifacts"] == [
+            {
+                "kind": "relation",
+                "name": "user_emails",
+                "sql": 'SELECT\n    "email" AS "email"\nFROM "users"',
+            }
+        ]
+    else:
+        assert captured == ("", f"{output}: error: {message}\n")
+    assert output.read_text(encoding="utf-8") == "original SQL\n"
+    after = output.stat()
+    assert (after.st_mode, after.st_ino) == (before.st_mode, before.st_ino)
     assert not tuple(tmp_path.glob("*.tmp"))
 
 

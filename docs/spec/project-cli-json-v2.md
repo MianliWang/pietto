@@ -59,7 +59,10 @@ regular-file or uninspectable output parent as `output_write` after
 compilation, and report an unreadable input as `file_read`. A closed or
 unwritable stdout exits `2` without a traceback, and text output writes C1,
 separator, and bidi controls as `\uNNNN` escapes; project mode follows both
-rules too.
+rules too. In both modes `--output` refuses an existing output file the user
+may not write as `output_write`, creates a new output file with `0o666` less
+the process umask, and keeps a replaced file's read, write, and execute
+permission bits.
 
 Phase 8 adds no command or option to this baseline.
 
@@ -453,7 +456,7 @@ The planned v2 project kinds are:
 | `project_resource` | A project discovery, loading, or presentation budget is exceeded |
 | `source_read` | A selected source cannot be read or decoded |
 | `output_path` | Project output path fails safety validation |
-| `output_write` | Atomic project output write or replacement fails |
+| `output_write` | Atomic project output write or replacement fails, or the output file is read-only |
 
 The design retains `output_path` and `output_write` rather than introducing a
 less precise `project_output` umbrella kind.
