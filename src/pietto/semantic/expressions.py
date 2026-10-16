@@ -381,6 +381,7 @@ def type_relation_expressions(
                 report_unknown_name=True,
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_value_types,
+                bare_value_expressions=let_expressions,
                 suppressed_unknown_names=rejected_lets,
                 type_expansions=type_expansions,
             )
@@ -413,7 +414,13 @@ def type_relation_expressions(
                 if type(analysis) is WindowExpressionAnalysis:
                     window_analyses[item.expression] = analysis
                     diagnostics.extend(
-                        _window_literal_range_diagnostics(item.expression, analysis)
+                        _window_literal_range_diagnostics(
+                            item.expression,
+                            analysis,
+                            input_schema,
+                            let_expressions or {},
+                            rejected_lets,
+                        )
                     )
                     result = analysis.semantic_fact.result
                     if (
@@ -454,7 +461,12 @@ def type_relation_expressions(
             definition.order_by_clause is not None
             and definition.group_by_clause is None
         ):
+            aggregated = any(
+                contains_semantic_aggregate(selected.expression)
+                for selected in definition.select_items
+            )
             for item in definition.order_by_clause.items:
+                key_diagnostic_count = len(diagnostics)
                 _append_invalid_count_context_diagnostic(
                     item.expression,
                     diagnostics,
@@ -501,10 +513,20 @@ def type_relation_expressions(
                     suppressed_unknown_names=order_suppressed_names,
                     type_expansions=type_expansions,
                 )
-                if not input_schema.is_unknown and _is_constant_order_key(
-                    item.expression, input_schema, let_expressions or {}
-                ):
-                    diagnostics.append(_constant_order_key_diagnostic(item.expression))
+                # A key that already reported its own error gets no PIE-S2380.
+                problem = (
+                    None
+                    if input_schema.is_unknown
+                    or len(diagnostics) > key_diagnostic_count
+                    else _order_key_problem(
+                        item.expression,
+                        input_schema,
+                        let_expressions or {},
+                        aggregated=aggregated,
+                    )
+                )
+                if problem is not None:
+                    diagnostics.append(_order_key_diagnostic(item.expression, problem))
 
     return value_types, diagnostics, window_analyses, named_window_namespaces
 
@@ -517,27 +539,35 @@ _WINDOW_COUNT_POSITIONS = {"ntile": 0, "lag": 1, "lead": 1, "nth_value": 1}
 def _window_literal_range_diagnostics(
     expression: WindowExpr,
     analysis: WindowExpressionAnalysis,
+    input_schema: RowSchema,
+    let_expressions: Mapping[str, Expression],
+    rejected_lets: set[str],
 ) -> list[Diagnostic]:
     """Refuse window literals that no SQL target accepts, before emission.
 
-    A ROWS or GROUPS offset must be a nonnegative signed 64-bit Int literal and
-    a count argument may not exceed that range; the narrower PostgreSQL int4
-    count range is checked when PostgreSQL SQL is emitted.
+    A ROWS or GROUPS offset, after the `let:` inlining emission performs, must
+    be a nonnegative signed 64-bit Int literal, and a count argument may not
+    exceed that range; the narrower PostgreSQL int4 count range is checked
+    when PostgreSQL SQL is emitted. A refused `let:` name already has its error.
     """
 
     name = expression.identity.name
     messages: list[str] = []
     frame = analysis.validated_specification.resolved.frame
     unit = frame.unit
-    if (unit is WindowFrameUnit.ROWS or unit is WindowFrameUnit.GROUPS) and any(
-        bound is not None
-        and bound.offset is not None
-        and not (
-            type(bound.offset) is LiteralExpr
-            and type(bound.offset.value) is int
-            and 0 <= bound.offset.value <= _SIGNED64_MAX
-        )
+    offsets = tuple(
+        let_value(bound.offset, input_schema, let_expressions)
         for bound in (frame.start, frame.end)
+        if bound is not None and bound.offset is not None
+    )
+    if (unit is WindowFrameUnit.ROWS or unit is WindowFrameUnit.GROUPS) and any(
+        not (
+            type(offset) is LiteralExpr
+            and type(offset.value) is int
+            and 0 <= offset.value <= _SIGNED64_MAX
+        )
+        and not (type(offset) is NameExpr and offset.name in rejected_lets)
+        for offset in offsets
     ):
         messages.append(
             f"Invalid window frame for function {name}: "
@@ -575,61 +605,92 @@ def _window_literal_range_diagnostics(
     ]
 
 
-_CONSTANT_OPERATOR_EXPRESSIONS = (
-    UnaryExpr,
-    BinaryExpr,
-    ComparisonExpr,
-    BetweenExpr,
-    ConditionalExpr,
-    MembershipExpr,
-    CastExpr,
-    IsNullExpr,
-)
+def let_value(
+    expression: Expression,
+    row_schema: RowSchema,
+    let_expressions: Mapping[str, Expression] | None,
+) -> Expression:
+    """Follow bare `let:` names, never input fields, to the inlined expression."""
+
+    expanded: set[str] = set()
+    while (
+        type(expression) is NameExpr
+        and let_expressions
+        and expression.name in let_expressions
+        and expression.name not in row_schema.fields
+        and expression.name not in expanded
+    ):
+        expanded.add(expression.name)
+        expression = let_expressions[expression.name]
+    return expression
 
 
-def _is_constant_order_key(
+def _order_key_problem(
+    expression: Expression,
+    input_schema: RowSchema,
+    let_expressions: Mapping[str, Expression],
+    *,
+    aggregated: bool,
+) -> str | None:
+    """Return why a target would misread or reject an ungrouped ORDER BY key.
+
+    After `let:` inlining and unary signs a bare constant remains: PostgreSQL
+    and MySQL read an integer as a column position, and PostgreSQL rejects any
+    other bare constant (a computed constant such as `1 + 1` sorts nothing and
+    stays accepted). In a query with aggregates and no GROUP BY, a key that
+    reads an input field outside an aggregate is rejected by the targets.
+    """
+
+    key = let_value(expression, input_schema, let_expressions)
+    while type(key) is UnaryExpr and key.operator in {"+", "-"}:
+        key = let_value(key.operand, input_schema, let_expressions)
+    if type(key) is LiteralExpr:
+        return (
+            "Constant ORDER BY key: a target reads a bare constant key as a "
+            "column position or rejects it"
+        )
+    if aggregated and _reads_input_field_outside_aggregate(
+        expression, input_schema, let_expressions
+    ):
+        return (
+            "ORDER BY key reads an input field outside an aggregate in a query "
+            "with aggregates and no GROUP BY, which SQL targets reject"
+        )
+    return None
+
+
+def _reads_input_field_outside_aggregate(
     expression: Expression,
     input_schema: RowSchema,
     let_expressions: Mapping[str, Expression],
 ) -> bool:
-    """Whether a key, through its `let:` names, reads no field, aggregate or window.
-
-    SQL reads a bare integer ORDER BY constant as an output position and
-    PostgreSQL rejects other constants, so a constant key never sorts rows.
-    """
-
     pending = [expression]
     expanded: set[str] = set()
     while pending:
         node = pending.pop()
-        if type(node) is LiteralExpr:
-            continue
-        if (
-            type(node) is NameExpr
-            and node.name not in input_schema.fields
-            and node.name in let_expressions
-        ):
-            if node.name not in expanded:
+        if type(node) is NameExpr:
+            if node.name in input_schema.fields:
+                return True
+            if node.name in let_expressions and node.name not in expanded:
                 expanded.add(node.name)
                 pending.append(let_expressions[node.name])
             continue
-        if isinstance(node, _CONSTANT_OPERATOR_EXPRESSIONS) or (
-            type(node) is CallExpr and not contains_semantic_aggregate(node)
+        if type(node) is DottedNameExpr:
+            return True
+        if type(node) is WindowExpr or (
+            type(node) is CallExpr and is_semantic_aggregate_call(node)
         ):
-            pending.extend(_captured_field_children(node))
             continue
-        return False
-    return True
+        pending.extend(_captured_field_children(node))
+    return False
 
 
-def _constant_order_key_diagnostic(expression: Expression) -> Diagnostic:
+def _order_key_diagnostic(expression: Expression, message: str) -> Diagnostic:
     span = expression.span
     return Diagnostic(
         code="PIE-S2380",
         severity=Severity.ERROR,
-        message=(
-            "Constant ORDER BY key: a key must read a field, aggregate or window result"
-        ),
+        message=message,
         location=SourceLocation(
             path=span.path,
             line=span.line,
@@ -1105,7 +1166,9 @@ def _infer(
         )
         if expression.operator in {"like", "not like"}:
             value_type, expected = resolved_like_value_type(left_type, right_type)
-            if expected is None and _ends_in_unpaired_like_escape(expression.right):
+            if expected is None and _ends_in_unpaired_like_escape(
+                let_value(expression.right, row_schema, bare_value_expressions)
+            ):
                 expected = (
                     "a pattern that does not end in the escape character ! "
                     "(write !! for a literal !)"
@@ -1415,9 +1478,18 @@ def _cast_value_type(
         # A null operand and the target are known without the operand's type;
         # a silent unknown operand is refused unless the cast is to Float.
         explained = len(diagnostics) > diagnostic_count or row_schema.is_unknown
-        if _is_null_literal(expression.value) or not (explained or float_target):
+        # A `let:` name bound to null is the null literal emission inlines.
+        null_operand = _is_null_literal(
+            let_value(expression.value, row_schema, bare_value_expressions)
+        )
+        if null_operand or not (explained or float_target):
             diagnostics.append(
-                _invalid_cast_diagnostic(expression, value_type, type_expansions)
+                _invalid_cast_diagnostic(
+                    expression,
+                    value_type,
+                    type_expansions,
+                    null_operand=null_operand,
+                )
             )
         return _UNKNOWN_VALUE_TYPE
     if not float_target or not _is_canonical_builtin(
@@ -2393,11 +2465,13 @@ def _invalid_cast_diagnostic(
     expression: CastExpr,
     value_type: ValueType,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    null_operand: bool = False,
 ) -> Diagnostic:
     """Report a rejected explicit conversion, echoing the attempted pair."""
 
     if value_type.kind is ValueTypeKind.UNKNOWN:
-        source = "null" if _is_null_literal(expression.value) else "unknown"
+        source = "null" if null_operand else "unknown"
     else:
         canonical = _canonical_resolved_type(value_type, type_expansions)
         source = (value_type.resolved_type if canonical is None else canonical).name

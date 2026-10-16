@@ -23,7 +23,6 @@ from pietto.ast_nodes import (
     WindowFrameBoundKind,
     WindowFrameUnit,
 )
-from pietto.ir import build_ir
 from pietto.ir.lowering import lower_expr
 from pietto.ir.model import WindowSpecIR
 from pietto.parser_api import parse_source
@@ -34,8 +33,6 @@ from pietto.semantic.model import (
     TypeKind,
     ValueType,
 )
-from pietto.sql.mysql import emit_mysql_sql
-from pietto.sql.postgres import emit_postgres_sql
 from pietto.semantic.window_semantics import (
     AuthoredWindowSpecification,
     RowsFramePositionInterval,
@@ -335,84 +332,6 @@ def test_rows_nonnegative_integer_literal_distances_have_no_artificial_ceiling(
     )
     expected_stop = 3 if offset == 0 else 4 if offset == 1 else 5
     assert (interval.start, interval.stop) == (2, expected_stop)
-
-
-_SIGNED64_MAX = 9223372036854775807
-
-
-@pytest.mark.parametrize(
-    "offset", ('"x"', "-1", "1.5", "null", "id", "(1 + 1)", str(_SIGNED64_MAX + 1))
-)
-@pytest.mark.parametrize("unit", ("rows", "groups"))
-def test_single_file_check_refuses_offsets_that_no_target_accepts(
-    unit: str, offset: str
-) -> None:
-    # Before: check passed and only emit-sql (or the database) refused them.
-    frame = f"{unit} between {offset} preceding and current row"
-    parsed = parse_source(_source(frame, call="first_value(value)"))
-    assert parsed.ast is not None
-
-    assert [
-        (diagnostic.code, diagnostic.message)
-        for diagnostic in analyze(parsed.ast).diagnostics
-    ] == [
-        (
-            "PIE-S2104",
-            "Invalid window frame for function first_value: "
-            f"{unit.upper()} offsets must be nonnegative integer literals up to "
-            f"{_SIGNED64_MAX}",
-        )
-    ]
-
-
-@pytest.mark.parametrize(
-    "call",
-    ("ntile({n})", "lag(value, {n})", "lead(value, {n})", "nth_value(value, {n})"),
-)
-def test_window_counts_beyond_signed64_fail_check_and_int32_fail_postgresql(
-    call: str,
-) -> None:
-    name = call.split("(", 1)[0]
-
-    def source(count: int, connector: str) -> str:
-        return (
-            _source("rows unbounded preceding", call=call.format(n=count))
-            .replace("            rows unbounded preceding\n", "")
-            .replace("postgres.table", connector)
-        )
-
-    huge = parse_source(source(_SIGNED64_MAX + 1, "postgres.table")).ast
-    assert huge is not None
-    assert [
-        (diagnostic.code, diagnostic.message)
-        for diagnostic in analyze(huge).diagnostics
-    ] == [
-        (
-            "PIE-S2104",
-            f"Invalid arguments for function {name}: integer literal must not "
-            f"exceed {_SIGNED64_MAX}",
-        )
-    ]
-    emitted = []
-    for connector, emitter in (
-        ("postgres.table", emit_postgres_sql),
-        ("mysql.table", emit_mysql_sql),
-    ):
-        script = parse_source(source(3_000_000_000, connector)).ast
-        assert script is not None
-        semantic = analyze(script)
-        assert semantic.diagnostics == ()
-        lowered = build_ir(script, semantic.model).ir
-        assert lowered is not None
-        emitted.append(emitter(lowered))
-    postgres, mysql = emitted
-    assert [diagnostic.code for diagnostic in postgres.diagnostics] == ["PIE-B1000"]
-    assert (
-        f"PostgreSQL {name} integer argument is outside signed int32 range"
-        in postgres.diagnostics[0].message
-    )
-    assert mysql.diagnostics == ()
-    assert "3000000000" in mysql.artifacts[0].sql
 
 
 def test_rows_base_frame_fails_closed_for_non_rows() -> None:

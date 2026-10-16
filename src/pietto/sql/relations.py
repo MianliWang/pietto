@@ -10,9 +10,11 @@ from pietto.ir.model import (
     ExpressionIR,
     FieldId,
     FieldRefIR,
+    LiteralIR,
     OrderDirectionIR,
     OrderItemIR,
     NamedWindowDeclarationIR,
+    ProjectionIR,
     RelationIR,
     SourceIR,
     SymbolId,
@@ -62,7 +64,14 @@ def render_relation_sql(
         NamedWindowLoweringStrategy.NOT_LOWERABLE
     ):
         raise ValueError(named_decision.reason)
-    relation = qualify_alias_captured_order_fields(relation, mysql=False)
+    # A qualified field already aliases the input with its Pietto name; else
+    # a captured key is qualified with the table's own name and FROM is kept.
+    alias = relation.source.name if _relation_uses_qualified_fields(relation) else None
+    relation = qualify_alias_captured_order_fields(
+        relation,
+        qualifier=alias or input_name[-1],
+        mysql=False,
+    )
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"
@@ -71,7 +80,7 @@ def render_relation_sql(
     lines = [
         "SELECT",
         projection_sql,
-        f"FROM {_render_input(input_name, relation)}",
+        f"FROM {_render_input(input_name, alias)}",
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
@@ -121,18 +130,39 @@ def render_relation_sql(
 def qualify_alias_captured_order_fields(
     relation: RelationIR,
     *,
+    qualifier: str,
     mysql: bool,
 ) -> RelationIR:
-    """Qualify each bare ORDER BY input field that a same-named output would capture.
+    """Qualify each bare ORDER BY input field that a SELECT item could capture.
 
     PostgreSQL and MySQL bind a whole bare ORDER BY name to a SELECT output
     before an input column (MySQL compares the names case-insensitively);
     inside an expression both read the input column. An output that is the
-    same input field reads the same value, so it captures nothing.
+    same input field reads the same value, so it captures nothing. PostgreSQL
+    also names an unaliased computed item implicitly (`lower`, `coalesce`,
+    `case`, ...), so there any unaliased computed item counts as a capture.
+    MySQL names it by its expression text, which is a bare name only for an
+    unaliased Text literal.
     """
 
     def spelling(name: str) -> str:
         return name.casefold() if mysql else name
+
+    def captures(projection: ProjectionIR, key: FieldRefIR) -> bool:
+        expression = projection.expression
+        if projection.name is None:
+            if isinstance(expression, FieldRefIR):
+                return False
+            if not mysql:
+                return True
+            return (
+                isinstance(expression, LiteralIR)
+                and type(expression.value) is str
+                and spelling(expression.value) == spelling(key.name)
+            )
+        return spelling(projection.name) == spelling(key.name) and not (
+            isinstance(expression, FieldRefIR) and expression.field == key.field
+        )
 
     def captured(expression: ExpressionIR) -> bool:
         return (
@@ -140,13 +170,7 @@ def qualify_alias_captured_order_fields(
             and not expression.qualifier
             and expression.field is not None
             and any(
-                projection.name is not None
-                and spelling(projection.name) == spelling(expression.name)
-                and not (
-                    isinstance(projection.expression, FieldRefIR)
-                    and projection.expression.field == expression.field
-                )
-                for projection in relation.projections
+                captures(projection, expression) for projection in relation.projections
             )
         )
 
@@ -155,10 +179,7 @@ def qualify_alias_captured_order_fields(
     return replace(
         relation,
         order_by=tuple(
-            replace(
-                item,
-                expression=replace(item.expression, qualifier=(relation.source.name,)),
-            )
+            replace(item, expression=replace(item.expression, qualifier=(qualifier,)))
             if captured(item.expression)
             else item
             for item in relation.order_by
@@ -166,13 +187,13 @@ def qualify_alias_captured_order_fields(
     )
 
 
-def _render_input(input_name: tuple[str, ...], relation: RelationIR) -> str:
+def _render_input(input_name: tuple[str, ...], alias: str | None) -> str:
     """Alias an input only when qualified field SQL needs its logical name."""
 
     sql = quote_qualified_identifier(input_name)
-    if not _relation_uses_qualified_fields(relation):
+    if alias is None:
         return sql
-    return f"{sql} AS {quote_identifier(relation.source.name)}"
+    return f"{sql} AS {quote_identifier(alias)}"
 
 
 def _relation_uses_qualified_fields(relation: RelationIR) -> bool:

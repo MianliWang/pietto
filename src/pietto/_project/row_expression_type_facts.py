@@ -111,6 +111,7 @@ def build_project_row_expression_value_types(
     input_schema: ProjectRowSchema,
     relation_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None = None,
+    bare_value_expressions: Mapping[str, Expression] | None = None,
     read_types: Mapping[Expression, ValueType] | None = None,
     captured_value_types: (
         Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None
@@ -141,6 +142,7 @@ def build_project_row_expression_value_types(
             report_unknown_name=not isinstance(expression, NameExpr),
             field_qualifier=relation_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             relation_columns=read_types,
             captured_value_types=captured_value_types,
         )

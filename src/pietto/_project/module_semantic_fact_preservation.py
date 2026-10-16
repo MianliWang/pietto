@@ -3756,6 +3756,11 @@ def _select_facts(
         if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
         else None
     )
+    let_expressions = (
+        let_scope.binding_expressions
+        if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
+        else None
+    )
     expression_types: Mapping[Expression, ValueType] = MappingProxyType({})
     if input_schema is not None and not input_schema.is_unknown:
         expression_types = build_project_row_expression_value_types(
@@ -3767,6 +3772,7 @@ def _select_facts(
             input_schema=input_schema,
             relation_qualifier=definition.from_clause.source_name,
             bare_value_types=let_values,
+            bare_value_expressions=let_expressions,
             read_types=read_types,
             captured_value_types=captures,
         )
@@ -3802,6 +3808,7 @@ def _select_facts(
                 report_unknown_name=True,
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_values,
+                bare_value_expressions=let_expressions,
                 relation_columns=read_types,
                 captured_value_types=captures,
             )
@@ -3903,6 +3910,7 @@ def _where_fact(
         report_unknown_name=True,
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
+        bare_value_expressions=let_scope.binding_expressions,
         relation_columns=read_types,
         captured_value_types=captures,
     )

@@ -46,7 +46,7 @@ def render_mysql_relation(
     """Render a minimal relation using a MySQL source or relation-name input."""
 
     quote_identifier(relation.name, context="relation identifier")
-    input_sql = _relation_input_sql(
+    input_sql, input_reference = _relation_input_sql(
         relation,
         sources=sources,
         relations=relations,
@@ -67,7 +67,14 @@ def render_mysql_relation(
         NamedWindowLoweringStrategy.NOT_LOWERABLE
     ):
         raise MySqlRenderError(named_decision.reason)
-    relation = qualify_alias_captured_order_fields(relation, mysql=True)
+    # A qualified field already aliases the input with its Pietto name; else
+    # a captured key is qualified with the table's own name and FROM is kept.
+    alias = relation.source.name if _relation_uses_qualified_fields(relation) else None
+    relation = qualify_alias_captured_order_fields(
+        relation,
+        qualifier=alias or input_reference,
+        mysql=True,
+    )
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"
@@ -76,7 +83,7 @@ def render_mysql_relation(
     lines = [
         "SELECT",
         projection_sql,
-        f"FROM {_render_input(input_sql, relation)}",
+        f"FROM {_render_input(input_sql, alias)}",
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_mysql_expression(relation.filter.expression)}")
@@ -123,13 +130,12 @@ def render_mysql_relation(
     return "\n".join(lines)
 
 
-def _render_input(input_sql: str, relation: RelationIR) -> str:
+def _render_input(input_sql: str, alias: str | None) -> str:
     """Alias an input only when qualified field SQL needs its logical name."""
 
-    if not _relation_uses_qualified_fields(relation):
+    if alias is None:
         return input_sql
-    alias = quote_identifier(relation.source.name, context="relation identifier")
-    return f"{input_sql} AS {alias}"
+    return f"{input_sql} AS {quote_identifier(alias, context='relation identifier')}"
 
 
 def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
@@ -150,16 +156,23 @@ def _relation_input_sql(
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
-) -> str:
+) -> tuple[str, str]:
+    """Return the input's FROM SQL and the name that references it unaliased."""
+
     source = sources.get(relation.source.target)
     if source is not None:
-        return ".".join(
+        parts = _mysql_table_name(source)
+        sql = ".".join(
             quote_identifier(part, context="physical table identifier")
-            for part in _mysql_table_name(source)
+            for part in parts
         )
+        return sql, parts[-1]
     upstream = relations.get(relation.source.target)
     if upstream is not None:
-        return quote_identifier(upstream.name, context="relation identifier")
+        return (
+            quote_identifier(upstream.name, context="relation identifier"),
+            upstream.name,
+        )
     raise MySqlRenderError(
         "MySQL relation input does not resolve to SourceIR or RelationIR"
     )

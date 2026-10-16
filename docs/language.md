@@ -177,11 +177,18 @@ table active_users:
 Single-file checks require a selected `let` binding to take a new output name,
 as `normalized_email = normalized` does. Outside a grouped query a single-file
 `order by` key reads input fields, `let` bindings and selected window results,
-not other SELECT outputs (PIE-S2102). An `order by` key must read a field, an
-aggregate or a window result, directly or through `let:` names; a constant key
-such as `label` with `let: label = "x"` is PIE-S2380. When a SELECT output of
-the same name would capture an input field key, the emitted SQL qualifies that
-key with the input name, as in `ORDER BY "orders"."amount"`. Single-file
+not other SELECT outputs (PIE-S2102). In such a query, a key that is a bare
+constant once `let:` names and signs are inlined, such as `label` with `let:
+label = "x"` or `-1`, is PIE-S2380, because SQL reads an integer as a column
+position and PostgreSQL rejects other bare constants; a computed constant such
+as `1 + 1` sorts nothing and is accepted. In a query with aggregates and no
+GROUP BY, a key that reads an input field outside an aggregate is PIE-S2380
+too. A grouped key stays PIE-S2321. When a SELECT item would capture a bare
+input field key (an output of the same name, which MySQL compares
+case-insensitively, or on PostgreSQL any unaliased computed item, which it
+names implicitly), the emitted SQL qualifies the key with the name FROM already
+gives the input, as in `FROM "sales"."orders" ... ORDER BY "orders"."amount"`;
+the FROM clause is unchanged. Single-file
 lowering inlines a `let` binding wherever it is read, so a binding or
 expression that would exceed 256 nested levels or 100,000 expression nodes once
 inlined fails `check` with PIE-S2328. Selected project SQL admits the
@@ -1119,8 +1126,9 @@ same-type `cast(n as Int)` or `cast(n as Float not null)`, is PIE-S2105.
 `in`/`not in`, `not`,
 conditional expressions, `like`/`not like` with `ESCAPE '!'`, and `between`
 retain their ordinary SQL NULL behavior. In a pattern `!` escapes the next
-character, so `!!` matches a literal `!`; a literal pattern that ends in an
-unpaired `!` is PIE-S2105. `matches` remains outside the selected
+character, so `!!` matches a literal `!`; a literal pattern, or a `let:` name
+bound to one, that ends in an unpaired `!` is PIE-S2105. `matches` remains
+outside the selected
 project SQL scalar subset.
 
 Selected project SQL admits this closed Q1 surface only when every operand has
@@ -1335,11 +1343,13 @@ row`, an expression plus `following`, or `unbounded following`. Ranking,
 distribution, `ntile`, `lag`, and `lead` remain frame-insensitive, and an
 explicit ROWS, RANGE or GROUPS frame on them is PIE-S2104. `first_value`,
 `last_value`, and `nth_value` are frame-sensitive and use a concrete Pietto
-effective frame even when source omits one. Single-file checks require each
-ROWS or GROUPS offset to be a nonnegative `Int` literal up to
-9223372036854775807 and refuse a literal `ntile` count, `lag`/`lead` offset or
+effective frame even when source omits one. In a selected window, named
+windows included, single-file checks require each ROWS or GROUPS offset to be,
+once `let:` names are inlined, a nonnegative `Int` literal up to
+9223372036854775807, and refuse a literal `ntile` count, `lag`/`lead` offset or
 `nth_value` position above that value (PIE-S2104); PostgreSQL emission also
-requires those three to fit signed `int32` (PIE-B1000). RANGE offsets retain
+requires those three to fit signed `int32` (PIE-B1000). Single-file `check`
+does not analyze QUALIFY windows (see QUALIFY below). RANGE offsets retain
 unresolved Phase 64 type/arithmetic requirements. GROUPS uses canonical peer
 groups; EXCLUDE is a removal-only membership filter after base-frame clipping.
 

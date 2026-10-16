@@ -23,6 +23,7 @@ from pietto.ast_nodes import (
     WindowExpr,
     WindowSpec,
 )
+from pietto.parser_api import parse_source
 from pietto.semantic.aggregates import contains_semantic_aggregate
 from pietto.semantic.window_semantics import (
     AuthoredWindowFrame,
@@ -677,6 +678,87 @@ def test_validation_rejects_untyped_inputs_without_partial_results() -> None:
             function_policy=FRAME_POLICY,
             argument_expressions=cast(Any, []),
         )
+
+
+_SIGNED64_MAX = 9223372036854775807
+
+
+def _checked_window(call: str, *, frame: str = "", lets: str = "") -> list[str]:
+    """Single-file check diagnostics of one selected window call."""
+
+    source = (
+        "shape Row:\n    id: Int not null\n    value: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query q:\n    from rows\n"
+        + (f"    let:\n        {lets}\n" if lets else "")
+        + f"    select:\n        result = {call} window:\n"
+        "            order by:\n                id\n"
+        + (f"            {frame}\n" if frame else "")
+    )
+    parsed = parse_source(source, path="frame.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    return [
+        f"{diagnostic.code} {diagnostic.message}"
+        for diagnostic in semantic_package.analyze(parsed.ast).diagnostics
+    ]
+
+
+@pytest.mark.parametrize("unit", ("rows", "groups"))
+@pytest.mark.parametrize(
+    ("offset", "lets", "accepted"),
+    (
+        ("0", "", True),
+        (str(_SIGNED64_MAX), "", True),
+        ("n", "n = 2", True),
+        ("n", f"n = {_SIGNED64_MAX}", True),
+        ('"x"', "", False),
+        ("-1", "", False),
+        ("1.5", "", False),
+        ("null", "", False),
+        ("id", "", False),
+        ("(1 + 1)", "", False),
+        (str(_SIGNED64_MAX + 1), "", False),
+        ("n", "n = -1", False),
+        ("n", "n = 1 + 1", False),
+    ),
+)
+def test_single_file_check_judges_frame_offsets_after_let_inlining(
+    unit: str,
+    offset: str,
+    lets: str,
+    accepted: bool,
+) -> None:
+    # Before: check passed a bad offset that only emission refused, and a
+    # let-bound `n = 2` offset was refused although emission inlines it.
+    diagnostics = _checked_window(
+        "first_value(value)",
+        frame=f"{unit} between {offset} preceding and current row",
+        lets=lets,
+    )
+
+    assert diagnostics == (
+        []
+        if accepted
+        else [
+            "PIE-S2104 Invalid window frame for function first_value: "
+            f"{unit.upper()} offsets must be nonnegative integer literals up to "
+            f"{_SIGNED64_MAX}"
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "call",
+    ("ntile({n})", "lag(value, {n})", "lead(value, {n})", "nth_value(value, {n})"),
+)
+def test_window_count_literal_above_signed64_is_refused_at_check(call: str) -> None:
+    name = call.split("(", 1)[0]
+
+    assert _checked_window(call.format(n=_SIGNED64_MAX)) == []
+    assert _checked_window(call.format(n=_SIGNED64_MAX + 1)) == [
+        f"PIE-S2104 Invalid arguments for function {name}: integer literal must "
+        f"not exceed {_SIGNED64_MAX}"
+    ]
 
 
 def test_spec_freezes_scope_reader_closure_lifecycle_and_subject() -> None:

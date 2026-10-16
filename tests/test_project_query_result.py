@@ -702,6 +702,60 @@ def test_explicit_project_cli_shares_the_comparison_family_check(
     )
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            '    where name like "a!"\n    select:\n        id\n',
+            "main.pietto:7:11 PIE-S2105 error: Invalid operands for operator like: "
+            "expected a pattern that does not end in the escape character ! "
+            "(write !! for a literal !)\n",
+        ),
+        (
+            '    let:\n        p = "a!"\n    where name like p\n'
+            "    select:\n        id\n",
+            "main.pietto:9:11 PIE-S2105 error: Invalid operands for operator like: "
+            "expected a pattern that does not end in the escape character ! "
+            "(write !! for a literal !)\n",
+        ),
+        (
+            '    let:\n        p = "a!"\n    select:\n        id\n'
+            "        m = name like p\n",
+            "main.pietto:11:13 PIE-S2105 error: Invalid operands for operator like: "
+            "expected a pattern that does not end in the escape character ! "
+            "(write !! for a literal !)\n",
+        ),
+        (
+            "    select:\n        id\n        c = cast(null as Float)\n",
+            "main.pietto:9:13 PIE-S2105 error: Invalid cast: cast(null as Float) is "
+            "not supported; expected cast(Int as Float), the only supported cast\n",
+        ),
+    ],
+    ids=("like-literal", "like-let-where", "like-let-select", "cast-null"),
+)
+def test_explicit_project_check_refuses_like_escape_and_null_cast(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+    expected: str,
+) -> None:
+    root = _project(
+        tmp_path / "q1",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    name: Text not null\n"
+        'source rows: Row is postgres.table("app.rows")\n'
+        "query result:\n"
+        "    from rows\n" + body,
+    )
+
+    # Before: like "a!" through a let and cast(null) passed or gave PIE-S2333.
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == expected
+
+
 def test_project_and_single_file_checks_agree_on_alias_comparison_operands(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
