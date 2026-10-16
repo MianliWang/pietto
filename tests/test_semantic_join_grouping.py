@@ -1713,6 +1713,49 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
         assert _fanout_check(tmp_path, fix, files) == []
 
 
+def test_a_composite_key_matched_in_two_field_orders_is_offered_once(
+    tmp_path: Path,
+) -> None:
+    """Two JOINs match the same composite key with their equalities in opposite
+    orders: the clause offers that key once, spelled as first matched, and
+    declaring it in either field order clears the refusal."""
+
+    source = (
+        "shape A:\n    id: Int not null\n    x: Int not null\n    y: Int not null\n"
+        "    metric: Int not null\n"
+        "shape B:\n    id: Int not null\n    x: Int not null\n    y: Int not null\n"
+        "    name: Text not null\n{}"
+        'source a: A is postgres.table("a")\nsource b: B is postgres.table("b")\n'
+        + "".join(
+            f"relationship {name}:\n    endpoint src: a\n    endpoint dst: b\n"
+            f"    on {condition}\n"
+            for name, condition in (
+                ("ab1", "src.x == dst.x and src.y == dst.y"),
+                ("ab2", "src.y == dst.y and src.x == dst.x"),
+            )
+        )
+        + "query q:\n    from a\n"
+        + "".join(
+            f"    inner join b as {name}:\n        from a\n"
+            f"        via {relationship}: src -> dst\n"
+            for name, relationship in (("b1", "ab1"), ("b2", "ab2"))
+        )
+        + "    group by:\n        b1.name\n"
+        "    select:\n        n = b1.name\n        top = max(a.metric)\n"
+    )
+    assert _fanout_check(tmp_path, "refused", source.format("")) == [
+        (
+            "PIE-S2333",
+            f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN b1 and "
+            "JOIN b2; declare a unique key on b (x, y) (matched by JOINs b1 and b2), "
+            "or group by unique keys of b1 and b2 whose fields are all not null)",
+        )
+    ]
+    for name, key in (("xy", "x, y"), ("yx", "y, x")):
+        declared = source.format(f"    unique bk on {key}\n")
+        assert _fanout_check(tmp_path, name, declared) == []
+
+
 def test_repeated_self_bindings_keep_argument_occurrences_and_factors_distinct(
     built: _Built,
 ) -> None:

@@ -935,7 +935,8 @@ def _fanout_clause(
             shape = source_shape(binding)
             if shape is None:
                 continue
-            identity = (binding.target.target_identity, tuple(fields))
+            # A key is a field set: the first JOIN to need it fixes its spelling.
+            identity = (binding.target.target_identity, frozenset(fields))
             text, dependencies, matched = keys.setdefault(
                 identity, (_key(shape, fields), [], {})
             )
