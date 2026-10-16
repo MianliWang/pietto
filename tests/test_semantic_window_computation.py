@@ -37,6 +37,7 @@ from pietto.semantic.window_semantics import (
     NamedWindowResolutionFailure,
     WindowComputationAnalysis,
     WindowExpressionAnalysis,
+    WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
 )
 
@@ -774,6 +775,98 @@ def test_common_kernel_projects_rows_range_groups_exclude_and_modifiers(
     assert resolved.unit is not None and resolved.unit.value == unit
     assert resolved.exclusion is not None and resolved.exclusion.value == exclusion
     assert historical.validated_specification == common.validated_specification
+
+
+_ORDER = "            order by:\n                id\n"
+_COMPUTED_ORDER = "            order by:\n                id + 1\n"
+_UNSUPPORTED = "Unsupported window computation for function"
+_AGGREGATE = "Aggregate window functions are not implemented:"
+
+
+@pytest.mark.parametrize(
+    ("item", "spec", "message"),
+    (
+        ("result = sum(value)", _ORDER, f"{_AGGREGATE} sum"),
+        ("result = count()", _ORDER, f"{_AGGREGATE} count"),
+        ("result = avg(value)", _ORDER, f"{_AGGREGATE} avg"),
+        ("result = min(value)", _ORDER, f"{_AGGREGATE} min"),
+        ("result = max(value)", _ORDER, f"{_AGGREGATE} max"),
+        ("result = count_distinct(value)", _ORDER, f"{_AGGREGATE} count_distinct"),
+        ("result = median(value)", _ORDER, "Unknown function: median"),
+        ("result = row_numbr()", _ORDER, "Unknown function: row_numbr"),
+        ("result = SUM(value)", _ORDER, "Unknown function: SUM"),
+        (
+            "result = row_number()",
+            "            partition by:\n                id\n",
+            f"{_UNSUPPORTED} row_number: requires at least one window order field",
+        ),
+        (
+            "result = rank()",
+            _COMPUTED_ORDER,
+            f"{_UNSUPPORTED} rank: window order expression must be a direct field",
+        ),
+        (
+            "result = lag(value)",
+            _COMPUTED_ORDER,
+            f"{_UNSUPPORTED} lag: window order expression must be a direct field",
+        ),
+        (
+            "result = first_value(value)",
+            "            partition by:\n                value + 1\n" + _ORDER,
+            f"{_UNSUPPORTED} first_value: window partition expression must be a "
+            "direct field",
+        ),
+    ),
+)
+def test_refused_window_computations_name_their_reason(
+    item: str,
+    spec: str,
+    message: str,
+) -> None:
+    parsed = parse_source(
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    value: Int nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        "    select:\n"
+        f"        {item} window:\n" + spec,
+        path="window-refusal.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    definition = cast(QueryDef, parsed.ast.definitions[-1])
+    field_type = ResolvedType(name="Int", kind=TypeKind.BUILTIN)
+    schema = RowSchema(
+        fields={
+            "id": RowField(
+                name="id",
+                resolved_type=field_type,
+                nullability=EffectiveNullability.NON_NULL,
+            ),
+            "value": RowField(
+                name="value",
+                resolved_type=field_type,
+                nullability=EffectiveNullability.NULLABLE,
+            ),
+        }
+    )
+    diagnostics = []
+    result = analyze_window_expression(
+        definition=definition,
+        item=definition.select_items[0],
+        selected_output_ordinal=0,
+        source_id="window-refusal.pietto",
+        input_schema=schema,
+        field_qualifier="rows",
+        value_types={},
+        diagnostics=diagnostics,
+    )
+    assert type(result) is WindowExpressionUnsupported
+    assert [
+        (diagnostic.code, diagnostic.message, diagnostic.location.column)
+        for diagnostic in diagnostics
+    ] == [("PIE-S2103", message, 18)]
 
 
 def test_window_stage_preserves_rows_grain_properties_and_pending_ledger(

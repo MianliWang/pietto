@@ -73,7 +73,15 @@ REFUSED = {
         + "                exists rhs\n",
         (12, 17),
         "a window",
-        [("PIE-S2103", "Unknown function: row_number", 10, 13)],
+        [
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+                10,
+                13,
+            )
+        ],
     ),
     "window_argument": (
         "query q:\n    from lhs\n    select:\n        id\n"
@@ -97,7 +105,15 @@ REFUSED = {
         "            exists rhs\n",
         (13, 13),
         "a window",
-        [("PIE-S2103", "Unknown function: row_number", 10, 13)],
+        [
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+                10,
+                13,
+            )
+        ],
     ),
     "qualify": (
         "query q:\n    from lhs\n    select:\n        id\n    qualify:\n"
@@ -207,7 +223,8 @@ def test_a_legacy_flat_project_keeps_the_pre_admission_diagnostic(
     ] == [
         (
             "PIE-S2349",
-            "EXISTS relation reference semantics are not implemented.",
+            "EXISTS relation reads are available only inside a FROM-based "
+            "relation body in EXPLICIT_MODULES projects (schema version 2).",
             8,
             11,
         )

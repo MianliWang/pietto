@@ -18,50 +18,59 @@ GATE_CODES = {f"PIE-S{number}" for number in range(2345, 2353)}
 FAMILIES = {
     "let_relation": (
         "PIE-S2345",
-        "Let relation declaration semantics are not implemented.",
+        "Relation let declarations are available only in "
+        "EXPLICIT_MODULES projects (schema version 2).",
         "query q:\n    let l:\n        from rows\n        select:\n"
         "            id\n    from l\n    select:\n        id\n",
         (2, 5, 5, 15),
     ),
     "query_parameter": (
         "PIE-S2346",
-        "Query header parameter semantics are not implemented.",
+        "Query header parameters are available only in EXPLICIT_MODULES "
+        "projects (schema version 2), on a query that reads a relation "
+        "with FROM and has no relation let reading a table function.",
         "query q(a: Int not null):\n    from rows\n    select:\n        id\n",
         (1, 9, 1, 24),
     ),
     "values_body": (
         "PIE-S2347",
-        "VALUES body semantics are not implemented.",
+        "Typed VALUES bodies are available only in EXPLICIT_MODULES "
+        "projects (schema version 2).",
         "query q:\n    values(id: Int not null)\n",
         (2, 5, 2, 29),
     ),
     "scalar_read": (
         "PIE-S2348",
-        "Scalar relation read semantics are not implemented.",
+        "Scalar relation reads are available only inside a FROM-based "
+        "relation body in EXPLICIT_MODULES projects (schema version 2).",
         "query q:\n    from rows\n    where id == scalar t.c\n    select:\n        id\n",
         (3, 17, 3, 27),
     ),
     "exists_reference": (
         "PIE-S2349",
-        "EXISTS relation reference semantics are not implemented.",
+        "EXISTS relation reads are available only inside a FROM-based "
+        "relation body in EXPLICIT_MODULES projects (schema version 2).",
         "query q:\n    from rows\n    where exists t\n    select:\n        id\n",
         (3, 11, 3, 19),
     ),
     "in_reference": (
         "PIE-S2350",
-        "IN relation reference semantics are not implemented.",
+        "IN relation reads are available only inside a FROM-based "
+        "relation body in EXPLICIT_MODULES projects (schema version 2).",
         "query q:\n    from rows\n    where id not in t\n    select:\n        id\n",
         (3, 11, 3, 22),
     ),
     "table_function_from": (
         "PIE-S2352",
-        "Table-function FROM input semantics are not implemented.",
+        "Table-function FROM inputs are available only in "
+        "EXPLICIT_MODULES projects (schema version 2).",
         "query q:\n    from generate_series(1, 31, 1) as n\n    select:\n        n\n",
         (2, 5, 2, 40),
     ),
     "scalar_read_in_window_frame_bound": (
         "PIE-S2348",
-        "Scalar relation read semantics are not implemented.",
+        "Scalar relation reads are available only inside a FROM-based "
+        "relation body in EXPLICIT_MODULES projects (schema version 2).",
         "query q:\n    from rows\n    select:\n        total = sum(id) window:\n"
         "            order by:\n                id\n"
         "            rows between scalar t.c preceding and current row\n",

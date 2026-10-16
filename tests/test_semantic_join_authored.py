@@ -587,7 +587,185 @@ def test_legacy_ir_and_joined_scalar_namespace_fail_closed() -> None:
         ),
     )
     scalar = analyze(_parse(source.replace("        id\n", "        customer.id\n", 1)))
-    assert any(item.code == "PIE-S2102" for item in scalar.diagnostics)
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in scalar.diagnostics
+    ] == [("PIE-S2102", f"Unknown field: customer.id{_JOIN_BINDING}", 12, 9)]
+
+
+_COMPLETES = "only when an EXPLICIT_MODULES project (schema version 2) completes"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "query q:\n    from orders\n    right join customers as customer:\n"
+            "        from orders\n        on orders.id == customer.id\n"
+            "    select:\n        x = orders.id\n",
+            [
+                (f"RIGHT JOIN is available {_COMPLETES} it.", 10, 5),
+                (f"JOIN-local ON is available {_COMPLETES} it.", 12, 9),
+            ],
+        ),
+        (
+            "query q:\n    from orders\n    cross join customers as customer:\n"
+            "        from orders\n    select:\n        x = orders.id\n",
+            [(f"CROSS JOIN is available {_COMPLETES} it.", 10, 5)],
+        ),
+        (
+            "query both:\n    union all:\n        from orders\n        from orders\n"
+            "query r:\n    from both\n    select:\n        id\n",
+            [
+                (f"Set operations are available {_COMPLETES} them.", 9, 5),
+                (f"Set-operation inputs are available {_COMPLETES} them: both", 13, 5),
+            ],
+        ),
+    ),
+)
+def test_single_file_join_and_set_refusals_point_to_explicit_modules(
+    body: str,
+    expected: list[tuple[str, int, int]],
+) -> None:
+    semantic = analyze(
+        _parse(
+            "shape Order:\n"
+            "    id: Int not null\n"
+            "shape Customer:\n"
+            "    id: Int not null\n"
+            'source orders: Order is postgres.table("orders")\n'
+            'source customers: Customer is postgres.table("customers")\n'
+            "\n" + body
+        )
+    )
+    assert [
+        (item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+        if item.code == "PIE-S2334"
+    ] == expected
+
+
+_JOIN_BINDING = (
+    "; JOIN binding fields are not available in single-file mode "
+    "(use an EXPLICIT_MODULES project)"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    select:\n        n = customer.name\n",
+            [("customer.name", 13, 13)],
+        ),
+        (
+            '    where customer.name == "x"\n    select:\n        id\n',
+            [("customer.name", 12, 11)],
+        ),
+        (
+            "    group by:\n        customer.name\n    select:\n        n = count()\n",
+            [("customer.name", 13, 9)],
+        ),
+        (
+            "    let:\n        nm = customer.name\n    select:\n        id\n",
+            [("customer.name", 13, 14)],
+        ),
+        (
+            "    select:\n        id\n    order by:\n        customer.name\n",
+            [("customer.name", 15, 9)],
+        ),
+        (
+            "    select:\n        id\n        r = row_number() window:\n"
+            "            partition by:\n                customer.name\n"
+            "            order by:\n                id\n",
+            [("customer.name", 16, 17)],
+        ),
+        (
+            "    select:\n        a = customer.nope\n        b = orders.nope\n",
+            [("customer.nope", 13, 13), ("orders.nope", 14, 13)],
+        ),
+        ("    select:\n        name\n", [("name", 13, 9)]),
+    ),
+)
+def test_single_file_join_binding_fields_say_why_they_are_unknown(
+    body: str,
+    expected: list[tuple[str, int, int]],
+) -> None:
+    semantic = analyze(
+        _parse(
+            "shape Order:\n"
+            "    id: Int not null\n"
+            "shape Customer:\n"
+            "    id: Int not null\n"
+            "    name: Text not null\n"
+            'source orders: Order is postgres.table("orders")\n'
+            'source customers: Customer is postgres.table("customers")\n'
+            "query joined:\n"
+            "    from orders\n"
+            "    inner join customers as customer:\n"
+            "        from orders\n" + body
+        )
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2102",
+            f"Unknown field: {name}"
+            # A field the JOIN target lacks, such as customer.nope, stays bare.
+            + (_JOIN_BINDING if name in ("customer.id", "customer.name") else ""),
+            line,
+            column,
+        )
+        for name, line, column in expected
+    ]
+
+
+@pytest.mark.parametrize(
+    ("join", "field", "hinted"),
+    (
+        ("right join customers as customer", "customer.name", True),
+        ("full join customers as customer", "customer.name", True),
+        ("cross join customers as customer", "customer.name", True),
+        # A project does not expose SEMI or ANTI binding fields either.
+        ("semi join customers as customer", "customer.name", False),
+        ("anti join customers as customer", "customer.name", False),
+        # A binding named like the FROM input is not singled out.
+        ("inner join customers as orders", "orders.nope", False),
+        # Nor is a binding name two JOINs share: it has no single target.
+        (
+            "inner join customers as customer:\n        from orders\n"
+            "    left join customers as customer",
+            "customer.name",
+            False,
+        ),
+    ),
+)
+def test_join_binding_hint_follows_the_kinds_a_project_exposes(
+    join: str, field: str, hinted: bool
+) -> None:
+    on = (
+        ""
+        if join.startswith(("cross", "inner"))
+        else "        on orders.id == customer.id\n"
+    )
+    semantic = analyze(
+        _parse(
+            "shape Order:\n"
+            "    id: Int not null\n"
+            "shape Customer:\n"
+            "    id: Int not null\n"
+            "    name: Text not null\n"
+            'source orders: Order is postgres.table("orders")\n'
+            'source customers: Customer is postgres.table("customers")\n'
+            f"query joined:\n    from orders\n    {join}:\n        from orders\n"
+            f"{on}    select:\n        n = {field}\n"
+        )
+    )
+    assert [
+        item.message for item in semantic.diagnostics if item.code == "PIE-S2102"
+    ] == [f"Unknown field: {field}" + (_JOIN_BINDING if hinted else "")]
 
 
 def test_project_ir_constructor_rejects_a_forged_join_marker(

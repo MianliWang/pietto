@@ -757,7 +757,12 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
         [(d["code"], d["message"]) for d in refused["diagnostics"]]
         == [(d["code"], d["message"]) for d in direct["diagnostics"]]
         == [
-            ("PIE-S2333", "Project relation semantic completion is unavailable: result")
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: result (an "
+                "aggregate may read rows repeated by JOIN r; group by a unique key "
+                "of r whose fields are all not null)",
+            )
         ]
     )
 

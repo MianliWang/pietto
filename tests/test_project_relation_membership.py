@@ -96,7 +96,13 @@ COMPLETION = (
             "                id in ids\n",
             [
                 ("PIE-S2350", POSITION.format("a window"), 16, 17),
-                ("PIE-S2103", "Unknown function: row_number", 14, 13),
+                (
+                    "PIE-S2103",
+                    "Unsupported window computation for function row_number: "
+                    "window order expression must be a direct field",
+                    14,
+                    13,
+                ),
             ],
         ),
     ),
@@ -135,7 +141,10 @@ def _check(tmp_path: Path, text: str, *, schema_version: int = 2):
     ]
 
 
-GATE = "IN relation reference semantics are not implemented."
+GATE = (
+    "IN relation reads are available only inside a FROM-based "
+    "relation body in EXPLICIT_MODULES projects (schema version 2)."
+)
 
 
 def test_reads_outside_relation_bodies_keep_their_gate(tmp_path: Path) -> None:

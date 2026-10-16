@@ -1233,7 +1233,7 @@ def _cast_value_type(
         or not _is_canonical_builtin(value_type, "Int", type_expansions)
     ):
         diagnostics.append(
-            _invalid_cast_diagnostic(expression, expected="cast(Int as Float)")
+            _invalid_cast_diagnostic(expression, value_type, type_expansions)
         )
         return _UNKNOWN_VALUE_TYPE
     return _builtin_value_type("Float", value_type.nullability)
@@ -2167,14 +2167,24 @@ def _invalid_operator_operands_diagnostic(
     )
 
 
-def _invalid_cast_diagnostic(expression: CastExpr, *, expected: str) -> Diagnostic:
-    """Report a rejected explicit conversion at the complete cast span."""
+def _invalid_cast_diagnostic(
+    expression: CastExpr,
+    value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> Diagnostic:
+    """Report a rejected explicit conversion, echoing the attempted pair."""
 
+    canonical = _canonical_resolved_type(value_type, type_expansions)
+    source = (value_type.resolved_type if canonical is None else canonical).name
+    target = _type_expression_text(expression.target)
     span = expression.span
     return Diagnostic(
         code="PIE-S2105",
         severity=Severity.ERROR,
-        message=f"Invalid cast: expected {expected}",
+        message=(
+            f"Invalid cast: cast({source} as {target}) is not supported; "
+            "expected cast(Int as Float), the only supported cast"
+        ),
         location=SourceLocation(
             path=span.path,
             line=span.line,
@@ -2183,6 +2193,31 @@ def _invalid_cast_diagnostic(expression: CastExpr, *, expected: str) -> Diagnost
             end_column=span.end_column,
         ),
     )
+
+
+def _type_expression_text(type_expr: TypeExpr) -> str:
+    """Render an authored type with its arguments and nullability marker."""
+
+    text = type_expr.name
+    if type_expr.arguments:
+        text += f"({', '.join(map(_type_argument_text, type_expr.arguments))})"
+    if type_expr.nullability is Nullability.NULLABLE:
+        return f"{text} nullable"
+    if type_expr.nullability is Nullability.NOT_NULL:
+        return f"{text} not null"
+    return text
+
+
+def _type_argument_text(argument: ast.TypeArgument) -> str:
+    """Render numeric literal arguments; elide any other argument value."""
+
+    value = argument.value
+    text = (
+        str(value.value)
+        if type(value) is LiteralExpr and type(value.value) in (int, float)
+        else "..."
+    )
+    return text if argument.name is None else f"{argument.name} = {text}"
 
 
 def _unknown_field_diagnostic(expression: NameExpr | DottedNameExpr) -> Diagnostic:

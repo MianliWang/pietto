@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import SetRelationDef
-from pietto._flat_relational_admission import availability_diagnostic
+from pietto._flat_relational_admission import (
+    _EXPLICIT_MODULES,
+    availability_diagnostic,
+)
 
 from collections.abc import Mapping
 
@@ -60,7 +63,8 @@ def resolve_relation_inputs(
             diagnostics.append(
                 availability_diagnostic(
                     from_clause.span,
-                    f"Set-operation input semantics are not implemented: {target.name}",
+                    "Set-operation inputs are available only when "
+                    f"{_EXPLICIT_MODULES} completes them: {target.name}",
                 )
             )
         else:

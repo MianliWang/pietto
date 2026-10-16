@@ -367,5 +367,15 @@ def test_values_is_available_only_in_explicit_module_projects(
     else:
         assert (code, diagnostics) == (
             1,
-            [("PIE-S2347", "VALUES body semantics are not implemented.", 6, 5, 7, 10)],
+            [
+                (
+                    "PIE-S2347",
+                    "Typed VALUES bodies are available only in EXPLICIT_MODULES "
+                    "projects (schema version 2).",
+                    6,
+                    5,
+                    7,
+                    10,
+                )
+            ],
         )

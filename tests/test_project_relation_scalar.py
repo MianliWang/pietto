@@ -175,7 +175,13 @@ REFUSED = {
         "                scalar t.rid\n",
         [
             _position("a window", 16, 17),
-            ("PIE-S2103", "Unknown function: row_number", 14, 14),
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+                14,
+                14,
+            ),
         ],
     ),
     "named_window": (
@@ -184,7 +190,13 @@ REFUSED = {
         "        order by:\n            scalar t.rid\n",
         [
             _position("a window", 17, 13),
-            ("PIE-S2103", "Unknown function: row_number", 14, 14),
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+                14,
+                14,
+            ),
         ],
     ),
     "qualify": (
@@ -383,13 +395,18 @@ def test_every_refused_scalar_read_reports_its_ordered_diagnostics(
 
 
 def test_legacy_flat_projects_keep_the_scalar_read_gate(tmp_path: Path) -> None:
-    gate = ("PIE-S2348", "Scalar relation read semantics are not implemented.")
+    gate = (
+        "PIE-S2348",
+        "Scalar relation reads are available only inside a FROM-based "
+        "relation body in EXPLICIT_MODULES projects (schema version 2).",
+    )
     assert _check(tmp_path, ACCEPTED["where_and_select"], schema=1) == (
         1,
         [
             (
                 "PIE-S2345",
-                "Let relation declaration semantics are not implemented.",
+                "Relation let declarations are available only in "
+                "EXPLICIT_MODULES projects (schema version 2).",
                 7,
                 5,
             ),

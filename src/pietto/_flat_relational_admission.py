@@ -16,6 +16,10 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
 
+# Shared by single-file, LEGACY_FLAT, PACKAGE_ROOT and an EXPLICIT_MODULES
+# project whose operation did not complete, so each message holds in all four.
+_EXPLICIT_MODULES = "an EXPLICIT_MODULES project (schema version 2)"
+
 _KNOWN_DEFINITIONS = frozenset(
     {
         ast.TypeDef,
@@ -66,7 +70,8 @@ def syntax_diagnostics(
         return (
             availability_diagnostic(
                 definition.body.operator_span,
-                "Set-operation semantics are not implemented.",
+                "Set operations are available only when "
+                f"{_EXPLICIT_MODULES} completes them.",
             ),
         )
     if not isinstance(definition, (TableDef, QueryDef)):
@@ -77,14 +82,16 @@ def syntax_diagnostics(
             diagnostics.append(
                 availability_diagnostic(
                     clause.span,
-                    f"{clause.kind.value.upper()} JOIN semantics are not implemented.",
+                    f"{clause.kind.value.upper()} JOIN is available only when "
+                    f"{_EXPLICIT_MODULES} completes it.",
                 )
             )
         if clause.on_clause is not None:
             diagnostics.append(
                 availability_diagnostic(
                     clause.on_clause.span,
-                    "JOIN-local ON semantics are not implemented.",
+                    "JOIN-local ON is available only when "
+                    f"{_EXPLICIT_MODULES} completes it.",
                 )
             )
     if definition.distinct_clause is not None and not allow_distinct:

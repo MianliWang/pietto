@@ -948,7 +948,10 @@ def test_computed_literal_call_and_nested_partition_shapes_use_pie_s2103(
     )
     assert isinstance(result, WindowExpressionUnsupported)
     assert [item.code for item in diagnostics] == ["PIE-S2103"]
-    assert diagnostics[0].message == f"Unknown function: {function_name}"
+    assert diagnostics[0].message == (
+        f"Unsupported window computation for function {function_name}: "
+        "window partition expression must be a direct field"
+    )
 
 
 @pytest.mark.parametrize("case", range(24))

@@ -7,9 +7,11 @@ from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
 from collections.abc import Iterator, Mapping
+from dataclasses import fields, replace
 from typing import TYPE_CHECKING
 
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
     BetweenExpr,
     BinaryExpr,
     CastExpr,
@@ -30,6 +32,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     MembershipExpr,
     NameExpr,
+    Node,
     Nullability,
     QueryDef,
     Script,
@@ -342,8 +345,90 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             let_scopes=let_scopes,
             relationships=relationships,
         ),
-        diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
+        diagnostics=tuple(
+            sorted(
+                _explain_join_binding_fields(
+                    script,
+                    diagnostics,
+                    {
+                        name: (
+                            source_row_schemas.get(definition)
+                            if isinstance(definition, SourceDef)
+                            else relation_row_schemas.get(definition)
+                        )
+                        for name, definition in relation_symbols.items()
+                        if isinstance(definition, (SourceDef, TableDef, QueryDef))
+                    },
+                ),
+                key=_diagnostic_order,
+            )
+        ),
     )
+
+
+def _explain_join_binding_fields(
+    script: Script,
+    diagnostics: list[Diagnostic],
+    relation_schemas: Mapping[str, RowSchema | None],
+) -> list[Diagnostic]:
+    """Say why a single-file JOIN binding field is unknown; keep code and span.
+
+    Only a field the JOIN target has, on a binding a project exposes.
+    """
+
+    names: dict[SourceLocation, str] = {}
+    for definition in script.definitions:
+        if not isinstance(definition, (TableDef, QueryDef)):
+            continue
+        # A project exposes the fields of every JOIN binding but SEMI and ANTI;
+        # a binding name written twice has no single target and gets no hint.
+        written = [clause.target_binding_name for clause in definition.join_clauses]
+        bindings = {
+            clause.target_binding_name: relation_schemas.get(
+                clause.target_relation_name
+            )
+            for clause in definition.join_clauses
+            if clause.kind not in (AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI)
+            and clause.target_binding_name != definition.from_clause.source_name
+            and written.count(clause.target_binding_name) == 1
+        }
+        pending: list[object] = [definition] if bindings else []
+        while pending:
+            value = pending.pop()
+            if type(value) is tuple:
+                pending.extend(value)
+            elif (
+                type(value) is DottedNameExpr
+                and len(value.parts) == 2
+                and (schema := bindings.get(value.parts[0])) is not None
+                and not schema.is_unknown
+                and value.parts[1] in schema.fields
+            ):
+                span = value.span
+                location = SourceLocation(
+                    path=span.path,
+                    line=span.line,
+                    column=span.column,
+                    end_line=span.end_line,
+                    end_column=span.end_column,
+                )
+                names[location] = ".".join(value.parts)
+            elif isinstance(value, Node):
+                pending.extend(getattr(value, field.name) for field in fields(value))
+    return [
+        replace(
+            diagnostic,
+            message=(
+                f"{diagnostic.message}; JOIN binding fields are not available in "
+                "single-file mode (use an EXPLICIT_MODULES project)"
+            ),
+        )
+        if diagnostic.code == "PIE-S2102"
+        and diagnostic.location in names
+        and diagnostic.message == f"Unknown field: {names[diagnostic.location]}"
+        else diagnostic
+        for diagnostic in diagnostics
+    ]
 
 
 RelationDefinition = SourceDef | TableDef | QueryDef

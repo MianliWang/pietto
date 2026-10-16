@@ -133,9 +133,26 @@ PIE-S2333 — Project relation semantic completion is unavailable: <relation>
 ```
 
 它使用 authored `SourceDef`、`TableDef` 或 `QueryDef` 的精确 source span。message
-只公开 authored relation name，不公开 terminal enum、Python carrier、object ID、
-内部路径或 Project IR coordinate。entry 已保留精确 user-facing ERROR 时不生成
-fallback。
+只公开 authored 名称（relation name，以及下述原因从句中的 JOIN binding 与 relation
+name），不公开 terminal enum、Python carrier、object ID、内部路径或 Project IR
+coordinate。entry 已保留精确 user-facing ERROR 时不生成 fallback。
+
+Post-Phase70 amendment：若该 relation 自身的 joined aggregate 因某个 JOIN 可能重复其
+输入行（fan-out）而被拒绝，message 在 relation name 后追加一个原因从句。它按源码顺序点名
+位于每个被拒 aggregate 已确定行的边界上的 JOIN（aggregate 不读任何 JOIN 侧时写作
+`rows that a JOIN repeats`），再列出至多两个 grain 证明接受的补救，任一补救单独应用即可
+消除 fan-out 原因：声明全部列出的 unique key（只在 source 的 shape 字段上，且该字段被
+无 ON 的单跳 relationship JOIN 匹配：INNER 与 LEFT 的 target 字段、INNER 的 source 字段；
+同一个 key 只列一次并写出它服务的全部 JOIN），或按每个列出 binding 的全部字段 not null 的
+unique key 分组（binding 须为 source 或已有这种 key 的输入）。证明无法确认的补救不列出，
+因此从句可能不含补救（例如 multi-hop VIA 或 UNION 输入）；已证明的 key 从不列出。未分组的
+aggregate 若后接 ORDER BY、window 或 QUALIFY，应用 key 补救后仍以原 message 被拒绝：
+
+```text
+PIE-S2333 — Project relation semantic completion is unavailable: q (an aggregate may read rows repeated by JOIN cust; declare a unique key on customers.id (matched by JOIN cust), or group by a unique key of cust whose fields are all not null)
+```
+
+code、severity、span 与顺序不变；仅读取该 relation 的下游 relation 保持原有 message。
 
 因此每个 non-concrete completion 都有 public semantic ERROR boundary。dependency-
 propagated terminal 若可达 upstream precise ERROR，保留同一个 Diagnostic object；

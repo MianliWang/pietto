@@ -427,6 +427,55 @@ def test_q1_closed_expression_rules_fail_with_deterministic_diagnostics(
     assert len(matching) == 1
 
 
+@pytest.mark.parametrize(
+    ("expression", "attempted"),
+    [
+        ("cast(count as Text)", "cast(Int as Text)"),
+        ("cast(count as Int)", "cast(Int as Int)"),
+        ("cast(ratio as Int)", "cast(Float as Int)"),
+        ("cast(name as Text)", "cast(Text as Text)"),
+        ("cast(1.5 as Float)", "cast(Float as Float)"),
+        ("cast(count as Float not null)", "cast(Int as Float not null)"),
+        ("cast(count as Float nullable)", "cast(Int as Float nullable)"),
+        ("cast(count as Decimal(10, 2))", "cast(Int as Decimal(10, 2))"),
+        ("cast(age as Text)", "cast(Int as Text)"),
+        ("cast(count as Age)", "cast(Int as Age)"),
+    ],
+)
+def test_invalid_cast_echoes_the_attempted_pair(
+    expression: str,
+    attempted: str,
+) -> None:
+    result = analyze(
+        _parse(
+            "type Age = Int not null\n"
+            "shape Person:\n"
+            "    count: Int not null\n"
+            "    ratio: Float not null\n"
+            "    name: Text not null\n"
+            "    age: Age not null\n"
+            'source people: Person is postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    select:\n"
+            f"        value = {expression}\n"
+        )
+    )
+
+    assert [
+        (diagnostic.code, diagnostic.message, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [
+        (
+            "PIE-S2105",
+            f"Invalid cast: {attempted} is not supported; expected "
+            "cast(Int as Float), the only supported cast",
+            17,
+        )
+    ]
+
+
 COMPARISON_SOURCE = (
     "type Age = Int not null\n"
     "enum Status:\n"

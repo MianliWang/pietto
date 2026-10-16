@@ -29,33 +29,45 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
 
-# One closed entry per approved family, in planned unlock order.
+# One closed entry per approved family, in planned unlock order. The messages
+# hold in single-file, LEGACY_FLAT and PACKAGE_ROOT checks and in an
+# EXPLICIT_MODULES project, which still gates the positions they name.
+_EXPLICIT_MODULES = "EXPLICIT_MODULES projects (schema version 2)"
+_IN_BODY = f"inside a FROM-based relation body in {_EXPLICIT_MODULES}"
 _UNADMITTED: dict[type[Node], tuple[str, str]] = {
     LetRelationDef: (
         "PIE-S2345",
-        "Let relation declaration semantics are not implemented.",
+        f"Relation let declarations are available only in {_EXPLICIT_MODULES}.",
     ),
     QueryParameter: (
         "PIE-S2346",
-        "Query header parameter semantics are not implemented.",
+        f"Query header parameters are available only in {_EXPLICIT_MODULES}, "
+        "on a query that reads a relation with FROM and has no relation let "
+        "reading a table function.",
     ),
-    ValuesBody: ("PIE-S2347", "VALUES body semantics are not implemented."),
+    ValuesBody: (
+        "PIE-S2347",
+        f"Typed VALUES bodies are available only in {_EXPLICIT_MODULES}.",
+    ),
     RelationScalarExpr: (
         "PIE-S2348",
-        "Scalar relation read semantics are not implemented.",
+        f"Scalar relation reads are available only {_IN_BODY}.",
     ),
     RelationExistsExpr: (
         "PIE-S2349",
-        "EXISTS relation reference semantics are not implemented.",
+        f"EXISTS relation reads are available only {_IN_BODY}.",
     ),
     RelationMembershipExpr: (
         "PIE-S2350",
-        "IN relation reference semantics are not implemented.",
+        f"IN relation reads are available only {_IN_BODY}.",
     ),
-    CaptureClause: ("PIE-S2351", "Capture line semantics are not implemented."),
+    CaptureClause: (
+        "PIE-S2351",
+        f"Capture lines are available only in {_EXPLICIT_MODULES}.",
+    ),
     TableFunctionFromClause: (
         "PIE-S2352",
-        "Table-function FROM input semantics are not implemented.",
+        f"Table-function FROM inputs are available only in {_EXPLICIT_MODULES}.",
     ),
 }
 

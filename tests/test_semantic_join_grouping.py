@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
@@ -1247,6 +1248,469 @@ def test_fanout_risk_and_group_key_protection_use_exact_phase62_proofs(
     assert unrelated.grain_linkages[0].requirements == (
         multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,
     )
+
+
+_UNAVAILABLE = "Project relation semantic completion is unavailable: "
+
+
+def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
+    tmp_path: Path,
+) -> None:
+    """PIE-S2333 keeps its code and span; the relation whose own aggregate is
+    refused for fan-out names the repeating JOINs and remedies, also beneath a
+    row let, a window and QUALIFY, and offers no declared key for an ON
+    condition; a reader of it stays bare."""
+
+    def query(name: str) -> str:
+        start = PROJECT_SOURCE.index(f"query {name}:")
+        return PROJECT_SOURCE[start : PROJECT_SOURCE.index("\nquery ", start) + 1]
+
+    header = PROJECT_SOURCE.split("query absent_stage:")[0]
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        header
+        + query("fanout_risk")
+        + query("ambiguous_chasm")
+        + "query reader:\n    from fanout_risk\n    select:\n        total\n"
+        + "query qualified_risk:\n    from accounts\n"
+        "    inner join events as event:\n        from accounts\n"
+        "        via account_events: account -> event\n"
+        "    let:\n        weight = accounts.metric\n"
+        "    group by:\n        accounts.label\n"
+        "    select:\n        label = accounts.label\n        top = max(weight)\n"
+        "        rk = rank() window:\n            order by:\n                top desc\n"
+        "    qualify:\n        rk <= 3\n"
+        + query("fanout_risk")
+        .replace("fanout_risk", "on_risk")
+        .replace(
+            "via account_events: account -> event", "on accounts.id == event.account_id"
+        ),
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    offset = header.count("\n")
+    event = (
+        " (an aggregate may read rows repeated by JOIN event; declare a unique key "
+        "on events.account_id (matched by JOIN event), or group by a unique key of "
+        "event whose fields are all not null)"
+    )
+    assert not completed.ok
+    assert [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        ("PIE-S2333", f"{_UNAVAILABLE}fanout_risk{event}", 1, 1),
+        (
+            "PIE-S2333",
+            f"{_UNAVAILABLE}ambiguous_chasm (an aggregate may read rows repeated by "
+            "JOIN event and JOIN signal; declare a unique key on events.account_id "
+            "(matched by JOIN event) and a unique key on signals.dimension_id (matched "
+            "by JOIN signal), or group by unique keys of event and signal whose "
+            "fields are all not null)",
+            8,
+            1,
+        ),
+        ("PIE-S2333", f"{_UNAVAILABLE}reader", 22, 1),
+        ("PIE-S2333", f"{_UNAVAILABLE}qualified_risk{event}", 26, 1),
+        (
+            "PIE-S2333",
+            f"{_UNAVAILABLE}on_risk (an aggregate may read rows repeated by JOIN "
+            "event; group by a unique key of event whose fields are all not null)",
+            43,
+            1,
+        ),
+    ]
+
+
+_FANOUT_SHAPES = {
+    "orders": ("Order", ("customer_id: Int not null", "amount: Int not null")),
+    "customers": ("Customer", ("name: Text not null", "region_id: Int not null")),
+    "regions": ("Region", ("name: Text not null",)),
+    "emps": ("Emp", ("manager_id: Int not null", "name: Text not null")),
+}
+_FANOUT_RELATIONSHIPS = (
+    ("order_customer", "order", "orders", "customer", "customers"),
+    ("customer_region", "customer", "customers", "region", "regions"),
+    ("report_manager", "report", "emps", "manager", "emps"),
+    ("order_customer_dup", "order", "orders", "customer", "customers"),
+    ("order_customer_twice", "order", "orders", "customer", "customers"),
+)
+_FANOUT_REPEATED = frozenset({"order_customer_dup", "order_customer_twice"})
+_FANOUT_CONDITIONS = {
+    "order_customer": "order.customer_id == customer.id",
+    "customer_region": "customer.region_id == region.id",
+    "report_manager": "report.manager_id == manager.id",
+    # An ON that repeats an operand: one equality twice, one field twice.
+    "order_customer_dup": (
+        "order.customer_id == customer.id and order.customer_id == customer.id"
+    ),
+    "order_customer_twice": (
+        "order.customer_id == customer.id and order.amount == customer.id"
+    ),
+}
+_FANOUT_BINDINGS = {
+    "orders": "orders",
+    "cust": "customers",
+    "reg": "regions",
+    "emps": "emps",
+    "boss": "emps",
+    "c1": "customers",
+    "c2": "customers",
+}
+_CUST = "    {} join customers as cust:\n        from orders\n"
+_VIA_CUST = "        via order_customer: order -> customer\n"
+_REG = "    inner join regions as reg:\n        from cust\n"
+_VIA_REG = "        via customer_region: customer -> region\n"
+_SELF = (
+    "    inner join emps as boss:\n        from emps\n"
+    "        via report_manager: report -> manager\n"
+)
+_FROM_SIDE = (("cust.name",), ("cname = cust.name", "top = max(orders.amount)"))
+_TARGET_SIDE = (("orders.amount",), ("amt = orders.amount", "top = max(cust.id)"))
+_FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]] = {
+    **{
+        f"{kind}_{match}_{side}": (
+            "orders",
+            _CUST.format(kind) + text,
+            groups,
+            outputs,
+            "",
+        )
+        for kind, match, text in (
+            ("inner", "via", _VIA_CUST),
+            ("left", "via", _VIA_CUST),
+            ("right", "via", _VIA_CUST),
+            ("full", "via", _VIA_CUST),
+            ("inner", "zero_hop", ""),
+            ("inner", "via_on", _VIA_CUST + '        on cust.name != "x"\n'),
+            ("inner", "on", "        on orders.customer_id == cust.id\n"),
+            ("left", "on", "        on orders.customer_id == cust.id\n"),
+            ("cross", "cross", ""),
+        )
+        for side, (groups, outputs) in (("from", _FROM_SIDE), ("target", _TARGET_SIDE))
+    },
+    "chain_last": (
+        "orders",
+        _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
+        ("orders.amount",),
+        ("amt = orders.amount", "top = max(reg.id)"),
+        "",
+    ),
+    "chain_first": (
+        "orders",
+        _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
+        ("reg.name",),
+        ("rname = reg.name", "top = max(orders.amount)"),
+        "",
+    ),
+    "chain_middle": (
+        "orders",
+        _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
+        ("orders.amount",),
+        ("amt = orders.amount", "top = max(cust.id)"),
+        "",
+    ),
+    "chain_on_last": (
+        "orders",
+        _CUST.format("inner")
+        + _VIA_CUST
+        + _REG
+        + "        on cust.region_id == reg.id\n",
+        ("orders.amount",),
+        ("amt = orders.amount", "top = max(reg.id)"),
+        "",
+    ),
+    "chain_partly_proven_last": (
+        "orders",
+        _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
+        ("orders.amount",),
+        ("amt = orders.amount", "n = count(reg.id)"),
+        "orders:unique proven on customer_id",
+    ),
+    "chain_partly_proven_first": (
+        "orders",
+        _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
+        ("reg.name",),
+        ("rname = reg.name", "top = max(orders.amount)"),
+        "customers:unique proven on id",
+    ),
+    "chain_left_first": (
+        "orders",
+        _CUST.format("left") + _VIA_CUST + _REG + _VIA_REG,
+        ("reg.name",),
+        ("rname = reg.name", "top = max(orders.amount)"),
+        "",
+    ),
+    "self_from": (
+        "emps",
+        _SELF,
+        ("boss.name",),
+        ("bname = boss.name", "top = max(emps.id)"),
+        "",
+    ),
+    "self_target": (
+        "emps",
+        _SELF,
+        ("emps.name",),
+        ("ename = emps.name", "top = max(boss.id)"),
+        "",
+    ),
+    "two_aggregates": (
+        "orders",
+        _CUST.format("inner") + _VIA_CUST,
+        ("cust.name",),
+        ("cname = cust.name", "top = max(orders.amount)", "most = max(cust.id)"),
+        "",
+    ),
+    # A SEMI JOIN target repeats nothing and is never named.
+    "semi_then_via": (
+        "orders",
+        "    semi join regions as sr:\n        from orders\n"
+        "        on orders.amount == sr.id\n" + _CUST.format("inner") + _VIA_CUST,
+        ("cust.name",),
+        ("cname = cust.name", "top = max(orders.amount)"),
+        "",
+    ),
+    **{
+        f"{name}_{side}": (
+            "orders",
+            _CUST.format("inner") + f"        via {relationship}: order -> customer\n",
+            groups,
+            outputs,
+            "",
+        )
+        for name, relationship in (
+            ("repeated_equality", "order_customer_dup"),
+            ("repeated_field", "order_customer_twice"),
+        )
+        for side, (groups, outputs) in (("from", _FROM_SIDE), ("target", _TARGET_SIDE))
+    },
+    # One key serves both JOINs and is listed once.
+    "two_joins_one_key": (
+        "orders",
+        "".join(
+            f"    inner join customers as {name}:\n        from orders\n{_VIA_CUST}"
+            for name in ("c1", "c2")
+        ),
+        ("orders.amount",),
+        ("amt = orders.amount", "top = max(orders.amount)"),
+        "",
+    ),
+}
+
+
+def _fanout_source(
+    case: tuple[str, str, tuple[str, ...], tuple[str, ...], str],
+    declarations: tuple[str, ...] = (),
+    groups: tuple[str, ...] = (),
+) -> str:
+    base, joins, case_groups, outputs, extra = case
+    declared = tuple(filter(None, (extra, *declarations)))
+    shapes = "".join(
+        f"shape {shape}:\n    id: Int not null\n    uid: Int not null\n"
+        + "".join(f"    {field}\n" for field in fields)
+        + "".join(
+            f"    {line.split(':', 1)[1]}\n"
+            for line in dict.fromkeys(declared)
+            if line.split(":", 1)[0] == relation
+        )
+        + f'source {relation}: {shape} is postgres.table("{relation}")\n'
+        for relation, (shape, fields) in _FANOUT_SHAPES.items()
+    )
+    relationships = "".join(
+        f"relationship {name}:\n    endpoint {left}: {left_relation}\n"
+        f"    endpoint {right}: {right_relation}\n"
+        f"    on {_FANOUT_CONDITIONS[name]}\n"
+        for name, left, left_relation, right, right_relation in _FANOUT_RELATIONSHIPS
+        # A repeated-operand relationship only where a JOIN reads it, so a
+        # zero-hop JOIN keeps one candidate relationship.
+        if name not in _FANOUT_REPEATED or f"via {name}:" in joins
+    )
+    return (
+        shapes
+        + relationships
+        + f"query q:\n    from {base}\n{joins}    group by:\n"
+        + "".join(f"        {group}\n" for group in (*case_groups, *groups))
+        + "    select:\n"
+        + "".join(f"        {output}\n" for output in outputs)
+    )
+
+
+def _fanout_check(
+    tmp_path: Path, name: str, source: str | dict[str, str]
+) -> list[tuple[str, str]]:
+    root = tmp_path / name
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    for path, text in (
+        {"main.pietto": source} if isinstance(source, str) else source
+    ).items():
+        (root / path).write_text(text, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(root))
+    )
+    return [(d.code, d.message) for d in completed.diagnostics]
+
+
+@pytest.mark.parametrize("name", _FANOUT_CASES)
+def test_every_fanout_remedy_applied_alone_clears_the_refusal(
+    tmp_path: Path, name: str
+) -> None:
+    """Over JOIN kinds, ON, zero-hop, VIA+ON, both aggregate directions, chains,
+    a partly proven chain and a self-join: the refusal names a repeating JOIN,
+    always offers the group-by remedy, and each remedy it offers, applied to
+    the source alone, clears it."""
+
+    case = _FANOUT_CASES[name]
+    ((code, message),) = _fanout_check(tmp_path, "refused", _fanout_source(case))
+    assert code == "PIE-S2333"
+    assert message.startswith(
+        f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN "
+    )
+    keys = [
+        (relation, field or fields)
+        for relation, field, fields in re.findall(
+            r"a unique key on (\w+)(?:\.(\w+)| \(([\w, ]+)\)) "
+            r"\(matched by JOINs? [\w ,]+\)",
+            message,
+        )
+    ]
+    grouped = re.search(
+        r"group by (?:a unique key|unique keys) of (.+) whose fields are all not null",
+        message,
+    )
+    assert grouped is not None
+    names = re.split(r", | and ", grouped.group(1))
+    remedies = {
+        "group": (
+            tuple(
+                f"{_FANOUT_BINDINGS[item]}:unique group_key on uid" for item in names
+            ),
+            tuple(f"{item}.uid" for item in names),
+        )
+    }
+    if keys:
+        remedies["key"] = (
+            tuple(
+                f"{relation}:unique fix_{position} on {field}"
+                for position, (relation, field) in enumerate(keys)
+            ),
+            (),
+        )
+    for remedy, (declarations, groups) in remedies.items():
+        assert (
+            _fanout_check(tmp_path, remedy, _fanout_source(case, declarations, groups))
+            == []
+        ), remedy
+
+
+_DECLARABLE_HEADER = (
+    "shape Customer:\n    id: Int not null\n    uid: Int not null\n"
+    "    code: Int not null\n    name: Text not null\n"
+    "shape Order:\n    id: Int not null\n    uid: Int not null\n"
+    "    customer_id: Int not null\n    amount: Int not null\n"
+    'source customers: Customer is postgres.table("customers")\n'
+    'source customers_b: Customer is postgres.table("customers_b")\n'
+    'source orders: Order is postgres.table("orders")\n'
+)
+
+
+def _endpoint(kind: str, groups: str, aggregate: str) -> str:
+    return (
+        f"{kind} bc:\n    from customers\n    select:\n        id = code\n"
+        "        name\nrelationship order_bc:\n    endpoint order: orders\n"
+        "    endpoint b: bc\n    on order.customer_id == b.id\n"
+        "query q:\n    from orders\n    inner join bc as j0:\n        from orders\n"
+        f"        via order_bc: order -> b\n    group by:\n        {groups}\n"
+        f"    select:\n        g = {groups}\n        top = max({aggregate})\n"
+    )
+
+
+def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> None:
+    """A UNION input, a query or table relationship endpoint, and an import
+    alias: the clause never asks for a key that cannot be declared or for a
+    group key that cannot exist, and each remedy it does offer clears it."""
+
+    union = (
+        "query su:\n    union all:\n        from customers\n        from customers_b\n"
+        "query q:\n    from orders\n    inner join su as s:\n        from orders\n"
+        "        on orders.customer_id == s.id\n    group by:\n        s.name\n"
+        "    select:\n        n = s.name\n        top = max(orders.amount)\n"
+    )
+    bare = f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN "
+    for name, body, message in (
+        ("union", union, f"{bare}s)"),
+        ("query", _endpoint("query", "j0.name", "orders.amount"), f"{bare}j0)"),
+        ("table", _endpoint("table", "j0.name", "orders.amount"), f"{bare}j0)"),
+    ):
+        assert _fanout_check(tmp_path, name, _DECLARABLE_HEADER + body) == [
+            ("PIE-S2333", message)
+        ]
+
+    # Over the endpoint's fields the declarable FROM-side key is offered.
+    target = _endpoint("query", "orders.amount", "j0.id")
+    assert _fanout_check(tmp_path, "target", _DECLARABLE_HEADER + target) == [
+        (
+            "PIE-S2333",
+            f"{bare}j0; declare a unique key on orders.customer_id (matched by JOIN "
+            "j0), or group by a unique key of orders whose fields are all not null)",
+        )
+    ]
+    with_order = _DECLARABLE_HEADER.replace(
+        "    amount: Int not null\n", "    amount: Int not null\n{}", 1
+    )
+    for fix, key, group in (
+        ("target_key", "    unique fix on customer_id\n", ""),
+        ("target_group", "    unique fix on uid\n", "        orders.uid\n"),
+    ):
+        fixed = with_order.format(key) + target.replace(
+            "        orders.amount\n    select",
+            f"        orders.amount\n{group}    select",
+        )
+        assert _fanout_check(tmp_path, fix, fixed) == []
+
+    # An imported source is named by its own declaration, in its own module.
+    module = (
+        "shape Customer:\n    id: Int not null\n    uid: Int not null\n"
+        "    name: Text not null\n{}"
+        'source customers: Customer is postgres.table("customers")\n'
+        "export:\n    source customers\n"
+    )
+    main = (
+        'import "a.pietto":\n    source customers as cs\n'
+        "shape Order:\n    id: Int not null\n    customer_id: Int not null\n"
+        "    amount: Int not null\n"
+        'source orders: Order is postgres.table("orders")\n'
+        "relationship order_customer:\n    endpoint order: orders\n"
+        "    endpoint customer: cs\n    on order.customer_id == customer.id\n"
+        "query q:\n    from orders\n    inner join cs as cust:\n        from orders\n"
+        "        via order_customer: order -> customer\n"
+        "    group by:\n        cust.name\n{}"
+        "    select:\n        n = cust.name\n        top = max(orders.amount)\n"
+    )
+    assert _fanout_check(
+        tmp_path,
+        "import",
+        {"a.pietto": module.format(""), "main.pietto": main.format("")},
+    ) == [
+        (
+            "PIE-S2333",
+            f"{bare}cust; declare a unique key on customers.id (matched by JOIN "
+            "cust), or group by a unique key of cust whose fields are all not null)",
+        )
+    ]
+    for fix, key, group in (
+        ("import_key", "    unique fix on id\n", ""),
+        ("import_group", "    unique fix on uid\n", "        cust.uid\n"),
+    ):
+        files = {"a.pietto": module.format(key), "main.pietto": main.format(group)}
+        assert _fanout_check(tmp_path, fix, files) == []
 
 
 def test_repeated_self_bindings_keep_argument_occurrences_and_factors_distinct(

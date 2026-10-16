@@ -131,7 +131,11 @@ def test_a_let_reading_a_table_function_keeps_the_header_unadmitted(
         "        select:\n            id\n"
         "    from a\n    where id in s\n    select:\n        id\n"
     )
-    unadmitted = "Query header parameter semantics are not implemented."
+    unadmitted = (
+        "Query header parameters are available only in EXPLICIT_MODULES "
+        "projects (schema version 2), on a query that reads a relation "
+        "with FROM and has no relation let reading a table function."
+    )
     assert _check(_project(tmp_path, body), messages=True) == (
         1,
         [("PIE-S2346", unadmitted, 1, 9), ("PIE-S2346", unadmitted, 1, 31)],

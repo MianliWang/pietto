@@ -750,7 +750,7 @@ def _fallback_diagnostic(
         severity=Severity.ERROR,
         message=(
             "Project relation semantic completion is unavailable: "
-            f"{entry.owner.identity.declared_name}"
+            f"{entry.owner.identity.declared_name}{_fanout_cause(entry)}"
         ),
         location=SourceLocation(
             path=span.path,
@@ -760,6 +760,286 @@ def _fallback_diagnostic(
             end_column=span.end_column,
         ),
     )
+
+
+def _fanout_cause(entry: ProjectEffectiveOutputCompletionEntry) -> str:
+    """Name the JOINs that may repeat this relation's own aggregate rows.
+
+    Only the relation whose own joined aggregation is refused for fan-out
+    gets the clause; a relation that merely reads it keeps the bare message.
+    """
+
+    qualify = (
+        entry.joined_qualify
+        if type(entry) is ProjectEffectiveOutputCompletionTerminal
+        else None
+    )
+    if type(qualify) is not project_joined_qualify.ProjectNonConcreteJoinedQualify:
+        return ""
+    stage = qualify.window_stage
+    if type(stage) is not project_joined_windows.ProjectNonConcreteJoinedWindowStage:
+        return ""
+    aggregation = stage.input_aggregation
+    if (
+        type(aggregation)
+        is not project_joined_aggregation.ProjectNonConcreteJoinedAggregation
+        or aggregation.reason
+        is not (
+            project_joined_aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
+        )
+    ):
+        return ""
+    risky = tuple(
+        linkage
+        for linkage in aggregation.grain_linkages
+        if linkage.multiplicity_exposures
+    )
+    return _fanout_clause(risky) if risky else ""
+
+
+type _Factors = frozenset[project_grain.ProjectGrainFactorIdentity]
+type _Dependency = tuple[_Factors, _Factors]
+
+
+def _fanout_clause(
+    risky: tuple[project_joined_aggregation.ProjectJoinedAggregateGrainLinkage, ...],
+) -> str:
+    """Name the repeating JOINs and only remedies the grain engine accepts.
+
+    Every remedy is checked with the engine's own dependency closure: applied
+    alone, it must bring each refused aggregate's closure to the full JOIN
+    grain. A declared key is offered only where the engine turns it into a
+    dependency (a one-hop relationship JOIN without ON: the target key for
+    INNER and LEFT, the source key for INNER) and only on a source, whose shape
+    can declare it; a group key only for an input that has a strict key or is
+    a source. A remedy that cannot be derived this way is left out.
+    """
+
+    region = risky[0].multifact_region
+    index = region.grain_index
+    joins = region.region.joins
+    final_grain = risky[0].final_grain
+    final = frozenset(final_grain.active)
+    seeds = tuple(frozenset(linkage.combined_seed.factors) for linkage in risky)
+
+    def closure(factors: _Factors, extra: tuple[_Dependency, ...] = ()) -> _Factors:
+        current = factors
+        while True:
+            closed = frozenset(
+                project_grain.grain_dependency_closure(
+                    index, project_multifact._factor_set(index, tuple(current))
+                ).factors
+            )
+            grown = closed.union(*(rhs for lhs, rhs in extra if lhs <= closed))
+            if grown == closed:
+                return closed
+            current = grown
+
+    def localized(properties, use) -> _Factors:
+        # The factors a strict key of this input protects (the engine's law);
+        # an input the final grain does not carry (a SEMI or ANTI target)
+        # protects nothing and fails closed to no factors.
+        try:
+            return frozenset(
+                project_multifact._localized_input_factors(
+                    grain=properties.grain,
+                    introduction_use=use,
+                    final_grain=final_grain,
+                )
+            )
+        except ValueError:
+            return frozenset()
+
+    def source_shape(
+        binding: project_relationship_uses.ProjectRelationBindingOccurrence | None,
+    ) -> str | None:
+        # A key can be declared only on a source, through its shape.
+        target = None if binding is None else binding.target
+        if target is None or type(target.target_occurrence.definition) is not (
+            SourceDef
+        ):
+            return None
+        return target.target_occurrence.identity.declared_name
+
+    def source_binding(join):
+        # An ON or CROSS JOIN reads its source binding through its condition.
+        if join.use.source_binding is not None:
+            return join.use.source_binding
+        if type(join) is project_multifact.ProjectCurrentBinaryJoin:
+            candidates = join.condition.environment.source_candidates
+            return candidates[0] if len(candidates) == 1 else None
+        return None
+
+    # Each named row input (the FROM binding and every JOIN binding), its
+    # binding and its factors; an intermediate multi-hop input has no name.
+    from_binding = source_binding(joins[0])
+    inputs: dict[
+        str, tuple[project_relationship_uses.ProjectRelationBindingOccurrence, _Factors]
+    ] = {}
+    if from_binding is not None:
+        inputs[from_binding.name] = (
+            from_binding,
+            localized(joins[0].left_input, joins[0].input_uses[0]),
+        )
+    last_hop = {join.use.identity: join for join in joins}
+    hops: dict[object, int] = {}
+    for join in joins:
+        hops[join.use.identity] = hops.get(join.use.identity, 0) + 1
+    previous: dict[object, _Factors] = {}
+    edges = []
+    for join in joins:
+        target = localized(join.right_input, join.input_uses[1])
+        source_input = source_binding(join)
+        source = previous.get(
+            join.use.identity,
+            inputs[source_input.name][1]
+            if source_input is not None and source_input.name in inputs
+            else frozenset(),
+        )
+        previous[join.use.identity] = target
+        if last_hop[join.use.identity] is join:
+            inputs[join.use.target_binding.name] = (join.use.target_binding, target)
+        edges.append((join, source, target))
+
+    # Declarable keys, each with every dependency it would add, in JOIN order.
+    keys: dict[object, tuple[str, list[_Dependency], dict[str, None]]] = {}
+    for join, source, target in edges:
+        clause = join.use.clause
+        if (
+            type(join) is not project_ir_joins.ProjectIRBinaryJoinOccurrence
+            or hops[join.use.identity] != 1
+            or clause.on_clause is not None
+            or not source
+            or not target
+        ):
+            continue
+        # Each side's distinct matched fields: an ON may repeat an operand.
+        sides = []
+        if clause.kind in {"inner", "left"}:
+            sides.append(
+                (
+                    join.use.target_binding,
+                    list(dict.fromkeys(p.right.evidence.name for p in join.matches)),
+                    (source, target),
+                )
+            )
+        if clause.kind == "inner":
+            sides.append(
+                (
+                    source_binding(join),
+                    list(dict.fromkeys(p.left.evidence.name for p in join.matches)),
+                    (target, source),
+                )
+            )
+        for binding, fields, dependency in sides:
+            shape = source_shape(binding)
+            if shape is None:
+                continue
+            identity = (binding.target.target_identity, tuple(fields))
+            text, dependencies, matched = keys.setdefault(
+                identity, (_key(shape, fields), [], {})
+            )
+            dependencies.append(dependency)
+            matched[join.use.target_binding.name] = None
+
+    def with_keys(chosen: tuple[object, ...]) -> tuple[_Dependency, ...]:
+        return tuple(item for key in chosen for item in keys[key][1])
+
+    chosen: tuple[object, ...] | None = ()
+    for seed in seeds:
+        while chosen is not None and not final <= closure(seed, with_keys(chosen)):
+            reached = closure(seed, with_keys(chosen))
+            step = next(
+                (
+                    key
+                    for key, (_, dependencies, _) in keys.items()
+                    if key not in chosen
+                    and any(
+                        lhs <= reached and not rhs <= reached
+                        for lhs, rhs in dependencies
+                    )
+                ),
+                None,
+            )
+            chosen = None if step is None else (*chosen, step)
+    for key in chosen or ():
+        rest = tuple(other for other in chosen or () if other != key)
+        if all(final <= closure(seed, with_keys(rest)) for seed in seeds):
+            chosen = rest
+    declared = tuple(key for key in keys if key in (chosen or ()))
+
+    def grouped(picked: tuple[str, ...]) -> bool:
+        protected = frozenset().union(*(inputs[name][1] for name in picked))
+        return all(final <= closure(seed | protected) for seed in seeds)
+
+    picked = tuple(
+        name
+        for name, (binding, factors) in inputs.items()
+        if factors
+        and (
+            source_shape(binding) is not None
+            or (
+                binding.output is not None
+                and any(
+                    key.strength is project_row_keys.ProjectRowUniquenessStrength.STRICT
+                    for key in binding.output.keys
+                )
+            )
+        )
+    )
+    if grouped(picked):
+        for name in picked:
+            if grouped(rest_names := tuple(item for item in picked if item != name)):
+                picked = rest_names
+    else:
+        picked = ()
+
+    repeated = tuple(
+        f"JOIN {join.use.target_binding.name}"
+        for join, source, target in edges
+        if source
+        and target
+        and any(
+            (source <= (reached := closure(seed))) != (target <= reached)
+            for seed in seeds
+        )
+    )
+    remedies = []
+    if declared:
+        remedies.append(
+            "declare "
+            + _and_list(
+                tuple(
+                    f"a unique key on {keys[key][0]} (matched by "
+                    f"JOIN{'s' if len(keys[key][2]) > 1 else ''} "
+                    f"{_and_list(tuple(keys[key][2]))})"
+                    for key in declared
+                )
+            )
+        )
+    if picked:
+        noun = "a unique key" if len(picked) == 1 else "unique keys"
+        remedies.append(
+            f"group by {noun} of {_and_list(picked)} whose fields are all not null"
+        )
+    if not repeated and not remedies:
+        return ""
+    cause = (
+        f"an aggregate may read rows repeated by {_and_list(tuple(dict.fromkeys(repeated)))}"
+        if repeated
+        else "an aggregate may read rows that a JOIN repeats"
+    )
+    return f" ({cause}{'; ' + ', or '.join(remedies) if remedies else ''})"
+
+
+def _key(relation: str, fields: list[str]) -> str:
+    if len(fields) == 1:
+        return f"{relation}.{fields[0]}"
+    return f"{relation} ({', '.join(fields)})"
+
+
+def _and_list(names: tuple[str, ...]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def _ordinary_row_diagnostics(

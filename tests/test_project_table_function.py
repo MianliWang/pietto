@@ -478,7 +478,8 @@ def test_table_functions_are_available_only_in_explicit_module_projects(
             [
                 (
                     "PIE-S2352",
-                    "Table-function FROM input semantics are not implemented.",
+                    "Table-function FROM inputs are available only in "
+                    "EXPLICIT_MODULES projects (schema version 2).",
                     5,
                     5,
                     5,
@@ -502,7 +503,8 @@ def test_single_file_commands_keep_the_pre_admission_gate(
         [
             (
                 "PIE-S2352",
-                "Table-function FROM input semantics are not implemented.",
+                "Table-function FROM inputs are available only in "
+                "EXPLICIT_MODULES projects (schema version 2).",
                 5,
                 5,
                 5,

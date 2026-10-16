@@ -119,7 +119,13 @@ DIAGNOSTICS = {
         [
             ("PIE-S2359", "Let relation a is never read.", 7, 5),
             ("PIE-S2301", "Unknown relation: a", 16, 9),
-            ("PIE-S2334", "Set-operation semantics are not implemented.", 15, 5),
+            (
+                "PIE-S2334",
+                "Set operations are available only when an "
+                "EXPLICIT_MODULES project (schema version 2) completes them.",
+                15,
+                5,
+            ),
         ],
     ),
     "capture": (
@@ -265,7 +271,13 @@ READ_ERRORS = {
         + "    from a\n    select:\n        id\n",
         [
             ("PIE-S2302", "Relation cycle detected: a -> b -> q -> a", 15, 5),
-            ("PIE-S2334", "Set-operation semantics are not implemented.", 8, 9),
+            (
+                "PIE-S2334",
+                "Set operations are available only when an "
+                "EXPLICIT_MODULES project (schema version 2) completes them.",
+                8,
+                9,
+            ),
         ],
     ),
     # a reads b and c, both read a: the message follows one of the cycles.
@@ -277,7 +289,13 @@ READ_ERRORS = {
         + "    from a\n    select:\n        id\n",
         [
             ("PIE-S2302", "Relation cycle detected: a -> b -> a", 12, 9),
-            ("PIE-S2334", "Set-operation semantics are not implemented.", 8, 9),
+            (
+                "PIE-S2334",
+                "Set operations are available only when an "
+                "EXPLICIT_MODULES project (schema version 2) completes them.",
+                8,
+                9,
+            ),
         ],
     ),
     "nested_17": (
@@ -346,8 +364,20 @@ def _unknown_to_readers(name: str) -> list[tuple[str, str, int, int]]:
     """What `_readers(name)` reports when `name` is unknown in s and t."""
     return [
         ("PIE-S2301", f"Unknown relation: {name}", 9, 9),
-        ("PIE-S2334", "Set-operation semantics are not implemented.", 7, 5),
-        ("PIE-S2334", "JOIN-local ON semantics are not implemented.", 14, 9),
+        (
+            "PIE-S2334",
+            "Set operations are available only when an "
+            "EXPLICIT_MODULES project (schema version 2) completes them.",
+            7,
+            5,
+        ),
+        (
+            "PIE-S2334",
+            "JOIN-local ON is available only when an EXPLICIT_MODULES "
+            "project (schema version 2) completes it.",
+            14,
+            9,
+        ),
     ]
 
 
@@ -567,7 +597,8 @@ def test_lets_are_available_only_in_explicit_module_projects(
         assert diagnostics == [
             (
                 "PIE-S2345",
-                "Let relation declaration semantics are not implemented.",
+                "Relation let declarations are available only in "
+                "EXPLICIT_MODULES projects (schema version 2).",
                 7,
                 5,
             )
@@ -769,7 +800,9 @@ CAPTURE_DIAGNOSTICS = {
             ),
             (
                 "PIE-S2346",
-                "Query header parameter semantics are not implemented.",
+                "Query header parameters are available only in EXPLICIT_MODULES "
+                "projects (schema version 2), on a query that reads a relation "
+                "with FROM and has no relation let reading a table function.",
                 21,
                 9,
             ),
@@ -1239,7 +1272,13 @@ CORRELATED_READS = {
         ),
         [
             ("PIE-S2348", SCALAR_POSITION.format("a window"), 19, 13),
-            ("PIE-S2103", "Unknown function: row_number", 16, 14),
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+                16,
+                14,
+            ),
         ],
     ),
     "window_in": (
@@ -1250,7 +1289,13 @@ CORRELATED_READS = {
         ),
         [
             ("PIE-S2350", IN_POSITION.format("a window"), 18, 17),
-            ("PIE-S2103", "Unknown function: row_number", 16, 14),
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+                16,
+                14,
+            ),
         ],
     ),
     "order_by_in": (
@@ -1479,14 +1524,22 @@ def test_capture_lines_are_available_only_in_explicit_module_projects(
         [
             (
                 "PIE-S2345",
-                "Let relation declaration semantics are not implemented.",
+                "Relation let declarations are available only in "
+                "EXPLICIT_MODULES projects (schema version 2).",
                 7,
                 5,
             ),
-            ("PIE-S2351", "Capture line semantics are not implemented.", 8, 9),
+            (
+                "PIE-S2351",
+                "Capture lines are available only in EXPLICIT_MODULES projects "
+                "(schema version 2).",
+                8,
+                9,
+            ),
             (
                 "PIE-S2349",
-                "EXISTS relation reference semantics are not implemented.",
+                "EXISTS relation reads are available only inside a FROM-based "
+                "relation body in EXPLICIT_MODULES projects (schema version 2).",
                 14,
                 11,
             ),
@@ -1687,7 +1740,13 @@ LATERAL_DIAGNOSTICS = {
                 15,
                 15,
             ),
-            ("PIE-S2334", "CROSS JOIN semantics are not implemented.", 17, 5),
+            (
+                "PIE-S2334",
+                "CROSS JOIN is available only when an EXPLICIT_MODULES "
+                "project (schema version 2) completes it.",
+                17,
+                5,
+            ),
             ("PIE-S2335", JOIN_ON, 17, 5),
         ],
     ),
@@ -1766,8 +1825,20 @@ def test_a_lateral_join_is_available_only_in_explicit_module_projects(
     body = _top_k("cross") if top_k else _lateral("cross")
     code, diagnostics = _check(tmp_path, body, config=config)
     gated = [
-        ("PIE-S2345", "Let relation declaration semantics are not implemented.", 7, 5),
-        ("PIE-S2351", "Capture line semantics are not implemented.", 8, 9),
+        (
+            "PIE-S2345",
+            "Relation let declarations are available only in "
+            "EXPLICIT_MODULES projects (schema version 2).",
+            7,
+            5,
+        ),
+        (
+            "PIE-S2351",
+            "Capture lines are available only in EXPLICIT_MODULES projects "
+            "(schema version 2).",
+            8,
+            9,
+        ),
     ]
     assert (code, diagnostics) == ((0, []) if schema_version == 2 else (1, gated))
     path = tmp_path / "single.pietto"

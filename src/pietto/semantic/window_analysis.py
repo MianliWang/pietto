@@ -23,7 +23,11 @@ from pietto.ast_nodes import (
     WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
+from pietto.semantic.aggregates import (
+    child_expressions,
+    contains_semantic_aggregate,
+    semantic_aggregate_call_name,
+)
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
     GenericSignature,
@@ -523,10 +527,16 @@ def analyze_window_computation(
         and navigation is None
         and frame_value is None
     ):
+        aggregate_name = semantic_aggregate_call_name(expression.call)
         return _unsupported_computation(
             expression=expression,
             reason="unsupported window function identity",
             diagnostics=diagnostics,
+            message=(
+                f"Unknown function: {_source_function_name(expression.call)}"
+                if aggregate_name is None
+                else f"Aggregate window functions are not implemented: {aggregate_name}"
+            ),
         )
 
     function_name = expression.identity.name
@@ -652,17 +662,15 @@ def analyze_window_computation(
         allow_qualified_fields=allow_qualified_fields,
     )
     if partition_bindings is None:
+        reason = "window partition field type must be concrete"
         if len(diagnostics) == diagnostics_before:
-            _append_call_diagnostic(
-                diagnostics,
-                expression.call,
-                code="PIE-S2103",
-                message=f"Unknown function: {_source_function_name(expression.call)}",
+            return _unsupported_computation(
+                expression=expression, reason=reason, diagnostics=diagnostics
             )
         return WindowComputationUnsupported(
             expression=expression,
             identity=expression.identity,
-            reason="window partition field type must be concrete",
+            reason=reason,
         )
     if not expression.spec.order_by:
         return _unsupported_computation(
@@ -701,28 +709,26 @@ def analyze_window_computation(
         allow_qualified_fields=allow_qualified_fields,
     )
     if order_bindings is None:
+        reason = (
+            "window order direction must be omitted, asc, or desc"
+            if any(
+                item.direction is not None
+                and (
+                    type(item.direction) is not str
+                    or item.direction not in ("asc", "desc")
+                )
+                for item in direct_order_items
+            )
+            else "window order field type must be concrete"
+        )
         if len(diagnostics) == diagnostics_before:
-            _append_call_diagnostic(
-                diagnostics,
-                expression.call,
-                code="PIE-S2103",
-                message=f"Unknown function: {_source_function_name(expression.call)}",
+            return _unsupported_computation(
+                expression=expression, reason=reason, diagnostics=diagnostics
             )
         return WindowComputationUnsupported(
             expression=expression,
             identity=expression.identity,
-            reason=(
-                "window order direction must be omitted, asc, or desc"
-                if any(
-                    item.direction is not None
-                    and (
-                        type(item.direction) is not str
-                        or item.direction not in ("asc", "desc")
-                    )
-                    for item in direct_order_items
-                )
-                else "window order field type must be concrete"
-            ),
+            reason=reason,
         )
 
     frame_validation = _validate_recognized_window_specification(
@@ -1018,13 +1024,14 @@ def _unsupported_computation(
     code: str = "PIE-S2103",
     message: str | None = None,
 ) -> WindowComputationUnsupported:
-    _append_call_diagnostic(
-        diagnostics,
-        expression.call,
-        code=code,
-        message=message
-        or f"Unknown function: {_source_function_name(expression.call)}",
-    )
+    if not message:
+        # A recognized window function refused for a structural reason.
+        name = _source_function_name(expression.call)
+        message = (
+            f"Unsupported window computation for function {name}: "
+            f"{reason.removeprefix(f'{name} ')}"
+        )
+    _append_call_diagnostic(diagnostics, expression.call, code=code, message=message)
     return WindowComputationUnsupported(
         expression=expression,
         identity=expression.identity,
