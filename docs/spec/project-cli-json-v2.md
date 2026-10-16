@@ -563,7 +563,10 @@ Project JSON v2 uses the established rule:
 The significant array order is:
 
 - `inputs`: normalized project-relative path order;
-- `diagnostics`: deterministic project stage/file/producer order;
+- `diagnostics`: deterministic project stage/file/producer order; in an
+  EXPLICIT_MODULES check, a diagnostic equal to an earlier one in code,
+  severity, message, location and suggestion is reported once, at its first
+  position;
 - `related_locations`: normalized path and source-position order;
 - `cli_errors`: deterministic validation/processing order;
 - `artifacts`: normalized file, source-definition, and backend order.

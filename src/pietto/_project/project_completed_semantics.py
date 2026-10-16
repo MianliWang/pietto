@@ -1121,7 +1121,10 @@ def _final_diagnostics(
                 continue
             retained.append(diagnostic)
             retained_ids.add(id(diagnostic))
-    return tuple(retained)
+    # Producers may restate one diagnostic for the same source occurrence (an
+    # unknown direct field, for one); the public result reports each value once,
+    # in first-occurrence order.
+    return tuple(dict.fromkeys(retained))
 
 
 def _build_phase62_verification(

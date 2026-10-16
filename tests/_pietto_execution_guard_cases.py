@@ -79,7 +79,7 @@ def planned(
             fixture["source"]
             .replace(
                 "source lhs:",
-                "shape RightRow:\n    id: Int not null\n    key: Int nullable\n    unique key on id\nsource lhs:",
+                "shape RightRow:\n    id: Int not null\n    key: Int nullable\n    unique right_id on id\nsource lhs:",
             )
             .replace("source rhs: Row", "source rhs: RightRow")
         )
