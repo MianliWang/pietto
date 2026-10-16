@@ -10,8 +10,10 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable, Iterable
 from dataclasses import fields, is_dataclass, replace
+from types import MappingProxyType
 from typing import cast
 
+from pietto._inline_argument import InlinedArgument
 from pietto._syntax_admission import source_order
 from pietto.ast_nodes import (
     CallExpr,
@@ -44,11 +46,7 @@ from pietto.semantic.aggregates import (
 )
 from pietto.semantic.capability_windows import _WINDOW_IDENTITIES
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, SPECIAL_BUILTIN_FUNCTION_NAMES
-from pietto.semantic.expressions import (
-    InlinedArgument,
-    infer_row_expression,
-    register_inlined_argument,
-)
+from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -77,10 +75,12 @@ _RESERVED_NAMES = frozenset(
 # and this nesting depth.
 _MAX_EXPANSION_NODES = 1000
 _MAX_EXPANSION_DEPTH = 64
-_NULLABILITY = {
-    Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
-    Nullability.NULLABLE: EffectiveNullability.NULLABLE,
-}
+_NULLABILITY = MappingProxyType(
+    {
+        Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
+        Nullability.NULLABLE: EffectiveNullability.NULLABLE,
+    }
+)
 
 
 def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
@@ -200,20 +200,27 @@ class _Expansion:
                 )
             )
             return rebuilt
-        arguments = dict(
-            zip((parameter.name for parameter in function.parameters), call.arguments)
-        )
-        for position, parameter in enumerate(function.parameters, start=1):
-            register_inlined_argument(
-                arguments[parameter.name],
-                InlinedArgument(
-                    call=call.span,
-                    function=function.name,
-                    position=position,
-                    parameter=parameter.name,
-                    expected=_value_type(parameter.type),
+        # Each argument carries the parameter it must fit, so wherever its
+        # expansion is typed, the argument is checked against it.
+        arguments = {
+            parameter.name: replace(
+                argument,
+                argument_of=(
+                    *argument.argument_of,
+                    InlinedArgument(
+                        call=call.span,
+                        function=function.name,
+                        position=position,
+                        parameter=parameter.name,
+                        type_name=parameter.type.name,
+                        nullable=parameter.type.nullability is Nullability.NULLABLE,
+                    ),
                 ),
             )
+            for position, (parameter, argument) in enumerate(
+                zip(function.parameters, call.arguments), start=1
+            )
+        }
         nodes, depth = _measure(template)
         for name, argument in arguments.items():
             uses, deepest = _parameter_uses(template, name)
@@ -259,7 +266,8 @@ def _substitution(
     call. Every other body node, and every repeated use of an argument, is a
     copy that starts at the call and is as many columns long as its post-order
     ordinal: like the same text written out by hand, each inlined occurrence
-    keeps a distinct identity.
+    keeps a distinct identity. Only the first use of an argument keeps the
+    parameters it must fit; a copy is checked through that first use.
     """
 
     used: set[str] = set()
@@ -268,12 +276,10 @@ def _substitution(
     def located(node: object) -> object:
         if not isinstance(node, Node):
             return node
-        return replace(
-            node,
-            span=replace(
-                call, end_line=call.line, end_column=call.column + next(ordinal)
-            ),
-        )
+        span = replace(call, end_line=call.line, end_column=call.column + next(ordinal))
+        if isinstance(node, Expression):
+            return replace(node, span=span, argument_of=())
+        return replace(node, span=span)
 
     def substitute(original: object, rebuilt: object) -> object:
         if type(original) is NameExpr:
@@ -284,8 +290,8 @@ def _substitution(
                     return _rebuild(argument, lambda _, copy: located(copy))
                 used.add(name)
                 return argument
-        if original is template and isinstance(rebuilt, Node):
-            return replace(rebuilt, span=call)
+        if original is template and isinstance(rebuilt, Expression):
+            return replace(rebuilt, span=call, argument_of=())
         return located(rebuilt)
 
     return substitute

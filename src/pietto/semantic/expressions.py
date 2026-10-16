@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, ParamSpec, cast
 
 from pietto import ast_nodes as ast
@@ -124,28 +124,7 @@ _QUERY_PARAMETER_NULLABILITY = {
 }
 
 
-@dataclass(frozen=True, slots=True)
-class InlinedArgument:
-    """One argument position of one inlined ``def`` call and its parameter."""
-
-    call: ast.Span
-    function: str
-    position: int
-    parameter: str
-    expected: ValueType
-
-
 _P = ParamSpec("_P")
-# Every argument of an inlined ``def`` call, by node identity: wherever the
-# expansion is typed, its argument is checked against the parameter here. An
-# entry keeps its node alive, so an id is never reused while it is registered.
-_INLINED_ARGUMENTS: dict[int, tuple[Expression, dict[InlinedArgument, None]]] = {}
-
-
-def register_inlined_argument(argument: Expression, slot: InlinedArgument) -> None:
-    """Check ``argument`` against ``slot`` wherever it is typed."""
-
-    _INLINED_ARGUMENTS.setdefault(id(argument), (argument, {}))[1][slot] = None
 
 
 def checks_inlined_arguments(
@@ -175,31 +154,28 @@ def _check_inlined_argument(
     diagnostics: list[Diagnostic],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
-    """An argument whose canonical type or nullability does not fit its
-    parameter is an error at the call; the argument then stays Unknown so the
-    expansion reports nothing else."""
+    """An argument whose canonical type or nullability does not fit a
+    parameter it is inlined for (``Expression.argument_of``) is an error at the
+    call; the argument then stays Unknown so the expansion reports nothing
+    else."""
 
-    entry = _INLINED_ARGUMENTS.get(id(expression))
-    if entry is None or entry[0] is not expression:
-        return value_type
-    if value_type.kind is ValueTypeKind.UNKNOWN:
+    if not expression.argument_of or value_type.kind is ValueTypeKind.UNKNOWN:
         return value_type
     canonical = _canonical_resolved_type(value_type, type_expansions)
     fits = True
-    for slot in entry[1]:
-        expected = slot.expected
+    for slot in expression.argument_of:
         if (
             canonical is not None
             and canonical.kind is TypeKind.BUILTIN
-            and canonical.name == expected.resolved_type.name
+            and canonical.name == slot.type_name
             and (
-                expected.nullability is EffectiveNullability.NULLABLE
-                or value_type.nullability is EffectiveNullability.NON_NULL
+                slot.nullable or value_type.nullability is EffectiveNullability.NON_NULL
             )
         ):
             continue
         fits = False
         actual = (canonical or value_type.resolved_type).name
+        expected = "nullable" if slot.nullable else "not null"
         diagnostics.append(
             Diagnostic(
                 code="PIE-S2395",
@@ -207,8 +183,7 @@ def _check_inlined_argument(
                 message=(
                     f"Invalid argument for def {slot.function} at position "
                     f"{slot.position} ({slot.parameter}): expected "
-                    f"{expected.resolved_type.name} "
-                    f"{_NULLABILITY_TEXT[expected.nullability]}, got {actual} "
+                    f"{slot.type_name} {expected}, got {actual} "
                     f"{_NULLABILITY_TEXT[value_type.nullability]}"
                 ),
                 location=SourceLocation(
@@ -223,11 +198,13 @@ def _check_inlined_argument(
     return value_type if fits else _UNKNOWN_VALUE_TYPE
 
 
-_NULLABILITY_TEXT = {
-    EffectiveNullability.NON_NULL: "not null",
-    EffectiveNullability.NULLABLE: "nullable",
-    EffectiveNullability.UNKNOWN: "of unknown nullability",
-}
+_NULLABILITY_TEXT = MappingProxyType(
+    {
+        EffectiveNullability.NON_NULL: "not null",
+        EffectiveNullability.NULLABLE: "nullable",
+        EffectiveNullability.UNKNOWN: "of unknown nullability",
+    }
+)
 
 
 def query_parameter_value_type(type_name: str, nullability: Nullability) -> ValueType:
@@ -1141,7 +1118,7 @@ def _infer(
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
     existing = value_types.get(expression)
     if existing is not None:
-        if _INLINED_ARGUMENTS and id(expression) in _INLINED_ARGUMENTS:
+        if expression.argument_of:
             # A caller may seed the type of a read it owns (a captured field,
             # a scalar read, a QUALIFY output); the seed itself stays exact.
             return _check_inlined_argument(
@@ -1403,7 +1380,7 @@ def _infer(
         # accidentally checked through their child expressions.
         value_type = _UNKNOWN_VALUE_TYPE
 
-    if _INLINED_ARGUMENTS:
+    if expression.argument_of:
         value_type = _check_inlined_argument(
             expression, value_type, diagnostics, type_expansions
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from pietto import _window_identity
+from pietto import _inline_argument, _window_identity
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -38,9 +38,17 @@ class Header(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Expression(Node):
-    """Base class for parsed expressions without semantic typing."""
+    """Base class for parsed expressions without semantic typing.
 
-    pass
+    ``argument_of`` is empty in parsed source. Semantic inlining sets it on
+    each argument of a ``def`` call to the parameters the argument must fit,
+    and every typing of the argument checks them. It is not part of the
+    expression's value; IR and SQL never read it.
+    """
+
+    argument_of: tuple[_inline_argument.InlinedArgument, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -35,9 +35,136 @@ lines are accepted for now and will be retired later. Only `mode` has an
 effect, and only in single-file commands, where `--check-mode` overrides it;
 `dialect` never selects the SQL backend.
 
-Top-level declarations are `type`, `enum`, `constraint`, `derive`, `shape`,
-`source`, `table`, and `query`. Relationship metadata and module `import` /
-`export` statements are also accepted at top level.
+Top-level declarations are `type`, `enum`, `constraint`, `derive`, `def`,
+`shape`, `source`, `table`, and `query`. Relationship metadata and module
+`import` / `export` statements are also accepted at top level.
+
+### Layout
+
+Lines may end with LF, CRLF or CR, and diagnostics count lines the same way for
+each. A file must not start indented: an indented first line is PIE-P1000
+(`Unexpected indentation.`).
+
+A list clause, that is `select:`, `select distinct:`, `group by:`, `order by:`
+(of a relation or a window), `partition by:`, the row `let:` and `enum NAME:`,
+writes its items after `:` on the header line, separated by commas, or in an
+indented block whose lines each hold one item or a comma-separated list. It
+uses one form or the other: content on the header line cannot be followed by
+an indented block. A list has no trailing comma; a line that ends with `,` is
+PIE-P1000 and does not continue on the next line. Inside parentheses, call
+arguments and parameter lists keep their optional trailing comma. In `select`,
+`name = expr` names one item, like a keyword argument in a Python call, so
+`select: id, total = sum(amount)` has two items. A window item such as
+`n = row_number() window w` stands alone on its block line.
+
+A condition clause, that is `where:`, `satisfying:` and a shape's
+`check NAME:`, holds one condition after `:` or one condition per line of an
+indented block. The lines are joined with `and`, each line as if it were
+written in parentheses, so
+
+```pietto
+where:
+    status == "paid"
+    email like "%@%" and coupon_code is null
+```
+
+means `where (status == "paid") and (email like "%@%" and coupon_code is
+null)`. `where x` and `where: x` are the same clause. A block line cannot
+start with `and` or `or`; one condition continues over several lines inside
+parentheses (below). An empty condition block is PIE-P1000.
+
+Only these clauses, a one-line relationship, the one step of a JOIN header
+and a `def` body take content after `:` on the header line (see
+[Sources and relations](#sources-and-relations) and
+[Inline functions](#inline-functions-def)). A window block (`window:`,
+`window name:` or `window name = base:`) never does: `window w: order by: id`
+is PIE-P1000, while `window w:` followed by an indented `order by: id` is
+accepted. The bodies of `shape`, `table`, `query`, `qualify:`, `import`,
+`export` and a relation let stay indented blocks.
+
+Inside parentheses, line breaks do not end the line, so an expression can
+continue over several lines. The indentation of the continuation lines does
+not matter, and blank lines and comments may appear between them:
+
+```pietto
+where (region == "EU"    # Europe
+    or region == "NA")
+```
+
+There is no backslash continuation, and only parentheses join lines. A `(`
+that is never closed is PIE-P1008 at the innermost open parenthesis, and the
+rest of the file is not parsed. A window block inside parentheses is PIE-P1010
+at its `window`: in `qualify:`, write the window call and its block without
+parentheses and the comparison on the line after the block.
+
+Some keywords are soft. `pietto`, `mode`, `dialect`, `encoding`, `loose`,
+`checked`, `strict`, `type`, `enum`, `constraint`, `derive`, `shape`, `check`,
+`unique`, `on`, `index`, `when`, `source`, `table`, `from`, `where`, `select`,
+`query`, `limit`, `ensure` and `is` may also name a shape field (and its
+`unique` or `index` entries), a `select` output, a row `let:` binding or a
+parameter, and expressions read such a name as usual, as in
+`where type == "click"`. They do not name declarations or relations. `and`,
+`or`, `not`, `null`, `true`, `false`, `between`, `like`, `nullable` and
+`window` are reserved.
+
+None of this changes meaning. A clause written on its header line, as comma
+lines or as a condition block parses to the same tree as its one-item-per-line
+form or its `and` chain, and checks and emits the same SQL. Rewritten with
+these forms (and the one-line `type T = Int not null ensure ...` form), a
+105-line single-file program of two tables and a window query becomes 85
+lines, and `emit-sql` writes byte-identical SQL for PostgreSQL and MySQL. One
+of its tables, before:
+
+```pietto
+shape Order:
+    id: Int not null
+    customer_id: Int not null
+    status: Text not null
+    region: Text not null
+    email: Text nullable
+    coupon_code: Text nullable
+    ordered_at: Timestamp not null
+
+source orders: Order is postgres.table("shop.orders")
+
+table paid_orders_2026:
+    from orders
+    let:
+        in_2026 = ordered_at between "2026-01-01 00:00:00" and "2026-12-31 23:59:59"
+        reachable = email like "%@%" and coupon_code is null
+        contact = lower(trim(email))
+    where status == "paid" and in_2026 and reachable and region in ("EU", "NA")
+    select:
+        id
+        customer_id
+        region
+        contact_email = contact
+    order by:
+        ordered_at desc
+        id desc
+    limit 100
+```
+
+and after, over the same shape and source:
+
+```pietto
+table paid_orders_2026:
+    from orders
+    let: contact = lower(trim(email))
+    where:
+        status == "paid"
+        ordered_at between "2026-01-01 00:00:00" and "2026-12-31 23:59:59"
+        email like "%@%" and coupon_code is null
+        region in ("EU", "NA")
+    select:
+        id, customer_id, region
+        contact_email = contact
+    order by: ordered_at desc, id desc
+    limit 100
+```
+
+The conditions need no `let:` names, so `let:` and `where` take one line more
+than before; every other clause takes fewer.
 
 ## Single files and projects
 
@@ -223,8 +350,70 @@ When all three relations have an `id` field, a bare `id` is ambiguous and the
 project check reports `PIE-S2333`; the selection therefore qualifies it as
 `orders.id`.
 
+A JOIN that follows a declared relationship needs only its header; its `from`
+line and VIA roles are optional. The one-line relationship
+`relationship r: a.x == b.y` (one or more `and`-joined equalities between
+fields of two different relations) declares the endpoints `a: a` and `b: b`,
+so its roles are the relation names; a relationship of a relation to itself
+keeps the block form (see [Modules and relationships](#modules-and-relationships)).
+The JOIN header may also carry one step after `:` on its line: `: from b`,
+`: via r`, `: via r: s -> t` or `: on e`. With
+
+```pietto
+relationship order_customer: orders.customer_id == customers.id
+relationship customer_region: customers.region_id == regions.id
+
+query enriched:
+    from orders
+    inner join customers as customer
+    left join regions as region: via customer_region
+    select:
+        order_id = orders.id
+```
+
+`enriched` is the explicit query above, with the same semantics and SQL:
+`emit-sql --project` writes the same artifact for both, apart from source
+locations and the source digest. In an EXPLICIT_MODULES project a JOIN without
+`from` and without VIA considers every earlier binding it can read, that is
+the FROM input and earlier JOIN targets but not SEMI or ANTI targets, and keeps
+each that has a declared relationship direction to its target; exactly one
+binding with one direction is used. A VIA step without roles takes the
+direction of its relationship that ends at the relation the step must reach
+(the JOIN target, or the start of the next step), and a JOIN without `from`
+but with VIA starts at the one earlier binding of the relation its first step
+starts at. No candidate is preferred, neither the FROM input nor the nearest
+binding. No candidate, several bindings, several directions from one binding
+(two relationships between the same relations, or a relationship of a
+relation to itself without roles) and a VIA step without roles whose
+relationship does not end at the relation it must reach are errors. For an
+INNER or LEFT JOIN they are PIE-S2333 at the JOIN, whose message names every
+candidate, or every binding it checked when there is none. After `from
+employees` and `left join employees as boss: via reports_to: report -> boss`,
+with `relationship works_in: employees.dept_id == departments.id`, the JOIN
+`inner join departments as d` reports a message that ends with:
+
+```text
+(JOIN d matches relationships from 2 earlier bindings: employees `via works_in: employees -> departments` and boss `via works_in: employees -> departments`; write `from <binding>`)
+```
+
+A RIGHT, FULL, SEMI or ANTI JOIN reports such a lookup with PIE-S2334 and
+PIE-S2335 at the JOIN, whose message names no candidate (`JOIN source binding
+is unknown.` or `is ambiguous.`, or `JOIN pre-match input or relationship
+authority is unavailable.`). A written `from` with zero `via` lines whose
+source has several relationship directions to the target reports the same
+candidate list as PIE-S2333 at the relation. When the relation also has a
+JOIN that keeps its PIE-S2334 because the relation does not complete, such as
+a JOIN-local `on` or a RIGHT JOIN, it reports only that PIE-S2334, without
+these messages. A JOIN with `on` and a CROSS JOIN still name their source
+with `from` (PIE-S2378). Single-file checks and LEGACY_FLAT project checks do
+not resolve JOIN sources or roles, written or omitted: such a JOIN passes
+`check` like its explicit form, and single-file `explain` and `emit-sql`
+refuse both with PIE-I1000.
+
 Zero `via` lines use exact direct-relationship shorthand. One or more lines
-name an explicit ordered path as `via relationship: source_role -> target_role`.
+name an explicit ordered path as `via relationship: source_role -> target_role`,
+or as `via relationship` without roles when the relationship joins two
+different relations.
 Bindings are relation-local occurrences: duplicates, forward sources,
 ambiguous paths, and failed-binding dependencies fail closed without a winner.
 Intermediate path relations do not become bindings. INNER/LEFT relationship
@@ -484,7 +673,8 @@ body. There is no inline `from x:` block: a derived table is a let read with
 unchanged. A typed VALUES body has one row per line; its header without `:` has
 zero rows. `in` and `not in` take a relation name, `exists` takes a relation
 name, and `scalar` reads exactly `relation.column`. A join right side may name
-a let, so LATERAL needs no new keyword. Parentheses still cannot span lines.
+a let, so LATERAL needs no new keyword. An expression in parentheses may
+continue over several lines (see [Layout](#layout)).
 
 `values`, `exists`, `capture` and `scalar` are contextual words: existing
 fields, relations and calls with these names keep parsing as before. `in
@@ -1191,6 +1381,101 @@ that derived Date. Date has no independent selected-project source, literal,
 parsing, arithmetic, or timezone surface. There is no arbitrary Python
 evaluation, user code execution, or general cast language.
 
+## Inline functions (`def`)
+
+A `def` names a reusable scalar expression with typed parameters. Pietto checks
+it once where it is declared. Before any call site is checked, it replaces every
+call with the def's body and puts each argument in place of its parameter. It
+never creates a database function: a call emits exactly the SQL of the same
+expression written out by hand.
+
+```pietto
+shape Order:
+    id: Int not null
+    email: Text nullable
+    coupon_code: Text nullable
+    ordered_at: Timestamp not null
+
+source orders: Order is postgres.table("shop.orders")
+
+def reachable(email: Text nullable, coupon: Text nullable) -> Bool nullable: return email like "%@%" and coupon is null
+
+def in_2026(ts: Timestamp not null) -> Bool nullable:
+    return ts between "2026-01-01 00:00:00" and "2026-12-31 23:59:59"
+
+table reachable_2026:
+    from orders
+    where:
+        in_2026(ordered_at)
+        reachable(email, coupon_code)
+    select:
+        id
+```
+
+`emit-sql --dialect postgres` writes the same WHERE as the hand-written
+`(ordered_at between "2026-01-01 00:00:00" and "2026-12-31 23:59:59") and
+(email like "%@%" and coupon_code is null)`:
+
+```sql
+WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND (("email" LIKE '%@%' ESCAPE '!') AND ("coupon_code" IS NULL))
+```
+
+- Where: single files and EXPLICIT_MODULES projects (schema version 2). A def
+  belongs to its module: another module cannot call it (PIE-S2103), export it
+  (`export: def f` is PIE-P1000; `export: table f` is PIE-S2704) or import it
+  (PIE-S2705). A LEGACY_FLAT project check refuses every def with PIE-S2379.
+  PACKAGE_ROOT `explain --project` does not check defs, so a package module
+  with a def can be explained; that does not make the def available.
+- Signature: each parameter and the result have exactly one of the types
+  `Bool`, `Int`, `Float`, `Decimal`, `Text`, `Date`, `Timestamp` or `UUID`,
+  without type arguments, and state `nullable` or `not null`. An omitted
+  marker is a syntax error (PIE-P1000). A type alias, enum, `Any`, `Bytes`,
+  `Json`, type arguments or a shape (a row type, which is not available yet)
+  is PIE-S2397. Arguments are positional only.
+- Body: one `return` expression, on the `def` line or in an indented block. It
+  reads only its parameters and may use literals, operators, the built-in
+  scalar functions and other defs. Every parameter must be used (PIE-S2397).
+  An aggregate or a qualified name is PIE-S2397, and a `window` call cannot be
+  written there (PIE-P1000). An `exists`, `scalar` or relation `in` read is
+  PIE-S2348 to PIE-S2350. Any other name is PIE-S2102. A `constraint` or
+  `derive` cannot be called from a body or anywhere else (PIE-S2103).
+- Result: the body is typed with the declared parameter types. Its type must
+  be the declared result type, and a `not null` result needs a body that the
+  checker proves non-null (PIE-S2402). Today a comparison, `between` or
+  arithmetic is not proven non-null, so such defs declare a `nullable` result.
+  The checker does prove non-null for `is null`, `like` on non-null text, a
+  non-null value `in` a literal list, `coalesce` with a non-null fallback,
+  and `lower`, `upper`, `trim` or `len` of a non-null value.
+- Names: defs share the callable namespace with `constraint` and `derive` (a
+  repeated name or parameter is PIE-S2001). A def cannot take the name of a
+  built-in scalar, aggregate or window function or of `generate_series`
+  (PIE-S2398). Fields, lets and relations are values, not functions, so a def
+  may share their names.
+- Recursion: a def that calls itself, directly or through other defs, is
+  PIE-S2396. It is reported at the first def of the cycle, and the message
+  names the cycle (`f -> g -> f`).
+- Calls: a call passes exactly one argument per parameter (PIE-S2395). Each
+  argument's type, after alias expansion, must be the parameter type, with no
+  conversion (an `Int` value does not fit a `Decimal` parameter). An argument
+  that is nullable, or whose nullability is unknown, does not fit a `not null`
+  parameter; `id + 1` is such an argument even when `id` is `not null`. Both
+  are PIE-S2395 at the call, also when the call is in a def body. Calls are
+  checked wherever their expansion is typed. In a position that Pietto does
+  not type (a type or field `ensure`, or an ungrouped `order by` in a project
+  check), a call is checked no more than the same expression written by hand.
+- Expansion: each call becomes one parenthesized expression. An argument that
+  the body uses n times is written n times in the SQL, as it would be by hand:
+  with `def twice(x: Int nullable) -> Int nullable: return x + x`, the item
+  `d = twice(id + 1)` emits `("id" + 1) + ("id" + 1) AS "d"`. Pietto's scalar
+  functions are deterministic, so the results do not change, but an error
+  inside such an argument is reported once per use. With its arguments, one
+  expansion has at most 1000 expression nodes and 64 levels of nesting
+  (PIE-S2399).
+- A problem that only the position of a call can cause, such as a form that
+  `satisfying` does not support, is reported at the call.
+- `explain` does not list defs. Their effect is part of the expressions they
+  were inlined into.
+
 ## Aggregates and grouping
 
 The current aggregate family is:
@@ -1516,6 +1801,14 @@ relationship order_customer:
     endpoint customer: customers
     on order.customer_id == customer.id
 ```
+
+The one-line form `relationship order_customer: orders.customer_id ==
+customers.id` declares the endpoints `orders: orders` and `customers:
+customers` with the same `on` condition, and is checked by PIE-S2601 to
+PIE-S2604 like the block form. Its condition is one or more `and`-joined
+equalities `a.x == b.y` between fields of two different relations; any other
+condition, an equality of a relation with itself included, is PIE-P1000 and
+needs the block form.
 
 Endpoint-only declarations remain valid and carry no inferred field match.
 `check FILE` and an EXPLICIT_MODULES `check --project` check every relationship

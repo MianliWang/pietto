@@ -10,7 +10,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-from dataclasses import fields, is_dataclass
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,7 +20,15 @@ import pytest
 
 import _pietto_sql_emission as emission
 from pietto import cli
-from pietto.ast_nodes import BinaryExpr, CallExpr, FunctionDef, NameExpr, TableDef
+from pietto._inline_argument import InlinedArgument
+from pietto.ast_nodes import (
+    BinaryExpr,
+    CallExpr,
+    FunctionDef,
+    NameExpr,
+    Script,
+    TableDef,
+)
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.inline_functions import inline_functions
@@ -471,7 +481,7 @@ def _shape(value: object) -> object:
             tuple(
                 (item.name, _shape(getattr(value, item.name)))
                 for item in fields(value)
-                if item.name != "span"
+                if item.compare and item.name != "span"
             ),
         )
     return value
@@ -500,24 +510,130 @@ def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
     assert not any(type(item) is FunctionDef for item in inlined.definitions)
     assert _shape(inlined) == _shape(written)
 
-    # The first use of an argument is the argument itself; the expansion is
-    # located at the call; every other inlined node, and every repeated use of
-    # an argument, is a distinct copy starting at the call.
+    # The first use of an argument is the argument, carrying the parameter it
+    # must fit; the expansion is located at the call; every other inlined node,
+    # and every repeated use of an argument, is a distinct copy starting at the
+    # call and checked through the first use.
     expression: Any = cast(TableDef, inlined.definitions[-1]).where_clause
     calls: Any = cast(TableDef, called.definitions[-1]).where_clause
     expression, calls = expression.expression, calls.expression
     assert type(calls) is BinaryExpr and type(calls.left) is CallExpr
     first = expression.left
-    assert first.span == calls.left.span
-    assert first.left.left is calls.left.arguments[0]
+    assert first.span == calls.left.span and first.argument_of == ()
+    argument = first.left.left
+    assert argument == calls.left.arguments[0]
+    assert argument.argument_of == (
+        InlinedArgument(
+            call=calls.left.span,
+            function="small",
+            position=1,
+            parameter="v",
+            type_name="Int",
+            nullable=False,
+        ),
+    )
     copy = first.right.left
-    assert type(copy) is NameExpr and copy is not calls.left.arguments[0]
+    assert type(copy) is NameExpr and copy != argument and copy.argument_of == ()
     nodes = _expression_nodes(expression)
     assert len({id(node) for node in nodes}) == len(nodes)
     assert len(set(nodes)) == len(nodes)
     start = (calls.left.span.line, calls.left.span.column)
     assert (copy.span.line, copy.span.column) == start
     assert copy.span.end_line == start[0] and copy.span.end_column > start[1]
+
+
+def _copy(value: object) -> object:
+    """A structural copy of an AST in which every node is a new object."""
+
+    if type(value) is tuple:
+        return tuple(_copy(item) for item in value)
+    if is_dataclass(value) and type(value).__module__ == "pietto.ast_nodes":
+        return replace(
+            cast(Any, value),
+            **{item.name: _copy(getattr(value, item.name)) for item in fields(value)},
+        )
+    return value
+
+
+def test_argument_checks_travel_with_the_inlined_script() -> None:
+    """A copy of an inlined script, such as the one execution binds values
+    into, keeps every argument check: no state outside the script holds it."""
+    parsed = parse_source(
+        SHAPES + DEFS + "table t:\n    from rows\n    where pos(n)\n"
+        "    select:\n        id\n",
+        path="m.pietto",
+    ).ast
+    assert parsed is not None
+    inlined, diagnostics = inline_functions(parsed)
+    assert diagnostics == ()
+    copied = _copy(inlined)
+    assert copied == inlined and copied is not inlined
+    for script in (inlined, copied):
+        assert [
+            (d.code, d.location.line, d.location.column, d.message)
+            for d in analyze(cast(Script, script)).diagnostics
+        ] == [
+            (
+                "PIE-S2395",
+                BODY_LINE + 2,
+                11,
+                "Invalid argument for def pos at position 1 (x): expected Int "
+                "not null, got Int nullable",
+            )
+        ]
+
+
+def test_concurrent_analyses_check_only_their_own_arguments() -> None:
+    """Two analyses whose calls share every source position, run at once in
+    two threads, each report only the parameters of their own def."""
+    relation = "table t:\n    from rows\n    where f(n)\n    select:\n        id\n"
+    programs = {
+        name: SHAPES
+        + f"def f(x: {name} not null) -> Bool not null: return x is null\n"
+        + relation
+        for name in ("Int", "Text")
+    }
+    expected = {
+        name: [
+            (
+                "PIE-S2395",
+                BODY_LINE + 1,
+                11,
+                f"Invalid argument for def f at position 1 (x): expected {name} "
+                "not null, got Int nullable",
+            )
+        ]
+        for name in programs
+    }
+    barrier = threading.Barrier(2)
+
+    def run(name: str) -> list[list[tuple[str, int, int, str]]]:
+        barrier.wait()
+        return [_errors(programs[name]) for _ in range(25)]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = dict(zip(programs, pool.map(run, programs)))
+    for name, runs in results.items():
+        assert runs == [expected[name]] * 25
+
+
+@pytest.mark.parametrize(
+    "function", ["now", "random", "current_timestamp", "gen_random_uuid"]
+)
+def test_no_volatile_function_reaches_a_repeated_argument(function: str) -> None:
+    """A parameter used twice writes its argument twice in SQL, which keeps
+    its meaning because Pietto has no volatile function to pass."""
+    source = SHAPES + (
+        "def twice(v: Int nullable) -> Bool nullable: return v > 0 and v < 9\n"
+        f"table t:\n    from rows\n    where twice({function}())\n"
+        "    select:\n        id\n"
+    )
+    # The error inside the argument is reported once per use: at the copy,
+    # which starts at the call, and at the argument itself.
+    assert _errors(source) == [
+        ("PIE-S2103", BODY_LINE + 1, column, f"Unknown function: {function}")
+        for column in (11, 17)
+    ]
 
 
 def _expression_nodes(expression: Any) -> list[Any]:
