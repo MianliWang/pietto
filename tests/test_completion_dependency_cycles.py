@@ -349,10 +349,10 @@ def test_diagnostic_identity_and_text_failure_are_preserved(
     original = next(d for d in semantic.diagnostics if d.code == "PIE-S2302")
     assert result.completion.topology.cycles[0].diagnostics[0] is original
     assert sum(d is original for d in result.diagnostics) == 1
+    # The relation facts restate the semantic error; it is reported once.
     equal_errors = tuple(d for d in result.diagnostics if d.code == "PIE-S2102")
-    assert len(equal_errors) == 2
-    assert equal_errors[0] == equal_errors[1]
-    assert equal_errors[0] is not equal_errors[1]
+    assert len(equal_errors) == 1
+    assert any(equal_errors[0] is d for d in semantic.diagnostics)
     assert cli.main(["check", "--project", str(tmp_path)]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""

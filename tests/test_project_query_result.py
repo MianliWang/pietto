@@ -369,7 +369,7 @@ def test_completed_roots_reject_equal_looking_foreign_grafts(
     assert exact.effective_outputs is local.effective_outputs
 
 
-def test_final_diagnostics_preserve_precise_errors_without_content_dedup(
+def test_final_diagnostics_report_an_equal_restated_error_once(
     tmp_path: Path,
 ) -> None:
     built = _build(tmp_path / "precise", PRECISE_FAILURE_SOURCE)
@@ -382,13 +382,12 @@ def test_final_diagnostics_preserve_precise_errors_without_content_dedup(
     assert type(terminal) is ProjectEffectiveOutputTerminal
     helper_error = terminal.fragment.semantic_facts.helper_diagnostics[0]
     assert not result.ok
-    assert tuple(diagnostic.code for diagnostic in result.diagnostics) == (
-        "PIE-S2102",
-        "PIE-S2102",
-    )
+    # The relation facts restate the semantic error for the same occurrence;
+    # the entry keeps its own object, the public result reports the value once.
+    assert helper_error is not built.semantic_result.diagnostics[0]
+    assert helper_error == built.semantic_result.diagnostics[0]
+    assert tuple(diagnostic.code for diagnostic in result.diagnostics) == ("PIE-S2102",)
     assert result.diagnostics[0] is built.semantic_result.diagnostics[0]
-    assert result.diagnostics[1] is helper_error
-    assert result.diagnostics[0] is not result.diagnostics[1]
     assert not any(diagnostic.code == "PIE-S2333" for diagnostic in result.diagnostics)
 
 

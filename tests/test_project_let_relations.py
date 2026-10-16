@@ -997,7 +997,7 @@ CAPTURE_DIAGNOSTICS = {
         "table e:\n    from lhs\n    select:\n        id\n        key = nosuch\n"
         + CAPTURE.replace("lhs", "e"),
         [
-            ("PIE-S2102", "Unknown field: nosuch", 10, 15),
+            # The relation facts restate it; it is reported once.
             ("PIE-S2102", "Unknown field: nosuch", 10, 15),
             (
                 "PIE-S2369",
