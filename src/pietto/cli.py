@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import sys
 import tempfile
@@ -69,6 +70,19 @@ _METADATA_FAILURE_MESSAGES = {
     "parse": "Semantic Metadata Artifact v1 metadata is unavailable because parsing failed.",
     "semantic": "Semantic Metadata Artifact v1 metadata is unavailable because semantic analysis failed.",
     "ir": "Semantic Metadata Artifact v1 metadata is unavailable because IR construction failed.",
+}
+_OS_ERROR_CLASS_REASONS: tuple[tuple[type[OSError], str], ...] = (
+    (FileNotFoundError, "No such file or directory"),
+    (IsADirectoryError, "Is a directory"),
+    (NotADirectoryError, "Not a directory"),
+    (PermissionError, "Permission denied"),
+    (FileExistsError, "File exists"),
+)
+_OS_ERROR_ERRNO_REASONS: dict[int | None, str] = {
+    errno.ENOSPC: "No space left on device",
+    errno.EROFS: "Read-only file system",
+    errno.ENAMETOOLONG: "File name too long",
+    errno.ELOOP: "Too many levels of symbolic links",
 }
 
 type _SqlEmitter = Callable[[ir_api.ScriptIR], sql_api.SqlResult]
@@ -145,6 +159,10 @@ def _main(argv: Sequence[str] | None = None) -> int:
     if namespace.command == "check":
         return _run_check_command(namespace)
     if namespace.command == "emit-sql":
+        if namespace.format == _FORMAT_JSON:
+            # Reached when "--" precedes the subcommand, so the pre-scan saw none.
+            command_end = arguments.index(namespace.command) + 1
+            return _run_emit_sql_json_command(arguments[command_end:])
         return _run_emit_sql(
             namespace.path,
             dialect=namespace.dialect,
@@ -314,24 +332,45 @@ def _is_check_json_request(arguments: Sequence[str]) -> bool:
 
     if not arguments or arguments[0] != "check" or _has_project_flag(arguments):
         return False
-    return any(
-        argument == "--format=json"
-        or (
-            argument == "--format"
-            and index + 1 < len(arguments)
-            and arguments[index + 1] == _FORMAT_JSON
-        )
-        for index, argument in enumerate(arguments)
+    return _selects_json_format(arguments)
+
+
+def _selects_json_format(arguments: Sequence[str]) -> bool:
+    """Return whether argparse would resolve --format to valid values ending in json."""
+
+    values = _option_values(arguments, "--format")
+    return (
+        bool(values)
+        and values[-1] == _FORMAT_JSON
+        and all(value in (_FORMAT_TEXT, _FORMAT_JSON) for value in values)
     )
 
 
 def _has_project_flag(arguments: Sequence[str]) -> bool:
     """Return whether argv mentions project mode explicitly."""
 
-    return any(
-        argument == "--project" or argument.startswith("--project=")
-        for argument in arguments
-    )
+    return bool(_option_values(arguments, "--project"))
+
+
+def _option_values(arguments: Sequence[str], option: str) -> list[str]:
+    """Return the values argparse would read for one check or emit-sql option.
+
+    Like argparse, this stops at "--" and accepts any unique prefix of the
+    option from three characters on; no two options of those commands share
+    their first letter.
+    """
+
+    values: list[str] = []
+    for index, argument in enumerate(arguments):
+        if argument == "--":
+            break
+        name, separator, value = argument.partition("=")
+        if len(name) < len("--f") or not option.startswith(name):
+            continue
+        if not separator:
+            value = arguments[index + 1] if index + 1 < len(arguments) else ""
+        values.append(value)
+    return values
 
 
 def _is_emit_sql_json_request(arguments: Sequence[str]) -> bool:
@@ -339,15 +378,7 @@ def _is_emit_sql_json_request(arguments: Sequence[str]) -> bool:
 
     if not arguments or arguments[0] != "emit-sql":
         return False
-    return any(
-        argument == "--format=json"
-        or (
-            argument == "--format"
-            and index + 1 < len(arguments)
-            and arguments[index + 1] == _FORMAT_JSON
-        )
-        for index, argument in enumerate(arguments)
-    )
+    return _selects_json_format(arguments)
 
 
 def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
@@ -576,19 +607,20 @@ def _run_check(
     try:
         parse_result = parser_api.parse_file(path)
     except (OSError, UnicodeError) as error:
+        message = _cli_error_message(error, path)
         if output_format == _FORMAT_JSON:
             _print_check_json(
                 path=path,
                 cli_errors=(
                     cli_json.CliError(
                         kind="file_read",
-                        message=str(error),
+                        message=message,
                         path=path,
                     ),
                 ),
             )
             return _EXIT_USAGE_ERROR
-        _print_cli_error(path, str(error))
+        _print_cli_error(path, message)
         return _EXIT_USAGE_ERROR
 
     if output_format == _FORMAT_JSON:
@@ -682,7 +714,7 @@ def _run_explain(
                 ),
             )
             return _EXIT_USAGE_ERROR
-        _print_cli_error(path, str(error))
+        _print_cli_error(path, _cli_error_message(error, path))
         return _EXIT_USAGE_ERROR
 
     diagnostics = parse_result.diagnostics
@@ -868,7 +900,7 @@ def _run_emit_sql_json(
                 cli_errors=(
                     cli_json.CliError(
                         kind="output_path",
-                        message=str(error),
+                        message=_cli_error_message(error, output_path),
                         path=output_path,
                     ),
                 ),
@@ -885,7 +917,7 @@ def _run_emit_sql_json(
             cli_errors=(
                 cli_json.CliError(
                     kind="file_read",
-                    message=str(error),
+                    message=_cli_error_message(error, path),
                     path=path,
                 ),
             ),
@@ -971,7 +1003,7 @@ def _run_emit_sql_json(
     if output_path is not None:
         try:
             _write_sql_artifacts(sql_result.artifacts, output_path)
-        except OSError as error:
+        except (OSError, ValueError) as error:
             _print_emit_sql_json(
                 path=path,
                 dialect=dialect,
@@ -979,7 +1011,7 @@ def _run_emit_sql_json(
                 cli_errors=(
                     cli_json.CliError(
                         kind="output_write",
-                        message=str(error),
+                        message=_cli_error_message(error, output_path),
                         path=output_path,
                     ),
                 ),
@@ -1075,13 +1107,13 @@ def _run_emit_sql(
         try:
             _validate_output_path(path, output_path)
         except (OSError, ValueError) as error:
-            _print_cli_error(output_path, str(error))
+            _print_cli_error(output_path, _cli_error_message(error, output_path))
             return _EXIT_USAGE_ERROR
 
     try:
         parse_result = parser_api.parse_file(path)
     except (OSError, UnicodeError) as error:
-        _print_cli_error(path, str(error))
+        _print_cli_error(path, _cli_error_message(error, path))
         return _EXIT_USAGE_ERROR
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)
@@ -1114,8 +1146,8 @@ def _run_emit_sql(
     elif not has_backend_errors:
         try:
             _write_sql_artifacts(sql_result.artifacts, output_path)
-        except OSError as error:
-            _print_cli_error(output_path, str(error))
+        except (OSError, ValueError) as error:
+            _print_cli_error(output_path, _cli_error_message(error, output_path))
             return _EXIT_USAGE_ERROR
     if has_backend_errors:
         return _EXIT_DIAGNOSTIC_ERROR
@@ -1135,13 +1167,15 @@ def _write_sql_artifacts(
 ) -> None:
     """Atomically replace one regular output file with rendered SQL text."""
 
-    sql = _format_sql_artifacts(artifacts)
-    text = f"{sql}\n" if sql else ""
+    if not artifacts:
+        raise ValueError("no SQL artifacts to write; the output file was not changed")
+    text = f"{_format_sql_artifacts(artifacts)}\n"
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
+            newline="",
             dir=output_path.parent,
             prefix=f".{output_path.name}.",
             suffix=".tmp",
@@ -1171,12 +1205,22 @@ def _validate_output_path(input_path: Path, output_path: Path) -> None:
 def _paths_refer_to_same_file(input_path: Path, output_path: Path) -> bool:
     """Compare existing files and normalized paths without requiring output."""
 
-    if input_path.resolve(strict=False) == output_path.resolve(strict=False):
-        return True
     try:
-        return input_path.samefile(output_path)
-    except FileNotFoundError:
+        if input_path.resolve(strict=False) == output_path.resolve(strict=False):
+            return True
+    except RuntimeError:
+        pass  # Python 3.12 reports a symbolic-link loop from resolve() this way.
+    try:
+        input_state = input_path.stat()
+    except OSError:
+        # An input that cannot be inspected is not the output; reading it
+        # later reports the failure as file_read at the input path.
         return False
+    try:
+        output_state = output_path.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return os.path.samestat(input_state, output_state)
 
 
 def _format_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> str:
@@ -1218,6 +1262,34 @@ def _print_cli_error(path: Path, message: str) -> None:
         f"{_escape_cli_text(str(path))}: error: {_escape_cli_text(message)}",
         file=sys.stderr,
     )
+
+
+def _cli_error_message(error: Exception, path: Path) -> str:
+    """Describe a handled read/write error about one user path.
+
+    Non-OSError text is already fixed English and is kept; an OSError gets a
+    fixed reason and its codes, never OS-supplied names or text.
+    """
+
+    if not isinstance(error, OSError):
+        return str(error)
+    reason = next(
+        (text for kind, text in _OS_ERROR_CLASS_REASONS if isinstance(error, kind)),
+        _OS_ERROR_ERRNO_REASONS.get(error.errno, "Operating system error"),
+    )
+    if isinstance(error, PermissionError):
+        # Windows reports opening or replacing a directory as EACCES; the stat
+        # only words the message and never changes the failure.
+        try:
+            if path.is_dir():
+                reason = "Is a directory"
+        except OSError:
+            pass
+    codes = [] if error.errno is None else [f"errno {error.errno}"]
+    winerror = getattr(error, "winerror", None)
+    if winerror is not None:
+        codes.append(f"winerror {winerror}")
+    return f"{reason} ({', '.join(codes)})" if codes else reason
 
 
 def _print_output_encoding_error() -> None:

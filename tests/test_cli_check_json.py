@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 from pathlib import Path
 
@@ -115,7 +116,34 @@ def test_check_json_file_read_error_returns_two(
     error = result["cli_errors"][0]
     assert error["kind"] == "file_read"
     assert error["path"] == str(path)
-    assert "No such file or directory" in error["message"]
+    assert error["message"] == "No such file or directory (errno 2)"
+
+
+def test_check_json_directory_input_reported_as_permission_error_is_a_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    directory = tmp_path / "models"
+    directory.mkdir()
+
+    def windows_open(path: Path) -> object:
+        # The Windows C runtime reports opening a directory as EACCES.
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+
+    monkeypatch.setattr(cli.parser_api, "parse_file", windows_open)
+
+    assert cli.main(["check", str(directory), "--format", "json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out)["cli_errors"] == [
+        {
+            "kind": "file_read",
+            "message": "Is a directory (errno 13)",
+            "path": str(directory),
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -153,6 +181,92 @@ def test_invalid_format_remains_plain_argparse_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "invalid choice: 'yaml'" in captured.err
+
+
+@pytest.mark.parametrize("command", ["check", "explain"])
+@pytest.mark.parametrize(
+    ("formats", "selected"),
+    [
+        (["--format", "json", "--format", "text"], "text"),
+        (["--format=json", "--format=text"], "text"),
+        (["--format", "text", "--format", "json"], "json"),
+        (["--format", "json", "--format", "yaml"], None),
+        (["--format", "yaml", "--format", "json"], None),
+        (["--form", "json"], "json"),
+        (["--form=json"], "json"),
+        (["--format", "json", "--form", "text"], "text"),
+        (["--format", "json", "--form", "yaml"], None),
+    ],
+)
+def test_check_and_explain_last_valid_format_wins(
+    command: str,
+    formats: list[str],
+    selected: str | None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "valid.pietto", "shape User:\n    email: Text not null\n")
+
+    exit_code = cli.main([command, str(path), *formats])
+
+    captured = capsys.readouterr()
+    if selected is None:
+        assert (exit_code, captured.out) == (2, "")
+        assert "invalid choice: 'yaml'" in captured.err
+    elif selected == "json":
+        assert (exit_code, captured.err) == (0, "")
+        assert json.loads(captured.out)["command"] == command
+    else:
+        assert (exit_code, captured.err) == (0, "")
+        assert captured.out.startswith(
+            f"OK: {path}\n" if command == "check" else "Semantic Metadata Artifact v1\n"
+        )
+
+
+@pytest.mark.parametrize(
+    ("formats", "plain_error"),
+    [
+        (["--form", "json", "--bogus"], None),
+        (["--fo=json", "--check-mode", "bogus"], None),
+        (["--format", "json", "--form", "text", "--bogus"], "unrecognized arguments"),
+        (["--format", "json", "--format"], "expected one argument"),
+    ],
+)
+def test_check_usage_errors_follow_the_resolved_format(
+    formats: list[str],
+    plain_error: str | None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "valid.pietto", "")
+
+    assert cli.main(["check", str(path), *formats]) == 2
+
+    captured = capsys.readouterr()
+    if plain_error is None:
+        assert captured.err == ""
+        assert json.loads(captured.out)["cli_errors"][0]["kind"] == "usage"
+    else:
+        assert captured.out == ""
+        assert plain_error in captured.err
+
+
+def test_double_dash_bounds_check_format_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "valid.pietto", "")
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(["--", "check", path.name, "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+    assert cli.main(["check", "--", "--format=json"]) == 2
+    assert capsys.readouterr() == (
+        "",
+        "--format=json: error: No such file or directory (errno 2)\n",
+    )
 
 
 def test_unidentified_top_level_error_remains_plain_argparse_error(

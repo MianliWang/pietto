@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -206,6 +208,7 @@ def test_emit_sql_json_file_read_error_reports_unwritten_output(
     assert result["output"] == {"path": str(output), "written": False}
     error = cast(list[dict[str, object]], result["cli_errors"])[0]
     assert error["kind"] == "file_read"
+    assert error["message"] == "No such file or directory (errno 2)"
     assert not output.exists()
 
 
@@ -329,22 +332,199 @@ def test_emit_sql_json_symlink_output_is_rejected_and_target_is_unchanged(
     assert target.read_text(encoding="utf-8") == "original SQL\n"
 
 
-def test_emit_sql_json_missing_parent_reports_output_write_with_artifacts(
+@pytest.mark.parametrize(
+    ("destination", "reason"),
+    [
+        ("missing/out.sql", "No such file or directory"),
+        ("existing-directory", "Is a directory"),
+        # A regular-file parent is a write failure after compilation, not an
+        # output-path safety failure, on every platform.
+        (
+            "plain-file/out.sql",
+            "No such file or directory"
+            if sys.platform == "win32"
+            else "Not a directory",
+        ),
+    ],
+)
+def test_emit_sql_json_output_write_error_reports_only_the_user_path(
+    destination: str,
+    reason: str,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pietto", RELATION)
-    output = tmp_path / "missing" / "out.sql"
+    _write(tmp_path, "input.pietto", RELATION)
+    (tmp_path / "existing-directory").mkdir()
+    _write(tmp_path, "plain-file", "plain\n")
+    monkeypatch.chdir(tmp_path)
+    output = Path(destination)
 
-    assert _emit_json_output(path, output) == 2
+    assert _emit_json_output(Path("input.pietto"), output) == 2
     result = _read_json_document(capsys)
 
     assert result["output"] == {"path": str(output), "written": False}
-    assert cast(list[dict[str, object]], result["cli_errors"])[0]["kind"] == (
-        "output_write"
+    error = cast(list[dict[str, object]], result["cli_errors"])[0]
+    assert error["kind"] == "output_write"
+    assert error["path"] == str(output)
+    assert str(error["message"]).startswith(f"{reason} (errno ")
+    document = json.dumps(result)
+    assert ".tmp" not in document
+    assert json.dumps(str(tmp_path))[1:-1] not in document
+    assert cast(list[dict[str, object]], result["artifacts"])[0]["sql"] == (
+        EXPECTED_SQL.removesuffix("\n")
     )
-    assert cast(list[object], result["artifacts"])
-    assert not output.exists()
+    assert not (tmp_path / "missing").exists()
+    assert (tmp_path / "existing-directory").is_dir()
+    assert (tmp_path / "plain-file").read_text(encoding="utf-8") == "plain\n"
+    assert not tuple(tmp_path.rglob("*.tmp"))
+
+
+@pytest.mark.parametrize("presentation", ["text", "json"])
+@pytest.mark.parametrize("case", ["file-parent", "unsearchable-parent", "link-loop"])
+def test_uninspectable_input_is_a_file_read_error_with_output(
+    case: str,
+    presentation: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    locked = tmp_path / "locked"
+    if case == "file-parent":
+        _write(tmp_path, "plain-file", "plain\n")
+        source = Path("plain-file/input.pietto")
+        reason = (
+            "No such file or directory (errno 2)"
+            if sys.platform == "win32"
+            else "Not a directory (errno 20)"
+        )
+    elif case == "unsearchable-parent":
+        if sys.platform == "win32" or os.geteuid() == 0:
+            pytest.skip("needs POSIX directory permissions that bind the user")
+        locked.mkdir()
+        _write(locked, "input.pietto", RELATION)
+        locked.chmod(0)
+        source = Path("locked/input.pietto")
+        reason = f"Permission denied (errno {errno.EACCES})"
+    else:
+        if sys.platform == "win32":
+            pytest.skip("symbolic links need extra privileges on Windows")
+        (tmp_path / "loop-a").symlink_to("loop-b")
+        (tmp_path / "loop-b").symlink_to("loop-a")
+        source = Path("loop-a")
+        reason = f"Too many levels of symbolic links (errno {errno.ELOOP})"
+    arguments = ["emit-sql", str(source), "--dialect", "postgres", "--output", "o.sql"]
+    if presentation == "json":
+        arguments.extend(["--format", "json"])
+
+    try:
+        assert cli.main(arguments) == 2
+    finally:
+        if locked.exists():
+            locked.chmod(0o700)
+
+    captured = capsys.readouterr()
+    if presentation == "json":
+        result = _parse_json_document(captured.out, captured.err)
+        assert result["cli_errors"] == [
+            {"kind": "file_read", "message": reason, "path": str(source)}
+        ]
+        assert result["output"] == {"path": "o.sql", "written": False}
+    else:
+        assert captured == ("", f"{source}: error: {reason}\n")
+    assert not (tmp_path / "o.sql").exists()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="symbolic links need extra privileges on Windows"
+)
+@pytest.mark.parametrize("presentation", ["text", "json"])
+def test_output_parent_link_loop_is_an_output_path_error(
+    presentation: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _write(tmp_path, "input.pietto", RELATION)
+    (tmp_path / "loop-a").symlink_to("loop-b")
+    (tmp_path / "loop-b").symlink_to("loop-a")
+    monkeypatch.chdir(tmp_path)
+    output = Path("loop-a/out.sql")
+    reason = f"Too many levels of symbolic links (errno {errno.ELOOP})"
+    arguments = ["emit-sql", "input.pietto", "--dialect", "postgres"]
+    arguments.extend(["--output", str(output)])
+    if presentation == "json":
+        arguments.extend(["--format", "json"])
+
+    assert cli.main(arguments) == 2
+
+    captured = capsys.readouterr()
+    if presentation == "json":
+        result = _parse_json_document(captured.out, captured.err)
+        assert result["cli_errors"] == [
+            {"kind": "output_path", "message": reason, "path": str(output)}
+        ]
+        assert result["artifacts"] == []
+        assert result["output"] == {"path": str(output), "written": False}
+    else:
+        assert captured == ("", f"{output}: error: {reason}\n")
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_emit_sql_json_zero_artifacts_refuse_the_output_file(
+    dialect: str,
+    existing: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "shapes.pietto", SOURCE)
+    output = tmp_path / "out.sql"
+    if existing:
+        output.write_text("original SQL\n", encoding="utf-8")
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(path),
+                "--dialect",
+                dialect,
+                "--format",
+                "json",
+                "--output",
+                str(output),
+            ]
+        )
+        == 2
+    )
+    result = _read_json_document(capsys)
+
+    assert result == {
+        "schema_version": 1,
+        "command": "emit-sql",
+        "ok": False,
+        "path": str(path),
+        "dialect": dialect,
+        "diagnostics": [],
+        "cli_errors": [
+            {
+                "kind": "output_write",
+                "message": (
+                    "no SQL artifacts to write; the output file was not changed"
+                ),
+                "path": str(output),
+            }
+        ],
+        "artifacts": [],
+        "output": {"path": str(output), "written": False},
+    }
+    if existing:
+        assert output.read_text(encoding="utf-8") == "original SQL\n"
+    else:
+        assert not output.exists()
+    assert not tuple(tmp_path.glob(".out.sql.*.tmp"))
 
 
 def test_emit_sql_json_replace_failure_preserves_old_output_and_cleans_temp(
@@ -366,9 +546,9 @@ def test_emit_sql_json_replace_failure_preserves_old_output_and_cleans_temp(
 
     assert result["ok"] is False
     assert result["output"] == {"path": str(output), "written": False}
-    assert cast(list[dict[str, object]], result["cli_errors"])[0]["kind"] == (
-        "output_write"
-    )
+    assert cast(list[dict[str, object]], result["cli_errors"]) == [
+        {"kind": "output_write", "message": "Permission denied", "path": str(output)}
+    ]
     assert cast(list[object], result["artifacts"])
     assert output.read_text(encoding="utf-8") == "original SQL\n"
     assert not tuple(tmp_path.glob(".out.sql.*.tmp"))

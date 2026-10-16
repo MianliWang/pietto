@@ -211,6 +211,29 @@ def test_explain_parser_enforces_file_xor_project_and_exact_formats(
     assert file_mode.out.startswith("Semantic Metadata Artifact v1\n")
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--proj", "{root}", "--form", "json"],
+        ["--p={root}", "--fo=json"],
+    ],
+)
+def test_project_explain_accepts_argparse_abbreviations_with_json(
+    arguments: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _schema3_project(tmp_path)
+    calls = _counted_builder(monkeypatch)
+
+    assert cli.main(["explain", *(item.format(root=root) for item in arguments)]) == 0
+
+    assert calls == [root]
+    document = json.loads(capsys.readouterr().out)
+    assert (document["format"], document["ok"]) == ("pietto.project-explain.v1", True)
+
+
 def test_explicit_empty_target_project_is_successfully_and_truthfully_rendered(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

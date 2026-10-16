@@ -52,7 +52,13 @@ pietto emit-sql file.pietto --dialect mysql --format=json
 pietto emit-sql file.pietto --dialect mysql --format json --output out.sql
 ```
 
-`--format` is command-local. Text remains the default format.
+`--format` is command-local. Text remains the default format. When single-file
+`check`, `emit-sql`, or `explain` receives `--format` more than once, the last
+value wins; an invalid value anywhere remains a plain-text argparse error.
+Project `emit-sql` is the exception: it rejects a repeated `--format` as a
+usage error, as its
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)
+specifies.
 
 `--check-mode {loose,checked,strict}` is also command-local and available in
 both formats; it selects the check mode described in the
@@ -90,7 +96,14 @@ presentation. Text-mode behavior is separate and unchanged.
 Errors that occur before Pietto can identify both a recognized subcommand and
 `--format json` retain argparse's plain-text stderr behavior. Invalid formats,
 such as `--format yaml`, also remain plain-text argparse errors because JSON
-was not successfully selected.
+was not successfully selected. Pietto reads `--format` the way argparse does:
+it counts `--format` and its unique abbreviations, such as `--form json` or
+`--fo=json`, stops at `--`, and identifies JSON only when every value is valid
+and the last one is `json`. When `--` precedes the subcommand, JSON is not
+identified before parsing, so argument errors stay plain text, but a
+successful parse still honors the last `--format` value. `check` reads
+`--project` and its abbreviations, such as `--proj`, the same way, and a
+project request uses the project contract instead of this one.
 
 ## Compatibility Contract
 
@@ -277,13 +290,20 @@ The fields `kind`, `message`, and `path` are always present. `path` is a string
 or `null` when no path applies. CLI errors do not receive fabricated `PIE-*`
 codes.
 
+When the operating system rejects a read or write, `message` is a fixed
+English reason followed by its numeric codes, for example
+`No such file or directory (errno 2)` or, on Windows,
+`Is a directory (errno 13, winerror 5)`. It never repeats OS-supplied text or
+temporary file names; the affected path appears only in `path`. Text mode
+prints the same message after `<path>: error: `.
+
 The stable v1 kinds are:
 
 | Kind | Meaning |
 |---|---|
 | `file_read` | Input file could not be read or decoded |
 | `output_path` | Requested output path failed safety validation |
-| `output_write` | Atomic output write or replacement failed |
+| `output_write` | Atomic output write or replacement failed, or was refused because there were no SQL artifacts to write |
 | `usage` | Recognized JSON command has invalid or missing arguments |
 | `unsupported_dialect` | Supplied SQL dialect is not supported |
 
@@ -350,6 +370,9 @@ the interface. For example, warning-only output has `ok: true` and exit `0`;
 compiler errors have `ok: false` and exit `1`; handled CLI errors have
 `ok: false` and exit `2`.
 
+Running `pietto` with no arguments prints the help text to stdout, writes
+nothing to stderr, and exits `0`.
+
 ## JSON Argument Error Boundary
 
 If a recognized `check` or `emit-sql` command and JSON format can be
@@ -377,12 +400,28 @@ pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 
 stdout still contains the complete JSON result, including generated
 `artifacts`. The output file receives raw SQL artifact text, not JSON and not
-plain-text presentation escaping.
+plain-text presentation escaping. The output file is UTF-8 with LF line
+endings on every platform; text stdout keeps the platform's newline
+convention.
+
+Text mode (without `--format json`) writes the same SQL text to stdout or to
+the `--output` file: the artifact SQL bodies in backend order, separated by
+one blank line, followed by one final newline. It carries no artifact names,
+kinds, or statement terminators; `--format json` is the channel for artifact
+identity. When the backend reports errors, text stdout may contain only the
+artifacts the backend still returned, and the command exits `1`.
 
 The implemented outcomes are:
 
-- successful or warning-only compilation writes atomically, sets
-  `output.written` to `true`, keeps artifacts in JSON, and exits `0`;
+- successful or warning-only compilation with at least one SQL artifact writes
+  atomically, sets `output.written` to `true`, keeps artifacts in JSON, and
+  exits `0`;
+- successful or warning-only compilation without SQL artifacts does not write
+  or create the output file, reports `output_write` with the message
+  `no SQL artifacts to write; the output file was not changed`, sets
+  `output.written` to `false`, and exits `2`; text mode prints the same message
+  after `<output path>: error: ` on stderr. Without `--output`, zero artifacts
+  remain a successful empty result with exit `0`;
 - parser, semantic, or IR errors do not write, set `output.written` to `false`,
   leave `cli_errors` empty, contain no SQL artifacts, and exit `1`;
 - backend errors do not write, set `output.written` to `false`, leave
@@ -391,12 +430,16 @@ The implemented outcomes are:
 - same-file, hard-link, symbolic-link, or other output-path protection failure
   reports `output_path`, sets `output.written` to `false`, stops before
   compilation, and exits `2`;
-- write or replacement failure reports `output_write`, sets
-  `output.written` to `false`, preserves generated artifacts and the old output
-  file, cleans its temporary file, and exits `2`;
+- write or replacement failure, including a missing parent directory, a parent
+  path that is a regular file, or a directory at the output path, reports
+  `output_write`, sets `output.written` to `false`, preserves generated
+  artifacts and the old output file, cleans its temporary file, and exits `2`;
 - file-read, usage, and unsupported-dialect errors report their corresponding
   CLI error kind, set `output.written` to `false` when an output was requested,
-  and exit `2`.
+  and exit `2`. An input that cannot be inspected or read, for example a
+  missing file, a path under a regular file or an unsearchable directory, or a
+  symbolic-link loop, reports `file_read` at the input path even when
+  `--output` is given.
 
 ## Security And Presentation
 

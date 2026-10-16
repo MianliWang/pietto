@@ -353,6 +353,95 @@ def test_emit_sql_invalid_format_remains_plain_argparse_error(
     assert "invalid choice: 'yaml'" in captured.err
 
 
+@pytest.mark.parametrize(
+    ("formats", "selected"),
+    [
+        (["--format", "json", "--format", "text"], "text"),
+        (["--format=json", "--format=text"], "text"),
+        (["--format", "text", "--format", "json"], "json"),
+        (["--format", "json", "--format", "yaml"], None),
+        (["--format", "yaml", "--format", "json"], None),
+        (["--form", "json"], "json"),
+        (["--form=json"], "json"),
+        (["--format", "json", "--form", "text"], "text"),
+        (["--format", "json", "--form", "yaml"], None),
+    ],
+)
+def test_emit_sql_last_valid_format_wins(
+    formats: list[str],
+    selected: str | None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "active_users.pietto", RELATION)
+
+    exit_code = cli.main(["emit-sql", str(path), "--dialect", "postgres", *formats])
+
+    captured = capsys.readouterr()
+    if selected is None:
+        assert (exit_code, captured.out) == (2, "")
+        assert "invalid choice: 'yaml'" in captured.err
+    elif selected == "json":
+        assert (exit_code, captured.err) == (0, "")
+        assert json.loads(captured.out)["artifacts"][0]["name"] == "active_users"
+    else:
+        assert (exit_code, captured.err) == (0, "")
+        assert captured.out.startswith("SELECT\n")
+
+
+@pytest.mark.parametrize(
+    ("formats", "plain_error"),
+    [
+        (["--form", "json", "--bogus"], None),
+        (["--fo=json", "--check-mode", "bogus"], None),
+        (["--format", "json", "--form", "text", "--bogus"], "unrecognized arguments"),
+        (["--format", "json", "--format"], "expected one argument"),
+    ],
+)
+def test_emit_sql_usage_errors_follow_the_resolved_format(
+    formats: list[str],
+    plain_error: str | None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "active_users.pietto", RELATION)
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres", *formats]) == 2
+
+    captured = capsys.readouterr()
+    if plain_error is None:
+        assert captured.err == ""
+        assert json.loads(captured.out)["cli_errors"][0]["kind"] == "usage"
+    else:
+        assert captured.out == ""
+        assert plain_error in captured.err
+
+
+def test_double_dash_bounds_emit_sql_format_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "active_users.pietto", RELATION)
+    monkeypatch.chdir(tmp_path)
+
+    assert (
+        cli.main(
+            ["--", "emit-sql", path.name, "--dialect", "postgres", "--form", "json"]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["path"] == path.name
+    assert result["artifacts"][0]["name"] == "active_users"
+
+    assert cli.main(["emit-sql", "--dialect", "postgres", "--", "--format=json"]) == 2
+    assert capsys.readouterr() == (
+        "",
+        "--format=json: error: No such file or directory (errno 2)\n",
+    )
+
+
 def test_emit_sql_text_modes_and_output_remain_unchanged(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

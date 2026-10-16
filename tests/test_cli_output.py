@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 
@@ -167,22 +168,41 @@ def test_emit_sql_output_keeps_warnings_on_stderr(
     assert output.read_text(encoding="utf-8").startswith("SELECT\n")
 
 
-def test_emit_sql_missing_output_parent_returns_two(
+@pytest.mark.parametrize(
+    ("destination", "reason"),
+    [
+        ("missing/out.sql", "No such file or directory"),
+        ("existing-directory", "Is a directory"),
+        # The parent is a regular file: compilation runs, then the write fails.
+        (
+            "plain-file/out.sql",
+            "No such file or directory"
+            if sys.platform == "win32"
+            else "Not a directory",
+        ),
+    ],
+)
+def test_emit_sql_output_write_error_reports_only_the_user_path(
+    destination: str,
+    reason: str,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _relation_file(tmp_path)
-    output = tmp_path / "missing" / "out.sql"
+    (tmp_path / "existing-directory").mkdir()
+    _write(tmp_path, "plain-file", "plain\n")
+    monkeypatch.chdir(tmp_path)
 
     assert (
         cli.main(
             [
                 "emit-sql",
-                str(path),
+                path.name,
                 "--dialect",
                 "postgres",
                 "--output",
-                str(output),
+                destination,
             ]
         )
         == 2
@@ -190,8 +210,118 @@ def test_emit_sql_missing_output_parent_returns_two(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert f"{output}: error:" in captured.err
-    assert not output.exists()
+    assert captured.err.startswith(f"{Path(destination)}: error: {reason} (errno ")
+    assert ".tmp" not in captured.err
+    assert str(tmp_path) not in captured.err
+    assert not (tmp_path / "missing").exists()
+    assert (tmp_path / "existing-directory").is_dir()
+    assert (tmp_path / "plain-file").read_text(encoding="utf-8") == "plain\n"
+    assert not tuple(tmp_path.rglob("*.tmp"))
+
+
+def test_emit_sql_regular_file_parent_fails_after_compilation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _write(
+        tmp_path,
+        "warning.pietto",
+        "shape User:\n"
+        "    email: Text\n"
+        'source users: User is postgres.table("users")\n'
+        "table user_emails:\n"
+        "    from users\n"
+        "    select:\n"
+        "        email\n",
+    )
+    _write(tmp_path, "plain-file", "plain\n")
+    monkeypatch.chdir(tmp_path)
+    reason = (
+        "No such file or directory (errno 2)"
+        if sys.platform == "win32"
+        else "Not a directory (errno 20)"
+    )
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                "warning.pietto",
+                "--dialect",
+                "postgres",
+                "--output",
+                "plain-file/out.sql",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    # The compiler warning precedes the write error, so compilation ran first.
+    warning, write_error = captured.err.splitlines()
+    assert "PIE-S2005 warning:" in warning
+    assert write_error == f"{Path('plain-file/out.sql')}: error: {reason}"
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_emit_sql_zero_artifacts_refuse_the_output_file(
+    dialect: str,
+    existing: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "shapes.pietto", SOURCE)
+    output = tmp_path / "out.sql"
+    if existing:
+        output.write_text("original SQL\n", encoding="utf-8")
+
+    assert (
+        cli.main(["emit-sql", str(path), "--dialect", dialect, "--output", str(output)])
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{output}: error: no SQL artifacts to write; the output file was not changed\n"
+    )
+    if existing:
+        assert output.read_text(encoding="utf-8") == "original SQL\n"
+    else:
+        assert not output.exists()
+    assert not tuple(tmp_path.glob(".out.sql.*.tmp"))
+
+
+def test_emit_sql_output_file_uses_lf_on_every_platform(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _relation_file(tmp_path)
+    output = tmp_path / "out.sql"
+    named_temporary_file = cli.tempfile.NamedTemporaryFile
+
+    def windows_text_file(*args: Any, **kwargs: Any) -> Any:
+        # Without newline="", a Windows text file writes "\n" as "\r\n".
+        if kwargs.get("newline") is None:
+            kwargs["newline"] = "\r\n"
+        return named_temporary_file(*args, **kwargs)
+
+    monkeypatch.setattr(cli.tempfile, "NamedTemporaryFile", windows_text_file)
+
+    assert (
+        cli.main(
+            ["emit-sql", str(path), "--dialect", "postgres", "--output", str(output)]
+        )
+        == 0
+    )
+
+    assert capsys.readouterr() == ("", "")
+    assert output.read_bytes() == _expected_sql().encode("utf-8")
+    assert b"\r" not in output.read_bytes()
 
 
 def test_emit_sql_backend_error_does_not_create_output_file(

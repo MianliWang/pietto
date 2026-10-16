@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import errno
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -105,9 +107,70 @@ def test_atomic_replace_failure_preserves_existing_output_and_cleans_temp(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "replacement denied" in captured.err
+    assert captured.err == f"{output}: error: Permission denied\n"
     assert output.read_text(encoding="utf-8") == "original SQL\n"
     assert not tuple(tmp_path.glob(".output.sql.*.tmp"))
+
+
+def test_replace_error_omits_os_text_and_temporary_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+
+    def localized_replace(source: Path, destination: Path) -> None:
+        # Windows FormatMessage text; winerror 5 is kept only on Windows.
+        raise PermissionError(
+            errno.EACCES, "拒绝访问。", str(source), 5, str(destination)
+        )
+
+    monkeypatch.setattr(cli.os, "replace", localized_replace)
+
+    assert _emit(path, output) == 2
+
+    winerror = ", winerror 5" if sys.platform == "win32" else ""
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{output}: error: Permission denied (errno 13{winerror})\n"
+    )
+    assert "拒绝访问" not in captured.err
+    assert ".tmp" not in captured.err
+    assert output.read_text(encoding="utf-8") == "original SQL\n"
+
+
+@pytest.mark.parametrize(
+    ("error_number", "reason"),
+    [
+        (errno.ENOSPC, "No space left on device"),
+        (errno.EROFS, "Read-only file system"),
+        (errno.EIO, "Operating system error"),
+    ],
+)
+def test_write_error_reason_is_fixed_english_text_for_errno(
+    error_number: int,
+    reason: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = tmp_path / "output.sql"
+
+    def failing_replace(source: Path, destination: Path) -> None:
+        raise OSError(
+            error_number, "localized text", str(source), None, str(destination)
+        )
+
+    monkeypatch.setattr(cli.os, "replace", failing_replace)
+
+    assert _emit(path, output) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"{output}: error: {reason} (errno {error_number})\n"
 
 
 def test_backend_error_does_not_truncate_existing_output(

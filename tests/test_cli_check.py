@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 
 import pytest
@@ -38,9 +39,33 @@ def test_check_missing_file_returns_file_error(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert str(path) in captured.err
-    assert "error:" in captured.err
-    assert "No such file or directory" in captured.err
+    assert captured.err == f"{path}: error: No such file or directory (errno 2)\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["check"], ["emit-sql", "--dialect", "postgres"], ["explain"]],
+)
+def test_directory_input_reported_as_permission_error_is_a_directory(
+    command: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    directory = tmp_path / "models"
+    directory.mkdir()
+
+    def windows_open(path: Path) -> object:
+        # The Windows C runtime reports opening a directory as EACCES.
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+
+    monkeypatch.setattr(cli.parser_api, "parse_file", windows_open)
+
+    assert cli.main([command[0], str(directory), *command[1:]]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"{directory}: error: Is a directory (errno 13)\n"
 
 
 def test_check_parser_error_returns_diagnostic_error(

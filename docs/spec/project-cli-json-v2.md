@@ -46,6 +46,18 @@ Their compatibility rules are:
 - current text formatting, stream routing, exit codes, output writes, and
   compiler-stage boundaries remain unchanged.
 
+Later changes to these single-file forms are documented in
+[CLI JSON v1](cli-json-v1.md) for the CLI and in the
+[diagnostic code specification](diagnostics.md) for diagnostic wording. The
+CLI changes include argparse-style `--format` resolution (the last value
+wins and any invalid value is an argparse error, abbreviations of `--format`
+count, and `--` ends option parsing), argparse-style detection of
+`--project` and its abbreviations for `check`, fixed English
+reasons with errno codes for handled file errors, and `--output` rules that
+refuse zero SQL artifacts, write LF line endings on every platform, report a
+regular-file output parent as `output_write`, and report an unreadable input
+as `file_read`.
+
 Phase 8 adds no command or option to this baseline.
 
 ## Project Invocation

@@ -391,6 +391,31 @@ def _forbid_project_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     _forbid_project_compiler_pipeline(monkeypatch)
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--proj", "{root}", "--form", "json"],
+        ["--p={root}", "--fo=json"],
+        ["--proj", "{root}", "--format", "json"],
+    ],
+)
+def test_project_check_accepts_argparse_abbreviations_with_json(
+    arguments: list[str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project_root_with_source(tmp_path)
+
+    assert cli.main(["check", *(item.format(root=root) for item in arguments)]) == 0
+
+    document = _read_json_document(capsys)
+    assert (document["schema_version"], document["mode"], document["ok"]) == (
+        2,
+        "project",
+        True,
+    )
+
+
 def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs
