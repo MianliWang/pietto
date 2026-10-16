@@ -162,8 +162,9 @@ def _check_inlined_argument(
     that is always null fits only a nullable parameter. Any other argument
     whose type is unknown is not checked: either an error was reported for it
     or nothing is known about it, as for a field of a source without a shape.
-    A mismatch is an error at the call, and the argument then stays Unknown so
-    that the expansion reports nothing else.
+    A mismatch is one error at the call, however many uses of the argument
+    the body has, and every use then stays Unknown so that the expansion
+    reports nothing else.
     """
 
     slots = inlined_arguments(expression)
@@ -197,50 +198,74 @@ def _check_inlined_argument(
             )
         fits = False
         expected = "nullable" if slot.nullable else "not null"
-        diagnostics.append(
-            Diagnostic(
-                code="PIE-S2395",
-                severity=Severity.ERROR,
-                message=(
-                    f"Invalid argument for def {slot.function} at position "
-                    f"{slot.position} ({slot.parameter}): expected "
-                    f"{slot.type_name} {expected}, got {actual}"
-                ),
-                location=SourceLocation(
-                    path=slot.call.path,
-                    line=slot.call.line,
-                    column=slot.call.column,
-                    end_line=slot.call.end_line,
-                    end_column=slot.call.end_column,
-                ),
-            )
+        diagnostic = Diagnostic(
+            code="PIE-S2395",
+            severity=Severity.ERROR,
+            message=(
+                f"Invalid argument for def {slot.function} at position "
+                f"{slot.position} ({slot.parameter}): expected "
+                f"{slot.type_name} {expected}, got {actual}"
+            ),
+            location=SourceLocation(
+                path=slot.call.path,
+                line=slot.call.line,
+                column=slot.call.column,
+                end_line=slot.call.end_line,
+                end_column=slot.call.end_column,
+            ),
         )
+        # Every use of a repeated argument is checked; one report is enough.
+        if diagnostic not in diagnostics:
+            diagnostics.append(diagnostic)
     return value_type if fits else _UNKNOWN_VALUE_TYPE
 
 
 def always_null(expression: Expression) -> bool:
-    """Whether ``expression`` is NULL on every row: a null literal, or a
-    ``coalesce`` or conditional whose every value is always null."""
+    """Whether ``expression`` is NULL on every row: a null literal; a sign or
+    ``not`` of such a value; an arithmetic operator or comparison with such an
+    operand; or a ``coalesce`` or conditional whose every value is. A cast of
+    null is not a supported cast (PIE-S2105), so it is not one of them."""
 
-    pending = [expression]
+    results: dict[int, bool] = {}
+    pending: list[tuple[Expression, bool]] = [(expression, False)]
     while pending:
-        node = pending.pop()
-        if type(node) is LiteralExpr and cast(LiteralExpr, node).value is None:
+        node, ready = pending.pop()
+        children = _null_operands(node)
+        if children and not ready:
+            pending.append((node, True))
+            pending.extend((child, False) for child in children)
             continue
-        if (
-            type(node) is CallExpr
-            and type(cast(CallExpr, node).callee) is NameExpr
-            and cast(NameExpr, cast(CallExpr, node).callee).name == "coalesce"
-            and cast(CallExpr, node).arguments
-        ):
-            pending.extend(cast(CallExpr, node).arguments)
-            continue
-        if type(node) is ConditionalExpr:
-            conditional = cast(ConditionalExpr, node)
-            pending.extend((conditional.when_true, conditional.when_false))
-            continue
-        return False
-    return True
+        operands = [results[id(child)] for child in children]
+        if type(node) is LiteralExpr:
+            results[id(node)] = cast(LiteralExpr, node).value is None
+        elif type(node) in (CallExpr, ConditionalExpr):
+            results[id(node)] = bool(operands) and all(operands)
+        else:
+            results[id(node)] = any(operands)
+    return results[id(expression)]
+
+
+def _null_operands(node: Expression) -> tuple[Expression, ...]:
+    """The operands whose NULL decides whether ``node`` is always null."""
+
+    kind = type(node)
+    if kind is UnaryExpr:
+        return (cast(UnaryExpr, node).operand,)
+    if kind is ComparisonExpr or (
+        kind is BinaryExpr and cast(BinaryExpr, node).operator not in ("and", "or")
+    ):
+        binary = cast(BinaryExpr | ComparisonExpr, node)
+        return (binary.left, binary.right)
+    if (
+        kind is CallExpr
+        and type(cast(CallExpr, node).callee) is NameExpr
+        and cast(NameExpr, cast(CallExpr, node).callee).name == "coalesce"
+    ):
+        return cast(CallExpr, node).arguments
+    if kind is ConditionalExpr:
+        conditional = cast(ConditionalExpr, node)
+        return (conditional.when_true, conditional.when_false)
+    return ()
 
 
 _NULLABILITY_TEXT = MappingProxyType(
@@ -966,6 +991,7 @@ def infer_row_expression(
     outer input lacks maps to that environment's own diagnostic instead.
     """
 
+    seed = value_types.get(expression)
     refused: list[Diagnostic] = []
     if captured_value_types:
         pending: list[Expression] = [expression]
@@ -1006,6 +1032,14 @@ def infer_row_expression(
                 diagnostics.append(refused.pop(0))
             diagnostics.append(diagnostic)
         diagnostics.extend(refused)
+    if seed is not None:
+        # A read the caller seeded that is the whole expression is the
+        # caller's own result.
+        return seed
+    if type(expression) is ast.CapturedFieldExpr:
+        # A whole captured field is typed here, so one that does not fit a
+        # def parameter is recorded as Unknown, as a computed expression is.
+        value_types[expression] = value_type
     return value_type
 
 
@@ -1165,10 +1199,12 @@ def _infer(
     if existing is not None:
         if inlined_arguments(expression):
             # A caller may seed the type of a read it owns (a captured field,
-            # a joined field, a scalar read, a QUALIFY output). The check
-            # reports a mismatch, and the seed, which the caller's evidence
-            # holds the result to, stays the result.
-            _check_inlined_argument(expression, existing, diagnostics, type_expansions)
+            # a joined field, a scalar read, a QUALIFY output). The seed stays
+            # the caller's evidence; a use that does not fit is Unknown to the
+            # expression around it, as a computed one is.
+            return _check_inlined_argument(
+                expression, existing, diagnostics, type_expansions
+            )
         return existing
 
     if isinstance(expression, WindowExpr):

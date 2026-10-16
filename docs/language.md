@@ -1479,9 +1479,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   The checker does prove non-null for `is null`, `like` on non-null text, a
   non-null value `in` a literal list, `coalesce` with a non-null fallback,
   and `lower`, `upper`, `trim` or `len` of a non-null value. A body that is
-  always null (`null`, or a `coalesce` or conditional of nulls) fits only a
-  `nullable` result, and a body whose type the checker cannot determine, such
-  as `x + null`, fits none (PIE-S2402).
+  always null (the same forms as for arguments below, such as `x + null`)
+  fits only a `nullable` result, and a body whose type the checker cannot
+  determine, such as `coalesce(null, null) if x > 0 else x`, fits none
+  (PIE-S2402).
 - Names: defs share the callable namespace with `constraint` and `derive` (a
   repeated name or parameter is PIE-S2001). A def cannot take the name of a
   built-in scalar, aggregate or window function or of `generate_series`
@@ -1494,27 +1495,36 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   argument's type, after alias expansion, must be the parameter type, with no
   conversion (an `Int` value does not fit a `Decimal` parameter). An argument
   that is nullable, or whose nullability is unknown, does not fit a `not null`
-  parameter; `id + 1` is such an argument even when `id` is `not null`, and so
-  is `null`. Both are PIE-S2395 at the call, also when the call is in a def
-  body. An argument whose type is unknown for another reason, such as a field
-  of a source without a shape, is not checked, as the same expression written
-  by hand is not. An argument cannot read a relation (`exists`, `scalar` or
+  parameter; `id + 1` is such an argument even when `id` is `not null`. An
+  argument that is always null (`null`; a sign, `not`, arithmetic or
+  comparison with an always-null operand, such as `id + null`; or a
+  `coalesce` or conditional of such values) fits only a `nullable`
+  parameter. These are PIE-S2395 at the call, also when the call is in a def
+  body, reported once however many times the body uses the argument. An
+  argument whose type is unknown for another reason, such as a field of a
+  source without a shape, is not checked, as the same expression written by
+  hand is not. An argument cannot read a relation (`exists`, `scalar` or
   `in`) yet (PIE-S2395), because a body that repeats or reorders its
   parameters would change the SQL names of those reads.
 - Positions: a call is refused (PIE-S2397) where the written form must be a
   literal, a field or a window call that Pietto checks by a rule of its own:
   inside a window computation (a window function's arguments, PARTITION BY,
-  ORDER BY or a named window), a table-function input, LIMIT, a VALUES row, a
-  relationship condition, a source connector, a type argument, and the ORDER
-  BY of a grouped relation. Anywhere else the argument is checked wherever the
-  expansion is typed. These positions are not typed today, so a call there is
-  checked no more than the same expression written by hand: a type or field
-  `ensure`; a shape `check`, `index` predicate or field `derive` in a project
-  (a single file checks them); a single-file `qualify:` (which `explain` and
-  `emit-sql` refuse); and an ungrouped `order by` in a project check
-  (`emit-sql --project` blocks a mismatched argument there without naming
-  it). In a project, a mismatch inside a grouped `satisfying` or an aggregate
-  argument is reported as PIE-S2333 at the relation, like every error there.
+  ORDER BY, frame or a named window), as a table function or in its input,
+  LIMIT, a VALUES row, a relationship condition, a source connector, a type
+  argument, and the ORDER BY of a grouped relation; the message names the
+  innermost such position. A window call may itself be an argument, as in a
+  QUALIFY `top(row_number() window: ...)`. Anywhere else the argument's type
+  and nullability are checked wherever the expansion is typed. These
+  positions are not typed today, so the type and nullability of an argument
+  there are checked no more than the same expression written by hand (the
+  argument count, relation-read and position rules above still apply): a type
+  or field `ensure`; in a project, a `constraint` or `derive` body and a shape
+  `check`, `index` predicate or field `derive` (a single file checks them); a
+  single-file `qualify:` (which `explain` and `emit-sql` refuse); and an
+  ungrouped `order by` in a project check (`emit-sql --project` blocks a
+  mismatched argument there without naming it). In a project, a mismatch
+  inside a grouped `satisfying` or an aggregate argument is reported as
+  PIE-S2333 at the relation, like every error there.
 - Expansion: each call becomes one parenthesized expression. An argument that
   the body uses n times is written n times in the SQL, as it would be by hand:
   with `def twice(x: Int nullable) -> Int nullable: return x + x`, the item

@@ -969,6 +969,8 @@ def test_literal_list_and_relation_membership_stay_distinct(tmp_path, target):
 
 # A project that calls defs, and the same project with each call written out
 # by hand: fixture, variant, defs, edits for the calls, edits written out.
+ROW_NUMBER = "row_number() window:\n            order by:\n                id\n"
+RANK = "rank() window:\n            order by:\n                id\n"
 DEF_PROJECTS = {
     "row_body": (
         "T_row_direct",
@@ -1044,6 +1046,44 @@ DEF_PROJECTS = {
         "def top(n: Int not null) -> Bool nullable: return n <= 2\n",
         [("numbered <= 2", "top(numbered)")],
         [("numbered <= 2", "(numbered <= 2)")],
+    ),
+    "qualify_window_argument_used_twice": (
+        "A_window_qualify",
+        "selected",
+        "def both(x: Int not null) -> Bool nullable: return x <= 2 and x <= 3\n",
+        [("        numbered <= 2\n", "        both(" + ROW_NUMBER + "        )\n")],
+        [
+            (
+                "        numbered <= 2\n",
+                "        (("
+                + ROW_NUMBER
+                + "        ) <= 2 and ("
+                + ROW_NUMBER
+                + "        ) <= 3)\n",
+            )
+        ],
+    ),
+    "qualify_window_arguments_reordered": (
+        "A_window_qualify",
+        "selected",
+        "def swap(a: Int not null, b: Int not null) -> Bool nullable: "
+        "return b <= 2 and a <= 3\n",
+        [
+            (
+                "        numbered <= 2\n",
+                "        swap(" + ROW_NUMBER + "        , " + RANK + "        )\n",
+            )
+        ],
+        [
+            (
+                "        numbered <= 2\n",
+                "        (("
+                + RANK
+                + "        ) <= 2 and ("
+                + ROW_NUMBER
+                + "        ) <= 3)\n",
+            )
+        ],
     ),
     "join_on": (
         "W_join_values",

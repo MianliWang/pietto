@@ -563,6 +563,102 @@ def test_a_project_checks_def_arguments_in_its_typed_positions(
     ]
 
 
+REPEATED_DEFS = (
+    "def blank(x: Text nullable) -> Bool nullable: return x is null or x == ''\n"
+    "def same(x: Bool nullable) -> Bool nullable: return x\n"
+    "def twice(x: Int not null) -> Bool nullable: return x <= 2 and x <= 3\n"
+)
+WINDOWED = (
+    "(row_number() window:\n            order by:\n                {}\n        )\n"
+)
+JOINED = (
+    "query j:\n    from rows\n    inner join others as o:\n        from rows\n"
+    "        on o.row_id == rows.id\n"
+)
+REPEATED = {
+    "qualify": (
+        "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
+        "        blank" + WINDOWED.format("id"),
+        [("blank", 6, 9, "Text nullable", "Int not null")],
+    ),
+    "qualify_whole": (
+        "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
+        "        same" + WINDOWED.format("id"),
+        [("same", 6, 9, "Bool nullable", "Int not null")],
+    ),
+    "joined_qualify": (
+        JOINED + "    select:\n        a = rows.id\n    qualify:\n"
+        "        blank" + WINDOWED.format("rows.id"),
+        [("blank", 9, 9, "Text nullable", "Int not null")],
+    ),
+    "joined_select": (
+        JOINED + "    select:\n        a = rows.id\n        p = blank(o.row_id)\n",
+        [("blank", 8, 13, "Text nullable", "Int not null")],
+    ),
+    "where": (
+        "query m:\n    from rows\n    where blank(n)\n    select:\n        id\n",
+        [("blank", 3, 11, "Text nullable", "Int nullable")],
+    ),
+    "captured_whole": (
+        "query c:\n    let l:\n        capture rows\n        from others\n"
+        "        where same(rows.id)\n        select:\n            id\n"
+        "    from rows\n    where exists l\n    select:\n        id\n",
+        [("same", 5, 15, "Bool nullable", "Int not null")],
+    ),
+    "window_argument_used_twice": (
+        "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
+        "        twice" + WINDOWED.format("id"),
+        [],
+    ),
+}
+
+
+@pytest.mark.parametrize(("relation", "errors"), REPEATED.values(), ids=REPEATED)
+def test_a_project_reports_a_def_argument_mismatch_once(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    relation: str,
+    errors: list[tuple[str, int, int, str, str]],
+) -> None:
+    """Each use of the argument, a typed read the project seeds among them,
+    is Unknown to the body after the one report, and a window computation is
+    copied for every use; nothing raises."""
+    first = DEF_LINE + 3
+    assert _def_check(
+        tmp_path, capsys, {"a.pietto": DEF_HEAD + REPEATED_DEFS + relation}
+    ) == [
+        _mismatch(name, first + line - 1, column, expected, got)
+        for name, line, column, expected, got in errors
+    ]
+
+
+IDENTITY_SELECTS = {
+    "ungrouped": "query u:\n    from rows\n    select:\n        id\n        u = {}\n",
+    "grouped": (
+        "query u:\n    from rows\n    group by: id\n    select:\n        id\n"
+        "        u = {}\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("relation", IDENTITY_SELECTS.values(), ids=IDENTITY_SELECTS)
+def test_an_identity_def_over_an_unknown_field_reports_what_the_field_does(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], relation: str
+) -> None:
+    """The field's own error is reported once, as for the field written out."""
+    reports = [
+        [
+            (code, path, line, message)
+            for code, path, line, _, message in _def_check(
+                tmp_path / name, capsys, {"a.pietto": DEF_HEAD + relation.format(text)}
+            )
+        ]
+        for name, text in (("called", "idi(missing)"), ("written", "missing"))
+    ]
+    assert reports[0] == reports[1]
+    assert [report[0] for report in reports[0]].count("PIE-S2102") == 1
+
+
 def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs

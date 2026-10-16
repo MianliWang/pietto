@@ -3822,6 +3822,14 @@ def _select_facts(
                 relation_columns=read_types,
                 captured_value_types=captures,
             )
+            if type(item.expression) in {NameExpr, DottedNameExpr}:
+                # Other readers report the name itself; this one adds only
+                # the argument check.
+                expression_diagnostics[:] = [
+                    diagnostic
+                    for diagnostic in expression_diagnostics
+                    if diagnostic.code == "PIE-S2395"
+                ]
             retained_types = failed_types
         output_name = _projection_output_name(item)
         expression_schema = None

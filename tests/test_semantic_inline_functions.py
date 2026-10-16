@@ -520,7 +520,7 @@ def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
 
     # Every node keeps a real location: the body is at the call, and each use
     # of an argument is at the argument. Uses differ only in the internal span
-    # occurrence, and only the first carries the parameter it must fit.
+    # occurrence, and every use carries the parameter it must fit.
     expression: Any = cast(TableDef, inlined.definitions[-1]).where_clause
     calls: Any = cast(TableDef, called.definitions[-1]).where_clause
     expression, calls = expression.expression, calls.expression
@@ -543,7 +543,7 @@ def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
     copy = first.right.left
     assert type(copy) is NameExpr and copy != argument
     assert _location(copy.span) == _location(argument.span)
-    assert inlined_arguments(copy) == ()
+    assert inlined_arguments(copy) == inlined_arguments(first.left.left)
     nodes = _expression_nodes(expression)
     assert len({id(node) for node in nodes}) == len(nodes)
     assert len(set(nodes)) == len(nodes)
@@ -611,6 +611,17 @@ REFUSED = {
     "type_argument": (
         "shape S:\n    a: Decimal(abs(pos(9)), 2) not null\n",
         (BODY_LINE + 1, 20, "a type argument", "pos"),
+    ),
+    "type_argument_inside_limit": (
+        "table t:\n    from rows\n    select:\n        id\n    order by: id\n"
+        "    limit cast(3 as Decimal(pos(9), 0))\n",
+        (BODY_LINE + 5, 29, "a type argument", "pos"),
+    ),
+    "window_frame": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = sum(id) window:\n            order by: id\n"
+        "            rows between up(1) preceding and current row\n",
+        (BODY_LINE + 6, 26, "a window computation", "up"),
     ),
     "source_connector": (
         'source s: Row is postgres.table(up("x"))\n',
@@ -685,8 +696,35 @@ NULLS = {
             )
         ],
     ),
+    "null_operand_argument": (
+        "table t:\n    from rows\n    where pos(id + null) and pos(-null)\n"
+        "    select:\n        id\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 2,
+                column,
+                "Invalid argument for def pos at "
+                "position 1 (x): expected Int not null, got null",
+            )
+            for column in (11, 30)
+        ],
+    ),
+    "null_operand_body": (
+        "def f(x: Int not null) -> Int nullable: return x + null\n"
+        "def g(x: Int not null) -> Int not null: return x + null\n",
+        [
+            (
+                "PIE-S2402",
+                BODY_LINE + 1,
+                48,
+                "Def g body is always null, but its declared return type is not null",
+            )
+        ],
+    ),
     "unknown_body": (
-        "def f(x: Int not null) -> Int nullable: return x + null\n",
+        "def f(x: Int not null) -> Int nullable: "
+        "return coalesce(null, null) if x > 0 else x\n",
         [
             (
                 "PIE-S2402",
@@ -755,6 +793,70 @@ def test_inlined_spans_are_real_locations() -> None:
     assert _location(sum_.span) == call
     assert _location(sum_.left.span) == _location(sum_.right.span) == argument
     assert sum_.left != sum_.right
+
+
+CASCADES = {
+    "where": (
+        "table t:\n    from rows\n    where f(note)\n    select:\n        id\n",
+        [(BODY_LINE + 2, 11)],
+    ),
+    "three_uses_in_a_let": (
+        "table t:\n    from rows\n    let: v = g(note)\n    select:\n        id\n"
+        "        w = v\n",
+        [(BODY_LINE + 2, 14)],
+    ),
+    "satisfying_first_use_unsupported": (
+        "table t:\n    from rows\n    group by: note\n    select:\n        note\n"
+        "        c = count()\n    satisfying: f(note)\n",
+        [(BODY_LINE + 6, 17)],
+    ),
+}
+
+
+@pytest.mark.parametrize(("relation", "calls"), CASCADES.values(), ids=CASCADES)
+def test_a_mismatched_repeated_argument_is_reported_once(
+    relation: str, calls: list[tuple[int, int]]
+) -> None:
+    """Every use of the argument fits nothing after the mismatch, so the
+    expansion reports no operator error the user never wrote."""
+    source = (
+        SHAPES
+        + "def f(x: Int nullable) -> Bool nullable: return x is null or x > 0\n"
+        + "def g(x: Int nullable) -> Int nullable: return x + x * x\n"
+        + relation
+    )
+    errors = [error for error in _errors(source) if error[0] != "PIE-S2327"]
+    assert errors == [
+        (
+            "PIE-S2395",
+            line,
+            column,
+            f"Invalid argument for def {'g' if 'let' in relation else 'f'} at "
+            "position 1 (x): expected Int nullable, got Text nullable",
+        )
+        for line, column in calls
+    ]
+
+
+def test_a_window_call_may_be_a_repeated_qualify_argument() -> None:
+    """A window computation inside an argument is copied with its frame for
+    every use of the parameter; nothing raises."""
+    source = (
+        SHAPES
+        + "def twice(x: Int not null) -> Bool nullable: return x <= 2 and x <= 3\n"
+        + "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
+        + "        twice(row_number() window:\n            order by:\n"
+        + "                id\n            rows between 1 preceding and current row\n"
+        + "        )\n"
+    )
+    inlined = _inlined(source)
+    qualify = cast(Any, inlined.definitions[-1]).qualify_clause.expression
+    left, right = qualify.left.left, qualify.right.left
+    assert _shape(left) == _shape(right) and left != right
+    assert left.spec.frame is not None
+    assert _shape(left.spec.frame) == _shape(right.spec.frame)
+    # A single file does not type QUALIFY (explain and emit-sql refuse it).
+    assert _errors(source) == []
 
 
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:

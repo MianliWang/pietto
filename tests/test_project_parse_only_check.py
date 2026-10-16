@@ -231,31 +231,54 @@ DEF_POSITIONS = {
         "query q:\n    from generate_series(idi(1), 3, 1) as s\n"
         "    select:\n        s\n",
         [(DEF_LINE + 1, 26)],
-        "a table-function input",
+        "in a table-function input",
+    ),
+    "table_function_itself": (
+        "query q:\n    from idi(1) as s\n    select:\n        s\n",
+        [(DEF_LINE + 1, 10)],
+        "as a table function",
     ),
     "window_argument": (
         "query q:\n    from rows\n    select:\n        id\n"
         "        r = lag(idi(n)) window:\n            order by: id\n",
         [(DEF_LINE + 4, 17)],
-        "a window computation",
+        "in a window computation",
     ),
     "window_key": (
         "query q:\n    from rows\n    select:\n        id\n"
         "        r = row_number() window:\n            partition by: idi(id)\n"
         "            order by: idi(n)\n",
         [(DEF_LINE + 5, 27), (DEF_LINE + 6, 23)],
-        "a window computation",
+        "in a window computation",
+    ),
+    "window_frame": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = sum(id) window:\n            order by: id\n"
+        "            rows between idi(1) preceding and current row\n",
+        [(DEF_LINE + 6, 26)],
+        "in a window computation",
     ),
     "values_row": (
         "query q:\n    values(a: Int not null, b: Int not null):\n        idi(1), 2\n",
         [(DEF_LINE + 2, 9)],
-        "a VALUES row",
+        "in a VALUES row",
+    ),
+    "values_type_argument": (
+        "query q:\n    values(a: Decimal(idi(9), 2) not null):\n        1\n",
+        [(DEF_LINE + 1, 23)],
+        "in a type argument",
+    ),
+    "type_argument_inside_limit": (
+        "query q:\n    from rows\n    select:\n        id\n    order by: id\n"
+        "    limit cast(3 as Decimal(idi(9), 0))\n",
+        [(DEF_LINE + 5, 29)],
+        "in a type argument",
     ),
     "relationship": (
         "relationship link:\n    endpoint row: rows\n    endpoint other: others\n"
         "    on idi(other.row_id) == row.id\n",
         [(DEF_LINE + 3, 8)],
-        "a relationship condition",
+        "in a relationship condition",
     ),
 }
 
@@ -268,7 +291,7 @@ def test_a_project_refuses_a_def_call_where_the_written_form_has_its_own_rule(
 ) -> None:
     located, messages = _def_project(tmp_path, source)
     assert located == [("PIE-S2397", line, column) for line, column in calls]
-    assert set(messages) == {f"A def call is not available in {position}: idi"}
+    assert set(messages) == {f"A def call is not available {position}: idi"}
 
 
 def test_a_def_argument_cannot_read_a_relation(tmp_path: Path) -> None:

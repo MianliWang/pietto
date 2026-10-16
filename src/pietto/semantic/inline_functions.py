@@ -46,6 +46,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     ValuesBody,
     WindowExpr,
+    inlined_arguments,
     with_inlined_argument,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -89,16 +90,17 @@ _MAX_EXPANSION_DEPTH = 64
 # that Pietto checks by its own rule; a def call there is refused.
 _REFUSED_POSITIONS: MappingProxyType[type[Node], str] = MappingProxyType(
     {
-        WindowExpr: "a window computation",
-        NamedWindowDeclaration: "a window computation",
-        TableFunctionFromClause: "a table-function input",
-        LimitClause: "LIMIT",
-        ValuesBody: "a VALUES row",
-        RelationshipMetadata: "a relationship condition",
-        SourceDef: "a source connector",
-        TypeArgument: "a type argument",
+        WindowExpr: "in a window computation",
+        NamedWindowDeclaration: "in a window computation",
+        TableFunctionFromClause: "in a table-function input",
+        LimitClause: "in LIMIT",
+        ValuesBody: "in a VALUES row",
+        RelationshipMetadata: "in a relationship condition",
+        SourceDef: "in a source connector",
+        TypeArgument: "in a type argument",
     }
 )
+_AS_TABLE_FUNCTION = "as a table function"
 _RELATION_READS = (RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr)
 _NULLABILITY = MappingProxyType(
     {
@@ -323,33 +325,38 @@ def _substitution(
     are at the call, and an argument, also when the body uses it again, is at
     its own text. A copy differs from the original only in an internal span
     ``occurrence``, as the same text written out twice by hand would differ in
-    position. Only the first use of an argument carries the parameters it
-    must fit; ``replace()`` drops them from every copy, which the first use
-    checks for.
+    position. Every use of an argument carries the parameters it must fit, so
+    a mismatch leaves each use Unknown and the expansion reports nothing else.
     """
 
     used: set[str] = set()
 
     def occurrence(node: object, span: Span) -> object:
-        if not isinstance(node, Node):
-            return node
-        return replace(node, span=replace(span, occurrence=next(occurrences)))
+        return replace(
+            cast(Node, node), span=replace(span, occurrence=next(occurrences))
+        )
+
+    def copied(_: object, copy: object) -> object:
+        # Window frames and their bounds are AST values without a span.
+        return (
+            occurrence(copy, cast(Node, copy).span) if isinstance(copy, Node) else copy
+        )
 
     def substitute(original: object, rebuilt: object) -> object:
         if type(original) is NameExpr:
             name = cast(NameExpr, original).name
             argument = arguments.get(name)
             if argument is not None:
-                if name in used:
-                    return _rebuild(
-                        argument,
-                        lambda _, copy: occurrence(copy, cast(Node, copy).span),
-                    )
-                used.add(name)
-                return argument
+                if name not in used:
+                    used.add(name)
+                    return argument
+                copy = cast(Expression, _rebuild(argument, copied))
+                for slot in inlined_arguments(argument):
+                    copy = with_inlined_argument(copy, slot)
+                return copy
         if original is template and isinstance(rebuilt, Expression):
             return replace(rebuilt, span=call)
-        return occurrence(rebuilt, call)
+        return occurrence(rebuilt, call) if isinstance(rebuilt, Node) else rebuilt
 
     return substitute
 
@@ -569,9 +576,10 @@ def _position_diagnostics(
 ) -> list[Diagnostic]:
     """Refuse a def call where the hand-written form must be a literal, a
     field or a window call, which Pietto checks by a rule of its own: inside
-    a window computation, a table-function input, LIMIT, a VALUES row, a
-    relationship condition, a source connector, a type argument, and the
-    ORDER BY of a grouped relation."""
+    a window computation, as a table function or in its input, LIMIT, a VALUES
+    row, a relationship condition, a source connector, a type argument, and
+    the ORDER BY of a grouped relation. The innermost such position names the
+    refusal."""
 
     found: list[Diagnostic] = []
     pending: list[tuple[object, str | None]] = [(root, None) for root in roots]
@@ -587,7 +595,7 @@ def _position_diagnostics(
             or not is_dataclass(value)
         ):
             continue
-        position = position or _REFUSED_POSITIONS.get(cast(type[Node], kind))
+        position = _REFUSED_POSITIONS.get(cast(type[Node], kind)) or position
         if (
             position is not None
             and kind is CallExpr
@@ -598,25 +606,28 @@ def _position_diagnostics(
             found.append(
                 _diagnostic(
                     "PIE-S2397",
-                    f"A def call is not available in {position}: "
+                    f"A def call is not available {position}: "
                     f"{cast(NameExpr, call.callee).name}",
                     call.span,
                 )
             )
             continue
+        if position == _AS_TABLE_FUNCTION:
+            # The table function's own arguments are its input.
+            position = _REFUSED_POSITIONS[TableFunctionFromClause]
         for name in _child_names(value):
             child = getattr(value, name)
-            grouped_order = (
+            if kind is TableFunctionFromClause and name == "call":
+                label = _AS_TABLE_FUNCTION
+            elif (
                 name == "order_by_clause"
                 and kind in (TableDef, QueryDef, SelectBody)
                 and cast(TableDef, value).group_by_clause is not None
-            )
-            pending.append(
-                (
-                    child,
-                    "the ORDER BY of a grouped relation" if grouped_order else position,
-                )
-            )
+            ):
+                label = "in the ORDER BY of a grouped relation"
+            else:
+                label = position
+            pending.append((child, label))
     return found
 
 
