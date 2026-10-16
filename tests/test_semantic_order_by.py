@@ -248,6 +248,147 @@ def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:
     assert expression.field.owner == relation.source.target
 
 
+@pytest.mark.parametrize(
+    ("body", "postgres_order", "mysql_order"),
+    [
+        (
+            "    select:\n"
+            "        id\n"
+            "        created_at = lower(email)\n"
+            "    order by:\n"
+            "        created_at desc\n"
+            "    limit 3\n",
+            '"users"."created_at" DESC',
+            "`users`.`created_at` DESC",
+        ),
+        (
+            "    group by:\n"
+            "        id\n"
+            "    select:\n"
+            "        key = id\n"
+            "        id = count()\n"
+            "    order by:\n"
+            "        key\n",
+            '"users"."id" ASC',
+            "`users`.`id` ASC",
+        ),
+        (
+            "    select:\n        Created_At = id\n    order by:\n        created_at\n",
+            '"created_at" ASC',
+            "`users`.`created_at` ASC",
+        ),
+        (
+            "    let:\n"
+            "        later = created_at + 1\n"
+            "    select:\n"
+            "        created_at = id\n"
+            "    order by:\n"
+            "        later\n",
+            '"created_at" + 1 ASC',
+            "`created_at` + 1 ASC",
+        ),
+    ],
+    ids=("ungrouped", "grouped", "mysql-casefold", "expression-reads-input"),
+)
+def test_input_order_key_that_an_output_alias_would_capture_is_qualified(
+    body: str,
+    postgres_order: str,
+    mysql_order: str,
+) -> None:
+    # Before: a bare `ORDER BY "created_at"` sorted by the SELECT output.
+    query = "query selected:\n    from users\n" + body
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + query))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
+
+    assert postgres.diagnostics == () and mysql.diagnostics == ()
+    for sql, quote, order in (
+        (postgres.artifacts[0].sql, '"', postgres_order),
+        (mysql.artifacts[0].sql, "`", mysql_order),
+    ):
+        assert f"ORDER BY\n    {order}" in sql
+        qualified = f"{quote}users{quote}.{quote}"
+        alias = f"FROM {quote}users{quote} AS {quote}users{quote}"
+        assert (alias in sql) is (qualified in order)
+
+
+def test_output_alias_reading_the_same_input_field_keeps_a_bare_order_key() -> None:
+    query = _relation_source(
+        projections=("id", "created_at = users.created_at"),
+        order_items=("created_at",),
+    )
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + query))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
+
+    assert postgres.artifacts[0].sql.endswith('ORDER BY\n    "created_at" ASC')
+    assert mysql.artifacts[0].sql.endswith("ORDER BY\n    `created_at` ASC")
+
+
+@pytest.mark.parametrize(
+    ("let_lines", "key"),
+    [
+        ((), '"x"'),
+        ((), "1 + 1"),
+        ((), "-1"),
+        ((), "2.5"),
+        ((), "true"),
+        ((), "null"),
+        ((), 'lower("x")'),
+        (("position = 2",), "position"),
+        (("base = 2", "position = base + 1"), "position"),
+    ],
+)
+def test_constant_order_key_is_refused_at_check(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    let_lines: tuple[str, ...],
+    key: str,
+) -> None:
+    let_clause = "".join(f"        {line}\n" for line in let_lines)
+    body = (
+        "query selected:\n"
+        "    from users\n"
+        + ("    let:\n" + let_clause if let_clause else "")
+        + "    select:\n"
+        "        id\n"
+        "    order by:\n"
+        f"        {key} asc\n"
+        "        id\n"
+    )
+    result = analyze(_parse(POSTGRES_PREFIX + body))
+
+    key_line = 12 + (1 + len(let_lines) if let_lines else 0)
+    assert [
+        (diagnostic.code, diagnostic.location and diagnostic.location.line)
+        for diagnostic in result.diagnostics
+    ] == [("PIE-S2380", key_line)]
+    # Before: `let: position = 2` emitted the ordinal `ORDER BY 2 ASC`.
+    for prefix, dialect in ((POSTGRES_PREFIX, "postgres"), (MYSQL_PREFIX, "mysql")):
+        path = tmp_path / f"{dialect}.pietto"
+        path.write_text(prefix + body, encoding="utf-8")
+        assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 1
+        assert "PIE-S2380" in capsys.readouterr().err
+
+
+def test_order_keys_reading_fields_lets_or_windows_are_not_constant() -> None:
+    body = (
+        "query selected:\n"
+        "    from users\n"
+        "    let:\n"
+        "        bucket = id + 1\n"
+        "    select:\n"
+        "        id\n"
+        "        position = row_number() window:\n"
+        "            order by:\n"
+        "                id\n"
+        "    order by:\n"
+        "        bucket\n"
+        "        position\n"
+        "        lower(email) desc\n"
+    )
+
+    assert analyze(_parse(POSTGRES_PREFIX + body)).diagnostics == ()
+
+
 def test_ir_defaults_and_normalized_order_items_are_stable() -> None:
     no_order = _relation_ir(_compile_ir(POSTGRES_PREFIX + _relation_source()))
     ordered = _relation_ir(

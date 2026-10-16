@@ -28,6 +28,7 @@ from pietto.sql.mysql_render import (
     MySqlRenderError,
     quote_identifier,
 )
+from pietto.sql.relations import qualify_alias_captured_order_fields
 from pietto.sql.window_strategy import (
     NamedWindowLoweringDecision,
     NamedWindowLoweringStrategy,
@@ -66,6 +67,7 @@ def render_mysql_relation(
         NamedWindowLoweringStrategy.NOT_LOWERABLE
     ):
         raise MySqlRenderError(named_decision.reason)
+    relation = qualify_alias_captured_order_fields(relation, mysql=True)
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"

@@ -23,6 +23,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.sql import SqlArtifactKind, emit_postgres_sql
+from pietto.sql.mysql import emit_mysql_sql
 from pietto.sql.relations import render_relation_sql
 
 SOURCE = (
@@ -149,6 +150,22 @@ def test_unsupported_source_connector_reports_pie_b1000_without_crashing() -> No
     )
     assert relation_diagnostic.code == "PIE-B1000"
     assert "postgres.table(Text)" in relation_diagnostic.message
+
+
+def test_output_alias_over_63_bytes_reports_pie_b1000_on_postgresql_only() -> None:
+    alias = "a" * 63 + "_one"
+    body = f"table long_names:\n    from users\n    select:\n        {alias} = email\n"
+    mysql_source = SOURCE.replace("postgres.table", "mysql.table")
+
+    result = emit_postgres_sql(_compile(SOURCE + body))
+    mysql = emit_mysql_sql(_compile(mysql_source + body))
+
+    # Before: PostgreSQL truncated the alias silently to its first 63 bytes.
+    assert result.artifacts == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-B1000"]
+    assert "must not exceed 63 bytes" in result.diagnostics[0].message
+    assert mysql.diagnostics == ()
+    assert f"`email` AS `{alias}`" in mysql.artifacts[0].sql
 
 
 def test_nul_in_source_table_name_reports_pie_b1000() -> None:

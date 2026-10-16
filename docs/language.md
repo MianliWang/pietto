@@ -132,7 +132,9 @@ source users: User is postgres.table("public.users")
 In single-file mode the connector string names one table: `"users"`, or with
 exactly one dot `"<schema>.<table>"`, where the schema is a PostgreSQL schema
 for `postgres.table` and a MySQL database for `mysql.table`. `emit-sql` quotes
-each part separately, so the source above emits `FROM "public"."users"`. A
+each part separately, so the source above emits `FROM "public"."users"`.
+PostgreSQL emission refuses any identifier, including an output name, longer
+than 63 UTF-8 bytes with PIE-B1000, because PostgreSQL would truncate it. A
 string with more than one dot or an empty part fails `check` with `PIE-S2306`
 at the string, except that an empty `mysql.table("")` keeps its existing
 `PIE-S2306` on the whole connector call. Project mode does not split or
@@ -170,9 +172,13 @@ table active_users:
 ```
 
 Single-file checks require a selected `let` binding to take a new output name,
-as `normalized_email = normalized` does. Selected project SQL admits the
-documented project scalar subset when its physical carrier requirements are
-established.
+as `normalized_email = normalized` does. An `order by` key must read a field,
+an aggregate or a window result, directly or through `let:` names; a constant
+key such as `label` with `let: label = "x"` is PIE-S2380. When a SELECT output
+of the same name would capture an input field key, the emitted SQL qualifies
+that key with the input name, as in `ORDER BY "orders"."amount"`. Selected
+project SQL admits the documented project scalar subset when its physical
+carrier requirements are established.
 
 `from` names the base relation. Authored relationship traversal may then add
 `inner join` or `left join` clauses with mandatory target bindings:
@@ -1104,7 +1110,9 @@ type arguments. Every other cast, such as `Float` to `Int`, `Int` to `Text`, a
 same-type `cast(n as Int)` or `cast(n as Float not null)`, is PIE-S2105.
 `in`/`not in`, `not`,
 conditional expressions, `like`/`not like` with `ESCAPE '!'`, and `between`
-retain their ordinary SQL NULL behavior. `matches` remains outside the selected
+retain their ordinary SQL NULL behavior. In a pattern `!` escapes the next
+character, so `!!` matches a literal `!`; a literal pattern that ends in an
+unpaired `!` is PIE-S2105. `matches` remains outside the selected
 project SQL scalar subset.
 
 Selected project SQL admits this closed Q1 surface only when every operand has
@@ -1319,9 +1327,13 @@ row`, an expression plus `following`, or `unbounded following`. Ranking,
 distribution, `ntile`, `lag`, and `lead` remain frame-insensitive, and an
 explicit ROWS, RANGE or GROUPS frame on them is PIE-S2104. `first_value`,
 `last_value`, and `nth_value` are frame-sensitive and use a concrete Pietto
-effective frame even when source omits one. RANGE offsets retain unresolved
-Phase 64 type/arithmetic requirements. GROUPS uses canonical peer groups;
-EXCLUDE is a removal-only membership filter after base-frame clipping.
+effective frame even when source omits one. Single-file checks require each
+ROWS or GROUPS offset to be a nonnegative `Int` literal up to
+9223372036854775807 and refuse a literal `ntile` count, `lag`/`lead` offset or
+`nth_value` position above that value (PIE-S2104); PostgreSQL emission also
+requires those three to fit signed `int32` (PIE-B1000). RANGE offsets retain
+unresolved Phase 64 type/arithmetic requirements. GROUPS uses canonical peer
+groups; EXCLUDE is a removal-only membership filter after base-frame clipping.
 
 Value/navigation modifiers occur between the call and `window`:
 
