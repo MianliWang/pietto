@@ -7,7 +7,11 @@ Phase69 之后插入的一期（下称插入期）连同同批维护 `COMPLETED 
 修复子提交 `de887b6219b0359b1b4ba0d225dbf66b3d01688b` 的自然 CI38489278446/push/main/attempt1 接受全部 required consumers。
 本期规划基线为依赖升级批 head `8cc6d5cbdc89a90293f802397184403012703c91`（tree `95b25ff4c047e3f0465fdf87165801f07ccb7918`，自然 CI38501677796/push/main/attempt1）。
 插入期的预算、证据与收尾不并入本期；Phase71 及以后编号不变。
-本 brief、[20 片路线](slices.md)与[外部参考记录](planning-notes.md)随一次只含文档的路线发布提交发布：路线发布与 Phase70 开始都只在该普通提交的 FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate；尚无已合入的 Phase70 Slice。所有者决定见[决定记录](../../decisions.md)的 D70.01–D70.11。
+本 brief、[20 片路线](slices.md)与[外部参考记录](planning-notes.md)随一次只含文档的路线发布提交发布：路线发布与 Phase70 开始都只在该普通提交的 FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate；尚无已合入的 Phase70 Slice。该句是路线发布时的历史状态；所有者决定见[决定记录](../../decisions.md)的 D70.01–D70.11。
+
+## 实际收尾状态
+
+本 brief 的路线、验收与 `PLANNED` 矩阵保留为 Phase70 的历史授权输入。原 20 行路线加 S04r/S04w/S05g/S05j 四个扩展构成 24 个规划位置；S04 拆为 S04a/S04b 后共有 25 个实际位置。其中 S01–S19 的 24 个位置已发布，最后一个位置是本候选 S20。S19 从 `6ac82d68` 发布 `0.1.3`；自然 exact-head CI `38809622132` 接受 19/19 jobs、36 artifacts，GitHub pre-release 和 PyPI 的公开字节已核验。S20 仍是审计 Slice，且只有它的一笔普通 FF 提交与自然 exact-head CI 成功后，Phase70 才以 25 个实际 Slice 闭合；成功后不再补交文档。Phase71 仍未开始，等待自己的 phase-initiation gate。
 
 ## R/A/C 与使命
 
@@ -62,10 +66,10 @@ SHARD_IMBALANCE_WATCH 1 个（3.13 runtime，约 1.39 > 1.25）；成本记录�
 5. 每种新形态在 PostgreSQL/MySQL 上要么生成经验证的 SQL 并原生执行通过，要么在编译期以确定诊断拒绝；旧的可靠能力不退化。
 6. 用户能 `pip install pietto==0.1.3`（GitHub pre-release `v0.1.3` 与 PyPI 字节一致）使用以上能力；`0.1.2` 的 bundle 与保存作业按代码身份明确拒绝，不迁移。
 
-**预算。** 24 个位置（含所有者 2026-10-14 要求的发行片 S19，以及同日扩容加入的 S04r、S04w、S05g、S05j），容量 25，余量 1（D70.09 及其 2026-10-14 修订）。22 是所有者批准的真实扩容，不是尺寸证明：Phase69 的 21 片已含发行与审计，本期新增发行范围，
-且四个高风险片（S03、S04、S10、S11）与两个中高风险片（S01、S15）预列了拆分线，可能需要两处拆分；超过容量时按[路线](slices.md)的停止规则回到所有者。
-全期累计修复预算 causal 54 / focused 60 / diagnostic 30 / scope 6，执行与发布按封存候选或批次计数（D70.10）；Teach 只做非权威预检，不计入也不替代 Gate 2，额度见 D70.10；
-不承诺墙钟时间；发行只在最终候选全绿、所有者对实际字节确认一次"发行"后进行（D70.11）。
+**预算。** 历史规划为 24 个位置（含所有者 2026-10-14 要求的发行片 S19，以及同日扩容加入的 S04r、S04w、S05g、S05j），容量 25，余量 1（D70.09 及其 2026-10-14 修订）。22 是所有者批准的真实扩容，不是尺寸证明：Phase69 的 21 片已含发行与审计，本期新增发行范围，
+且四个高风险片（S03、S04、S10、S11）与两个中高风险片（S01、S15）预列了拆分线，可能需要两处拆分；超过容量时按[路线](slices.md)的停止规则回到所有者。拆分后的 25 个实际位置包含本候选 S20；它们须在 S20 闭合条件成立后才全部发布，不重写历史 24 节点图。
+截至 S19，保守修复核账为 causal 121 / focused 107 / diagnostic 156 / scope 6；当前上限为 causal 225 / focused 180 / diagnostic 270 / scope 9。它们保留 UNKNOWN 历史，且上限来自接近上限时所有者的一次性 50% 增加，不追溯改写早期授权。Teach 只做非权威预检，不计入也不替代 Gate 2；
+不承诺墙钟时间；发行已按 D70.11 的所有者实际字节确认完成。
 
 ## 已锁定的输入
 
@@ -73,7 +77,7 @@ SHARD_IMBALANCE_WATCH 1 个（3.13 runtime，约 1.39 > 1.25）；成本记录�
 - 一个规范集成者；隔离 worktree 中的 worker 按依赖并行开发；单一 writer、FF-only、自然 CI、一次权威验证、失败头保留、提交不加 AI 署名行。
 - 语言规则（`AGENTS.md`）：冒号加空格缩进，不用花括号，不加多余关键字；新增词按既有软关键字机制引入，不使现有标识符失效。
 - 公开 CLI/JSON 形状、诊断码与顺序、稳定 SQL、PostgreSQL emitter 不在未授权时改变；本期已批准的公开变化逐项列在 D70.03 与 D70.08。
-- 已发行 `0.1.2` 字节不变；阶段末发行 `0.1.3`（S19）：D70.11 只批准发行方案，S18 全绿后所有者对实际 HEAD 与已接受字节确认一次"发行"（沿用 Phase69 先例），PyPI 由所有者本人输入 token 上传。
+- 已发行 `0.1.2` 字节不变；S19 已按 D70.11 完成 `0.1.3` 的所有者确认、GitHub pre-release 与 owner-operated PyPI 上传；这不开始 Phase71。
 
 ## 所有者决定
 

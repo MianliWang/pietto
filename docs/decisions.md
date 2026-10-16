@@ -320,4 +320,12 @@ D70.01 的参数位置相应细化（U1）：LIMIT、窗口范围、要求固定
 
 所有者确认：capture let 的外层 captured input 字段已知时，可从 own FROM 的完成后定型 relation 读取；若 captured outer input 自身的列在 completion 前未知，每个 captured-field read 仍为 `PIE-S2369`。capture let 直接 FROM table function 仍为 `PIE-S2370`，须先经另一 let。
 
-当前全期累计修复上限为 causal 150、focused 180、diagnostic 180、scope 9。该预算只恢复已授权工作并保留历史超限与 UNKNOWN 的核账；不自动批准新的公开语义，也不授权 S19 或发行。
+接手时确认的全期累计修复上限为 causal 150、focused 180、diagnostic 180、scope 9。该预算只恢复已授权工作并保留历史超限与 UNKNOWN 的核账；不自动批准新的公开语义，也不授权 S19 或发行。
+
+## Phase70 S19/S20 lifecycle reconciliation (2026-10-15, America/Toronto)
+
+S19 已实际完成并发布：源 head `6ac82d682ea70056ffbecd64a9f53f72491a51c6`、tree `550c1fa0765cb209f3f8438e4b49d5f6329dd24a` 的自然 exact-head CI `38809622132` attempt 1 接受 19 jobs、36 artifacts。GitHub pre-release `v0.1.3`（release `414443229`）和 PyPI `0.1.3` 均已公开核验；正式 wheel SHA-256 为 `15f2a73da34dbf332ae19eebb32aa7e10830ddf46de79169be0bdad5a3e2e06b`，sdist SHA-256 为 `31c06e0b7ab3fe48b4a17ec28ae9b17ec957a4dd433ff5d50385d68f56da449f`。这些是已发生的渠道事实，不改变 D70.11 的发行授权边界，也不重写此前决定。
+
+截至 S19，实际已完成 24 个 Slice；S20 是唯一剩余的审计 Slice。Phase70 仅在 S20 的一笔普通 FF 提交及其自然 exact-head CI 成功后，以 25 个实际 Slice 闭合；该 CI 成功后不再追加收尾文档提交。历史规划图仍为原 20 行路线、24 节点、47 条边；S04r、S04w、S05g、S05j 是授权扩展，S04a/S04b 是原 S04 的实际拆分，不据此改造历史 DAG 指标。
+
+截至 S19 的保守修复核账为 causal 121、focused 107、diagnostic 156、scope 6；当前上限为 causal 225、focused 180、diagnostic 270、scope 9。上限来自接近上限时所有者一次性增加 50%，并保留历史 UNKNOWN 与此前计数，不把本段当作追溯性授权重写。Phase71 仍未开始，须自行通过 phase-initiation gate；本段不授予其实现、预算或产品语义。
