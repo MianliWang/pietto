@@ -15,7 +15,10 @@ if TYPE_CHECKING:
 
 from pietto._project.query_parameters import query_parameter_semantic_diagnostics
 from pietto._project.project_set_operations import ProjectSetFailure
-from pietto._project.module_relation_resolution import ProjectResolvedSetOperand
+from pietto._project.module_relation_resolution import (
+    ProjectResolvedModuleRelationReference,
+    ProjectResolvedSetOperand,
+)
 
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -42,11 +45,15 @@ from pietto._project import (
     project_scalar_namespaces,
     project_value_fds,
 )
-from pietto._project.model import ProjectSemanticResult
+from pietto._project.model import (
+    ProjectRelationRowSchemaReason,
+    ProjectSemanticResult,
+)
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completion import (
     ProjectCompletion,
     ProjectEffectiveOutputTerminal,
+    ProjectEffectiveOutputTerminalReason,
     ProjectExistingEffectiveOutput,
     build_project_completion,
 )
@@ -89,6 +96,9 @@ from pietto._project.project_phase62_verification import (
     verify_project_phase62,
 )
 from pietto.ast_nodes import (
+    DottedNameExpr,
+    EnumDef,
+    NameExpr,
     QueryDef,
     SourceDef,
     TableDef,
@@ -96,6 +106,7 @@ from pietto.ast_nodes import (
     ValuesRelationDef,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.analyzer import _duplicate_enum_member_diagnostics
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.source_connectors import check_source_connectors
 from pietto._project.project_single_match import (
@@ -732,6 +743,8 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
 
 def _fallback_diagnostic(
     entry: ProjectEffectiveOutputCompletionEntry,
+    semantic_facts: module_semantic_fact_preservation.ProjectModuleSemanticFactSet
+    | None,
 ) -> Diagnostic:
     if type(entry) not in {
         ProjectEffectiveOutputTerminal,
@@ -753,7 +766,8 @@ def _fallback_diagnostic(
         severity=Severity.ERROR,
         message=(
             "Project relation semantic completion is unavailable: "
-            f"{entry.owner.identity.declared_name}{_fanout_cause(entry)}"
+            f"{entry.owner.identity.declared_name}"
+            f"{_fanout_cause(entry) or _deferred_input_cause(entry, semantic_facts)}"
         ),
         location=SourceLocation(
             path=span.path,
@@ -763,6 +777,100 @@ def _fallback_diagnostic(
             end_column=span.end_column,
         ),
     )
+
+
+def _deferred_input_cause(
+    entry: ProjectEffectiveOutputCompletionEntry,
+    semantic_facts: module_semantic_fact_preservation.ProjectModuleSemanticFactSet
+    | None,
+) -> str:
+    """Name the relationship JOINs reading an input that has no JOIN facts yet.
+
+    A relationship JOIN extends the historical row facts of its query, which
+    stay deferred while the FROM input, or a relation it reads, does more
+    than select fields of its own input (see ``_relation_row_state`` in module
+    relation resolution). Only that recorded reason is described; any other
+    keeps the bare message.
+    """
+
+    if (
+        type(entry) is not ProjectEffectiveOutputTerminal
+        or entry.reason
+        is not ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
+        or semantic_facts is None
+    ):
+        return ""
+    definition = entry.owner.definition
+    if not isinstance(definition, (TableDef, QueryDef)):
+        return ""
+    base = definition.from_clause.source_name
+    joins = tuple(
+        clause.target_binding_name
+        for clause in definition.join_clauses
+        if clause.source_binding_name == base
+    )
+    if not joins:
+        return ""
+    reads: list[str] = []
+    facts = entry.fragment.semantic_facts
+    while True:
+        resolution = facts.resolution
+        if type(resolution) is not ProjectResolvedModuleRelationReference:
+            return ""
+        reads.append(resolution.reference.from_clause.source_name)
+        bucket = semantic_facts.find_owner(resolution.target_symbol.target_occurrence)
+        if len(bucket) != 1:
+            return ""
+        facts = bucket[0]
+        if (
+            facts.base_row_fact.state.reason
+            is not ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+        ):
+            break
+    root = _deferred_row_features(facts)
+    if not root:
+        return ""
+    joined = f"JOIN{'s' if len(joins) > 1 else ''} {_and_list(joins)}"
+    return (
+        f" ({joined} read{'' if len(joins) > 1 else 's'} {base}, whose rows are not "
+        "available to a relationship JOIN yet: it "
+        + ", which ".join((*(f"reads {name}" for name in reads[1:]), root))
+        + ")"
+    )
+
+
+def _deferred_row_features(
+    facts: module_semantic_fact_preservation.ProjectModuleRelationSemanticFacts,
+) -> str:
+    """Why module row facts defer this relation, as ``_relation_row_state`` decides."""
+
+    if (
+        facts.base_row_fact.state.reason
+        is not ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
+    ):
+        return ""
+    definition = facts.owner.definition
+    if not isinstance(definition, (TableDef, QueryDef)):
+        return ""
+    computed = sum(
+        type(item.expression) not in {NameExpr, DottedNameExpr}
+        for item in definition.select_items
+    )
+    features = tuple(
+        text
+        for present, text in (
+            (definition.let_clause is not None, "let bindings"),
+            (definition.group_by_clause is not None, "GROUP BY"),
+            (definition.satisfying_clause is not None, "a satisfying clause"),
+            (computed == 1, "a computed SELECT output"),
+            (computed > 1, "computed SELECT outputs"),
+        )
+        if present
+    )
+    if features:
+        return f"has {_and_list(features)}"
+    # Module row facts leave a relation let's rows to its declaration's block.
+    return "" if facts.owner.let_position is None else "is a relation let"
 
 
 def _fanout_cause(entry: ProjectEffectiveOutputCompletionEntry) -> str:
@@ -1061,6 +1169,20 @@ def _ordinary_row_diagnostics(
     )
 
 
+def _enum_member_diagnostics(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[Diagnostic, ...]:
+    """Report each module's repeated enum members as single-file checks do."""
+
+    diagnostics: list[Diagnostic] = []
+    for module in semantic_result.modules:
+        assert module.parsed_input is not None
+        for definition in module.parsed_input.script.definitions:
+            if type(definition) is EnumDef:
+                diagnostics.extend(_duplicate_enum_member_diagnostics(definition))
+    return tuple(diagnostics)
+
+
 def _final_diagnostics(
     semantic_result: ProjectSemanticResult,
     effective_outputs: ProjectEffectiveOutputCompletion,
@@ -1075,8 +1197,9 @@ def _final_diagnostics(
         for diagnostic in semantic_result.diagnostics
         if id(diagnostic) not in retired_ids
     ]
-    # Shape and relationship declarations are checked before the relations
-    # using them.
+    # Enum, shape and relationship declarations are checked before the
+    # relations using them, each kind per module in selected-module order.
+    retained.extend(_enum_member_diagnostics(semantic_result))
     retained.extend(shapes)
     retained.extend(relationships)
     retained_ids = {id(diagnostic) for diagnostic in retained}
@@ -1115,7 +1238,7 @@ def _final_diagnostics(
             if id(diagnostic) not in retired_ids
         )
         if not errors and not completed:
-            errors = (_fallback_diagnostic(entry),)
+            errors = (_fallback_diagnostic(entry, semantic_facts),)
         for diagnostic in errors:
             if id(diagnostic) in retained_ids:
                 continue
