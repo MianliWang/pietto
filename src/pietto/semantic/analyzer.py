@@ -730,11 +730,19 @@ def _analyze_relation_schema_expressions(
     )
     relation_value_types.update(let_value_types)
     relation_expression_diagnostics.extend(let_diagnostics)
-    relation_expression_diagnostics.extend(
+    expansion_diagnostics = [
         diagnostic
         for definition, scope in let_scopes.items()
         for diagnostic in let_expansion_diagnostics(definition, scope.value_types)
-    )
+    ]
+    # A key over the let inlining limit already has that error: no PIE-S2380.
+    over_limit = {diagnostic.location for diagnostic in expansion_diagnostics}
+    relation_expression_diagnostics[:] = [
+        diagnostic
+        for diagnostic in relation_expression_diagnostics
+        if not (diagnostic.code == "PIE-S2380" and diagnostic.location in over_limit)
+    ]
+    relation_expression_diagnostics.extend(expansion_diagnostics)
     final_schemas, schema_diagnostics = propagate_relation_schemas(
         script,
         mode=mode,

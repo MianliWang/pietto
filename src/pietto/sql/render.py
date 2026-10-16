@@ -5,6 +5,10 @@ from __future__ import annotations
 import math
 
 
+class IdentifierTooLongError(ValueError):
+    """An identifier PostgreSQL would silently truncate, so two could collide."""
+
+
 def quote_identifier(name: str) -> str:
     """Always quote one non-empty PostgreSQL identifier."""
 
@@ -12,9 +16,16 @@ def quote_identifier(name: str) -> str:
         raise ValueError("PostgreSQL identifiers must not be empty")
     if "\x00" in name:
         raise ValueError("PostgreSQL identifiers must not contain NUL")
-    if len(name.encode("utf-8")) > 63:
-        # PostgreSQL silently truncates longer names, so two could collide.
-        raise ValueError("PostgreSQL identifiers must not exceed 63 bytes")
+    size = len(name.encode("utf-8"))
+    if size > 63:
+        shown = "".join(
+            character if character.isprintable() else f"\\u{ord(character):04x}"
+            for character in name[:24]
+        )
+        raise IdentifierTooLongError(
+            f'PostgreSQL identifier "{shown}{"..." if len(name) > 24 else ""}" '
+            f"is {size} bytes, over the 63 bytes PostgreSQL keeps of a name"
+        )
     return f'"{name.replace('"', '""')}"'
 
 

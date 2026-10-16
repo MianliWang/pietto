@@ -997,6 +997,38 @@ def test_c03_fixed_values_preserve_and_bind_safe(tmp_path: Path, target: str) ->
 # --- channels, privacy and files -------------------------------------------------
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs control characters in names")
+def test_verified_text_escapes_controls_in_paths_and_canonical_records(
+    tmp_path: Path,
+) -> None:
+    root, item = project(tmp_path, "postgres")
+    # ESC, DEL, C1 CSI and RIGHT-TO-LEFT OVERRIDE in the module file name.
+    module = "m\x1b[31m\x7f\u009b\u202e.pietto"
+    (root / "main.pietto").rename(root / module)
+    (root / "contract.json").write_text(
+        item["contract"].replace('"main.pietto"', json.dumps(module))
+    )
+    arguments = argv(root, "postgres")
+    arguments[arguments.index("main.pietto")] = module
+
+    code, out, err = run(arguments + ["--format", "text"])
+    text = out.decode("utf-8")
+    assert (code, err) == (0, "")
+    assert not any(control in text for control in "\x1b\x7f\u009b\u202e")
+    lines = text.splitlines()
+    assert "owner: m\\x1b[31m\\x7f\\u009b\\u202e.pietto table result" in lines
+    # Every canonical record line still decodes to the JSON document's values.
+    document = probe.decode_public(run(arguments)[1])
+    request = document["request"]
+    start = lines.index(f"sources ({len(request['sources'])}):") + 1
+    sources = lines[start : start + len(request["sources"])]
+    assert [json.loads(line) for line in sources] == request["sources"]
+    contract = next(line for line in lines if line.startswith("contract: "))
+    assert json.loads(contract.removeprefix("contract: ")) == request["contract"]
+    assert [source["module"] for source in request["sources"]] == [module]
+    assert "\\u001b[31m\\u007f\\u009b\\u202e.pietto" in sources[0]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_failure_messages_never_echo_roots_or_raw_input(
     tmp_path: Path, target: str

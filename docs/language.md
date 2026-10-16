@@ -181,8 +181,9 @@ as `normalized_email = normalized` does. Outside a grouped query a single-file
 `order by` key reads input fields, `let` bindings and selected window results,
 not other SELECT outputs (PIE-S2102). In such a query, a key that is a bare
 constant once `let:` names and signs are inlined, such as `label` with `let:
-label = "x"` or `-1`, is PIE-S2380, because SQL reads an integer as a column
-position and PostgreSQL rejects other bare constants; a computed constant such
+label = "x"` or `-1`, is PIE-S2380, even from a source without a shape,
+because SQL reads an integer as a column position and PostgreSQL rejects other
+bare constants; a computed constant such
 as `1 + 1` sorts nothing and is accepted. In a query with aggregates and no
 GROUP BY, a key that reads an input field outside an aggregate is PIE-S2380
 too. A grouped key stays PIE-S2321. When a SELECT item would capture a bare

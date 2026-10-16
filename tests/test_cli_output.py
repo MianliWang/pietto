@@ -677,6 +677,22 @@ def test_closed_stderr_drops_notices_instead_of_writing_them_to_stdout(
     assert stdout.getvalue() == ""
 
 
+def test_argparse_stderr_text_never_reaches_stdout_when_stderr_is_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdout = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", None)
+    parser = cli._build_parser()
+
+    with pytest.raises(SystemExit) as exit_info:
+        parser.exit(2, "pietto: error: boom\n")
+
+    assert (exit_info.value.code, stdout.getvalue()) == (2, "")
+    parser.print_help()  # stdout-bound text still reaches the open stdout
+    assert stdout.getvalue().startswith("usage: pietto ")
+
+
 _NEEDS_DEV_FULL = pytest.mark.skipif(
     not os.path.exists("/dev/full"), reason="needs /dev/full"
 )

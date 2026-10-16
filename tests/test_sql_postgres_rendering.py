@@ -45,9 +45,18 @@ def test_quote_identifier_refuses_names_postgresql_would_truncate() -> None:
     # 63 UTF-8 bytes is PostgreSQL's identifier length; longer names collide.
     assert quote_identifier("a" * 63) == f'"{"a" * 63}"'
     assert quote_identifier("é" * 31 + "a") == f'"{"é" * 31}a"'
-    for name in ("a" * 64, "é" * 32):
-        with pytest.raises(ValueError, match="must not exceed 63 bytes"):
+    for name, shown, size in (
+        ("a" * 64, "a" * 24 + "...", 64),
+        ("é" * 32, "é" * 24 + "...", 64),
+        ("\x1b" + "b" * 63, "\\u001b" + "b" * 23 + "...", 64),
+    ):
+        # Before: the message named no identifier.
+        with pytest.raises(ValueError) as refused:
             quote_identifier(name)
+        assert str(refused.value) == (
+            f'PostgreSQL identifier "{shown}" is {size} bytes, over the 63 bytes '
+            "PostgreSQL keeps of a name"
+        )
 
 
 def test_quote_qualified_identifier_quotes_each_part() -> None:
