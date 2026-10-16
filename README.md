@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/pietto-horizontal-transparent-on-dark.svg">
+  <img alt="Pietto" src="docs/assets/brand/pietto-horizontal-transparent.svg" width="320">
+</picture>
+
 # Pietto
 
 [![CI](https://github.com/MianliWang/pietto/actions/workflows/ci.yml/badge.svg)](https://github.com/MianliWang/pietto/actions/workflows/ci.yml)
