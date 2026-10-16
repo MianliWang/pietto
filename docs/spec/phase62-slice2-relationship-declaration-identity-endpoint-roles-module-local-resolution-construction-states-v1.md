@@ -266,6 +266,25 @@ relationship assets/import/export; Phase 70 owns public exposure.
 
 No later carrier or behavior is scaffolded here.
 
+Post-Phase70 stability note (2026-10-16): Phase 70 closed without publishing
+these admission diagnostics, so an EXPLICIT_MODULES project check passed with
+relationship errors that a single-file check reports. The post-Phase70
+stability batch now reports, in an EXPLICIT_MODULES project check, the
+PIE-S2601, PIE-S2602 and PIE-S2603 diagnostics this construction retains, with
+the single-file codes, messages, severities and locations, per module in
+selected-module order and per relationship in source order, after the parse,
+module resolution and semantic analysis diagnostics of every module and before
+the relation completion, JOIN condition, source connector and query parameter
+diagnostics, once no import cycle (PIE-S2703) exists. A PIE-S2601 is not
+repeated for an endpoint whose relation name already has a duplicate-name,
+ambiguity, import, or type/source diagnostic of its own (an AMBIGUOUS or
+BLOCKED subject). This retracts two entries of the no-change list above:
+existing relationship diagnostics/admission (the admission diagnostics at one
+endpoint now follow code order, PIE-S2601 before PIE-S2603, which changes the
+retained semantic diagnostic order) and CLI / JSON (project check output now
+carries these diagnostics). The private carriers and states above are
+unchanged; LEGACY_FLAT project checks still check no relationships.
+
 ## Slice 3 Handoff
 
 Slice 2 leaves Slice 3 exact private readiness for:

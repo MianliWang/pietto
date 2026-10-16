@@ -16,6 +16,9 @@ from pietto._project.module_attribution import (
     ProjectModuleRelationOutputFieldAttribution,
     ProjectModuleSourceFieldOrigin,
 )
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 import pietto._project.project_relationship_conditions as conditions
 import pietto._project.project_relationships as relationships
 from pietto.ast_nodes import (
@@ -25,6 +28,7 @@ from pietto.ast_nodes import (
     RelationshipMatchClause,
     Script,
 )
+from pietto.errors import Diagnostic
 from pietto.ir import build_ir
 from pietto.ir.model import ScriptIR
 from pietto.parser_api import parse_source
@@ -592,6 +596,355 @@ def test_relationship_on_has_zero_public_semantic_ir_and_sql_delta() -> None:
     assert isinstance(matched_ir.ir, ScriptIR)
     assert emit_postgres_sql(baseline_ir.ir) == emit_postgres_sql(matched_ir.ir)
     assert emit_mysql_sql(baseline_ir.ir) == emit_mysql_sql(matched_ir.ir)
+
+
+_CONDITION_SOURCE = (
+    "shape Customer:\n"
+    "    id: Int not null\n"
+    "    name: Text not null\n"
+    "    unique customer_key on id\n"
+    "shape Region:\n"
+    "    id: Int not null\n"
+    'source customers: Customer is postgres.table("customers")\n'
+    'source regions: Region is postgres.table("regions")\n'
+    "relationship customer_region:\n"
+    "    endpoint customer: customers\n"
+    "    endpoint region: regions\n"
+    "    on {condition}\n"
+)
+_UNUSED_QUERY = "query q:\n    from customers\n    select:\n        id\n"
+_JOIN_QUERY = (
+    "query q:\n"
+    "    from customers\n"
+    "    inner join regions as region:\n"
+    "        from customers\n"
+    "        via customer_region: customer -> region\n"
+    "    select:\n"
+    "        customer_id = customers.id\n"
+)
+
+
+def _project_diagnostics(root: Path, files: dict[str, str]) -> tuple[Diagnostic, ...]:
+    """Return the completed Project check diagnostics of one module set."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    for relative, source in files.items():
+        (root / relative).write_text(source, encoding="utf-8")
+    parsed = project_check.check_project_parse_only(root)
+    assert parsed.ok
+    return build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    ).diagnostics
+
+
+def _checked_both_ways(
+    root: Path, source: str
+) -> tuple[tuple[Diagnostic, ...], tuple[Diagnostic, ...]]:
+    """Return the Project check and single-file check diagnostics of one file."""
+
+    single = parse_source(source, path="main.pietto")
+    assert single.ast is not None
+    return (
+        _project_diagnostics(root, {"main.pietto": source}),
+        analyze(single.ast).diagnostics,
+    )
+
+
+def _located(diagnostics: tuple[Diagnostic, ...]) -> list[tuple[str, str, int, int]]:
+    return [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in diagnostics
+    ]
+
+
+@pytest.mark.parametrize(
+    ("condition", "message", "column"),
+    [
+        (
+            "custx.id == region.id",
+            "Unknown relationship condition endpoint role: custx",
+            8,
+        ),
+        (
+            "customer.region_id == region.id",
+            "Unknown relationship condition field: customer.region_id",
+            8,
+        ),
+        (
+            "customer.id == region.id and customer.name == region.id",
+            "Incompatible relationship condition operands: "
+            "customer.name (Text) == region.id (Int)",
+            37,
+        ),
+    ],
+)
+@pytest.mark.parametrize("used", [False, True])
+def test_relationship_condition_errors_are_reported_in_both_check_modes(
+    tmp_path: Path, condition: str, message: str, column: int, used: bool
+) -> None:
+    source = _CONDITION_SOURCE.format(condition=condition) + (
+        _JOIN_QUERY if used else _UNUSED_QUERY
+    )
+    project, single = _checked_both_ways(tmp_path, source)
+
+    error = ("PIE-S2604", message, 12, column)
+    assert _located(single) == [error]
+    assert all(item.severity.value == "error" for item in (*project, *single))
+    assert project[:1] == single
+    # A JOIN through the failed relationship also fails its own completion.
+    assert [
+        (item.code, item.location.line, item.location.column) for item in project[1:]
+    ] == ([("PIE-S2333", 13, 1)] if used else [])
+
+
+@pytest.mark.parametrize("used", [False, True])
+def test_valid_relationship_conditions_check_clean_in_both_modes(
+    tmp_path: Path, used: bool
+) -> None:
+    source = _CONDITION_SOURCE.format(condition="customer.id == region.id") + (
+        _JOIN_QUERY if used else _UNUSED_QUERY
+    )
+    assert _checked_both_ways(tmp_path, source) == ((), ())
+
+
+def test_unproved_relationship_condition_forms_are_not_check_errors(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "type CustomerKey = Int not null\n"
+        "enum Status:\n"
+        "    active\n"
+        "    closed\n"
+        "shape Customer:\n"
+        "    id: Int not null\n"
+        "    status: Status not null\n"
+        "    balance: Decimal(10, 2) not null\n"
+        "shape Order:\n"
+        "    id: Int not null\n"
+        "    customer_id: CustomerKey not null\n"
+        "    status: Status not null\n"
+        "    balance: Decimal(10, 2) not null\n"
+        'source customers: Customer is postgres.table("customers")\n'
+        'source orders: Order is postgres.table("orders")\n'
+        "relationship accepted:\n"
+        "    endpoint order: orders\n"
+        "    endpoint customer: customers\n"
+        "    on order.customer_id == customer.id"
+        " and order.status == customer.status"
+        " and order.balance == customer.balance"
+        " and order.id == order.customer_id"
+        " and order.id > customer.id\n"
+        "query q:\n    from orders\n    select:\n        id\n"
+    )
+    assert _checked_both_ways(tmp_path, source) == ((), ())
+
+
+def test_condition_types_expand_aliases_of_renamed_outputs_in_both_modes(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "type CustomerKey = Int not null\n"
+        "type OrderKey = CustomerKey not null\n"
+        "shape Customer:\n"
+        "    id: Int not null\n"
+        "    name: Text not null\n"
+        "shape Order:\n"
+        "    customer_id: CustomerKey not null\n"
+        "    order_key: OrderKey not null\n"
+        'source customers: Customer is postgres.table("customers")\n'
+        'source orders: Order is postgres.table("orders")\n'
+        "table renamed:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        key = customer_id\n"
+        "query passed:\n"
+        "    from renamed\n"
+        "    select:\n"
+        "        key\n"
+        "        again = key\n"
+        "relationship renamed_customer:\n"
+        "    endpoint r: renamed\n"
+        "    endpoint c: customers\n"
+        "    on r.key == c.id and r.key == c.name\n"
+        "relationship passed_customer:\n"
+        "    endpoint p: passed\n"
+        "    endpoint c: customers\n"
+        "    on p.key == c.name and p.again == c.name\n"
+        "relationship chained_customer:\n"
+        "    endpoint o: orders\n"
+        "    endpoint c: customers\n"
+        "    on o.order_key == c.id and o.order_key == c.name\n"
+    )
+    project, single = _checked_both_ways(tmp_path, source)
+
+    def incompatible(operand: str, line: int, column: int) -> tuple[str, str, int, int]:
+        return (
+            "PIE-S2604",
+            "Incompatible relationship condition operands: "
+            f"{operand} (Int) == c.name (Text)",
+            line,
+            column,
+        )
+
+    assert _located(single) == [
+        incompatible("r.key", 23, 26),
+        incompatible("p.key", 27, 8),
+        incompatible("p.again", 27, 28),
+        incompatible("o.order_key", 31, 32),
+    ]
+    assert project == single
+
+
+def test_same_named_types_of_different_modules_name_their_modules(
+    tmp_path: Path,
+) -> None:
+    status_source = (
+        "enum Status:\n"
+        "    open\n"
+        "    closed\n"
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    status: Status not null\n"
+    )
+    project = _project_diagnostics(
+        tmp_path,
+        {
+            "left.pietto": status_source
+            + 'source lefts: Row is postgres.table("lefts")\n'
+            + "export:\n    source lefts\n",
+            "main.pietto": status_source
+            + 'source rights: Row is postgres.table("rights")\n'
+            + 'import "left.pietto":\n    source lefts\n'
+            + "relationship pair:\n"
+            + "    endpoint l: lefts\n"
+            + "    endpoint r: rights\n"
+            + "    on l.id == r.id and l.status == r.status\n",
+        },
+    )
+
+    assert _located(project) == [
+        (
+            "PIE-S2604",
+            "Incompatible relationship condition operands: "
+            "l.status (Status from left.pietto) == r.status (Status from main.pietto)",
+            13,
+            25,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "condition"),
+    [
+        ("orders", "order.customer_id == customer.id and order.amount == customer.id"),
+        (
+            "orders",
+            "order.customer_id == customer.id and order.customer_id == customer.code",
+        ),
+        (
+            "orders",
+            "order.customer_id == customer.id and order.customer_id == customer.id",
+        ),
+        ("order_view", "order.a == customer.id and order.b == customer.code"),
+    ],
+    ids=["same_target", "same_source", "same_equality", "equal_source_outputs"],
+)
+@pytest.mark.parametrize(
+    ("kind", "refinement"),
+    [
+        (None, False),
+        *(
+            (kind, refinement)
+            for kind in ("inner", "left", "right", "full", "semi", "anti")
+            for refinement in (False, True)
+        ),
+    ],
+)
+def test_repeated_condition_operands_check_in_every_join_kind(
+    tmp_path: Path,
+    endpoint: str,
+    condition: str,
+    kind: str | None,
+    refinement: bool,
+) -> None:
+    source = (
+        "shape Customer:\n"
+        "    id: Int not null\n"
+        "    code: Int not null\n"
+        "shape Order:\n"
+        "    id: Int not null\n"
+        "    customer_id: Int not null\n"
+        "    amount: Int not null\n"
+        'source customers: Customer is postgres.table("customers")\n'
+        'source orders: Order is postgres.table("orders")\n'
+        "query order_view:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        id\n"
+        "        a = customer_id\n"
+        "        b = customer_id\n"
+        "relationship order_customer:\n"
+        f"    endpoint order: {endpoint}\n"
+        "    endpoint customer: customers\n"
+        f"    on {condition}\n"
+        "query q:\n"
+        f"    from {endpoint}\n"
+        + (
+            ""
+            if kind is None
+            else f"    {kind} join customers as cust:\n"
+            f"        from {endpoint}\n"
+            "        via order_customer: order -> customer\n"
+            + (f"        on {endpoint}.id == cust.id\n" if refinement else "")
+        )
+        + f"    select:\n        key = {endpoint}.id\n"
+    )
+
+    # A repeated operand narrows the match only; every JOIN kind and VIA+ON
+    # refinement completes as with one equality (it used to crash for
+    # INNER/LEFT VIA).
+    if kind is None or (kind in {"inner", "left"} and not refinement):
+        assert _checked_both_ways(tmp_path, source) == ((), ())
+    else:
+        assert _project_diagnostics(tmp_path, {"main.pietto": source}) == ()
+
+
+def test_language_grouped_join_example_still_checks_in_a_project(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "shape Customer:\n"
+        "    id: Int not null\n"
+        "    name: Text not null\n"
+        "    unique customer_key on id\n"
+        "shape Order:\n"
+        "    id: Int not null\n"
+        "    customer_id: Int not null\n"
+        "    amount: Int not null\n"
+        'source customers: Customer is postgres.table("customers")\n'
+        'source orders: Order is postgres.table("orders")\n'
+        "relationship order_customer:\n"
+        "    endpoint order: orders\n"
+        "    endpoint customer: customers\n"
+        "    on order.customer_id == customer.id\n"
+        "query orders_per_customer:\n"
+        "    from orders\n"
+        "    inner join customers as customer:\n"
+        "        from orders\n"
+        "        via order_customer: order -> customer\n"
+        "    group by:\n"
+        "        customer.name\n"
+        "    select:\n"
+        "        customer_name = customer.name\n"
+        "        order_count = count(orders.id)\n"
+        "        largest = max(orders.amount)\n"
+    )
+    project, _single = _checked_both_ways(tmp_path, source)
+    assert project == ()
 
 
 def test_private_condition_model_adds_no_later_or_public_authority() -> None:

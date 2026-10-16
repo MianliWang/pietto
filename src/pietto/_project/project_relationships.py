@@ -337,6 +337,26 @@ class ProjectNonConcreteRelationshipSubject:
         if inferred is not self.state:
             raise ValueError("Relationship evidence does not support its state.")
 
+    @property
+    def reported_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Return the admission diagnostics a Project check reports.
+
+        An endpoint relation name that is ambiguous or blocked already has its
+        own root diagnostic, so it is not reported again as PIE-S2601.
+        """
+
+        blocked = {issue.local_name for issue in self.relation_issues}
+        return tuple(
+            diagnostic
+            for diagnostic in self.diagnostics
+            if diagnostic.code != "PIE-S2601"
+            or not any(
+                endpoint.authored_relation_spelling in blocked
+                and _span_contains(diagnostic.location, endpoint.span)
+                for endpoint in self.occurrence.endpoints
+            )
+        )
+
 
 type ProjectRelationshipSubject = (
     ProjectConcreteRelationshipSubject | ProjectNonConcreteRelationshipSubject

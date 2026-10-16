@@ -25,6 +25,7 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.project_relationships import (
     ProjectConcreteRelationshipSubject,
+    ProjectNonConcreteRelationshipSubject,
     ProjectRelationshipDeclarationIdentity,
     ProjectRelationshipEndpointOccurrence,
     ProjectRelationshipSet,
@@ -38,6 +39,11 @@ from pietto.ast_nodes import (
     RelationshipMatchClause,
     SourceDef,
     TableDef,
+)
+from pietto.errors import Diagnostic
+from pietto.semantic.relationship_metadata import (
+    incompatible_condition_operands,
+    unknown_condition_operand,
 )
 
 __all__: tuple[str, ...] = ()
@@ -694,6 +700,68 @@ class ProjectRelationshipConditionSet:
                     raise ValueError(
                         "Condition field must retain attribution authority."
                     )
+
+    @property
+    def diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Return the reported relationship diagnostics in module and source order.
+
+        A declaration reports its admission diagnostics; an admitted one reports
+        an unknown endpoint role or field and incompatible operand types of its
+        field equalities. Other failed conditions stay private.
+        """
+
+        conditions = iter(self.conditions)
+        diagnostics: list[Diagnostic] = []
+        for subject in self.relationships.subjects:
+            if type(subject) is ProjectNonConcreteRelationshipSubject:
+                diagnostics.extend(subject.reported_diagnostics)
+                continue
+            condition = next(conditions)
+            if type(condition) is not ProjectNonConcreteRelationshipCondition:
+                continue
+            for issue in condition.issues:
+                comparison = issue.expression
+                if (
+                    issue.kind
+                    is ProjectRelationshipConditionIssueKind.INCOMPATIBLE_FIELD_TYPES
+                ):
+                    assert type(comparison) is ComparisonExpr
+                    left_type, right_type = (
+                        reference.semantic_field.resolved_type
+                        for reference in issue.references
+                    )
+                    left_name, right_name = left_type.name, right_type.name
+                    if (
+                        left_name == right_name
+                        and left_type.symbol
+                        and right_type.symbol
+                    ):
+                        # Same-named nominal types differ by declaring module.
+                        left_name = f"{left_name} from {left_type.symbol.path}"
+                        right_name = f"{right_name} from {right_type.symbol.path}"
+                    diagnostics.append(
+                        incompatible_condition_operands(
+                            comparison, left_name, right_name
+                        )
+                    )
+                elif issue.kind in {
+                    ProjectRelationshipConditionIssueKind.UNKNOWN_ENDPOINT_ROLE,
+                    ProjectRelationshipConditionIssueKind.UNKNOWN_FIELD,
+                }:
+                    assert type(comparison) is ComparisonExpr
+                    assert issue.reference_identity is not None
+                    operand = (comparison.left, comparison.right)[
+                        issue.reference_identity.operand_position
+                    ]
+                    assert type(operand) is DottedNameExpr
+                    diagnostics.append(
+                        unknown_condition_operand(
+                            operand,
+                            role=issue.kind
+                            is ProjectRelationshipConditionIssueKind.UNKNOWN_ENDPOINT_ROLE,
+                        )
+                    )
+        return tuple(diagnostics)
 
 
 def _condition_conjuncts(expression: Expression) -> tuple[Expression, ...]:

@@ -332,6 +332,31 @@ field correspondence != key evidence != cardinality evidence
 relationship declaration on != authored JOIN use
 ```
 
+Post-Phase70 stability note (2026-10-16): the public condition exposure
+assigned to Phase 70 is delivered by the post-Phase70 stability batch, so
+several zero-delta claims of this spec no longer hold. Single-file checks and
+EXPLICIT_MODULES project checks report PIE-S2604 for the
+`UNKNOWN_ENDPOINT_ROLE` and `UNKNOWN_FIELD` issues (at the operand) and the
+`INCOMPATIBLE_FIELD_TYPES` issue (at the equality) of a concrete relationship,
+whether or not a JOIN uses it. This retracts the zero delta to existing endpoint
+admission diagnostics and order and to CLI / JSON in the list above, the
+public semantic zero delta under Focused Assurance (public single-file
+`analyze()` diagnostics now include PIE-S2604), and the statement that known
+distinct exact types are only a private relationship proof rule: the same
+exact-identity rule now also decides the public PIE-S2604 incompatibility. It
+adds no general comparison compatibility matrix. Script IR and SQL zero delta
+still hold. The other issue kinds, the condition states and the private
+carriers above are unchanged and stay private. A concrete condition whose
+equalities match one value class of the same endpoint more than once (a
+repeated operand field, a repeated or reversed equality, or two output fields
+of one value class) keeps its distinct correspondences and its match
+guarantees. Phase-62 verification of an INNER or LEFT relationship traversal
+now expects such repeated match classes collapsed, as the key/FD transfer
+producer already did, instead of requiring one class per equality; that
+traversal completes instead of the former failed-verification traceback.
+Every other JOIN kind and VIA+ON refinement through such a condition keeps its
+existing behavior. It is not a PIE-S2604 error.
+
 ## Focused Assurance
 
 Focused tests prove:

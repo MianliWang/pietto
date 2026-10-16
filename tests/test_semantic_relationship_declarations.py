@@ -13,10 +13,15 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 import pietto._project.project_relationships as relationships
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto.ast_nodes import Definition, Script
 from pietto.errors import Diagnostic
 from pietto.ir.model import RelationIR, ScriptIR
+from pietto.parser_api import parse_source
+from pietto.semantic import analyze
 from pietto.semantic.model import RelationshipSemanticInfo, SemanticModel
 
 
@@ -342,6 +347,219 @@ def test_non_concrete_states_are_distinct_and_do_not_erase_concrete_subjects(
                 for subject in environment.subjects
             ),
         )
+
+
+_ADMISSION_SOURCE = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    label: Text not null\n"
+    'source rows: Row is postgres.table("rows")\n'
+    'source others: Row is postgres.table("others")\n'
+    "relationship valid:\n"
+    "    endpoint first: rows\n"
+    "    endpoint second: others\n"
+    "relationship broken:\n"
+    "    endpoint known: rows\n"
+    "    endpoint missing: absent\n"
+    "    on known.zz == missing.id and ghost.id == known.label\n"
+    "relationship valid:\n"
+    "    endpoint first: rows\n"
+    "    endpoint second: others\n"
+    "relationship roles:\n"
+    "    endpoint same: rows\n"
+    "    endpoint same: nowhere\n"
+    "relationship typed:\n"
+    "    endpoint left: rows\n"
+    "    endpoint right: others\n"
+    "    on ghost.id == right.id and left.id == right.label\n"
+    "query q:\n"
+    "    from rows\n"
+    "    inner join others as other:\n"
+    "        from rows\n"
+    "        via broken: known -> missing\n"
+    "    select:\n"
+    "        id = rows.id\n"
+)
+
+
+def _located(diagnostics: tuple[Diagnostic, ...]) -> list[tuple[str, str, int, int]]:
+    return [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in diagnostics
+    ]
+
+
+def test_project_check_reports_relationship_admission_like_a_single_file(
+    tmp_path: Path,
+) -> None:
+    completed = build_project_completed_semantic_result(
+        _semantic_project(tmp_path, {"main.pietto": _ADMISSION_SOURCE})
+    )
+    parsed = parse_source(_ADMISSION_SOURCE, path="main.pietto")
+    assert parsed.ast is not None
+    single = analyze(parsed.ast).diagnostics
+    # The `on` of the non-admitted `broken` relationship is not checked.
+    relationship_diagnostics = [
+        ("PIE-S2601", "Unknown relationship endpoint relation: absent", 11, 5),
+        ("PIE-S2602", "Duplicate relationship metadata name: valid", 13, 1),
+        ("PIE-S2601", "Unknown relationship endpoint relation: nowhere", 18, 5),
+        (
+            "PIE-S2603",
+            "Duplicate endpoint local name in relationship roles: same",
+            18,
+            5,
+        ),
+        ("PIE-S2604", "Unknown relationship condition endpoint role: ghost", 22, 8),
+        (
+            "PIE-S2604",
+            "Incompatible relationship condition operands: "
+            "left.id (Int) == right.label (Text)",
+            22,
+            33,
+        ),
+    ]
+
+    assert _located(single) == relationship_diagnostics
+    assert _located(completed.diagnostics)[:6] == relationship_diagnostics
+    assert completed.diagnostics[:6] == single
+    # The JOIN through the broken relationship also fails its own completion.
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in completed.diagnostics[6:]
+    ] == [("PIE-S2333", 23, 1)]
+    assert not completed.ok
+
+
+_RELATION_ROOT_FILES = {
+    "duplicate_source": {
+        "main.pietto": (
+            "shape Row:\n"
+            "    id: Int not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            'source twice: Row is postgres.table("twice_a")\n'
+            'source twice: Row is postgres.table("twice_b")\n'
+            "relationship link:\n"
+            "    endpoint row: rows\n"
+            "    endpoint other: twice\n"
+            "    on row.id == other.id\n"
+        )
+    },
+    "duplicate_query": {
+        "main.pietto": (
+            "shape Row:\n"
+            "    id: Int not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            "query twin:\n"
+            "    from rows\n"
+            "    select:\n"
+            "        id\n"
+            "query twin:\n"
+            "    from rows\n"
+            "    select:\n"
+            "        id\n"
+            "relationship link:\n"
+            "    endpoint row: rows\n"
+            "    endpoint other: twin\n"
+            "    on row.id == other.id\n"
+        )
+    },
+    "failed_imports": {
+        "lib.pietto": (
+            "shape Row:\n"
+            "    id: Int not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            'source hidden: Row is postgres.table("hidden")\n'
+            "export:\n"
+            "    source rows\n"
+        ),
+        "main.pietto": (
+            'import "lib.pietto":\n'
+            "    source rows\n"
+            "    source hidden\n"
+            'import "gone.pietto":\n'
+            "    source ghost\n"
+            "relationship to_hidden:\n"
+            "    endpoint row: rows\n"
+            "    endpoint other: hidden\n"
+            "relationship to_ghost:\n"
+            "    endpoint row: rows\n"
+            "    endpoint other: ghost\n"
+            "relationship to_absent:\n"
+            "    endpoint row: rows\n"
+            "    endpoint other: absent\n"
+        ),
+    },
+}
+
+
+@pytest.mark.parametrize(
+    ("case", "states", "expected"),
+    [
+        (
+            "duplicate_source",
+            ("blocked",),
+            [
+                (
+                    "PIE-S2001",
+                    "Duplicate symbol name in relation namespace: twice",
+                    5,
+                    1,
+                ),
+                (
+                    "PIE-S2333",
+                    "Project relation semantic completion is unavailable: twice",
+                    4,
+                    1,
+                ),
+                (
+                    "PIE-S2333",
+                    "Project relation semantic completion is unavailable: twice",
+                    5,
+                    1,
+                ),
+            ],
+        ),
+        (
+            "duplicate_query",
+            ("ambiguous",),
+            [("PIE-S2001", "Duplicate symbol name in relation namespace: twin", 8, 1)],
+        ),
+        (
+            "failed_imports",
+            ("blocked", "blocked", "unknown"),
+            [
+                ("PIE-S2701", 'Unresolved module import target: "gone.pietto"', 4, 8),
+                (
+                    "PIE-S2705",
+                    "Imported declaration is private or not exported: "
+                    'source hidden from "lib.pietto"',
+                    3,
+                    12,
+                ),
+                ("PIE-S2601", "Unknown relationship endpoint relation: absent", 14, 5),
+            ],
+        ),
+    ],
+)
+def test_project_check_reports_no_unknown_endpoint_for_a_relation_with_its_own_error(
+    tmp_path: Path,
+    case: str,
+    states: tuple[str, ...],
+    expected: list[tuple[str, str, int, int]],
+) -> None:
+    files = _RELATION_ROOT_FILES[case]
+    semantic = _semantic_project(tmp_path, files)
+    subjects = _environment(
+        relationships.build_project_relationships(semantic), "main.pietto"
+    ).subjects
+    completed = build_project_completed_semantic_result(semantic)
+
+    assert tuple(subject.state.value for subject in subjects) == states
+    assert _located(completed.diagnostics) == expected
+    if len(files) == 1:
+        parsed = parse_source(files["main.pietto"], path="main.pietto")
+        assert parsed.ast is not None
+        assert _located(analyze(parsed.ast).diagnostics) == expected[:1]
 
 
 def test_carriers_reject_detached_authority_and_unreachable_deferred(

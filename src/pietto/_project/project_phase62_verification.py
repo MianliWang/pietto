@@ -1025,8 +1025,12 @@ def _expected_key_fd_signatures(
             tuple(_class_for_field(classes, pair.right) for pair in join.matches),
         ),
     )
-    if len(source_classes) != len(join.matches) or len(right_match_classes) != len(
-        join.matches
+    # Each match needs exact classes; repeated classes (a repeated operand
+    # field or equality) collapse as in the transfer producer.
+    if any(
+        _class_for_field(classes, field) is None
+        for pair in join.matches
+        for field in (pair.left, pair.right)
     ):
         return None
     forward = join.guarantee.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE

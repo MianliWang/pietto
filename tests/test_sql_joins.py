@@ -333,6 +333,45 @@ def test_a_via_route_refined_by_an_authored_predicate_emits_both(tmp_path, targe
     assert requirement_kinds(doc)["match_condition"] == 1
 
 
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "l.id == r.id and l.id == r.key",
+        "l.id == r.id and l.key == r.id",
+        "l.id == r.id and l.id == r.id",
+    ],
+    ids=["same_source", "same_target", "same_equality"],
+)
+@pytest.mark.parametrize("refinement", [False, True])
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
+def test_a_relationship_with_a_repeated_operand_emits_each_equality(
+    tmp_path, kind, refinement, condition
+):
+    """A repeated operand only narrows the match, for every kind and VIA+ON."""
+    outcome = emit(
+        tmp_path,
+        "postgres",
+        f"""relationship link:
+    endpoint l: lhs
+    endpoint r: rhs
+    on {condition}
+query result:
+    from lhs
+    {kind} join rhs as r:
+        from lhs
+        via link: l -> r
+"""
+        + ("        on lhs.key == r.key\n" if refinement else "")
+        + """    select:
+        a = lhs.id
+""",
+    )
+    doc = public(outcome)
+    assert doc["status"] == "VERIFIED"
+    assert requirement_kinds(doc)["relationship_equality"] == 2
+    assert requirement_kinds(doc)["match_condition"] == (1 if refinement else 0)
+
+
 # --------------------------------------------------------------------------
 # Producers: shared uses, membership-changing right sides, imports
 # --------------------------------------------------------------------------
