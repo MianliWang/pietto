@@ -93,14 +93,17 @@ error, is the serializer's bytes.
 
 `--output` keeps the ordinary CLI pathname interpretation (relative to the
 working directory, not project-contained). Before compilation a symbolic link, a
-non-regular existing destination or a missing parent directory is `output_path`.
+non-regular existing destination or a missing parent directory is `output_path`;
+a destination that cannot be inspected is left to the write, which reports
+`output_write`.
 Immediately before publication the destination is checked again and rejected as
 `output_path` when its resolved path, or its `(device, inode)` identity when it
 exists, equals the project configuration, any selected project source (selected
 or not for this owner) or the emission contract; hard links, normalized aliases
 and symlinked directory aliases are therefore refused, and a different file that
 merely shares a name is not. Only VERIFIED publishes: the bytes are written to a
-same-directory temporary file and installed with one `os.replace` after
+same-directory temporary file with a short `.pietto-*.tmp` name and installed with
+one `os.replace` after
 compilation, verification and serialization are complete. A creation, write,
 close, replacement or cleanup failure leaves an existing destination unchanged
 and an absent destination absent, removes only this invocation's temporary file,

@@ -295,6 +295,11 @@ def test_text_renderer_is_structured_deterministic_safe_and_private(
     assert project_text.__all__ == ()
 
 
+def test_text_values_escape_controls_and_keep_backslashes_unambiguous() -> None:
+    value = "a\\b\t\x7f\u009b\u202e\u2028"
+    assert project_text._text(value) == (r"a\\b\t\x7f\u009b\u202e\u2028")
+
+
 def test_cli_dependency_direction_is_narrow_and_does_not_duplicate_runtime() -> None:
     source = (REPO_ROOT / "src/pietto/cli.py").read_text(encoding="utf-8")
     text_source = Path(project_text.__file__).read_text(encoding="utf-8")
