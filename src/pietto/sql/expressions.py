@@ -392,6 +392,17 @@ def render_window_call_sql(
     elif nth_direction is not None:
         raise ValueError("PostgreSQL non-nth function forbids FROM direction")
 
+    count_position = 0 if name == "ntile" else 1
+    if (
+        name in {"ntile", "lag", "lead", "nth_value"}
+        and count_position < len(arguments)
+        and type(arguments[count_position]) is LiteralIR
+        and type(arguments[count_position].value) is int
+        and not 0 <= arguments[count_position].value <= (1 << 31) - 1
+    ):
+        raise ValueError(
+            f"PostgreSQL {name} integer argument is outside signed int32 range"
+        )
     argument_sql = ", ".join(
         _render_expression_sql(argument, nested=True) for argument in arguments
     )

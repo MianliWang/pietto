@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from pietto.ir.model import (
     AggregateCallIR,
@@ -61,6 +62,7 @@ def render_relation_sql(
         NamedWindowLoweringStrategy.NOT_LOWERABLE
     ):
         raise ValueError(named_decision.reason)
+    relation = qualify_alias_captured_order_fields(relation, mysql=False)
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"
@@ -114,6 +116,54 @@ def render_relation_sql(
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
     return "\n".join(lines)
+
+
+def qualify_alias_captured_order_fields(
+    relation: RelationIR,
+    *,
+    mysql: bool,
+) -> RelationIR:
+    """Qualify each bare ORDER BY input field that a same-named output would capture.
+
+    PostgreSQL and MySQL bind a whole bare ORDER BY name to a SELECT output
+    before an input column (MySQL compares the names case-insensitively);
+    inside an expression both read the input column. An output that is the
+    same input field reads the same value, so it captures nothing.
+    """
+
+    def spelling(name: str) -> str:
+        return name.casefold() if mysql else name
+
+    def captured(expression: ExpressionIR) -> bool:
+        return (
+            isinstance(expression, FieldRefIR)
+            and not expression.qualifier
+            and expression.field is not None
+            and any(
+                projection.name is not None
+                and spelling(projection.name) == spelling(expression.name)
+                and not (
+                    isinstance(projection.expression, FieldRefIR)
+                    and projection.expression.field == expression.field
+                )
+                for projection in relation.projections
+            )
+        )
+
+    if not any(captured(item.expression) for item in relation.order_by):
+        return relation
+    return replace(
+        relation,
+        order_by=tuple(
+            replace(
+                item,
+                expression=replace(item.expression, qualifier=(relation.source.name,)),
+            )
+            if captured(item.expression)
+            else item
+            for item in relation.order_by
+        ),
+    )
 
 
 def _render_input(input_name: tuple[str, ...], relation: RelationIR) -> str:

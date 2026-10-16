@@ -401,6 +401,11 @@ def test_q1_nominal_enum_is_not_a_bool_alias() -> None:
             "expected same canonical comparable type",
         ),
         ("name like count", "PIE-S2105", "expected Text operands"),
+        (
+            'name not like "Hello!"',
+            "PIE-S2105",
+            "does not end in the escape character !",
+        ),
         ("cast(count as Text)", "PIE-S2105", "expected cast(Int as Float)"),
         ('substr("abc", 0, 2)', "PIE-S2104", "start must be a positive Int literal"),
     ],
@@ -427,6 +432,21 @@ def test_q1_closed_expression_rules_fail_with_deterministic_diagnostics(
     assert len(matching) == 1
 
 
+def test_like_patterns_with_paired_or_inner_escapes_are_accepted() -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            '    where name like "100!!" or name like "wow!%"\n'
+            "    select:\n"
+            "        name\n"
+        )
+    )
+
+    # Before: `like "Hello!"` also checked OK although PostgreSQL rejects it.
+    assert result.diagnostics == ()
+
+
 @pytest.mark.parametrize(
     ("expression", "attempted"),
     [
@@ -440,6 +460,7 @@ def test_q1_closed_expression_rules_fail_with_deterministic_diagnostics(
         ("cast(count as Decimal(10, 2))", "cast(Int as Decimal(10, 2))"),
         ("cast(age as Text)", "cast(Int as Text)"),
         ("cast(count as Age)", "cast(Int as Age)"),
+        ("cast(null as Float)", "cast(null as Float)"),
     ],
 )
 def test_invalid_cast_echoes_the_attempted_pair(

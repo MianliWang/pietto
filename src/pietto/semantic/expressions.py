@@ -37,6 +37,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
     WindowExpr,
+    WindowFrameUnit,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -409,6 +410,9 @@ def type_relation_expressions(
 
                 if type(analysis) is WindowExpressionAnalysis:
                     window_analyses[item.expression] = analysis
+                    diagnostics.extend(
+                        _window_literal_range_diagnostics(item.expression, analysis)
+                    )
                     result = analysis.semantic_fact.result
                     if (
                         result.kind is WindowResultAvailabilityKind.CONCRETE
@@ -479,8 +483,143 @@ def type_relation_expressions(
                     bare_value_expressions=let_expressions,
                     type_expansions=type_expansions,
                 )
+                if not input_schema.is_unknown and _is_constant_order_key(
+                    item.expression, input_schema, let_expressions or {}
+                ):
+                    diagnostics.append(_constant_order_key_diagnostic(item.expression))
 
     return value_types, diagnostics, window_analyses, named_window_namespaces
+
+
+_SIGNED64_MAX = (1 << 63) - 1
+# The literal count argument of each window function that takes one.
+_WINDOW_COUNT_POSITIONS = {"ntile": 0, "lag": 1, "lead": 1, "nth_value": 1}
+
+
+def _window_literal_range_diagnostics(
+    expression: WindowExpr,
+    analysis: WindowExpressionAnalysis,
+) -> list[Diagnostic]:
+    """Refuse window literals that no SQL target accepts, before emission.
+
+    A ROWS or GROUPS offset must be a nonnegative signed 64-bit Int literal and
+    a count argument may not exceed that range; the narrower PostgreSQL int4
+    count range is checked when PostgreSQL SQL is emitted.
+    """
+
+    name = expression.identity.name
+    messages: list[str] = []
+    frame = analysis.validated_specification.resolved.frame
+    unit = frame.unit
+    if (unit is WindowFrameUnit.ROWS or unit is WindowFrameUnit.GROUPS) and any(
+        bound is not None
+        and bound.offset is not None
+        and not (
+            type(bound.offset) is LiteralExpr
+            and type(bound.offset.value) is int
+            and 0 <= bound.offset.value <= _SIGNED64_MAX
+        )
+        for bound in (frame.start, frame.end)
+    ):
+        messages.append(
+            f"Invalid window frame for function {name}: "
+            f"{unit.value.upper()} offsets must be nonnegative integer "
+            f"literals up to {_SIGNED64_MAX}"
+        )
+    position = _WINDOW_COUNT_POSITIONS.get(name)
+    arguments = expression.call.arguments
+    if position is not None and position < len(arguments):
+        count = arguments[position]
+        if (
+            type(count) is LiteralExpr
+            and type(count.value) is int
+            and count.value > _SIGNED64_MAX
+        ):
+            messages.append(
+                f"Invalid arguments for function {name}: integer literal must not "
+                f"exceed {_SIGNED64_MAX}"
+            )
+    span = expression.call.span
+    return [
+        Diagnostic(
+            code="PIE-S2104",
+            severity=Severity.ERROR,
+            message=message,
+            location=SourceLocation(
+                path=span.path,
+                line=span.line,
+                column=span.column,
+                end_line=span.end_line,
+                end_column=span.end_column,
+            ),
+        )
+        for message in messages
+    ]
+
+
+_CONSTANT_OPERATOR_EXPRESSIONS = (
+    UnaryExpr,
+    BinaryExpr,
+    ComparisonExpr,
+    BetweenExpr,
+    ConditionalExpr,
+    MembershipExpr,
+    CastExpr,
+    IsNullExpr,
+)
+
+
+def _is_constant_order_key(
+    expression: Expression,
+    input_schema: RowSchema,
+    let_expressions: Mapping[str, Expression],
+) -> bool:
+    """Whether a key, through its `let:` names, reads no field, aggregate or window.
+
+    SQL reads a bare integer ORDER BY constant as an output position and
+    PostgreSQL rejects other constants, so a constant key never sorts rows.
+    """
+
+    pending = [expression]
+    expanded: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if type(node) is LiteralExpr:
+            continue
+        if (
+            type(node) is NameExpr
+            and node.name not in input_schema.fields
+            and node.name in let_expressions
+        ):
+            if node.name not in expanded:
+                expanded.add(node.name)
+                pending.append(let_expressions[node.name])
+            continue
+        if isinstance(node, _CONSTANT_OPERATOR_EXPRESSIONS) or (
+            type(node) is CallExpr and not contains_semantic_aggregate(node)
+        ):
+            pending.extend(_captured_field_children(node))
+            continue
+        return False
+    return True
+
+
+def _constant_order_key_diagnostic(expression: Expression) -> Diagnostic:
+    span = expression.span
+    return Diagnostic(
+        code="PIE-S2380",
+        severity=Severity.ERROR,
+        message=(
+            "Constant ORDER BY key: a key must read a field, aggregate or window result"
+        ),
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
 
 
 def infer_row_expression(
@@ -929,6 +1068,11 @@ def _infer(
         )
         if expression.operator in {"like", "not like"}:
             value_type, expected = resolved_like_value_type(left_type, right_type)
+            if expected is None and _ends_in_unpaired_like_escape(expression.right):
+                expected = (
+                    "a pattern that does not end in the escape character ! "
+                    "(write !! for a literal !)"
+                )
         else:
             value_type, expected = resolved_comparison_value_type(
                 left_type, right_type, type_expansions
@@ -1225,6 +1369,10 @@ def _cast_value_type(
         relation_columns=relation_columns,
     )
     if value_type.kind is ValueTypeKind.UNKNOWN:
+        if _is_null_literal(expression.value):
+            diagnostics.append(
+                _invalid_cast_diagnostic(expression, value_type, type_expansions)
+            )
         return _UNKNOWN_VALUE_TYPE
     if (
         expression.target.name != "Float"
@@ -1349,6 +1497,17 @@ def resolved_comparison_value_type(
     ):
         return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN), None
     return _UNKNOWN_VALUE_TYPE, "comparable operands"
+
+
+def _ends_in_unpaired_like_escape(pattern: Expression) -> bool:
+    """Whether a literal LIKE pattern ends in an unpaired `ESCAPE '!'` character.
+
+    PostgreSQL rejects such a pattern and MySQL matches its final `!` literally.
+    """
+
+    if type(pattern) is not LiteralExpr or type(pattern.value) is not str:
+        return False
+    return (len(pattern.value) - len(pattern.value.rstrip("!"))) % 2 == 1
 
 
 def resolved_like_value_type(
@@ -2175,7 +2334,11 @@ def _invalid_cast_diagnostic(
     """Report a rejected explicit conversion, echoing the attempted pair."""
 
     canonical = _canonical_resolved_type(value_type, type_expansions)
-    source = (value_type.resolved_type if canonical is None else canonical).name
+    source = (
+        "null"
+        if _is_null_literal(expression.value)
+        else (value_type.resolved_type if canonical is None else canonical).name
+    )
     target = _type_expression_text(expression.target)
     span = expression.span
     return Diagnostic(

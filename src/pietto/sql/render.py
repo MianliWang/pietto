@@ -12,6 +12,9 @@ def quote_identifier(name: str) -> str:
         raise ValueError("PostgreSQL identifiers must not be empty")
     if "\x00" in name:
         raise ValueError("PostgreSQL identifiers must not contain NUL")
+    if len(name.encode("utf-8")) > 63:
+        # PostgreSQL silently truncates longer names, so two could collide.
+        raise ValueError("PostgreSQL identifiers must not exceed 63 bytes")
     return f'"{name.replace('"', '""')}"'
 
 
