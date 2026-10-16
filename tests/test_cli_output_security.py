@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import os
 import sys
 from pathlib import Path
@@ -86,7 +87,7 @@ def test_successful_output_atomically_overwrites_regular_file(
     assert output.read_text(encoding="utf-8") == (
         'SELECT\n    "email" AS "email"\nFROM "users"\n'
     )
-    assert not tuple(tmp_path.glob(".output.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_atomic_replace_failure_preserves_existing_output_and_cleans_temp(
@@ -109,7 +110,7 @@ def test_atomic_replace_failure_preserves_existing_output_and_cleans_temp(
     assert captured.out == ""
     assert captured.err == f"{output}: error: Permission denied\n"
     assert output.read_text(encoding="utf-8") == "original SQL\n"
-    assert not tuple(tmp_path.glob(".output.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_replace_error_omits_os_text_and_temporary_path(
@@ -267,6 +268,66 @@ def test_control_characters_in_diagnostic_text_are_escaped(
     )
 
 
+# C1 controls (CSI and NEL included), line/paragraph separators, bidi controls.
+_UNICODE_CONTROLS = "\u0080\u0085\u009b\u009f  ؜‎‏‪‫‬‭‮⁦⁧⁨⁩"
+
+
+@pytest.mark.parametrize("character", list(_UNICODE_CONTROLS))
+def test_unicode_controls_in_diagnostic_text_are_u_escaped(
+    character: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    diagnostic = Diagnostic(
+        code="PIE-P1000",
+        severity=Severity.ERROR,
+        message=f"input '{character}'",
+        location=SourceLocation(path=f"a{character}.pietto", line=1, column=2),
+    )
+
+    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pietto"))
+
+    escape = f"\\u{ord(character):04x}"
+    assert capsys.readouterr() == (
+        "",
+        f"a{escape}.pietto:1:2 PIE-P1000 error: input '{escape}'\n",
+    )
+
+
+def test_neighbors_of_escaped_unicode_controls_stay_raw(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    text = "~ é‧ ⁥⁪"
+
+    cli._print_cli_error(Path(text), text)
+
+    assert capsys.readouterr() == ("", f"{text}: error: {text}\n")
+
+
+@pytest.mark.parametrize("character", ["\u009b", " ", "‮"])
+def test_source_unicode_controls_are_escaped_in_text_and_raw_in_json(
+    character: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "controls.pietto", f"{SOURCE}{character}\n")
+    escape = f"\\u{ord(character):04x}"
+
+    assert cli.main(["check", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"input '{escape}'" in captured.err
+    assert character not in captured.err
+
+    assert cli.main(["check", str(path), "--format", "json"]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert f"input '{character}'" in document["diagnostics"][0]["message"]
+
+    valid = _write(tmp_path, f"ok{character}.pietto", SOURCE)
+    assert cli.main(["check", str(valid)]) == 0
+    assert capsys.readouterr().out == f"OK: {str(valid).replace(character, escape)}\n"
+
+
 def test_success_path_with_newline_is_escaped_on_stdout(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -281,6 +342,24 @@ def test_success_path_with_newline_is_escaped_on_stdout(
     assert captured.out == f"OK: {str(path).replace(chr(10), r'\n')}\n"
     assert len(captured.out.splitlines()) == 1
     assert captured.err == ""
+
+
+def test_explain_text_path_is_escaped_and_json_path_stays_raw(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "nl\nesc\x1b[31m.pietto", SOURCE)
+    escaped = str(path).replace("\n", r"\n").replace("\x1b", r"\x1b")
+
+    assert cli.main(["explain", str(path)]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out.splitlines()[3] == f"path: {escaped}"
+    assert "\x1b" not in captured.out
+    assert captured.err == ""
+
+    assert cli.main(["explain", str(path), "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["path"] == str(path)
 
 
 def _emit(path: Path, output: Path) -> int:

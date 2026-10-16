@@ -1052,10 +1052,7 @@ def test_output_file_is_the_exact_artifact_and_replacement_is_atomic(
         b"pietto.sql-emission.v1 VERIFIED\n"
     )
     assert existing.read_bytes() == expected
-    assert (
-        sorted(p.name for p in tmp_path.iterdir() if p.name.startswith(".existing"))
-        == []
-    )
+    assert not tuple(tmp_path.glob("*.tmp"))
     # Only VERIFIED publishes: a failure leaves an existing destination unchanged.
     existing.write_bytes(b"stale")
     arguments = argv(root, target, kind="query", output=str(existing))
@@ -1074,6 +1071,21 @@ def test_output_file_is_the_exact_artifact_and_replacement_is_atomic(
         code, out, err = run(argv(root, target, output=str(destination)))
         assert code == 2 and kinds(out) == [("output_path", None)]
     assert existing.read_bytes() == b"stale"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows limits the whole path, not one name"
+)
+def test_output_file_accepts_the_longest_file_name_the_os_accepts(
+    tmp_path: Path,
+) -> None:
+    root, item = project(tmp_path, "postgres")
+    expected = api_bytes(tmp_path, item)
+    longest = os.pathconf(tmp_path, "PC_NAME_MAX")
+    output = tmp_path / f"{'a' * (longest - len('.json'))}.json"
+    assert run(argv(root, "postgres", output=str(output))) == (0, expected, "")
+    assert output.read_bytes() == expected
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1198,7 +1210,7 @@ def test_injected_file_faults_preserve_destinations_and_report_honestly(
     ]
     assert existing.read_bytes() == b"stale" and SENTINEL not in out.decode()
     monkeypatch.setattr(Path, "unlink", real_unlink)
-    for leftover in tmp_path.glob(".existing.json.*.tmp"):
+    for leftover in tmp_path.glob(".pietto-*.tmp"):
         leftover.unlink()
     monkeypatch.setattr(emission_cli.os, "replace", real_replace)
     assert run(argv(root, "postgres", output=str(existing))) == (0, expected, "")
@@ -1241,6 +1253,21 @@ def test_stdout_failure_is_not_success_and_never_rolls_back_a_replaced_file(
     assert code == 2 and err.getvalue() == (
         "pietto emit-sql: error: standard output could not be written\n"
     )
+
+    # A closed descriptor 1 leaves sys.stdout None, and a stream may fail only
+    # in every flush: each is the same failure, reported exactly once.
+    class FullStdout(io.StringIO):
+        def flush(self) -> None:
+            raise OSError(errno.ENOSPC, "no space")
+
+    for stdout in (None, FullStdout()):
+        monkeypatch.setattr(sys, "stdout", stdout)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = cli.main(argv(root, "postgres"))
+        assert code == 2 and err.getvalue() == (
+            "pietto emit-sql: error: standard output could not be written\n"
+        )
     # A stream without a binary buffer still receives the exact UTF-8 text.
     plain = io.StringIO()
     monkeypatch.setattr(sys, "stdout", plain)

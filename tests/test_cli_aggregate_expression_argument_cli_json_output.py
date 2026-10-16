@@ -235,7 +235,7 @@ def test_cli_text_output_replaces_file_with_supported_expression_argument_sql(
     assert captured.out == ""
     assert captured.err == ""
     assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -289,7 +289,7 @@ def test_cli_json_output_writes_file_and_keeps_expression_argument_artifacts(
         }
     ]
     assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -348,7 +348,7 @@ def test_unsupported_expression_argument_json_output_does_not_write(
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}
     assert output_path.read_text(encoding="utf-8") == "old SQL\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -467,7 +467,7 @@ def test_invalid_satisfying_expression_argument_boundaries_do_not_write_output(
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}
     assert output_path.read_text(encoding="utf-8") == "old SQL\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def _source(

@@ -186,7 +186,7 @@ def test_text_output_writes_grouped_order_sql_on_success(
     assert captured.out == ""
     assert captured.err == ""
     assert output_path.read_text(encoding="utf-8") == POSTGRES_SQL + "\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_json_output_writes_grouped_order_sql_and_keeps_artifacts(
@@ -230,7 +230,7 @@ def test_json_output_writes_grouped_order_sql_and_keeps_artifacts(
         }
     ]
     assert output_path.read_text(encoding="utf-8") == POSTGRES_SQL + "\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_invalid_grouped_order_text_fails_before_sql_artifacts(
@@ -328,7 +328,7 @@ def test_invalid_grouped_order_json_output_does_not_replace_existing_file(
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}
     assert output_path.read_text(encoding="utf-8") == "old SQL\n"
-    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_no_group_projection_alias_order_still_fails_before_sql(

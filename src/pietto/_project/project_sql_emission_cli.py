@@ -504,7 +504,7 @@ def _publish(
         with tempfile.NamedTemporaryFile(
             mode="wb",
             dir=output.parent,
-            prefix=f".{output.name}.",
+            prefix=".pietto-",
             suffix=".tmp",
             delete=False,
         ) as handle:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import errno
+import io
 import json
 import os
 from pathlib import Path
@@ -21,6 +24,11 @@ SOURCE = (
     'source users: User is postgres.table("users")\n'
 )
 _OUTPUT_ENCODING_ERROR = b"pietto: error: terminal output could not be encoded\n"
+_STDOUT_NO_SPACE = (
+    "pietto: error: standard output could not be written: "
+    f"No space left on device (errno {errno.ENOSPC})\n"
+)
+_STDOUT_CLOSED = "pietto: error: standard output is closed\n"
 
 
 def test_emit_sql_default_output_remains_stdout(
@@ -292,7 +300,7 @@ def test_emit_sql_zero_artifacts_refuse_the_output_file(
         assert output.read_text(encoding="utf-8") == "original SQL\n"
     else:
         assert not output.exists()
-    assert not tuple(tmp_path.glob(".out.sql.*.tmp"))
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_emit_sql_output_file_uses_lf_on_every_platform(
@@ -522,6 +530,196 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         assert b"Traceback" not in diagnostic.stderr
 
 
+class _FailingStdout:
+    """Stubbed stream fault: stdout whose write or flush fails like a descriptor."""
+
+    encoding = "utf-8"
+
+    def __init__(self, error: OSError, failing: str) -> None:
+        self._error = error
+        self._failing = failing
+
+    def write(self, text: str) -> int:
+        if self._failing == "write":
+            raise self._error
+        return len(text)
+
+    def flush(self) -> None:
+        if self._failing == "flush":
+            raise self._error
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_stderr"),
+    [
+        # The reader closed the pipe and wants no more output.
+        ("broken-pipe", ""),
+        ("no-space", _STDOUT_NO_SPACE),
+        # Python sets sys.stdout to None when descriptor 1 is closed.
+        ("closed", _STDOUT_CLOSED),
+    ],
+)
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["check", "{file}"],
+        ["check", "{file}", "--format", "json"],
+        ["explain", "{file}"],
+        ["explain", "{file}", "--format", "json"],
+        ["emit-sql", "{file}", "--dialect", "postgres"],
+        ["emit-sql", "{file}", "--dialect", "postgres", "--format", "json"],
+        ["check", "--project", "{project}"],
+        ["check", "--project", "{project}", "--format", "json"],
+        ["explain", "--project", "{project}", "--format", "json"],
+    ],
+)
+def test_stdout_failure_is_a_handled_cli_error_in_every_command(
+    command: list[str],
+    failure: str,
+    expected_stderr: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _relation_file(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    _write(project, "main.pietto", SOURCE)
+    stdout = {
+        "broken-pipe": _FailingStdout(BrokenPipeError(errno.EPIPE, "x"), "write"),
+        "no-space": _FailingStdout(OSError(errno.ENOSPC, "localized"), "flush"),
+        "closed": None,
+    }[failure]
+    monkeypatch.setattr(sys, "stdout", stdout)
+    stderr = io.StringIO()
+
+    with contextlib.redirect_stderr(stderr):
+        code = cli.main([part.format(file=path, project=project) for part in command])
+
+    assert (code, stderr.getvalue()) == (2, expected_stderr)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_code"),
+    [
+        (["check", "{bad}"], 1),  # compiler diagnostics
+        (["check", "{missing}"], 2),  # CLI error
+        (["check", "{bad}", "--project", "{project}"], 2),  # usage error
+        (["check", "--project", "{missing}"], 2),  # project discovery error
+        (["explain", "--project", "{project}"], 2),  # project explain failure text
+    ],
+)
+def test_closed_stderr_drops_notices_instead_of_writing_them_to_stdout(
+    command: list[str],
+    expected_code: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bad = _write(tmp_path, "bad.pietto", "shape User:\n    id: Intx not null\n")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    _write(project, "main.pietto", SOURCE)
+    arguments = [
+        part.format(bad=bad, missing=tmp_path / "missing", project=project)
+        for part in command
+    ]
+    stdout = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+    # Python sets sys.stderr to None when descriptor 2 is closed.
+    monkeypatch.setattr(sys, "stderr", None)
+
+    assert cli.main(arguments) == expected_code
+
+    assert stdout.getvalue() == ""
+
+
+def _stdout_failure_sink(sink: str) -> int | None:
+    if sink == "full":
+        return os.open("/dev/full", os.O_WRONLY)
+    if sink == "broken-pipe":
+        read_end, write_end = os.pipe()
+        os.close(read_end)
+        return write_end
+    return None
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or not os.path.exists("/dev/full"),
+    reason="needs POSIX pipes, /dev/full and sh",
+)
+@pytest.mark.parametrize(
+    ("sink", "command", "expected_stderr"),
+    [
+        # Output larger than the stdout buffer fails inside write().
+        ("broken-pipe", ["explain", "{large}"], ""),
+        # Small output fails only when it is flushed before exit.
+        ("broken-pipe", ["check", "{file}", "--format", "json"], ""),
+        ("full", ["emit-sql", "{large}", "--dialect", "postgres"], _STDOUT_NO_SPACE),
+        ("full", ["--version"], _STDOUT_NO_SPACE),
+        ("closed", ["emit-sql", "{file}", "--dialect", "postgres"], _STDOUT_CLOSED),
+    ],
+)
+def test_real_stdout_failure_exits_two_without_traceback(
+    sink: str,
+    command: list[str],
+    expected_stderr: str,
+    tmp_path: Path,
+) -> None:
+    path = _relation_file(tmp_path)
+    large = _write(
+        tmp_path,
+        "large.pietto",
+        "".join(
+            f"shape S{index}:\n    id: UUID not null\n"
+            f'source s{index}: S{index} is postgres.table("t{index}")\n'
+            f"table r{index}:\n    from s{index}\n    select:\n        id\n"
+            for index in range(40)
+        ),
+    )
+    arguments = [part.format(file=path, large=large) for part in command]
+    descriptor = _stdout_failure_sink(sink)
+    try:
+        completed = _run_cli(
+            arguments, stdout=descriptor, close_stdout=sink == "closed"
+        )
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+    assert (completed.returncode, completed.stderr) == (
+        2,
+        expected_stderr.encode("ascii"),
+    )
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows limits the whole path, not one name"
+)
+def test_emit_sql_output_accepts_the_longest_file_name_the_os_accepts(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _relation_file(tmp_path)
+    longest = os.pathconf(tmp_path, "PC_NAME_MAX")
+    output = tmp_path / f"{'a' * (longest - len('.sql'))}.sql"
+
+    assert (
+        cli.main(
+            ["emit-sql", str(path), "--dialect", "postgres", "--output", str(output)]
+        )
+        == 0
+    )
+
+    assert capsys.readouterr() == ("", "")
+    assert output.read_text(encoding="utf-8") == _expected_sql()
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
 def _relation_file(tmp_path: Path) -> Path:
     return _write(
         tmp_path,
@@ -554,6 +752,8 @@ def _run_cli(
     *,
     encoding: str | None = None,
     strict_stderr: bool = False,
+    stdout: int | None = None,
+    close_stdout: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     environment = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")}
     if encoding is None:
@@ -567,14 +767,13 @@ def _run_cli(
             "sys.stderr.fileno(), 'w', encoding=sys.stderr.encoding, "
             "errors='strict', closefd=False); " + program
         )
+    command = [sys.executable, "-c", program, *arguments]
+    if close_stdout:
+        command = ["sh", "-c", 'exec "$@" >&-', "sh", *command]
     return subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            program,
-            *arguments,
-        ],
-        capture_output=True,
+        command,
+        stdout=subprocess.PIPE if stdout is None else stdout,
+        stderr=subprocess.PIPE,
         check=False,
         env=environment,
     )
