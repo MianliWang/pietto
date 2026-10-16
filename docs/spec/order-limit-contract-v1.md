@@ -124,9 +124,12 @@ defaults to `asc`. Semantic IR always normalizes the direction to an explicit
 Sorting items preserve source order exactly. Reordering, deduplication, and
 optimizer-style normalization are prohibited.
 
-An empty block, multiple sorting items on one line, a trailing comma, an
-unknown direction keyword, a duplicate `order by` clause, or invalid clause
-placement is a syntax error reported through `PIE-P1000`.
+An empty block, a trailing comma, an unknown direction keyword, a duplicate
+`order by` clause, or invalid clause placement is a syntax error reported
+through `PIE-P1000`. Superseded in part: several sorting items may now share a
+line, as a comma list after `order by:` or on a block line (see the Layout
+section of docs/language.md); a trailing comma outside parentheses is still an
+error.
 
 ## Semantic Contract
 

@@ -68,40 +68,38 @@ def join_parenthesized_lines(
     Continuation lines inside ``(`` ... ``)`` carry no NEWLINE, so their
     indentation, blank lines and comments never reach the block logic; every
     token keeps its source position. An unmatched ``)`` is left to the parser.
-    A window block opened inside parentheses and a ``(`` still open at EOF are
-    reported; either makes the parser input meaningless.
+
+    A window block (``window:`` or ``window name:`` ending a line) opened
+    inside parentheses keeps its line breaks, as every parenthesized line
+    break did before joining existed: joining resumes once those parentheses
+    close, so such a QUALIFY operand parses exactly as it always did. A ``(``
+    still open at EOF is reported; it makes the parser input meaningless.
     """
 
     output: list[Token] = []
     diagnostics: list[Diagnostic] = []
     open_parens: list[Token] = []
-    reported: set[int] = set()
+    # The depth of the parentheses whose window block keeps line breaks.
+    kept_depth: int | None = None
     path_text = source_path(path)
     for token in tokens:
         if token.type == newline_type and open_parens:
-            # ``window:`` or ``window name:`` ending a joined line opens a block.
+            # ``window:`` or ``window name:`` ending a line opens a block.
             recent = [item.type for item in output[-3:]]
-            if recent[-2:] == [window_type, colon_type] or (
-                recent[:1] == [window_type] and recent[-1:] == [colon_type]
+            if kept_depth is None and (
+                recent[-2:] == [window_type, colon_type]
+                or (recent[:1] == [window_type] and recent[-1:] == [colon_type])
             ):
-                window = output[-2] if recent[-2] == window_type else output[-3]
-                if window.start in reported:
-                    continue
-                reported.add(window.start)
-                diagnostics.append(
-                    _diagnostic(
-                        "PIE-P1010",
-                        "A window block cannot be inside parentheses; remove "
-                        "the parentheses around the window function.",
-                        path_text,
-                        window,
-                    )
-                )
+                kept_depth = len(open_parens)
+            if kept_depth is not None:
+                output.append(token)
             continue
         if token.type == open_type:
             open_parens.append(token)
         elif token.type == close_type and open_parens:
             open_parens.pop()
+            if kept_depth is not None and len(open_parens) < kept_depth:
+                kept_depth = None
         elif token.type == Token.EOF and open_parens:
             diagnostics.append(
                 _diagnostic(

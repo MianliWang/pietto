@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import threading
 from pathlib import Path
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from antlr4 import ParserRuleContext
@@ -109,7 +111,7 @@ from pietto.ast_nodes import (
     WindowSpec,
     WindowUseKind,
 )
-from pietto.errors import AstBuildError, source_path
+from pietto.errors import AstBuildError, ParseCancelled, source_path
 from pietto.generated.PiettoParser import PiettoParser
 
 if TYPE_CHECKING:
@@ -189,10 +191,16 @@ class _TerminalNode(Protocol):
 class AstBuilder(PiettoVisitor):
     """Build an ANTLR-independent AST from a successfully parsed script."""
 
-    def __init__(self, path: str | Path | None) -> None:
-        """Create a builder whose AST spans use the supplied source path."""
+    def __init__(
+        self, path: str | Path | None, *, cancel: threading.Event | None = None
+    ) -> None:
+        """Create a builder whose AST spans use the supplied source path.
+
+        A set ``cancel`` event stops the build at its next tree node.
+        """
 
         self.path = source_path(path)
+        self._cancel = cancel
         # Header parameters of the entry query whose body is being built.
         self._header: dict[str, tuple[int, QueryParameter]] = {}
         # Capture names of the let body being built, with their line ordinals.
@@ -217,21 +225,30 @@ class AstBuilder(PiettoVisitor):
                 break
         if isinstance(tree, ParserRuleContext):
             self.deepest = tree.start
+        if self._cancel is not None and self._cancel.is_set():
+            raise ParseCancelled
         return cast(Any, tree).accept(self)
 
     def visitScript(self, ctx: _AntlrContext) -> Script:
         """Build the root script node."""
 
         header = self.visit(ctx.header()) if ctx.header() is not None else None
-        definitions = tuple(self.visit(item) for item in ctx.definition())
-        relationships = tuple(self.visit(item) for item in ctx.relationshipDefinition())
-        module_statements = tuple(self.visit(item) for item in ctx.moduleStatement())
+        # Building in source order makes a build error the first one in the file.
+        built: dict[type, list[Any]] = {
+            PiettoParser.DefinitionContext: [],
+            PiettoParser.RelationshipDefinitionContext: [],
+            PiettoParser.ModuleStatementContext: [],
+        }
+        for child in ctx.children or ():
+            kind = type(child)
+            if kind in built:
+                built[kind].append(self.visit(child))
         return Script(
             span=self._span(ctx),
             header=cast(Header | None, header),
-            definitions=definitions,
-            relationships=relationships,
-            module_statements=module_statements,
+            definitions=tuple(built[PiettoParser.DefinitionContext]),
+            relationships=tuple(built[PiettoParser.RelationshipDefinitionContext]),
+            module_statements=tuple(built[PiettoParser.ModuleStatementContext]),
         )
 
     def visitModuleStatement(
@@ -998,7 +1015,7 @@ class AstBuilder(PiettoVisitor):
         items: list[SelectItem] = []
         for line in self._clause_lines(ctx, "selectLine", "selectBody"):
             window = line.selectWindowItem()
-            if window is not None and (line is header or line.selectItem()):
+            if window is not None and line is header:
                 raise self._error(_WINDOW_ITEM_LINE, window.start)
             items.extend(self.visit(item) for item in line.selectItem())
             if window is not None:
@@ -1812,11 +1829,15 @@ class AstBuilder(PiettoVisitor):
 
         children = ctx.children or []
         result = cast(Expression, self.visit(children[0]))
+        if len(children) == 1:
+            return result
+        # Every fold node spans the whole chain, so the span is computed once.
+        span = self._span(ctx)
         for index in range(1, len(children), 2):
             operator = cast(_TerminalNode, children[index]).getText()
             right = cast(Expression, self.visit(children[index + 1]))
             result = BinaryExpr(
-                span=self._span(ctx),
+                span=span,
                 left=result,
                 operator=operator,
                 right=right,
@@ -1881,17 +1902,20 @@ class AstBuilder(PiettoVisitor):
     def _last_significant_token(node: Any) -> Token | None:
         """Find the last token that contributes source text to an AST node."""
 
-        # Right-to-left depth-first order without recursion: the first token
-        # met that is not layout is the last one in source order.
-        pending = [node]
+        # Right-to-left depth-first order without recursion or copying: the
+        # first token met that is not layout is the last one in source order,
+        # and only the nodes passed before it are touched.
+        pending: list[Iterator[Any]] = [iter((node,))]
         while pending:
-            current = pending.pop()
-            if isinstance(current, TerminalNode):
+            current = next(pending[-1], None)
+            if current is None:
+                pending.pop()
+            elif isinstance(current, TerminalNode):
                 token = cast(_TerminalNode, current).getSymbol()
                 if token.type not in _LAYOUT_TOKEN_TYPES:
                     return token
-                continue
-            pending.extend(getattr(current, "children", None) or ())
+            else:
+                pending.append(reversed(getattr(current, "children", None) or ()))
         return None
 
     @staticmethod

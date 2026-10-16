@@ -8,7 +8,6 @@ import pytest
 import pietto.cli as cli
 import pietto.ir as ir_api
 import pietto.sql as sql_api
-from pietto.parser_api import parse_source
 
 
 def test_check_valid_file_returns_success(
@@ -119,11 +118,8 @@ def test_check_deep_unary_returns_parser_error_without_traceback(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    # Located at the deepest operator reached, the same for every caller.
-    (expected,) = parse_source(path.read_text(encoding="utf-8"), path=path).diagnostics
-    location = expected.location
-    assert location.line == 2 and location.column > 1
-    assert f"{path}:{location.line}:{location.column} PIE-P1000 error:" in captured.err
+    # Located at the start of the declaration that ran out of depth.
+    assert f"{path}:1:1 PIE-P1000 error:" in captured.err
     assert "recursion limit" in captured.err
     assert "Traceback" not in captured.err
     assert "RecursionError" not in captured.err

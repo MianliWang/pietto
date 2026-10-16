@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
+from antlr4 import ParserRuleContext
+from antlr4.Token import CommonToken
+from antlr4.tree.Tree import TerminalNodeImpl
+
+from pietto.ast_builder import AstBuilder
 
 from pietto.ast_nodes import (
     BinaryExpr,
@@ -20,6 +28,7 @@ from pietto.ast_nodes import (
     TypeDef,
     UnaryExpr,
 )
+from pietto.generated.PiettoParser import PiettoParser
 from pietto.parser_api import parse_source
 
 
@@ -223,3 +232,53 @@ def test_new_words_remain_ordinary_names_and_order_columns() -> None:
     assert [
         (type(item.expression), item.direction) for item in query.order_by_clause.items
     ] == [(NameExpr, "asc"), (NameExpr, "desc")]
+
+
+def test_a_flat_operator_chain_computes_its_span_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contexts: list[str] = []
+    span = AstBuilder._span
+
+    def counted(self: AstBuilder, ctx: ParserRuleContext) -> Span:
+        contexts.append(type(ctx).__name__)
+        return span(self, ctx)
+
+    monkeypatch.setattr(AstBuilder, "_span", counted)
+    terms = " + ".join(["1"] * 2000)
+    result = parse_source(f"derive total() -> Int not null:\n    {terms}\n")
+
+    assert result.diagnostics == () and result.ast is not None
+    assert contexts.count("AdditiveExpressionContext") == 1
+
+
+class _Children(list[Any]):
+    """Children that count how many of them a search touches."""
+
+    touched = 0
+
+    def __iter__(self) -> Iterator[Any]:
+        for item in super().__iter__():
+            self.touched += 1
+            yield item
+
+    def __reversed__(self) -> Iterator[Any]:
+        for item in super().__reversed__():
+            self.touched += 1
+            yield item
+
+
+class _Node:
+    def __init__(self, children: _Children) -> None:
+        self.children = children
+
+
+def test_the_last_significant_token_search_touches_only_trailing_nodes() -> None:
+    token = CommonToken(type=PiettoParser.IDENTIFIER)
+    token.text = "x"
+    children = _Children(
+        [*(_Node(_Children()) for _ in range(5000)), TerminalNodeImpl(token)]
+    )
+
+    assert AstBuilder._last_significant_token(_Node(children)) is token
+    assert children.touched == 1

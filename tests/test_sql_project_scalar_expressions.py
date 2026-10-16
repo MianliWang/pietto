@@ -965,3 +965,116 @@ def test_literal_list_and_relation_membership_stay_distinct(tmp_path, target):
         ("listed", True),
         ("read", True),
     ]
+
+
+# A project that calls defs, and the same project with each call written out
+# by hand: fixture, variant, defs, edits for the calls, edits written out.
+DEF_PROJECTS = {
+    "row_body": (
+        "T_row_direct",
+        "table_preserve",
+        "def small(n: Int not null) -> Bool nullable: return n > 0 and n < 1000\n"
+        "def both(a: Int not null, b: Int not null) -> Bool nullable: "
+        "return small(a) and small(b)\n"
+        "def label(t: Text not null, f: Bool nullable) -> Text not null: "
+        'return "on" if f is null else lower(t)\n'
+        "def next_of(n: Int not null) -> Int nullable: return n + 1\n",
+        [
+            ("bumped = id + 1", "bumped = next_of(id)"),
+            ("where id > 0", "where both(id, id) and small(id)"),
+            ("positive = id > 0", "positive = label(text, flag) == label(text, flag)"),
+        ],
+        [
+            ("bumped = id + 1", "bumped = (id + 1)"),
+            (
+                "where id > 0",
+                "where ((id > 0 and id < 1000) and (id > 0 and id < 1000)) and "
+                "(id > 0 and id < 1000)",
+            ),
+            (
+                "positive = id > 0",
+                'positive = ("on" if flag is null else lower(text)) == '
+                '("on" if flag is null else lower(text))',
+            ),
+        ],
+    ),
+    "parameter_named_like_a_function": (
+        "T_row_direct",
+        "table_preserve",
+        "def f(upper: Text not null) -> Text not null: return upper(upper)\n",
+        [
+            ("doubled = bumped * 2", "doubled = bumped * 2\n        lower = text"),
+            ("same_text = text == text", "same_text = f(lower) == text"),
+        ],
+        [
+            ("doubled = bumped * 2", "doubled = bumped * 2\n        lower = text"),
+            ("same_text = text == text", "same_text = (upper(lower)) == text"),
+        ],
+    ),
+    "reordered_bound_literals": (
+        "T_row_direct",
+        "query_bind",
+        "def btw(lo: Int not null, hi: Int not null, n: Int not null) -> "
+        "Bool nullable: return n < hi and n > lo\n",
+        [("where id > 0", "where btw(0, 1000, id) and btw(0, 1000, id)")],
+        [
+            (
+                "where id > 0",
+                "where (id < 1000 and id > 0) and (id < 1000 and id > 0)",
+            )
+        ],
+    ),
+    "grouped_let_key": (
+        "Y_aggregate_computed",
+        "let_key",
+        "def bucket_of(k: Int nullable) -> Int not null: return 1 if k > 1 else 0\n",
+        [("bucket = 1 if key > 1 else 0", "bucket = bucket_of(key)")],
+        [("bucket = 1 if key > 1 else 0", "bucket = (1 if key > 1 else 0)")],
+    ),
+    "satisfying": (
+        "Y_aggregate_satisfying",
+        "retained",
+        "def small(t: Int not null) -> Bool nullable: return t < 2\n",
+        [("total < 2 and lo > 5", "small(total) and lo > 5")],
+        [("total < 2 and lo > 5", "(total < 2) and lo > 5")],
+    ),
+    "qualify": (
+        "A_window_qualify",
+        "selected",
+        "def top(n: Int not null) -> Bool nullable: return n <= 2\n",
+        [("numbered <= 2", "top(numbered)")],
+        [("numbered <= 2", "(numbered <= 2)")],
+    ),
+    "join_on": (
+        "W_join_values",
+        "left_marker",
+        "def same(a: Int not null, b: Int not null) -> Bool nullable: return a == b\n",
+        [("on rows.id == r.pid", "on same(rows.id, r.pid)")],
+        [("on rows.id == r.pid", "on (rows.id == r.pid)")],
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("case", "variant", "defs", "called", "written"),
+    DEF_PROJECTS.values(),
+    ids=DEF_PROJECTS,
+)
+def test_def_calls_emit_the_project_sql_of_the_calls_written_out(
+    tmp_path, target, case, variant, defs, called, written
+):
+    item = probe.fixture(target, case, variant)
+    documents = []
+    for name, edits, extra in (("called", called, defs), ("written", written, "")):
+        source = item["source"]
+        for old, new in edits:
+            assert source.count(old) == 1
+            source = source.replace(old, new)
+        _, outcome = probe.build_case(
+            tmp_path / name, source + extra, item["contract"], item["policy"]
+        )
+        documents.append(json.loads(serialize_project_sql_emission(outcome)))
+    assert documents[0]["status"] == documents[1]["status"] == "VERIFIED"
+    for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
+        assert documents[0][key] == documents[1][key], key

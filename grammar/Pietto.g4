@@ -421,10 +421,11 @@ selectBody
     : NEWLINE* selectLine (selectLine | NEWLINE)*
     ;
 
-// A window item ends with its own window use, a name line or a block, so the
-// builder accepts it only alone on a block line.
+// A window item ends with its own window use, a name line or a block, so it
+// stands alone on its line; the builder also rejects it on a header line.  The
+// choice between the two forms looks no further than base's one-item choice.
 selectLine
-    : (selectItem COMMA)* selectWindowItem
+    : selectWindowItem
     | selectItem (COMMA selectItem)* COMMA? NEWLINE
     ;
 

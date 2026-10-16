@@ -41,8 +41,10 @@ Top-level declarations are `type`, `enum`, `constraint`, `derive`, `def`,
 
 ### Layout
 
-Lines may end with LF, CRLF or CR, and diagnostics count lines the same way for
-each. A file must not start indented: an indented first line is PIE-P1000
+Lines may end with LF, CRLF or CR. Positions count lines at LF only, so in a
+file whose lines end with CR alone every position, in diagnostics and in the
+AST, is on line 1, with columns running on as they always have. A file must
+not start indented: an indented first line is PIE-P1000
 (`Unexpected indentation.`).
 
 A list clause, that is `select:`, `select distinct:`, `group by:`, `order by:`
@@ -93,9 +95,17 @@ where (region == "EU"    # Europe
 
 There is no backslash continuation, and only parentheses join lines. A `(`
 that is never closed is PIE-P1008 at the innermost open parenthesis, and the
-rest of the file is not parsed. A window block inside parentheses is PIE-P1010
-at its `window`: in `qualify:`, write the window call and its block without
-parentheses and the comparison on the line after the block.
+rest of the file is not parsed. A window block that opens inside parentheses
+(`window:` or `window name:` ending a line in `qualify:`) keeps its line breaks
+until those parentheses close, as it always did:
+
+```pietto
+qualify:
+    coalesce(lag(n) window:
+        order by:
+            item
+    , 0) > 1
+```
 
 Some keywords are soft. `pietto`, `mode`, `dialect`, `encoding`, `loose`,
 `checked`, `strict`, `type`, `enum`, `constraint`, `derive`, `shape`, `check`,
@@ -164,7 +174,8 @@ table paid_orders_2026:
 ```
 
 The conditions need no `let:` names, so `let:` and `where` take one line more
-than before; every other clause takes fewer.
+than before; `select` and `order by` take fewer, and `from` and `limit` keep
+their one line.
 
 ## Single files and projects
 
@@ -357,7 +368,17 @@ fields of two different relations) declares the endpoints `a: a` and `b: b`,
 so its roles are the relation names; a relationship of a relation to itself
 keeps the block form (see [Modules and relationships](#modules-and-relationships)).
 The JOIN header may also carry one step after `:` on its line: `: from b`,
-`: via r`, `: via r: s -> t` or `: on e`. With
+`: via r` or `: via r: s -> t`. A JOIN with `on` must name its source with
+`from` (PIE-S2378), and a header step takes no lines below it, so the header
+step `: on e` is always PIE-S2378; write that JOIN in block form:
+
+```pietto
+    inner join customers as customer:
+        from orders
+        on customer.id == orders.customer_id
+```
+
+With
 
 ```pietto
 relationship order_customer: orders.customer_id == customers.id
@@ -373,21 +394,27 @@ query enriched:
 
 `enriched` is the explicit query above, with the same semantics and SQL:
 `emit-sql --project` writes the same artifact for both, apart from source
-locations and the source digest. In an EXPLICIT_MODULES project a JOIN without
-`from` and without VIA considers every earlier binding it can read, that is
-the FROM input and earlier JOIN targets but not SEMI or ANTI targets, and keeps
-each that has a declared relationship direction to its target; exactly one
-binding with one direction is used. A VIA step without roles takes the
+locations and the source size and digest (`byte_count` and `sha256`). In an
+EXPLICIT_MODULES project a JOIN without `from` and without VIA considers every
+earlier binding it can read, that is the FROM input and earlier JOIN targets
+but not SEMI or ANTI targets, and keeps each that has a declared relationship
+to its target, including a relationship a JOIN cannot use (no `on`, or an `on`
+that is not only field equalities), so such a binding is never passed over for
+another one. Exactly one binding is used, as if it were written with `from`,
+and it needs exactly one usable direction. A VIA step without roles takes the
 direction of its relationship that ends at the relation the step must reach
-(the JOIN target, or the start of the next step), and a JOIN without `from`
-but with VIA starts at the one earlier binding of the relation its first step
+(the JOIN target, or the start of the next step), and a JOIN without `from` but
+with VIA starts at the one earlier binding of the relation its first step
 starts at. No candidate is preferred, neither the FROM input nor the nearest
-binding. No candidate, several bindings, several directions from one binding
-(two relationships between the same relations, or a relationship of a
-relation to itself without roles) and a VIA step without roles whose
-relationship does not end at the relation it must reach are errors. For an
-INNER or LEFT JOIN they are PIE-S2333 at the JOIN, whose message names every
-candidate, or every binding it checked when there is none. After `from
+binding. No candidate, several bindings, one binding whose relationships cannot
+be used, several directions from one binding (two relationships between the
+same relations, or a relationship of a relation to itself without roles) and a
+VIA step without roles whose relationship does not end at the relation it must
+reach or cannot be used are errors. Each is PIE-S2333 at the JOIN, whose
+message names every candidate with its relationship and direction, or the
+reason a relationship cannot be used, or every binding it checked when there is
+none. It offers a `via` line only for a relationship of the JOIN's own module,
+because a `via` cannot name a relationship of another module. After `from
 employees` and `left join employees as boss: via reports_to: report -> boss`,
 with `relationship works_in: employees.dept_id == departments.id`, the JOIN
 `inner join departments as d` reports a message that ends with:
@@ -396,19 +423,19 @@ with `relationship works_in: employees.dept_id == departments.id`, the JOIN
 (JOIN d matches relationships from 2 earlier bindings: employees `via works_in: employees -> departments` and boss `via works_in: employees -> departments`; write `from <binding>`)
 ```
 
-A RIGHT, FULL, SEMI or ANTI JOIN reports such a lookup with PIE-S2334 and
-PIE-S2335 at the JOIN, whose message names no candidate (`JOIN source binding
-is unknown.` or `is ambiguous.`, or `JOIN pre-match input or relationship
-authority is unavailable.`). A written `from` with zero `via` lines whose
-source has several relationship directions to the target reports the same
-candidate list as PIE-S2333 at the relation. When the relation also has a
-JOIN that keeps its PIE-S2334 because the relation does not complete, such as
-a JOIN-local `on` or a RIGHT JOIN, it reports only that PIE-S2334, without
-these messages. A JOIN with `on` and a CROSS JOIN still name their source
-with `from` (PIE-S2378). Single-file checks and LEGACY_FLAT project checks do
-not resolve JOIN sources or roles, written or omitted: such a JOIN passes
-`check` like its explicit form, and single-file `explain` and `emit-sql`
-refuse both with PIE-I1000.
+A RIGHT, FULL, SEMI or ANTI JOIN also keeps its PIE-S2334 and PIE-S2335 at the
+JOIN (`JOIN source binding is unknown.` or `is ambiguous.`, or `JOIN pre-match
+input or relationship authority is unavailable.` when a binding, the target or
+a VIA step blocks the lookup). Such a JOIN message is reported even when
+another JOIN of the relation keeps its PIE-S2334, such as a JOIN-local `on`. A
+written `from` with zero `via` lines whose source has several relationship
+directions to the target keeps its one PIE-S2333 at the relation, which is
+reported only when nothing else explains the relation; its message adds the
+candidate list of each such JOIN. A JOIN with `on` and a CROSS JOIN still name
+their source with `from` (PIE-S2378). Single-file checks and LEGACY_FLAT
+project checks do not resolve JOIN sources or roles, written or omitted: such a
+JOIN passes `check` like its explicit form, and single-file `explain` and
+`emit-sql` refuse both with PIE-I1000.
 
 Zero `via` lines use exact direct-relationship shorthand. One or more lines
 name an explicit ordered path as `via relationship: source_role -> target_role`,
@@ -1422,10 +1449,12 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 
 - Where: single files and EXPLICIT_MODULES projects (schema version 2). A def
   belongs to its module: another module cannot call it (PIE-S2103), export it
-  (`export: def f` is PIE-P1000; `export: table f` is PIE-S2704) or import it
-  (PIE-S2705). A LEGACY_FLAT project check refuses every def with PIE-S2379.
-  PACKAGE_ROOT `explain --project` does not check defs, so a package module
-  with a def can be explained; that does not make the def available.
+  or import it. An `export:` or `import` block item `def f` is PIE-P1000;
+  naming the def under another kind, as in an `export:` block with the item
+  `table f`, is PIE-S2704 (PIE-S2705 for an `import` item). A LEGACY_FLAT
+  project check refuses every def with PIE-S2379. PACKAGE_ROOT
+  `explain --project` does not check defs, so a package module with a def can
+  be explained; that does not make the def available.
 - Signature: each parameter and the result have exactly one of the types
   `Bool`, `Int`, `Float`, `Decimal`, `Text`, `Date`, `Timestamp` or `UUID`,
   without type arguments, and state `nullable` or `not null`. An omitted
@@ -1437,7 +1466,9 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   scalar functions and other defs. Every parameter must be used (PIE-S2397).
   An aggregate or a qualified name is PIE-S2397, and a `window` call cannot be
   written there (PIE-P1000). An `exists`, `scalar` or relation `in` read is
-  PIE-S2348 to PIE-S2350. Any other name is PIE-S2102. A `constraint` or
+  PIE-S2348 to PIE-S2350. Any other name is PIE-S2102. A parameter may share
+  the name of a function: `def f(upper: Text not null) -> Text not null:
+  return upper(upper)` calls `upper` on its argument. A `constraint` or
   `derive` cannot be called from a body or anywhere else (PIE-S2103).
 - Result: the body is typed with the declared parameter types. Its type must
   be the declared result type, and a `not null` result needs a body that the
@@ -1445,7 +1476,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   arithmetic is not proven non-null, so such defs declare a `nullable` result.
   The checker does prove non-null for `is null`, `like` on non-null text, a
   non-null value `in` a literal list, `coalesce` with a non-null fallback,
-  and `lower`, `upper`, `trim` or `len` of a non-null value.
+  and `lower`, `upper`, `trim` or `len` of a non-null value. A body that is
+  always null (`null`, or a `coalesce` or conditional of nulls) fits only a
+  `nullable` result, and a body whose type the checker cannot determine, such
+  as `x + null`, fits none (PIE-S2402).
 - Names: defs share the callable namespace with `constraint` and `derive` (a
   repeated name or parameter is PIE-S2001). A def cannot take the name of a
   built-in scalar, aggregate or window function or of `generate_series`
@@ -1458,23 +1492,51 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   argument's type, after alias expansion, must be the parameter type, with no
   conversion (an `Int` value does not fit a `Decimal` parameter). An argument
   that is nullable, or whose nullability is unknown, does not fit a `not null`
-  parameter; `id + 1` is such an argument even when `id` is `not null`. Both
-  are PIE-S2395 at the call, also when the call is in a def body. Calls are
-  checked wherever their expansion is typed. In a position that Pietto does
-  not type (a type or field `ensure`, or an ungrouped `order by` in a project
-  check), a call is checked no more than the same expression written by hand.
+  parameter; `id + 1` is such an argument even when `id` is `not null`, and so
+  is `null`. Both are PIE-S2395 at the call, also when the call is in a def
+  body. An argument whose type is unknown for another reason, such as a field
+  of a source without a shape, is not checked, as the same expression written
+  by hand is not. An argument cannot read a relation (`exists`, `scalar` or
+  `in`) yet (PIE-S2395), because a body that repeats or reorders its
+  parameters would change the SQL names of those reads.
+- Positions: a call is refused (PIE-S2397) where the written form must be a
+  literal, a field or a window call that Pietto checks by a rule of its own:
+  inside a window computation (a window function's arguments, PARTITION BY,
+  ORDER BY or a named window), a table-function input, LIMIT, a VALUES row, a
+  relationship condition, a source connector, a type argument, and the ORDER
+  BY of a grouped relation. Anywhere else the argument is checked wherever the
+  expansion is typed. These positions are not typed today, so a call there is
+  checked no more than the same expression written by hand: a type or field
+  `ensure`; a shape `check`, `index` predicate or field `derive` in a project
+  (a single file checks them); a single-file `qualify:` (which `explain` and
+  `emit-sql` refuse); and an ungrouped `order by` in a project check
+  (`emit-sql --project` blocks a mismatched argument there without naming
+  it). In a project, a mismatch inside a grouped `satisfying` or an aggregate
+  argument is reported as PIE-S2333 at the relation, like every error there.
 - Expansion: each call becomes one parenthesized expression. An argument that
   the body uses n times is written n times in the SQL, as it would be by hand:
   with `def twice(x: Int nullable) -> Int nullable: return x + x`, the item
-  `d = twice(id + 1)` emits `("id" + 1) + ("id" + 1) AS "d"`. Pietto's scalar
-  functions are deterministic, so the results do not change, but an error
-  inside such an argument is reported once per use. With its arguments, one
-  expansion has at most 1000 expression nodes and 64 levels of nesting
-  (PIE-S2399).
-- A problem that only the position of a call can cause, such as a form that
-  `satisfying` does not support, is reported at the call.
+  `d = twice(id + 1)` emits `("id" + 1) + ("id" + 1) AS "d"`. No Pietto
+  function is volatile (there is no `now`, `random` or UUID generator; such
+  calls are PIE-S2103), and an aggregate argument gives one value per group,
+  so the results do not change. Every inlined node keeps a real location:
+  the body is at the call, and each use of an argument is at the argument's
+  own text, so an error inside an argument that the body uses n times is
+  reported n times at the argument. With its arguments, one expansion has at
+  most 1000 expression nodes and 64 levels of nesting (PIE-S2399).
+- Reporting: an error in a def itself (PIE-S2001 for a def, PIE-S2396 to
+  PIE-S2399, PIE-S2402), a wrong argument count or a relation-read argument
+  stops the check of the file before semantic analysis, so other semantic
+  errors appear once these are fixed. In a project these are reported with the
+  file's parse and pre-admission diagnostics, take the place of its capture
+  and header checks, and no project semantic analysis runs. Type and
+  nullability mismatches of arguments (PIE-S2395) are reported during
+  semantic analysis with the other errors. A problem that only the position
+  of a call can cause, such as a form that `satisfying` does not support, is
+  reported at the call.
 - `explain` does not list defs. Their effect is part of the expressions they
-  were inlined into.
+  were inlined into, and lineage locates each use of an argument at the
+  argument.
 
 ## Aggregates and grouping
 

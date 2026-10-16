@@ -1124,6 +1124,19 @@ query blocked_input:
     inner join departments as d
     select:
         id = employees.id
+query self_unreached:
+    from employees
+    inner join departments as d: via reports_to
+    select:
+        id = employees.id
+query after_on:
+    from departments
+    inner join departments as twin:
+        from departments
+        on twin.id == departments.id
+    left join sites as s
+    select:
+        id = departments.id
 """
 
 
@@ -1295,7 +1308,40 @@ def test_an_inferred_join_failure_names_its_cause_at_the_join(inferred: Any) -> 
             103,
             5,
         ),
+        # A JOIN without `from` names its own cause beside another JOIN's
+        # PIE-S2334.
+        (
+            "PIE-S2333",
+            f"{unavailable}semi_hidden (JOIN s: `via located_at` starts at "
+            "departments, which no earlier binding reads)",
+            104,
+            5,
+        ),
         ("PIE-S2333", f"{unavailable}blocked_input", 107, 1),
+        # A relation joined to itself cannot reach another relation, in
+        # either role order.
+        (
+            "PIE-S2333",
+            f"{unavailable}self_unreached (JOIN d: `via reports_to` joins "
+            "employees to itself, not departments)",
+            116,
+            5,
+        ),
+        (
+            "PIE-S2334",
+            "JOIN-local ON is available only when an EXPLICIT_MODULES project "
+            "(schema version 2) completes it.",
+            123,
+            9,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}after_on (JOIN s matches relationships from 2 earlier "
+            "bindings: departments `via located_at: departments -> sites` and "
+            "twin `via located_at: departments -> sites`; write `from <binding>`)",
+            124,
+            5,
+        ),
     ]
 
 
@@ -1303,6 +1349,7 @@ def test_an_explicit_direct_join_names_its_ambiguous_directions(
     tmp_path: Path,
 ) -> None:
     """Zero VIA with `from` keeps its location and gains the candidate list."""
+    directions = "`via reports_to: report -> boss` and `via reports_to: boss -> report`"
     root = tmp_path / "explicit"
     root.mkdir()
     (root / "pietto.toml").write_text(
@@ -1312,6 +1359,9 @@ def test_an_explicit_direct_join_names_its_ambiguous_directions(
     (root / "main.pietto").write_text(
         _INFERENCE.split("query chain_inferred:")[0]
         + "query self_from:\n    from employees\n    left join employees as boss:\n"
+        "        from employees\n    select:\n        id = employees.id\n"
+        "query twice_from:\n    from employees\n    left join employees as boss:\n"
+        "        from employees\n    left join employees as peer:\n"
         "        from employees\n    select:\n        id = employees.id\n",
         encoding="utf-8",
     )
@@ -1327,12 +1377,21 @@ def test_an_explicit_direct_join_names_its_ambiguous_directions(
         (
             "PIE-S2333",
             "Project relation semantic completion is unavailable: self_from (JOIN "
-            "boss matches 2 relationship directions from employees: `via "
-            "reports_to: report -> boss` and `via reports_to: boss -> report`; "
-            "write one of them)",
+            "boss matches 2 relationship directions from employees: "
+            f"{directions}; write one of them)",
             22,
             1,
-        )
+        ),
+        # One diagnostic per relation, as without the candidate lists.
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: twice_from (JOIN "
+            f"boss matches 2 relationship directions from employees: {directions}; "
+            "write one of them; JOIN peer matches 2 relationship directions from "
+            f"employees: {directions}; write one of them)",
+            28,
+            1,
+        ),
     ]
 
 
@@ -1352,3 +1411,172 @@ def test_single_file_check_treats_an_inferred_join_like_its_explicit_form() -> N
         assert [item.code for item in build_ir(script, semantic.model).diagnostics] == [
             "PIE-I1000"
         ]
+
+
+def _completed_project(root: Path, files: dict[str, str]) -> Any:
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    for name, text in files.items():
+        (root / name).write_text(text, encoding="utf-8")
+    return build_project_completed_semantic_result(
+        build_empty_project_semantic_result(
+            project_check.check_project_parse_only(root)
+        )
+    )
+
+
+_UNUSABLE = """shape Project:
+    id: Int not null
+    lead_id: Int not null
+    dept_id: Int not null
+    unique project_key on id
+shape Employee:
+    id: Int not null
+    dept_id: Int not null
+    unique employee_key on id
+shape Department:
+    id: Int not null
+    unique department_key on id
+source projects: Project is postgres.table("projects")
+source employees: Employee is postgres.table("employees")
+source departments: Department is postgres.table("departments")
+relationship lead: employees.id == projects.lead_id
+relationship works_in: employees.dept_id == departments.id
+relationship proj_dept:
+    endpoint p: projects
+    endpoint d: departments
+{on}query two:
+    from projects
+    inner join employees as e
+    {kind} join departments as d
+    select:
+        id = projects.id
+query one:
+    from projects
+    {kind} join departments as d
+    select:
+        id = projects.id
+query via_only:
+    from projects
+    {kind} join departments as d: via proj_dept
+    select:
+        id = projects.id
+query chosen:
+    from projects
+    inner join employees as e
+    {kind} join departments as d: from e
+    select:
+        id = projects.id
+"""
+
+
+@pytest.mark.parametrize("kind", ("inner", "left"))
+@pytest.mark.parametrize(
+    ("on", "reason"),
+    (
+        ("", "it has no `on`"),
+        (
+            "    on p.dept_id < d.id\n",
+            "its `on` is not only field equalities that a JOIN can use",
+        ),
+        (
+            "    on p.dept_id == d.id or p.lead_id == d.id\n",
+            "its `on` is not only field equalities that a JOIN can use",
+        ),
+    ),
+    ids=("no_on", "less_than", "or"),
+)
+def test_a_relationship_that_cannot_be_used_keeps_its_binding_a_candidate(
+    tmp_path: Path, kind: str, on: str, reason: str
+) -> None:
+    """A declared relationship is never passed over for another binding."""
+    completed = _completed_project(
+        tmp_path / "unusable",
+        {"main.pietto": _UNUSABLE.format(on=on, kind=kind)},
+    )
+    unavailable = "Project relation semantic completion is unavailable: "
+    line = 21 + on.count("\n")
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in completed.diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            f"{unavailable}two (JOIN d matches relationships from 2 earlier "
+            f"bindings: projects relationship proj_dept (cannot be used: {reason}) "
+            "and e `via works_in: employees -> departments`; write `from <binding>`)",
+            line + 3,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}one (JOIN d: no relationship from projects to "
+            f"departments can be used: proj_dept ({reason}))",
+            line + 8,
+            5,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}via_only (JOIN d: relationship proj_dept cannot be used: "
+            f"{reason})",
+            line + 13,
+            5,
+        ),
+    ]
+    (two,) = (
+        ledger
+        for ledger in completed.roots.join_conditions.uses.ledgers
+        if ledger.owner.definition.name == "two"
+    )
+    use = two.uses[1]
+    assert type(use) is uses.ProjectNonConcreteJoinUse
+    assert [issue.kind for issue in use.issues] == [
+        uses.ProjectJoinUseIssueKind.AMBIGUOUS_SOURCE_BINDING
+    ]
+    assert use.issues[0].causes == two.bindings[:2]
+
+
+def test_a_via_line_is_offered_only_for_a_relationship_of_the_module(
+    tmp_path: Path,
+) -> None:
+    """A VIA step names only its own module's relationships."""
+    shared = (
+        "shape Employee:\n    id: Int not null\n    boss_id: Int nullable\n"
+        "    dept_id: Int not null\n    unique employee_key on id\n"
+        "shape Department:\n    id: Int not null\n    unique department_key on id\n"
+        'source employees: Employee is postgres.table("employees")\n'
+        'source departments: Department is postgres.table("departments")\n'
+        "export:\n    source employees\n    source departments\n"
+    )
+    imports = 'import "shared.pietto":\n    source employees\n    source departments\n'
+    completed = _completed_project(
+        tmp_path / "modules",
+        {
+            "shared.pietto": shared,
+            "other.pietto": imports
+            + "relationship elsewhere: employees.boss_id == departments.id\n",
+            "main.pietto": imports
+            + "relationship works_in: employees.dept_id == departments.id\n"
+            "query written:\n    from employees\n    inner join departments as d:\n"
+            "        from employees\n    select:\n        id = employees.id\n"
+            "query inferred:\n    from employees\n    inner join departments as d\n"
+            "    select:\n        id = employees.id\n",
+        },
+    )
+    cause = (
+        "(JOIN d matches 2 relationship directions from employees: `via works_in: "
+        "employees -> departments` and relationship elsewhere of other.pietto "
+        "(employees -> departments); a `via` names only a relationship of this "
+        "module)"
+    )
+    unavailable = "Project relation semantic completion is unavailable: "
+    assert [
+        (item.message, item.location.path, item.location.line, item.location.column)
+        for item in completed.diagnostics
+    ] == [
+        (f"{unavailable}written {cause}", "main.pietto", 5, 1),
+        (f"{unavailable}inferred {cause}", "main.pietto", 13, 5),
+    ]

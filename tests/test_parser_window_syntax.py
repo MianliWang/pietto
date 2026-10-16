@@ -485,7 +485,7 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
     grammar = _read(GRAMMAR_REL)
     normalized = " ".join(grammar.split())
     for rule in (
-        "selectLine : (selectItem COMMA)* selectWindowItem | selectItem (COMMA selectItem)* COMMA? NEWLINE ;",
+        "selectLine : selectWindowItem | selectItem (COMMA selectItem)* COMMA? NEWLINE ;",
         "selectWindowItem : fieldName ASSIGN windowExpression ;",
         "selectItem : fieldName ASSIGN expression | expression ;",
         "windowExpression : dottedName callSuffix nthValueDirection? nullTreatment? windowSpec ;",

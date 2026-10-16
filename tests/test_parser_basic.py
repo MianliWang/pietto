@@ -222,21 +222,37 @@ def test_tabs_inside_joined_lines_are_still_reported() -> None:
     ]
 
 
-def test_cr_only_line_endings_report_real_lines_and_columns() -> None:
-    source = "shape Row:\n    id: Int not null\n\ntype T = Int(\n"
-    lf = parse_source(source)
-    cr = parse_source(source.replace("\n", "\r"))
-    crlf = parse_source(source.replace("\n", "\r\n"))
-
-    assert lf.diagnostics == cr.diagnostics == crlf.diagnostics
-    assert [(item.location.line, item.location.column) for item in lf.diagnostics] == [
-        (4, 13)
-    ]
-    ok = parse_source("shape Row:\r    id: Int not null\r    name: Text\r")
+@pytest.mark.parametrize(
+    ("ending", "fields", "shape_end", "open_paren"),
+    (
+        ("\n", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
+        ("\r\n", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
+        # ANTLR counts lines only at LF, so a CR-only file keeps its positions
+        # on line 1, as it always has.
+        ("\r", [(1, 16, 1, 32), (1, 37, 1, 47)], (1, 47), (1, 61)),
+    ),
+)
+def test_line_endings_keep_the_positions_they_always_had(
+    ending: str,
+    fields: list[tuple[int, int, int, int]],
+    shape_end: tuple[int, int],
+    open_paren: tuple[int, int],
+) -> None:
+    source = "shape Row:\n    id: Int not null\n    name: Text\n"
+    ok = parse_source(source.replace("\n", ending))
     assert ok.diagnostics == () and ok.ast is not None
     shape = ok.ast.definitions[0]
     assert isinstance(shape, ShapeDef)
-    assert [field.span.line for field in shape.fields] == [2, 3]
+    assert [
+        (f.span.line, f.span.column, f.span.end_line, f.span.end_column)
+        for f in shape.fields
+    ] == fields
+    assert (shape.span.end_line, shape.span.end_column) == shape_end
+    broken = parse_source((source + "\ntype T = Int(\n").replace("\n", ending))
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in broken.diagnostics
+    ] == [("PIE-P1008", *open_paren)]
 
 
 @pytest.mark.parametrize(
@@ -257,7 +273,7 @@ def test_first_line_indentation_is_rejected_like_any_unexpected_indent(
 
 
 @pytest.mark.parametrize(
-    "separator", ("\f", "\v", "\x1c", "\x1d", "\x1e", "\x85", " ", " ")
+    "separator", ("\f", "\v", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
 )
 def test_only_lexer_line_breaks_start_an_indentation_line(separator: str) -> None:
     valid = parse_source(

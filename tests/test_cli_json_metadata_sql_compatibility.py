@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -524,6 +524,110 @@ def test_postgres_having_sql_covers_all_aggregate_let_families(
         assert identifier not in captured.out
     assert "WITH " not in captured.out.upper()
     assert "FROM (SELECT" not in captured.out.upper()
+
+
+DEF_SHAPES = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    n: Int nullable\n"
+    "    text: Text not null\n"
+    "    note: Text nullable\n"
+    "    lower: Text not null\n"
+    'source rows: Row is postgres.table("rows")\n'
+)
+# A program that calls defs, and the same program with each call written out
+# by hand.
+DEF_PROGRAMS = {
+    "where_two_defs": (
+        "def reachable(email: Text nullable, coupon: Text nullable) -> Bool nullable: "
+        'return email like "%@%" and coupon is null\n'
+        "def positive(v: Int not null) -> Bool nullable: return v > 0\n"
+        "table t:\n    from rows\n    where positive(id) and reachable(note, note)\n"
+        "    select:\n        id\n",
+        "table t:\n    from rows\n"
+        '    where (id > 0) and (note like "%@%" and note is null)\n'
+        "    select:\n        id\n",
+    ),
+    "repeated_parameter_and_call": (
+        "def small(v: Int not null) -> Bool nullable: return v > 0 and v < 9\n"
+        "def clean(s: Text not null) -> Text not null: return lower(trim(s))\n"
+        "table t:\n    from rows\n    let: c = clean(text)\n"
+        "    where small(id) and clean(text) != clean(text)\n"
+        "    select:\n        id\n        cc = c\n        d = clean(text)\n"
+        "    order by: id desc\n",
+        "table t:\n    from rows\n    let: c = (lower(trim(text)))\n"
+        "    where (id > 0 and id < 9) and (lower(trim(text))) != (lower(trim(text)))\n"
+        "    select:\n        id\n        cc = c\n        d = (lower(trim(text)))\n"
+        "    order by: id desc\n",
+    ),
+    "nested_defs": (
+        "def tag(s: Text not null) -> Text not null: return upper(s)\n"
+        "def label(s: Text not null, v: Int not null) -> Text not null: "
+        'return tag(s) if v > 0 else "none"\n'
+        "table t:\n    from rows\n    select:\n        id\n"
+        "        l = label(text, id)\n",
+        "table t:\n    from rows\n    select:\n        id\n"
+        '        l = ((upper(text)) if id > 0 else "none")\n',
+    ),
+    "parameter_named_like_a_function": (
+        "def f(upper: Text not null) -> Text not null: return upper(upper)\n"
+        "table t:\n    from rows\n    select:\n        id\n        v = f(lower)\n",
+        "table t:\n    from rows\n    select:\n        id\n        v = upper(lower)\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+@pytest.mark.parametrize(("called", "written"), DEF_PROGRAMS.values(), ids=DEF_PROGRAMS)
+def test_def_calls_emit_the_sql_of_the_calls_written_out(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    dialect: str,
+    called: str,
+    written: str,
+) -> None:
+    prefix = DEF_SHAPES.replace("postgres.table", f"{dialect}.table")
+    outputs = []
+    for name, relation in (("called", called), ("written", written)):
+        path = _write_source(tmp_path, f"{name}.pietto", relation, prefix)
+        assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 0
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        outputs.append(captured.out)
+    assert outputs[0] == outputs[1]
+    assert "SELECT" in outputs[0]
+
+
+def test_explain_lists_no_def_and_locates_each_argument_use_at_the_argument(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write_source(
+        tmp_path,
+        "twice.pietto",
+        "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        "table t:\n    from rows\n    select:\n        id\n        d = twice(n)\n",
+        DEF_SHAPES,
+    )
+    assert cli.main(["explain", str(path), "--format", "json"]) == 0
+    metadata = cast(dict[str, Any], _read_json(capsys)["metadata"])
+    assert [(d["name"], d["kind"]) for d in metadata["definitions"]] == [
+        ("Row", "shape"),
+        ("rows", "source"),
+        ("t", "table"),
+    ]
+    (lineage,) = [
+        entry for entry in metadata["relations"][0]["lineage"] if entry["output"] == "d"
+    ]
+    # Both uses of the argument are the real `n` at 13:19-13:20.
+    assert [
+        (
+            leaf["location"]["line"],
+            leaf["location"]["column"],
+            leaf["location"]["end_line"],
+            leaf["location"]["end_column"],
+        )
+        for leaf in lineage["field_leaves"]
+    ] == [(13, 19, 13, 20)] * 2
 
 
 def _write_source(

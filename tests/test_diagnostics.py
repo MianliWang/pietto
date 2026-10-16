@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import signal
+import sys
+import threading
+from typing import Any
+
 import pytest
 
+import pietto.parser_api as parser_api
+from pietto.generated.PiettoParser import PiettoParser
 from pietto.parser_api import ParseResult, parse_source
 
 
@@ -173,6 +180,23 @@ def _query(body: str) -> str:
 
 
 PRESENTATION_CASES = {
+    # Build-time messages appear only without parser errors, first in the file.
+    "only_the_first_build_message": (
+        "relationship r: a.x < b.y\nenum A: a, b,\nenum B: c, d,\n",
+        [
+            (
+                1,
+                17,
+                "A one-line relationship compares fields of two different relations "
+                "with `==`, joined by `and`, as in `a.x == b.y`; use the endpoint "
+                "block form for any other match.",
+            )
+        ],
+    ),
+    "build_messages_wait_for_parser_errors": (
+        "enum A: a, b,\ntype T = = Int\n",
+        [(2, 10, "Unexpected '='.")],
+    ),
     "clause_after_select": (
         _query("    select:\n        a\n    where a > 1\n"),
         [(8, 5, "Clause `where` is out of order or repeated; " + _ORDER)],
@@ -317,7 +341,12 @@ PRESENTATION_CASES = {
                 22,
                 "Unexpected 'when'. Write `a if condition else b` instead of CASE.",
             ),
-            (18, 19, "Unexpected 'as'. Name a select output with `name = expression`."),
+            (
+                18,
+                19,
+                "Unexpected 'as'; expected ',' or end of line. Name a select output with "
+                "`name = expression`.",
+            ),
         ],
     ),
     "not_equal_semicolon_and_join_kind": (
@@ -397,32 +426,150 @@ def test_brace_blocks_report_only_the_braces() -> None:
     ]
 
 
+_EARLIER = (
+    "constraint valid(email: Text not null) -> Bool not null:\n"
+    '    matches(email, ".+@.+":)\n'
+)
+_LATER = (
+    "query tagged:\n    from generate_series(3, 1:, -1) as n\n    select:\n        n\n"
+)
+
+
 def test_syntax_error_text_does_not_depend_on_earlier_parses() -> None:
-    source = "query r2:\n    from r1\n    select:\n\n"
-    first = parse_source(source).diagnostics
-    for warm in (
-        _query("    select: a\n"),
-        "query a:\n    from b\n    select:\n        c\n",
-        source,
-    ):
-        parse_source(warm)
-    assert parse_source(source).diagnostics == first
-    assert [item.message for item in first] == ["Expected an indented block after ':'."]
+    # Recovering from the stray ':' used to grow the expected-token set that
+    # ANTLR caches for the whole process, so a later file listed operators and
+    # clauses that cannot follow its own ':'.
+    expected = "Unexpected ':'; expected ')' or ','."
+    for source in (_LATER, _EARLIER, _LATER, _EARLIER):
+        assert [item.message for item in parse_source(source).diagnostics] == [expected]
 
 
-def test_deep_nesting_parses_and_recursion_is_reported_where_it_happens() -> None:
-    def nested(depth: int) -> str:
-        return _query("    select: y = " + "(" * depth + "a" + ")" * depth + "\n")
+def test_error_recovery_leaves_the_shared_expected_token_cache_unchanged() -> None:
+    for source in (_EARLIER, _LATER, "enum E:\n    a b\n", "shape S:\n    a Int\n"):
+        parse_source(source)
 
-    assert parse_source(nested(90)).diagnostics == ()
+    atn = PiettoParser.atn
 
-    def at_depth(frames: int) -> ParseResult:
-        return parse_source(nested(400)) if frames == 0 else at_depth(frames - 1)
+    def spans(found: Any) -> tuple[tuple[int, int], ...]:
+        return tuple((item.start, item.stop) for item in found.intervals)
 
-    shallow, deep = at_depth(0), at_depth(200)
-    assert shallow.diagnostics == deep.diagnostics
-    (diagnostic,) = shallow.diagnostics
-    assert (
-        diagnostic.message == "Parser recursion limit exceeded while processing source."
+    grown = [
+        state.stateNumber
+        for state in atn.states
+        if state.nextTokenWithinRule is not None
+        and spans(state.nextTokenWithinRule)
+        != spans(atn.nextTokensInContext(state, None))
+    ]
+    assert grown == []
+
+
+# The deepest nesting each shape reached in some position before the layout
+# rules; every position must still accept it.
+_BASE_NESTING = {
+    "unary": (314, lambda n: "-" * n + "a"),
+    "not": (235, lambda n: "not " * n + "b"),
+    "parentheses": (25, lambda n: "(" * n + "a" + ")" * n),
+    "calls": (24, lambda n: "abs(" * n + "a" + ")" * n),
+    "if_else": (235, lambda n: "a if b else " * n + "a"),
+    "binary": (25, lambda n: "a + (" * n + "a" + ")" * n),
+    "comparison": (25, lambda n: "(a == " * n + "a" + ")" * n),
+}
+_ROWS = (
+    'shape R:\n    a: Int not null\n    b: Bool not null\nsource r: R is postgres.table("r")\n'
+    "query q:\n    from r\n"
+)
+_NESTING_POSITIONS = {
+    "select_alias": lambda e: _ROWS + "    select:\n        y = " + e + "\n",
+    "select_item": lambda e: _ROWS + "    select:\n        " + e + "\n",
+    "where": lambda e: _ROWS + "    where " + e + "\n    select:\n        a\n",
+    "let": lambda e: (
+        _ROWS + "    let:\n        y = " + e + "\n    select:\n        a\n"
+    ),
+    "order_by": lambda e: (
+        _ROWS + "    select:\n        a\n    order by:\n        " + e + "\n"
+    ),
+    "satisfying": lambda e: (
+        _ROWS + "    group by:\n        a\n    select:\n        a\n"
+        "    satisfying:\n        " + e + "\n"
+    ),
+    "qualify": lambda e: (
+        _ROWS + "    select:\n        a\n    qualify:\n        " + e + "\n"
+    ),
+    "derive": lambda e: "derive d() -> Int not null:\n    " + e + "\n",
+    "check": lambda e: (
+        "shape S:\n    a: Int not null\n    b: Bool not null\n    check c:\n        "
+        + e
+        + "\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("position", sorted(_NESTING_POSITIONS))
+@pytest.mark.parametrize("shape", sorted(_BASE_NESTING))
+def test_nesting_accepted_before_the_layout_rules_still_parses(
+    shape: str, position: str
+) -> None:
+    depth, build = _BASE_NESTING[shape]
+    result = parse_source(_NESTING_POSITIONS[position](build(depth)))
+    assert result.diagnostics == () and result.ast is not None
+
+
+def test_recursion_exhaustion_is_reported_at_its_declaration() -> None:
+    source = _query("    select: y = " + "(" * 400 + "a" + ")" * 400 + "\n")
+    limit = sys.getrecursionlimit()
+    try:
+        located = []
+        for budget in (limit, limit + 500):
+            sys.setrecursionlimit(budget)
+            located.append(parse_source(source).diagnostics)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert located[0] == located[1]
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in located[0]
+    ] == [
+        (
+            "PIE-P1000",
+            4,
+            1,
+            "Parser recursion limit exceeded while processing source.",
+        )
+    ]
+
+
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="needs POSIX timers")
+def test_an_interrupted_parse_leaves_no_parse_running() -> None:
+    long = _SHAPE + "".join(
+        f"query q{index}:\n    from r\n    where a > {index}\n    select: a\n"
+        for index in range(3000)
     )
-    assert diagnostic.location.line == 6 and diagnostic.location.column > 17
+
+    class Interrupted(Exception):
+        pass
+
+    def interrupt(signum: int, frame: object) -> None:
+        raise Interrupted
+
+    previous = signal.signal(signal.SIGALRM, interrupt)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 0.05)
+        with pytest.raises(Interrupted):
+            parse_source(long)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    assert [item for item in threading.enumerate() if item.name == "pietto-parse"] == []
+    assert parse_source(_query("    select: a\n")).diagnostics == ()
+
+
+def test_a_parse_without_a_free_thread_runs_on_the_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class NoThread(threading.Thread):
+        def start(self) -> None:
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(parser_api, "Thread", NoThread)
+    result = parse_source(_query("    select: a\n"))
+    assert result.diagnostics == () and result.ast is not None

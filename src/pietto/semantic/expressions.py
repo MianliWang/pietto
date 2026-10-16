@@ -12,11 +12,11 @@ from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
-    CastExpr,
     CallExpr,
-    ConditionalExpr,
+    CastExpr,
     CheckDef,
     ComparisonExpr,
+    ConditionalExpr,
     ConstraintDef,
     DeriveDef,
     DottedNameExpr,
@@ -40,6 +40,7 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WindowExpr,
     WindowFrameUnit,
+    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -154,17 +155,33 @@ def _check_inlined_argument(
     diagnostics: list[Diagnostic],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
-    """An argument whose canonical type or nullability does not fit a
-    parameter it is inlined for (``Expression.argument_of``) is an error at the
-    call; the argument then stays Unknown so the expansion reports nothing
-    else."""
+    """Check an argument against each ``def`` parameter it is inlined for.
 
-    if not expression.argument_of or value_type.kind is ValueTypeKind.UNKNOWN:
+    A known type must be the parameter type after alias expansion, and a
+    ``not null`` parameter takes only a value proven non-null. An argument
+    that is always null fits only a nullable parameter. Any other argument
+    whose type is unknown is not checked: either an error was reported for it
+    or nothing is known about it, as for a field of a source without a shape.
+    A mismatch is an error at the call, and the argument then stays Unknown so
+    that the expansion reports nothing else.
+    """
+
+    slots = inlined_arguments(expression)
+    if not slots:
         return value_type
-    canonical = _canonical_resolved_type(value_type, type_expansions)
+    is_null = always_null(expression)
+    if value_type.kind is ValueTypeKind.UNKNOWN and not is_null:
+        return value_type
+    canonical = (
+        None if is_null else _canonical_resolved_type(value_type, type_expansions)
+    )
     fits = True
-    for slot in expression.argument_of:
-        if (
+    for slot in slots:
+        if is_null:
+            if slot.nullable:
+                continue
+            actual = "null"
+        elif (
             canonical is not None
             and canonical.kind is TypeKind.BUILTIN
             and canonical.name == slot.type_name
@@ -173,8 +190,12 @@ def _check_inlined_argument(
             )
         ):
             continue
+        else:
+            actual = (
+                f"{(canonical or value_type.resolved_type).name} "
+                f"{_NULLABILITY_TEXT[value_type.nullability]}"
+            )
         fits = False
-        actual = (canonical or value_type.resolved_type).name
         expected = "nullable" if slot.nullable else "not null"
         diagnostics.append(
             Diagnostic(
@@ -183,8 +204,7 @@ def _check_inlined_argument(
                 message=(
                     f"Invalid argument for def {slot.function} at position "
                     f"{slot.position} ({slot.parameter}): expected "
-                    f"{slot.type_name} {expected}, got {actual} "
-                    f"{_NULLABILITY_TEXT[value_type.nullability]}"
+                    f"{slot.type_name} {expected}, got {actual}"
                 ),
                 location=SourceLocation(
                     path=slot.call.path,
@@ -196,6 +216,31 @@ def _check_inlined_argument(
             )
         )
     return value_type if fits else _UNKNOWN_VALUE_TYPE
+
+
+def always_null(expression: Expression) -> bool:
+    """Whether ``expression`` is NULL on every row: a null literal, or a
+    ``coalesce`` or conditional whose every value is always null."""
+
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if type(node) is LiteralExpr and cast(LiteralExpr, node).value is None:
+            continue
+        if (
+            type(node) is CallExpr
+            and type(cast(CallExpr, node).callee) is NameExpr
+            and cast(NameExpr, cast(CallExpr, node).callee).name == "coalesce"
+            and cast(CallExpr, node).arguments
+        ):
+            pending.extend(cast(CallExpr, node).arguments)
+            continue
+        if type(node) is ConditionalExpr:
+            conditional = cast(ConditionalExpr, node)
+            pending.extend((conditional.when_true, conditional.when_false))
+            continue
+        return False
+    return True
 
 
 _NULLABILITY_TEXT = MappingProxyType(
@@ -1118,12 +1163,12 @@ def _infer(
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
     existing = value_types.get(expression)
     if existing is not None:
-        if expression.argument_of:
+        if inlined_arguments(expression):
             # A caller may seed the type of a read it owns (a captured field,
-            # a scalar read, a QUALIFY output); the seed itself stays exact.
-            return _check_inlined_argument(
-                expression, existing, diagnostics, type_expansions
-            )
+            # a joined field, a scalar read, a QUALIFY output). The check
+            # reports a mismatch, and the seed, which the caller's evidence
+            # holds the result to, stays the result.
+            _check_inlined_argument(expression, existing, diagnostics, type_expansions)
         return existing
 
     if isinstance(expression, WindowExpr):
@@ -1380,7 +1425,7 @@ def _infer(
         # accidentally checked through their child expressions.
         value_type = _UNKNOWN_VALUE_TYPE
 
-    if expression.argument_of:
+    if inlined_arguments(expression):
         value_type = _check_inlined_argument(
             expression, value_type, diagnostics, type_expansions
         )

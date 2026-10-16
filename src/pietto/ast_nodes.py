@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from pietto import _inline_argument, _window_identity
@@ -10,13 +10,20 @@ from pietto import _inline_argument, _window_identity
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Span:
-    """A 1-based, half-open source range: [line:column, end_line:end_column)."""
+    """A 1-based, half-open source range: [line:column, end_line:end_column).
+
+    ``occurrence`` tells apart the copies of one source range that inlining a
+    ``def`` call writes more than once: the body at each call and an argument
+    the body uses again. Parsed source keeps 0, and locations shown to users
+    are only the range.
+    """
 
     path: str | None
     line: int
     column: int
     end_line: int
     end_column: int
+    occurrence: int = field(default=0, repr=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -36,19 +43,43 @@ class Header(Node):
     encoding: str | None = None
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Expression(Node):
-    """Base class for parsed expressions without semantic typing.
+class _InlinedArgumentSlot(Node):
+    """Room for the ``def`` parameters an inlined argument must fit.
 
-    ``argument_of`` is empty in parsed source. Semantic inlining sets it on
-    each argument of a ``def`` call to the parameters the argument must fit,
-    and every typing of the argument checks them. It is not part of the
-    expression's value; IR and SQL never read it.
+    It is a slot, not a dataclass field: equality, hashing, ``fields()``
+    walkers, serializers, IR and SQL never see it, and ``replace()`` drops it.
     """
 
-    argument_of: tuple[_inline_argument.InlinedArgument, ...] = field(
-        default=(), compare=False, repr=False
+    __slots__ = ("_inlined_arguments",)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Expression(_InlinedArgumentSlot):
+    """Base class for parsed expressions without semantic typing."""
+
+    pass
+
+
+def inlined_arguments(
+    expression: Expression,
+) -> tuple[_inline_argument.InlinedArgument, ...]:
+    """The ``def`` parameters ``expression`` is the inlined argument of; empty
+    for parsed source and for every node that ``replace()`` builds."""
+
+    return getattr(expression, "_inlined_arguments", ())
+
+
+def with_inlined_argument[E: Expression](
+    expression: E, argument: _inline_argument.InlinedArgument
+) -> E:
+    """A new expression equal to ``expression`` that must also fit
+    ``argument``; ``expression`` itself is never changed."""
+
+    result = replace(expression)
+    object.__setattr__(
+        result, "_inlined_arguments", (*inlined_arguments(expression), argument)
     )
+    return result
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

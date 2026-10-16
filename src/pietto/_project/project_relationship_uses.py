@@ -952,9 +952,7 @@ def _step_use(
             for endpoint in endpoints
             if endpoint.target is not None
         }
-        if len(relations) == 1:
-            directions = declared
-        elif reached is None:
+        if reached is None and len(relations) != 1:
             issue = _issue(
                 ProjectJoinUseIssueKind.BLOCKED_ENDPOINT_DIRECTION, step, relationship
             )
@@ -965,25 +963,22 @@ def _step_use(
                 relationships=candidates,
                 issues=(issue,),
             )
-        else:
-            directions = tuple(
-                direction
-                for direction in declared
-                if direction.target_output is reached
+        directions = tuple(
+            direction
+            for direction in declared
+            if reached is None or direction.target_output is reached
+        )
+        if not directions and declared:
+            issue = _issue(
+                ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION, step, relationship
             )
-            if not directions and declared:
-                issue = _issue(
-                    ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION,
-                    step,
-                    relationship,
-                )
-                return ProjectTraversalStepUse(
-                    identity=identity,
-                    step=step,
-                    state=issue.state,
-                    relationships=candidates,
-                    issues=(issue,),
-                )
+            return ProjectTraversalStepUse(
+                identity=identity,
+                step=step,
+                state=issue.state,
+                relationships=candidates,
+                issues=(issue,),
+            )
     else:
         sources = tuple(
             endpoint
@@ -1108,8 +1103,37 @@ def _inferred_sources(
         binding
         for binding in earlier
         if binding.output is not None
-        and index.resolve_direct(binding.output, target.output).candidates
+        and (
+            index.resolve_direct(binding.output, target.output).candidates
+            or project_unusable_relationships(index, binding, target)
+        )
     )
+
+
+def project_unusable_relationships(
+    index: ProjectRelationshipJoinShapeIndex,
+    source: ProjectRelationBindingOccurrence,
+    target: ProjectRelationBindingOccurrence,
+) -> tuple[ProjectNonConcreteMatchGuaranteeSubject, ...]:
+    """Every declared relationship between the two bindings' relations that
+    gives no direction a JOIN can use, in declaration order.
+
+    A JOIN without `from` counts such a relationship as a candidate, so it is
+    never passed over for another binding.
+    """
+    if source.target is None or target.target is None:
+        return ()
+    pair = {id(source.target.target_occurrence), id(target.target.target_occurrence)}
+    found: list[ProjectNonConcreteMatchGuaranteeSubject] = []
+    for item in index.non_concrete:
+        ends = tuple(
+            endpoint.target.target_occurrence
+            for endpoint in item.relationship.occurrence.endpoints
+            if endpoint.target is not None
+        )
+        if len(ends) == 2 and {id(end) for end in ends} == pair:
+            found.append(item)
+    return tuple(found)
 
 
 def _non_concrete_use(
@@ -1172,6 +1196,37 @@ def project_join_binding_visible(
     )
 
 
+def project_join_visible_bindings(
+    ledger: ProjectRelationJoinUseLedger, use: ProjectJoinUse
+) -> tuple[ProjectRelationBindingOccurrence, ...]:
+    """The earlier bindings a JOIN may read its source rows from."""
+    if not any(use is retained for retained in ledger.uses):
+        raise ValueError("Pre-match source requires its exact JOIN ledger.")
+    return tuple(
+        binding
+        for binding in ledger.bindings[: use.identity.join_position + 1]
+        if project_join_binding_visible(
+            binding, ledger.uses[: use.identity.join_position]
+        )
+    )
+
+
+def project_join_source_lookup(
+    ledger: ProjectRelationJoinUseLedger,
+    use: ProjectJoinUse,
+    index: ProjectRelationshipJoinShapeIndex,
+) -> tuple[ProjectRelationBindingOccurrence, ...] | None:
+    """Every available earlier source, or None while a JOIN without `from`
+    cannot look its source up (a binding, its target or a VIA step is not
+    concrete)."""
+    visible = project_join_visible_bindings(ledger, use)
+    if use.clause.source_binding_name is None:
+        return _inferred_sources(visible, use.target_binding, use.step_uses, index)
+    return tuple(
+        binding for binding in visible if binding.name == use.clause.source_binding_name
+    )
+
+
 def project_join_source_candidates(
     ledger: ProjectRelationJoinUseLedger,
     use: ProjectJoinUse,
@@ -1181,22 +1236,7 @@ def project_join_source_candidates(
 
     A JOIN without `from` keeps every source its relationship lookup finds.
     """
-    if not any(use is retained for retained in ledger.uses):
-        raise ValueError("Pre-match source requires its exact JOIN ledger.")
-    visible = tuple(
-        binding
-        for binding in ledger.bindings[: use.identity.join_position + 1]
-        if project_join_binding_visible(
-            binding, ledger.uses[: use.identity.join_position]
-        )
-    )
-    if use.clause.source_binding_name is None:
-        return (
-            _inferred_sources(visible, use.target_binding, use.step_uses, index) or ()
-        )
-    return tuple(
-        binding for binding in visible if binding.name == use.clause.source_binding_name
-    )
+    return project_join_source_lookup(ledger, use, index) or ()
 
 
 def validate_project_join_input_bindings(

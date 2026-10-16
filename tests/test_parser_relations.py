@@ -6,6 +6,7 @@ from typing import Any, cast, get_args
 
 import pytest
 
+from _pietto_parser_layout import layout_free
 from pietto.ast_nodes import (
     BinaryExpr,
     BlockRelationDef,
@@ -591,22 +592,6 @@ def test_approved_forms_build_copyable_nodes_with_nested_trimmed_spans(
 
 # Python-style layout: header-line suites, comma lists, condition blocks and
 # implicit line joining build the long form's AST; only spans differ.
-def _layout_free(value: object) -> object:
-    if type(value) is Span:
-        return None
-    if type(value) is tuple:
-        return tuple(_layout_free(item) for item in value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return (
-            type(value).__name__,
-            tuple(
-                (item.name, _layout_free(getattr(value, item.name)))
-                for item in fields(value)
-            ),
-        )
-    return value
-
-
 def _query(body: str) -> str:
     return "query q:\n    from orders\n" + body
 
@@ -728,7 +713,7 @@ def test_python_style_layouts_build_the_long_form_ast(case: str) -> None:
     long_result = parse_source(long)
     assert short_result.diagnostics == long_result.diagnostics == ()
     assert short_result.ast is not None and long_result.ast is not None
-    assert _layout_free(short_result.ast) == _layout_free(long_result.ast)
+    assert layout_free(short_result.ast) == layout_free(long_result.ast)
 
 
 def test_condition_block_lines_fold_left_with_spans_through_each_operand() -> None:
@@ -805,9 +790,10 @@ LAYOUT_REJECTIONS = {
             "        id, n = row_number() window:\n"
             "            order by: id\n"
         ),
-        "A window item must be on its own line in a `select:` block.",
+        "Unexpected 'window'; expected ',' or end of line. A window call is a "
+        "whole `select:` item on a line of its own.",
         4,
-        13,
+        30,
     ),
     "condition_line_starts_with_and": (
         _query("    where:\n        a\n        and b\n    select: id\n"),
@@ -848,19 +834,24 @@ def test_python_style_layout_mistakes_have_targeted_messages(case: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "line", "column", "message"),
     (
-        "    where:\n    select: id\n",
-        "    select: a = b = c\n",
-        "    select:\n",
-        "    order by: a,, b\n    select: id\n",
-        "    select: id\n    order by: ,\n",
+        ("    where:\n    select: id\n", 4, 5, "Expected an indented block after ':'."),
+        ("    select: a = b = c\n", 3, 19, "Unexpected '='."),
+        ("    select:\n", 3, 12, "Expected an indented block after ':'."),
+        ("    select: id\n    order by: a,, b\n", 4, 17, "Unexpected ','."),
+        ("    select: id\n    order by: ,\n", 4, 15, "Unexpected ','."),
     ),
 )
-def test_malformed_python_style_layouts_stay_syntax_errors(body: str) -> None:
+def test_malformed_python_style_layouts_stay_syntax_errors(
+    body: str, line: int, column: int, message: str
+) -> None:
     result = parse_source(_query(body))
     assert result.ast is None
-    assert {item.code for item in result.diagnostics} == {"PIE-P1000"}
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", line, column, message)]
 
 
 def test_soft_keywords_name_outputs_lets_and_expression_fields() -> None:

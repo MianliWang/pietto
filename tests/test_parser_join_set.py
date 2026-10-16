@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 from pathlib import Path
-from dataclasses import fields, is_dataclass, replace
+from dataclasses import replace
 import json
 
+from _pietto_parser_layout import layout_free
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     BlockRelationDef,
@@ -774,22 +775,6 @@ def test_precise_earlier_errors_precede_availability_diagnostics() -> None:
     assert "PIE-S2005" in codes  # Existing implicit-nullability warnings survive.
 
 
-def _layout_free(value: object) -> object:
-    if type(value) is Span:
-        return None
-    if type(value) is tuple:
-        return tuple(_layout_free(item) for item in value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return (
-            type(value).__name__,
-            tuple(
-                (item.name, _layout_free(getattr(value, item.name)))
-                for item in fields(value)
-            ),
-        )
-    return value
-
-
 def _joined(join: str) -> str:
     return BASE + f"query q:\n    from lhs\n{join}    select:\n        id = lhs.id\n"
 
@@ -819,7 +804,7 @@ def test_a_header_line_join_step_is_its_one_line_block(case: str) -> None:
     short, long = (parse_source(_joined(text)) for text in HEADER_LINE_JOINS[case])
     assert short.diagnostics == long.diagnostics == ()
     assert short.ast is not None and long.ast is not None
-    assert _layout_free(short.ast) == _layout_free(long.ast)
+    assert layout_free(short.ast) == layout_free(long.ast)
 
 
 def test_omitted_join_parts_stay_absent_for_inference() -> None:

@@ -8,7 +8,7 @@ ordinary expressions and the SQL equals that of the call written out by hand.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import cast
@@ -24,19 +24,29 @@ from pietto.ast_nodes import (
     Expression,
     FunctionDef,
     ImportStatement,
+    LimitClause,
     ModuleDeclarationKind,
+    NamedWindowDeclaration,
     NameExpr,
     Node,
     Nullability,
+    QueryDef,
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
     RelationshipMetadata,
     Script,
+    SelectBody,
     ShapeDef,
+    SourceDef,
     Span,
+    TableDef,
+    TableFunctionFromClause,
+    TypeArgument,
     TypeExpr,
+    ValuesBody,
     WindowExpr,
+    with_inlined_argument,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -44,9 +54,9 @@ from pietto.semantic.aggregates import (
     child_expressions,
     semantic_aggregate_call_name,
 )
-from pietto.semantic.capability_windows import _WINDOW_IDENTITIES
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, SPECIAL_BUILTIN_FUNCTION_NAMES
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import always_null, infer_row_expression
+from pietto.semantic.window_semantics import WINDOW_FUNCTION_NAMES
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -67,7 +77,7 @@ _RESERVED_NAMES = frozenset(
         *BUILTIN_FUNCTIONS,
         *SPECIAL_BUILTIN_FUNCTION_NAMES,
         *SEMANTIC_AGGREGATE_NAMES,
-        *_WINDOW_IDENTITIES,
+        *WINDOW_FUNCTION_NAMES,
         "generate_series",
     }
 )
@@ -75,6 +85,21 @@ _RESERVED_NAMES = frozenset(
 # and this nesting depth.
 _MAX_EXPANSION_NODES = 1000
 _MAX_EXPANSION_DEPTH = 64
+# Positions whose hand-written form is a literal, a field or a window call
+# that Pietto checks by its own rule; a def call there is refused.
+_REFUSED_POSITIONS: MappingProxyType[type[Node], str] = MappingProxyType(
+    {
+        WindowExpr: "a window computation",
+        NamedWindowDeclaration: "a window computation",
+        TableFunctionFromClause: "a table-function input",
+        LimitClause: "LIMIT",
+        ValuesBody: "a VALUES row",
+        RelationshipMetadata: "a relationship condition",
+        SourceDef: "a source connector",
+        TypeArgument: "a type argument",
+    }
+)
+_RELATION_READS = (RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr)
 _NULLABILITY = MappingProxyType(
     {
         Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
@@ -120,8 +145,9 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
         return script, _ordered(found)
 
     templates: dict[str, Expression] = {}
+    occurrences = itertools.count(1)
     for function in _callee_order(defined):
-        expansion = _Expansion(defined, templates, found)
+        expansion = _Expansion(defined, templates, found, occurrences)
         body = expansion.expand(function.body)
         if expansion.failed:
             continue
@@ -135,8 +161,12 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
             templates[function.name] = body
     if found:
         return script, _ordered(found)
+    others = tuple(item for item in script.definitions if type(item) is not FunctionDef)
+    found.extend(_position_diagnostics((*others, *script.relationships), defined))
+    if found:
+        return script, _ordered(found)
 
-    expansion = _Expansion(defined, templates, found)
+    expansion = _Expansion(defined, templates, found, occurrences)
     definitions = tuple(
         cast(Definition, expansion.expand_tree(item))
         for item in script.definitions
@@ -158,10 +188,12 @@ class _Expansion:
         defined: dict[str, FunctionDef],
         templates: dict[str, Expression],
         found: list[Diagnostic],
+        occurrences: Iterator[int],
     ) -> None:
         self.defined = defined
         self.templates = templates
         self.found = found
+        self.occurrences = occurrences
         self.failed = False
 
     def expand(self, expression: Expression) -> Expression:
@@ -200,21 +232,40 @@ class _Expansion:
                 )
             )
             return rebuilt
+        reads = [
+            (position, parameter)
+            for position, (parameter, argument) in enumerate(
+                zip(function.parameters, call.arguments), start=1
+            )
+            if any(type(node) in _RELATION_READS for node in _nodes(argument))
+        ]
+        if reads:
+            # A relation read's SQL alias follows its source position, which
+            # a body that repeats or reorders its parameters would change.
+            self.failed = True
+            self.found.extend(
+                _diagnostic(
+                    "PIE-S2395",
+                    f"Invalid argument for def {function.name} at position "
+                    f"{position} ({parameter.name}): an argument cannot read a "
+                    "relation (exists, scalar or in) yet",
+                    call.span,
+                )
+                for position, parameter in reads
+            )
+            return rebuilt
         # Each argument carries the parameter it must fit, so wherever its
         # expansion is typed, the argument is checked against it.
         arguments = {
-            parameter.name: replace(
+            parameter.name: with_inlined_argument(
                 argument,
-                argument_of=(
-                    *argument.argument_of,
-                    InlinedArgument(
-                        call=call.span,
-                        function=function.name,
-                        position=position,
-                        parameter=parameter.name,
-                        type_name=parameter.type.name,
-                        nullable=parameter.type.nullability is Nullability.NULLABLE,
-                    ),
+                InlinedArgument(
+                    call=call.span,
+                    function=function.name,
+                    position=position,
+                    parameter=parameter.name,
+                    type_name=parameter.type.name,
+                    nullable=parameter.type.nullability is Nullability.NULLABLE,
                 ),
             )
             for position, (parameter, argument) in enumerate(
@@ -233,7 +284,10 @@ class _Expansion:
             return rebuilt
         return cast(
             Expression,
-            _rebuild(template, _substitution(arguments, template, call.span)),
+            _rebuild(
+                template,
+                _substitution(arguments, template, call.span, self.occurrences),
+            ),
         )
 
     def _unexpanded(self, expression: Expression) -> bool:
@@ -258,28 +312,28 @@ def _size_diagnostic(
 
 
 def _substitution(
-    arguments: dict[str, Expression], template: Expression, call: Span
+    arguments: dict[str, Expression],
+    template: Expression,
+    call: Span,
+    occurrences: Iterator[int],
 ) -> Callable[[object, object], object]:
     """Put each argument in place of its parameter.
 
-    The expansion takes the call's span, so a finding in it is reported at the
-    call. Every other body node, and every repeated use of an argument, is a
-    copy that starts at the call and is as many columns long as its post-order
-    ordinal: like the same text written out by hand, each inlined occurrence
-    keeps a distinct identity. Only the first use of an argument keeps the
-    parameters it must fit; a copy is checked through that first use.
+    Every node keeps a real location: the expansion and every other body node
+    are at the call, and an argument, also when the body uses it again, is at
+    its own text. A copy differs from the original only in an internal span
+    ``occurrence``, as the same text written out twice by hand would differ in
+    position. Only the first use of an argument carries the parameters it
+    must fit; ``replace()`` drops them from every copy, which the first use
+    checks for.
     """
 
     used: set[str] = set()
-    ordinal = itertools.count(1)
 
-    def located(node: object) -> object:
+    def occurrence(node: object, span: Span) -> object:
         if not isinstance(node, Node):
             return node
-        span = replace(call, end_line=call.line, end_column=call.column + next(ordinal))
-        if isinstance(node, Expression):
-            return replace(node, span=span, argument_of=())
-        return replace(node, span=span)
+        return replace(node, span=replace(span, occurrence=next(occurrences)))
 
     def substitute(original: object, rebuilt: object) -> object:
         if type(original) is NameExpr:
@@ -287,12 +341,15 @@ def _substitution(
             argument = arguments.get(name)
             if argument is not None:
                 if name in used:
-                    return _rebuild(argument, lambda _, copy: located(copy))
+                    return _rebuild(
+                        argument,
+                        lambda _, copy: occurrence(copy, cast(Node, copy).span),
+                    )
                 used.add(name)
                 return argument
         if original is template and isinstance(rebuilt, Expression):
-            return replace(rebuilt, span=call, argument_of=())
-        return located(rebuilt)
+            return replace(rebuilt, span=call)
+        return occurrence(rebuilt, call)
 
     return substitute
 
@@ -324,9 +381,9 @@ def _rebuild(root: object, visit: Callable[[object, object], object]) -> object:
             rebuilt = replace(
                 cast(Node, value),
                 **{
-                    item.name: new
-                    for item, new, old in zip(
-                        fields(cast(Node, value)), rebuilt_children, children
+                    name: new
+                    for name, new, old in zip(
+                        _child_names(value), rebuilt_children, children
                     )
                     if new is not old
                 },
@@ -342,7 +399,18 @@ def _children(value: object) -> tuple[object, ...] | None:
         return cast(tuple[object, ...], value)
     if kind is Span or kind.__module__ != "pietto.ast_nodes" or not is_dataclass(value):
         return None
-    return tuple(getattr(value, item.name) for item in fields(cast(Node, value)))
+    return tuple(getattr(value, name) for name in _child_names(value))
+
+
+def _child_names(value: object) -> tuple[str, ...]:
+    """A node's fields, except a call's callee: a name that is called is
+    never a value, so a parameter of the same name does not replace it."""
+
+    return tuple(
+        item.name
+        for item in fields(cast(Node, value))
+        if type(value) is not CallExpr or item.name != "callee"
+    )
 
 
 def _parameter_uses(template: Expression, name: str) -> tuple[int, int]:
@@ -471,14 +539,8 @@ def _body_form_diagnostics(function: FunctionDef) -> list[Diagnostic]:
             form = f"the qualified name {'.'.join(cast(DottedNameExpr, node).parts)}"
         elif (name := semantic_aggregate_call_name(node)) is not None:
             form = f"the aggregate {name}"
-        elif type(node) is WindowExpr:
-            form = "a window function"
-        elif type(node) in (
-            RelationExistsExpr,
-            RelationScalarExpr,
-            RelationMembershipExpr,
-        ):
-            form = "a relation read"
+        # A window call cannot be written in a body (PIE-P1000), and the
+        # admission gate refuses a relation read there (PIE-S2348 to PIE-S2350).
         if form is not None:
             found.append(
                 _diagnostic(
@@ -499,6 +561,62 @@ def _body_form_diagnostics(function: FunctionDef) -> list[Diagnostic]:
         for parameter in function.parameters
         if parameter.name not in used
     )
+    return found
+
+
+def _position_diagnostics(
+    roots: tuple[object, ...], defined: dict[str, FunctionDef]
+) -> list[Diagnostic]:
+    """Refuse a def call where the hand-written form must be a literal, a
+    field or a window call, which Pietto checks by a rule of its own: inside
+    a window computation, a table-function input, LIMIT, a VALUES row, a
+    relationship condition, a source connector, a type argument, and the
+    ORDER BY of a grouped relation."""
+
+    found: list[Diagnostic] = []
+    pending: list[tuple[object, str | None]] = [(root, None) for root in roots]
+    while pending:
+        value, position = pending.pop()
+        kind = type(value)
+        if kind is tuple:
+            pending.extend((item, position) for item in cast(tuple[object, ...], value))
+            continue
+        if (
+            kind is Span
+            or kind.__module__ != "pietto.ast_nodes"
+            or not is_dataclass(value)
+        ):
+            continue
+        position = position or _REFUSED_POSITIONS.get(cast(type[Node], kind))
+        if (
+            position is not None
+            and kind is CallExpr
+            and type(cast(CallExpr, value).callee) is NameExpr
+            and cast(NameExpr, cast(CallExpr, value).callee).name in defined
+        ):
+            call = cast(CallExpr, value)
+            found.append(
+                _diagnostic(
+                    "PIE-S2397",
+                    f"A def call is not available in {position}: "
+                    f"{cast(NameExpr, call.callee).name}",
+                    call.span,
+                )
+            )
+            continue
+        for name in _child_names(value):
+            child = getattr(value, name)
+            grouped_order = (
+                name == "order_by_clause"
+                and kind in (TableDef, QueryDef, SelectBody)
+                and cast(TableDef, value).group_by_clause is not None
+            )
+            pending.append(
+                (
+                    child,
+                    "the ORDER BY of a grouped relation" if grouped_order else position,
+                )
+            )
     return found
 
 
@@ -598,8 +716,10 @@ def _callee_order(defined: dict[str, FunctionDef]) -> list[FunctionDef]:
 def _check_body(
     function: FunctionDef, body: Expression, found: list[Diagnostic]
 ) -> None:
-    """Type the expanded body over the declared parameters; its canonical type
-    is the declared result type, and it is never null when that says so."""
+    """Type the expanded body over the declared parameters. Its canonical type
+    is the declared result type, and it is never null when that says so. A
+    body that is always null fits only a nullable result; a body whose type
+    stays unknown without an error fits none."""
 
     schema = RowSchema(
         fields={
@@ -615,10 +735,23 @@ def _check_body(
     )
     before = len(found)
     actual = infer_row_expression(body, schema, {}, found, report_unknown_name=True)
-    if len(found) != before or actual.kind is ValueTypeKind.UNKNOWN:
+    if len(found) != before:
         return
     expected = _value_type(function.return_type)
-    if (
+    if actual.kind is ValueTypeKind.UNKNOWN:
+        if not always_null(body):
+            message = (
+                f"Def {function.name} body type is not known, so it cannot "
+                f"match declared return type {expected.resolved_type.name}"
+            )
+        elif expected.nullability is EffectiveNullability.NON_NULL:
+            message = (
+                f"Def {function.name} body is always null, but its declared "
+                "return type is not null"
+            )
+        else:
+            return
+    elif (
         actual.resolved_type.kind is not TypeKind.BUILTIN
         or actual.resolved_type.name != expected.resolved_type.name
     ):

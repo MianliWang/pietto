@@ -528,6 +528,30 @@ LET_SET = (
 )
 
 
+def test_inlined_def_calls_serialize_as_the_ordinary_expressions_they_are(
+    tmp_path: Path,
+) -> None:
+    completed = _completed(
+        tmp_path,
+        _source("same(lhs.id, r.id)", kind="left").replace(
+            "    select:\n", "    where pos(lhs.id) and pos(lhs.id)\n    select:\n"
+        )
+        + "def same(a: Int not null, b: Int not null) -> Bool nullable: return a == b\n"
+        + "def pos(x: Int not null) -> Bool nullable: return x > 0 and x < 9\n",
+    )
+    assert completed.ok, completed.diagnostics
+    verification = verify_project_query_block_ir(
+        build_project_query_block_ir(completed)
+    )
+    assert verification.verified, verification.issues
+    product = build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verification)
+    )
+    outcome = pure.evaluate_project_query_block_ir_document(product.document)
+    assert outcome.status is ProjectQueryBlockIRPureStatus.OK
+    assert outcome.canonical_bytes == product.canonical_bytes
+
+
 def _let_document(tmp_path: Path):
     completed = _completed(tmp_path, LET_SET)
     assert completed.ok, completed.diagnostics

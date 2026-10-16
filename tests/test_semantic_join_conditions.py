@@ -191,6 +191,31 @@ def test_a_join_without_from_keeps_every_source_candidate(
     }
 
 
+@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti"))
+def test_a_blocked_join_lookup_is_an_unavailable_input_not_an_unknown_source(
+    tmp_path: Path, kind: str
+) -> None:
+    """A VIA step without roles over a relation joined to itself blocks the
+    lookup of a JOIN without `from`; its source binding is not unknown."""
+    source = (
+        "shape Row:\n    id: Int not null\n    parent: Int nullable\n"
+        "    unique row_key on id\n"
+        'source lhs: Row is postgres.table("lhs")\n'
+        "relationship parent_of:\n    endpoint child: lhs\n    endpoint parent: lhs\n"
+        "    on child.parent == parent.id\n"
+        f"query q:\n    from lhs\n    {kind} join lhs as up: via parent_of\n"
+        "    select:\n        id = lhs.id\n"
+    )
+    (fact,) = _completed(tmp_path, source).roots.join_conditions.entries
+    assert not fact.ready and fact.environment.source_candidates == ()
+    assert [(item.code, item.message) for item in fact.diagnostics] == [
+        (
+            "PIE-S2335",
+            "JOIN pre-match input or relationship authority is unavailable.",
+        )
+    ]
+
+
 @pytest.mark.parametrize(
     "predicate, proofs",
     (

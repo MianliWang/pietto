@@ -36,6 +36,7 @@ from pietto._project.project_relationship_uses import (
     project_join_combination_error,
     project_join_mode,
     project_join_source_candidates,
+    project_join_source_lookup,
     project_join_binding_visible,
     validate_project_join_input_bindings,
     rebuild_available_relationship_use,
@@ -482,7 +483,15 @@ class ProjectJoinCondition:
         }
         unavailable |= not is_new and type(effective_use) is not ProjectConcreteJoinUse
         if unavailable and is_new:
-            if len(source_candidates) != 1:
+            # A JOIN without `from` whose lookup is blocked by a binding, its
+            # target or a VIA step has an unavailable input, not an unknown one.
+            if len(source_candidates) != 1 and (
+                clause.source_binding_name is not None
+                or project_join_source_lookup(
+                    self.ledger, self.use, self.root.uses.index
+                )
+                is not None
+            ):
                 later = tuple(
                     binding
                     for binding in self.ledger.bindings[

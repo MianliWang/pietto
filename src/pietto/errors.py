@@ -6,9 +6,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from antlr4.IntervalSet import IntervalSet
 from antlr4.Token import Token
+from antlr4.atn.ATNState import ATNState
 from antlr4.error.ErrorListener import ErrorListener
 from antlr4.error.ErrorStrategy import DefaultErrorStrategy
 
@@ -42,6 +44,10 @@ class Diagnostic:
     message: str
     location: SourceLocation
     suggestion: str | None = None
+
+
+class ParseCancelled(Exception):
+    """A parse stopped because its caller was interrupted while waiting."""
 
 
 class AstBuildError(Exception):
@@ -231,7 +237,7 @@ def _index(token: Token) -> int:
     return -1 if token.tokenIndex is None else token.tokenIndex
 
 
-def _token_display(token: Token) -> str:
+def token_display(token: Token) -> str:
     display = _TOKEN_DISPLAY.get(token.type)
     return display if display is not None else quoted_source_text(token.text or "")
 
@@ -280,6 +286,36 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         self.tokens = tokens
         self.errors: list[tuple[int, Diagnostic]] = []
 
+    def sync(self, recognizer: Any) -> None:
+        """ANTLR's sync, without growing the ATN's shared expected-token cache.
+
+        On an unexpected token at a loop-back state the runtime adds the
+        recovery set to the set ``getExpectedTokens`` returns, which for most
+        states is the set the ATN caches for every later parse in the process;
+        copying it first keeps each message independent of parse history.
+        """
+
+        if self.inErrorRecoveryMode(recognizer):
+            return
+        state = recognizer._interp.atn.states[recognizer.state]
+        following = recognizer.atn.nextTokens(state)
+        if (
+            state.stateType
+            not in (
+                ATNState.PLUS_LOOP_BACK,
+                ATNState.STAR_LOOP_BACK,
+            )
+            or recognizer.getTokenStream().LA(1) in following
+            or (Token.EPSILON in following)
+        ):
+            super().sync(recognizer)
+            return
+        self.reportUnwantedToken(recognizer)
+        expecting = IntervalSet()
+        expecting.addSet(recognizer.getExpectedTokens())
+        expecting.addSet(self.getErrorRecoverySet(recognizer))
+        self.consumeUntil(recognizer, cast(Any, expecting))
+
     def reportNoViableAlternative(self, recognizer: Any, e: Any) -> None:
         token = e.offendingToken
         # The decision's expected set describes its first token, so it also
@@ -314,7 +350,7 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             return
         self._append(
             token,
-            f"Missing {_expected_display(expected)} before {_token_display(token)}.",
+            f"Missing {_expected_display(expected)} before {token_display(token)}.",
         )
 
     def _token(self, index: int) -> Token | None:
@@ -329,8 +365,8 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         if body_line and clause is not None:
             message = f"Clause `{clause}` is out of order or repeated; {_CLAUSE_ORDER}"
         elif body_line and token.type not in _LAYOUT_TOKEN_TYPES:
-            message = f"Unknown clause {_token_display(token)}; {_CLAUSE_ORDER}"
-            hint = self._hint(token, previous, expected_types, line_start)
+            message = f"Unknown clause {token_display(token)}; {_CLAUSE_ORDER}"
+            hint = self._hint(recognizer, token, previous, expected_types, line_start)
             if hint is not None:
                 message += " " + hint
         elif token.type == PiettoParser.INDENT:
@@ -346,17 +382,18 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         }:
             message = "Missing `select:` clause; " + _CLAUSE_ORDER
         else:
-            message = f"Unexpected {_token_display(token)}"
+            message = f"Unexpected {token_display(token)}"
             if expected_types:
                 message += f"; expected {_expected_display(expected_types)}"
             message += "."
-            hint = self._hint(token, previous, expected_types, line_start)
+            hint = self._hint(recognizer, token, previous, expected_types, line_start)
             if hint is not None:
                 message += " " + hint
         self._append(token, message)
 
     def _hint(
         self,
+        recognizer: Any,
         token: Token,
         previous: Token | None,
         expected: frozenset[int],
@@ -366,7 +403,13 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
 
         text = token.text or ""
         following = self._token(_index(token) + 1)
-        if token.type == PiettoParser.ASSIGN:
+        if token.type == PiettoParser.WINDOW and isinstance(
+            recognizer._ctx, PiettoParser.SelectLineContext
+        ):
+            return "A window call is a whole `select:` item on a line of its own."
+        if token.type == PiettoParser.ASSIGN and (
+            PiettoParser.NEWLINE in expected or PiettoParser.EQ in expected
+        ):
             return (
                 "Compare with `==`; `=` only names a select output, a let "
                 "binding or a type argument."

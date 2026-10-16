@@ -466,6 +466,103 @@ def test_project_text_output_remains_parse_only(
     assert captured.err == ""
 
 
+DEF_HEAD = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    n: Int nullable\n"
+    "    text: Text not null\n"
+    "    unique row_key on id\n"
+    "shape Other:\n"
+    "    id: Int not null\n"
+    "    row_id: Int not null\n"
+    "    label: Text nullable\n"
+    'source rows: Row is postgres.table("rows")\n'
+    'source others: Other is postgres.table("others")\n'
+    "def pos(x: Int not null) -> Bool nullable: return x > 0\n"
+    "def idi(x: Int not null) -> Int not null: return x\n"
+    "def idt(x: Text not null) -> Text not null: return x\n"
+)
+# The first line written after DEF_HEAD.
+DEF_LINE = 15
+
+
+def _def_check(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], files: dict[str, str]
+) -> list[tuple[str, str, int, int, str]]:
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    for name, source in files.items():
+        _write(root, name, source)
+    code = cli.main(["check", "--project", str(root), "--format", "json"])
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert code == (1 if diagnostics else 0)
+    return [
+        (
+            d["code"],
+            d["location"]["path"],
+            d["location"]["line"],
+            d["location"]["column"],
+            d["message"],
+        )
+        for d in diagnostics
+    ]
+
+
+def test_a_def_belongs_to_its_module(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exported = DEF_HEAD + "export:\n    source rows\n    table pos\n"
+    caller = (
+        'import "a.pietto":\n    source rows\n'
+        "table t:\n    from rows\n    where pos(id)\n    select:\n        id\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": exported, "b.pietto": caller}) == [
+        (
+            "PIE-S2704",
+            "a.pietto",
+            DEF_LINE + 2,
+            11,
+            "Unknown export binding: table pos",
+        ),
+        ("PIE-S2103", "b.pietto", 5, 11, "Unknown function: pos"),
+    ]
+
+
+def _mismatch(name: str, line: int, column: int, expected: str, got: str):
+    return (
+        "PIE-S2395",
+        "a.pietto",
+        line,
+        column,
+        f"Invalid argument for def {name} at position 1 (x): expected {expected}, "
+        f"got {got}",
+    )
+
+
+def test_a_project_checks_def_arguments_in_its_typed_positions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = DEF_HEAD + (
+        "query q(k: Int not null, m: Int nullable):\n    from rows\n"
+        "    where pos(k) and pos(m)\n    select:\n        id\n"
+        "        bare = idi(n)\n"
+        "query c:\n    let l:\n        capture rows\n        from others\n"
+        "        where pos(rows.n)\n        select:\n            id\n"
+        "    from rows\n    where exists l\n    select:\n        id\n"
+        "query j:\n    from rows\n    inner join others as o:\n        from rows\n"
+        "        on o.row_id == rows.id\n    select:\n        a = rows.id\n"
+        "        p = idt(o.label)\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _mismatch("pos", DEF_LINE + 2, 22, "Int not null", "Int nullable"),
+        _mismatch("idi", DEF_LINE + 5, 16, "Int not null", "Int nullable"),
+        _mismatch("pos", DEF_LINE + 10, 15, "Int not null", "Int nullable"),
+        _mismatch("idt", DEF_LINE + 24, 13, "Text not null", "Text nullable"),
+    ]
+
+
 def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs

@@ -1,33 +1,29 @@
 """Pure inline ``def`` functions: definition checks, call checks and inlining.
 
 A call is replaced by the def body with each argument in place of its
-parameter before any call site is typed, so SQL for a program that calls a
-def is byte-identical to the same program with the call written out by hand.
+parameter before any call site is typed. SQL byte identity lives with the CLI
+and project SQL owners; project checks live with the project owners.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
-import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import fields, is_dataclass, replace
-from pathlib import Path
+from dataclasses import fields, is_dataclass
 from typing import Any, cast
 
 import pytest
 
-import _pietto_sql_emission as emission
-from pietto import cli
 from pietto._inline_argument import InlinedArgument
 from pietto.ast_nodes import (
     BinaryExpr,
     CallExpr,
     FunctionDef,
     NameExpr,
-    Script,
+    SelectItem,
+    Span,
     TableDef,
+    inlined_arguments,
 )
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
@@ -481,10 +477,22 @@ def _shape(value: object) -> object:
             tuple(
                 (item.name, _shape(getattr(value, item.name)))
                 for item in fields(value)
-                if item.compare and item.name != "span"
+                if item.name != "span"
             ),
         )
     return value
+
+
+def _inlined(source: str) -> Any:
+    parsed = parse_source(source, path="m.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    inlined, diagnostics = inline_functions(parsed.ast)
+    assert diagnostics == ()
+    return inlined
+
+
+def _location(span: Span) -> tuple[int, int, int, int]:
+    return (span.line, span.column, span.end_line, span.end_column)
 
 
 def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
@@ -510,21 +518,21 @@ def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
     assert not any(type(item) is FunctionDef for item in inlined.definitions)
     assert _shape(inlined) == _shape(written)
 
-    # The first use of an argument is the argument, carrying the parameter it
-    # must fit; the expansion is located at the call; every other inlined node,
-    # and every repeated use of an argument, is a distinct copy starting at the
-    # call and checked through the first use.
+    # Every node keeps a real location: the body is at the call, and each use
+    # of an argument is at the argument. Uses differ only in the internal span
+    # occurrence, and only the first carries the parameter it must fit.
     expression: Any = cast(TableDef, inlined.definitions[-1]).where_clause
     calls: Any = cast(TableDef, called.definitions[-1]).where_clause
     expression, calls = expression.expression, calls.expression
     assert type(calls) is BinaryExpr and type(calls.left) is CallExpr
+    call, argument = calls.left, calls.left.arguments[0]
     first = expression.left
-    assert first.span == calls.left.span and first.argument_of == ()
-    argument = first.left.left
-    assert argument == calls.left.arguments[0]
-    assert argument.argument_of == (
+    assert first.span == call.span and inlined_arguments(first) == ()
+    assert _location(first.left.span) == _location(call.span)
+    assert first.left.left == argument
+    assert inlined_arguments(first.left.left) == (
         InlinedArgument(
-            call=calls.left.span,
+            call=call.span,
             function="small",
             position=1,
             parameter="v",
@@ -533,54 +541,220 @@ def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
         ),
     )
     copy = first.right.left
-    assert type(copy) is NameExpr and copy != argument and copy.argument_of == ()
+    assert type(copy) is NameExpr and copy != argument
+    assert _location(copy.span) == _location(argument.span)
+    assert inlined_arguments(copy) == ()
     nodes = _expression_nodes(expression)
     assert len({id(node) for node in nodes}) == len(nodes)
     assert len(set(nodes)) == len(nodes)
-    start = (calls.left.span.line, calls.left.span.column)
-    assert (copy.span.line, copy.span.column) == start
-    assert copy.span.end_line == start[0] and copy.span.end_column > start[1]
 
 
-def _copy(value: object) -> object:
-    """A structural copy of an AST in which every node is a new object."""
-
-    if type(value) is tuple:
-        return tuple(_copy(item) for item in value)
-    if is_dataclass(value) and type(value).__module__ == "pietto.ast_nodes":
-        return replace(
-            cast(Any, value),
-            **{item.name: _copy(getattr(value, item.name)) for item in fields(value)},
+def test_a_parameter_named_like_a_function_never_replaces_the_call() -> None:
+    shapes = (
+        "shape T:\n    id: Int not null\n    lower: Text not null\n"
+        "    note: Text nullable\n"
+        'source t: T is postgres.table("t")\n'
+    )
+    called = _inlined(
+        shapes + "def f(upper: Text nullable) -> Text nullable: return upper(upper)\n"
+        "table r:\n    from t\n    select:\n        a = f(lower)\n"
+        "        b = f(trim(note))\n"
+    )
+    written = _inlined(
+        shapes + "table r:\n    from t\n    select:\n        a = upper(lower)\n"
+        "        b = upper(trim(note))\n"
+    )
+    assert _shape(called) == _shape(written)
+    assert (
+        _errors(
+            shapes
+            + "def f(upper: Text nullable) -> Text nullable: return upper(upper)\n"
+            "table r:\n    from t\n    select:\n        a = f(note)\n"
+            "        b = f(trim(note))\n"
         )
-    return value
+        == []
+    )
 
 
-def test_argument_checks_travel_with_the_inlined_script() -> None:
-    """A copy of an inlined script, such as the one execution binds values
-    into, keeps every argument check: no state outside the script holds it."""
-    parsed = parse_source(
-        SHAPES + DEFS + "table t:\n    from rows\n    where pos(n)\n"
+REFUSED = {
+    "window_call": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = pos(id) window:\n            order by: id\n",
+        (BODY_LINE + 4, 13, "a window computation", "pos"),
+    ),
+    "window_argument": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = lag(up(text)) window:\n            order by: id\n",
+        (BODY_LINE + 4, 17, "a window computation", "up"),
+    ),
+    "partition_key": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = row_number() window:\n            partition by: up(text)\n"
+        "            order by: id\n",
+        (BODY_LINE + 5, 27, "a window computation", "up"),
+    ),
+    "named_window": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = row_number() window w\n    window w:\n        order by: up(text)\n",
+        (BODY_LINE + 6, 19, "a window computation", "up"),
+    ),
+    "limit": (
+        "table t:\n    from rows\n    select:\n        id\n    order by: id\n"
+        "    limit up(3)\n",
+        (BODY_LINE + 5, 11, "LIMIT", "up"),
+    ),
+    "grouped_order": (
+        "table t:\n    from rows\n    group by: text\n    select:\n        text\n"
+        "        c = count()\n    order by: up(text)\n",
+        (BODY_LINE + 6, 15, "the ORDER BY of a grouped relation", "up"),
+    ),
+    "type_argument": (
+        "shape S:\n    a: Decimal(abs(pos(9)), 2) not null\n",
+        (BODY_LINE + 1, 20, "a type argument", "pos"),
+    ),
+    "source_connector": (
+        'source s: Row is postgres.table(up("x"))\n',
+        (BODY_LINE, 33, "a source connector", "up"),
+    ),
+}
+
+
+@pytest.mark.parametrize(("relation", "expected"), REFUSED.values(), ids=REFUSED)
+def test_a_def_call_is_refused_where_the_written_form_has_its_own_rule(
+    relation: str, expected: tuple[int, int, str, str]
+) -> None:
+    line, column, position, name = expected
+    assert _errors(SHAPES + DEFS + relation) == [
+        (
+            "PIE-S2397",
+            line,
+            column,
+            f"A def call is not available in {position}: {name}",
+        )
+    ]
+
+
+NULLS = {
+    "null_argument": (
+        'table t:\n    from rows\n    where pos(null) and up(null) == "A"\n'
         "    select:\n        id\n",
-        path="m.pietto",
-    ).ast
-    assert parsed is not None
-    inlined, diagnostics = inline_functions(parsed)
-    assert diagnostics == ()
-    copied = _copy(inlined)
-    assert copied == inlined and copied is not inlined
-    for script in (inlined, copied):
-        assert [
-            (d.code, d.location.line, d.location.column, d.message)
-            for d in analyze(cast(Script, script)).diagnostics
-        ] == [
+        [
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
                 11,
-                "Invalid argument for def pos at position 1 (x): expected Int "
-                "not null, got Int nullable",
+                "Invalid argument for def pos at "
+                "position 1 (x): expected Int not null, got null",
+            ),
+            (
+                "PIE-S2395",
+                BODY_LINE + 2,
+                25,
+                "Invalid argument for def up at "
+                "position 1 (t): expected Text not null, got null",
+            ),
+        ],
+    ),
+    "null_only_argument": (
+        "table t:\n    from rows\n    where pos(coalesce(null, null))\n"
+        "    select:\n        id\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 2,
+                11,
+                "Invalid argument for def pos at "
+                "position 1 (x): expected Int not null, got null",
             )
-        ]
+        ],
+    ),
+    "null_into_nullable": (
+        "def opt(x: Int nullable) -> Bool nullable: return x > 0\n"
+        "table t:\n    from rows\n    where opt(null)\n    select:\n        id\n",
+        [],
+    ),
+    "null_body": (
+        "def f(x: Int not null) -> Text not null: return null if x > 0 else null\n"
+        "def g(x: Int not null) -> Text nullable: return null if x > 0 else null\n",
+        [
+            (
+                "PIE-S2402",
+                BODY_LINE,
+                49,
+                "Def f body is always null, but its declared return type is not null",
+            )
+        ],
+    ),
+    "unknown_body": (
+        "def f(x: Int not null) -> Int nullable: return x + null\n",
+        [
+            (
+                "PIE-S2402",
+                BODY_LINE,
+                48,
+                "Def f body type is not known, so it "
+                "cannot match declared return type Int",
+            )
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize(("source", "expected"), NULLS.values(), ids=NULLS)
+def test_null_is_nullable_and_an_unknown_body_fits_no_result(
+    source: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    assert _errors(SHAPES + DEFS + source) == expected
+
+
+def test_an_unknown_type_without_an_error_stays_unchecked() -> None:
+    """Gradual typing: nothing is known about a field of a shapeless source,
+    so its argument is not checked, as the same expression by hand is not."""
+    source = (
+        'source raw is postgres.table("raw")\n'
+        + DEFS
+        + "table t:\n    from raw\n    where pos(zz)\n    select:\n        zz\n"
+    )
+    assert [code for code, *_ in _errors(source)] == ["PIE-S2303"]
+
+
+def test_a_satisfying_argument_matches_its_alias_canonical_type() -> None:
+    source = (
+        "type Percent = Int not null\nshape P:\n    pct: Percent not null\n"
+        'source ps: P is postgres.table("ps")\n'
+        + DEFS
+        + "table t:\n    from ps\n    group by: pct\n    select:\n        pct\n"
+        "        c = count()\n    satisfying: pos(pct)\n"
+    )
+    assert _errors(source) == []
+
+
+def test_each_use_of_an_argument_reports_at_the_argument() -> None:
+    source = (
+        SHAPES
+        + "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        + "table t:\n    from rows\n    select:\n        id\n"
+        + "        d = twice(nope + 1)\n"
+    )
+    assert (
+        _errors(source) == [("PIE-S2102", BODY_LINE + 3, 19, "Unknown field: nope")] * 2
+    )
+
+
+def test_inlined_spans_are_real_locations() -> None:
+    inlined = _inlined(
+        SHAPES
+        + "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        + "table t:\n    from rows\n    select:\n        id\n"
+        + "        d = twice(n)\n"
+    )
+    item = cast(SelectItem, cast(TableDef, inlined.definitions[-1]).select_items[1])
+    sum_ = cast(BinaryExpr, item.expression)
+    call = (BODY_LINE + 3, 13, BODY_LINE + 3, 21)
+    argument = (BODY_LINE + 3, 19, BODY_LINE + 3, 20)
+    assert _location(sum_.span) == call
+    assert _location(sum_.left.span) == _location(sum_.right.span) == argument
+    assert sum_.left != sum_.right
 
 
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:
@@ -628,12 +802,10 @@ def test_no_volatile_function_reaches_a_repeated_argument(function: str) -> None
         f"table t:\n    from rows\n    where twice({function}())\n"
         "    select:\n        id\n"
     )
-    # The error inside the argument is reported once per use: at the copy,
-    # which starts at the call, and at the argument itself.
-    assert _errors(source) == [
-        ("PIE-S2103", BODY_LINE + 1, column, f"Unknown function: {function}")
-        for column in (11, 17)
-    ]
+    assert (
+        _errors(source)
+        == [("PIE-S2103", BODY_LINE + 1, 17, f"Unknown function: {function}")] * 2
+    )
 
 
 def _expression_nodes(expression: Any) -> list[Any]:
@@ -654,303 +826,3 @@ def _expression_nodes(expression: Any) -> list[Any]:
             if is_dataclass(child) and hasattr(child, "span")
         )
     return found
-
-
-def _run(argv: list[str]) -> tuple[int, str]:
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-        code = cli.main(argv)
-    return code, out.getvalue()
-
-
-SINGLE_FILE = {
-    "where_two_defs": (
-        "def reachable(email: Text nullable, coupon: Text nullable) -> Bool nullable: "
-        'return email like "%@%" and coupon is null\n'
-        "def positive(v: Int not null) -> Bool nullable: return v > 0\n"
-        "table t:\n    from rows\n    where positive(id) and reachable(note, note)\n"
-        "    select:\n        id\n",
-        "table t:\n    from rows\n"
-        '    where (id > 0) and (note like "%@%" and note is null)\n'
-        "    select:\n        id\n",
-    ),
-    "repeated_parameter_and_call": (
-        "def small(v: Int not null) -> Bool nullable: return v > 0 and v < 9\n"
-        "def clean(s: Text not null) -> Text not null: return lower(trim(s))\n"
-        "table t:\n    from rows\n    let: c = clean(text)\n"
-        "    where small(id) and clean(text) != clean(text)\n"
-        "    select:\n        id\n        cc = c\n        d = clean(text)\n"
-        "    order by: id desc\n",
-        "table t:\n    from rows\n    let: c = (lower(trim(text)))\n"
-        "    where (id > 0 and id < 9) and (lower(trim(text))) != (lower(trim(text)))\n"
-        "    select:\n        id\n        cc = c\n        d = (lower(trim(text)))\n"
-        "    order by: id desc\n",
-    ),
-    "nested_defs": (
-        "def tag(s: Text not null) -> Text not null: return upper(s)\n"
-        "def label(s: Text not null, v: Int not null) -> Text not null: "
-        'return tag(s) if v > 0 else "none"\n'
-        "table t:\n    from rows\n    select:\n        id\n"
-        "        l = label(text, id)\n",
-        "table t:\n    from rows\n    select:\n        id\n"
-        '        l = ((upper(text)) if id > 0 else "none")\n',
-    ),
-}
-
-
-@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
-@pytest.mark.parametrize(("called", "written"), SINGLE_FILE.values(), ids=SINGLE_FILE)
-def test_single_file_sql_is_byte_identical_to_the_call_written_out(
-    tmp_path: Path, dialect: str, called: str, written: str
-) -> None:
-    shapes = SHAPES.replace("postgres.table", f"{dialect}.table")
-    outputs = []
-    for name, relation in (("called", called), ("written", written)):
-        path = tmp_path / f"{name}.pietto"
-        path.write_text(shapes + relation, encoding="utf-8")
-        code, sql = _run(["emit-sql", str(path), "--dialect", dialect])
-        assert code == 0
-        outputs.append(sql)
-    assert outputs[0] == outputs[1]
-    assert "SELECT" in outputs[0]
-
-
-def test_single_file_explain_lists_no_def(tmp_path: Path) -> None:
-    called, written = SINGLE_FILE["nested_defs"]
-    documents = []
-    for name, relation in (("called", called), ("written", written)):
-        path = tmp_path / f"{name}.pietto"
-        path.write_text(SHAPES + relation, encoding="utf-8")
-        code, document = _run(["explain", str(path), "--format", "json"])
-        assert code == 0
-        documents.append(json.loads(document)["metadata"]["definitions"])
-    assert (
-        [(d["name"], d["kind"]) for d in documents[0]]
-        == [(d["name"], d["kind"]) for d in documents[1]]
-        == [("Row", "shape"), ("rows", "source"), ("t", "table")]
-    )
-
-
-def _project(root: Path, files: dict[str, str], schema_version: int = 2) -> Path:
-    root.mkdir()
-    (root / "pietto.toml").write_text(
-        f'schema_version = {schema_version}\n[sources]\ninclude = ["*.pietto"]\n'
-    )
-    for name, text in files.items():
-        (root / name).write_text(text, encoding="utf-8")
-    return root
-
-
-def _project_errors(root: Path) -> list[tuple[str, str, int, int, str]]:
-    code, document = _run(["check", "--project", str(root), "--format", "json"])
-    diagnostics = json.loads(document)["diagnostics"]
-    assert code == (1 if diagnostics else 0)
-    return [
-        (
-            d["code"],
-            d["location"]["path"],
-            d["location"]["line"],
-            d["location"]["column"],
-            d["message"],
-        )
-        for d in diagnostics
-    ]
-
-
-def test_project_defs_are_module_local_and_not_exported(tmp_path: Path) -> None:
-    local = SHAPES + DEFS + "export:\n    source rows\n"
-    caller = (
-        'import "a.pietto":\n    source rows\n'
-        "table t:\n    from rows\n    where pos(id)\n    select:\n        id\n"
-    )
-    used_here = (
-        local + "table u:\n    from rows\n    where pos(id)\n    select:\n        id\n"
-    )
-    assert _project_errors(_project(tmp_path / "ok", {"a.pietto": used_here})) == []
-    assert _project_errors(
-        _project(tmp_path / "other", {"a.pietto": local, "b.pietto": caller})
-    ) == [("PIE-S2103", "b.pietto", 5, 11, "Unknown function: pos")]
-    exported = _project(
-        tmp_path / "export", {"a.pietto": DEFS + "export:\n    table pos\n"}
-    )
-    assert _project_errors(exported) == [
-        ("PIE-S2704", "a.pietto", 4, 11, "Unknown export binding: table pos")
-    ]
-    keyword = _project(
-        tmp_path / "keyword", {"a.pietto": DEFS + "export:\n    def pos\n"}
-    )
-    assert [error[:4] for error in _project_errors(keyword)] == [
-        ("PIE-P1000", "a.pietto", 4, 5)
-    ]
-
-
-def test_project_modes_without_modules_keep_def_gated(tmp_path: Path) -> None:
-    root = _project(tmp_path / "flat", {"a.pietto": SHAPES + DEFS}, schema_version=1)
-    assert _project_errors(root) == [
-        (
-            "PIE-S2379",
-            "a.pietto",
-            line,
-            1,
-            "Inline `def` functions are available only in single files and "
-            "EXPLICIT_MODULES projects (schema version 2).",
-        )
-        for line in (8, 9)
-    ]
-
-
-def test_project_checks_header_and_captured_arguments(tmp_path: Path) -> None:
-    source = (
-        SHAPES
-        + DEFS
-        + (
-            "query q(k: Int not null, m: Int nullable):\n    from rows\n"
-            "    where pos(k) and pos(m)\n    select:\n        id\n"
-            "query c:\n    let l:\n        capture rows\n        from tags\n"
-            "        where pos(rows.n)\n        select:\n            id\n"
-            "    from rows\n    where exists l\n    select:\n        id\n"
-            'shape Tag:\n    id: Int not null\nsource tags: Tag is postgres.table("tags")\n'
-        )
-    )
-    assert _project_errors(_project(tmp_path / "p", {"a.pietto": source})) == [
-        (
-            "PIE-S2395",
-            "a.pietto",
-            BODY_LINE + 2,
-            22,
-            "Invalid argument for def "
-            "pos at position 1 (x): expected Int not null, got Int nullable",
-        ),
-        (
-            "PIE-S2395",
-            "a.pietto",
-            BODY_LINE + 9,
-            15,
-            "Invalid argument for def "
-            "pos at position 1 (x): expected Int not null, got Int nullable",
-        ),
-    ]
-
-
-PROJECT = {
-    "row_body": (
-        "T_row_direct",
-        "table_preserve",
-        "table",
-        "def small(n: Int not null) -> Bool nullable: return n > 0 and n < 1000\n"
-        "def both(a: Int not null, b: Int not null) -> Bool nullable: "
-        "return small(a) and small(b)\n"
-        "def label(t: Text not null, f: Bool nullable) -> Text not null: "
-        'return "on" if f is null else lower(t)\n'
-        "def next_of(n: Int not null) -> Int nullable: return n + 1\n",
-        [
-            ("bumped = id + 1", "bumped = next_of(id)"),
-            ("where id > 0", "where both(id, id) and small(id)"),
-            ("positive = id > 0", "positive = label(text, flag) == label(text, flag)"),
-        ],
-        [
-            ("bumped = id + 1", "bumped = (id + 1)"),
-            (
-                "where id > 0",
-                "where ((id > 0 and id < 1000) and (id > 0 and id < 1000)) and "
-                "(id > 0 and id < 1000)",
-            ),
-            (
-                "positive = id > 0",
-                'positive = ("on" if flag is null else lower(text)) == '
-                '("on" if flag is null else lower(text))',
-            ),
-        ],
-    ),
-    "bound_literals": (
-        "T_row_direct",
-        "query_bind",
-        "query",
-        "def small(n: Int not null) -> Bool nullable: return n > 0 and n < 1000\n",
-        [("where id > 0", "where small(id) and small(id)")],
-        [("where id > 0", "where (id > 0 and id < 1000) and (id > 0 and id < 1000)")],
-    ),
-    "grouped_let_key": (
-        "Y_aggregate_computed",
-        "let_key",
-        "query",
-        "def bucket_of(k: Int nullable) -> Int not null: return 1 if k > 1 else 0\n",
-        [("bucket = 1 if key > 1 else 0", "bucket = bucket_of(key)")],
-        [("bucket = 1 if key > 1 else 0", "bucket = (1 if key > 1 else 0)")],
-    ),
-    "satisfying": (
-        "Y_aggregate_satisfying",
-        "retained",
-        "query",
-        "def small(t: Int not null) -> Bool nullable: return t < 2\n",
-        [("total < 2 and lo > 5", "small(total) and lo > 5")],
-        [("total < 2 and lo > 5", "(total < 2) and lo > 5")],
-    ),
-    "qualify": (
-        "A_window_qualify",
-        "selected",
-        "query",
-        "def top(n: Int not null) -> Bool nullable: return n <= 2\n",
-        [("numbered <= 2", "top(numbered)")],
-        [("numbered <= 2", "(numbered <= 2)")],
-    ),
-    "join_on": (
-        "W_join_values",
-        "left_marker",
-        "query",
-        "def same(a: Int not null, b: Int not null) -> Bool nullable: return a == b\n",
-        [("on rows.id == r.pid", "on same(rows.id, r.pid)")],
-        [("on rows.id == r.pid", "on (rows.id == r.pid)")],
-    ),
-}
-COMPARED = ("sql", "columns", "fixed_values", "parameter_uses", "requirements")
-
-
-@pytest.mark.parametrize("target", ["postgres", "mysql"])
-@pytest.mark.parametrize(
-    ("case", "variant", "kind", "defs", "called", "written"),
-    PROJECT.values(),
-    ids=PROJECT,
-)
-def test_project_sql_is_byte_identical_to_the_call_written_out(
-    tmp_path: Path,
-    target: str,
-    case: str,
-    variant: str,
-    kind: str,
-    defs: str,
-    called: list[tuple[str, str]],
-    written: list[tuple[str, str]],
-) -> None:
-    item = emission.fixture(target, case, variant)
-    documents = []
-    for name, edits, extra in (("called", called, defs), ("written", written, "")):
-        source = item["source"]
-        for old, new in edits:
-            assert source.count(old) == 1
-            source = source.replace(old, new)
-        root = _project(tmp_path / name, {"main.pietto": source + extra})
-        (root / "contract.json").write_text(item["contract"], encoding="utf-8")
-        argv = [
-            "emit-sql",
-            "--project",
-            str(root),
-            "--module",
-            "main.pietto",
-            "--kind",
-            kind,
-            "--name",
-            "result",
-            "--dialect",
-            target,
-            "--emission-contract",
-            "contract.json",
-        ]
-        if item["policy"] == "bind_safe_literals":
-            argv += ["--literal-policy", "bind-safe"]
-        code, document = _run(argv)
-        assert code == 0
-        documents.append(json.loads(document))
-    assert documents[0]["status"] == documents[1]["status"] == "VERIFIED"
-    for key in COMPARED:
-        assert documents[0][key] == documents[1][key], key

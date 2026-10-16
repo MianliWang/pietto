@@ -302,20 +302,35 @@ def test_def_types_must_state_their_nullability(
 
 
 @pytest.mark.parametrize(
-    "source",
+    ("source", "line", "column", "message"),
     (
-        "def f() -> Int not null: 1\n",
-        "def f() -> Int not null:\n    1\n",
-        "def f() -> Int not null:\n    return 1\n    return 2\n",
-        "def f():\n    return 1\n",
-        "def f -> Int not null: return 1\n",
+        ("def f() -> Int not null: 1\n", 1, 26, "Unexpected '1'."),
+        (
+            "def f() -> Int not null:\n    1\n",
+            2,
+            5,
+            "Unexpected '1'; expected 'return' or end of line.",
+        ),
+        (
+            "def f() -> Int not null:\n    return 1\n    return 2\n",
+            3,
+            5,
+            "Unexpected 'return'; expected end of block.",
+        ),
+        ("def f():\n    return 1\n", 1, 8, "Unexpected ':'."),
+        ("def f -> Int not null: return 1\n", 1, 7, "Unexpected '->'."),
     ),
 )
-def test_def_bodies_are_exactly_one_return(source: str) -> None:
+def test_def_bodies_are_exactly_one_return(
+    source: str, line: int, column: int, message: str
+) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert {item.code for item in result.diagnostics} == {"PIE-P1000"}
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", line, column, message)]
 
 
 def test_def_and_return_remain_ordinary_names() -> None:

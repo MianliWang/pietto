@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
 
+from _pietto_parser_layout import layout_free
 from pietto.ast_nodes import (
     RelationshipEndpoint,
     RelationshipMetadata,
@@ -262,22 +263,6 @@ def test_relationship_metadata_does_not_change_semantic_ir_or_sql() -> None:
     assert emit_mysql_sql(baseline_ir.ir) == emit_mysql_sql(metadata_ir.ir)
 
 
-def _layout_free(value: object) -> object:
-    if type(value) is Span:
-        return None
-    if type(value) is tuple:
-        return tuple(_layout_free(item) for item in value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return (
-            type(value).__name__,
-            tuple(
-                (item.name, _layout_free(getattr(value, item.name)))
-                for item in fields(value)
-            ),
-        )
-    return value
-
-
 def test_one_line_relationship_is_its_endpoint_block_with_relation_roles() -> None:
     one_line = parse_source(
         "relationship item_region: order_items.region == regions.code"
@@ -293,7 +278,7 @@ def test_one_line_relationship_is_its_endpoint_block_with_relation_roles() -> No
 
     assert one_line.diagnostics == block.diagnostics == ()
     assert one_line.ast is not None and block.ast is not None
-    assert _layout_free(one_line.ast) == _layout_free(block.ast)
+    assert layout_free(one_line.ast) == layout_free(block.ast)
     (relationship,) = one_line.ast.relationships
     assert [
         (e.local_name, e.relation_name, e.span.line, e.span.column, e.span.end_column)
