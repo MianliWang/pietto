@@ -559,7 +559,11 @@ def test_an_interrupted_parse_leaves_no_parse_running() -> None:
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
-    assert [item for item in threading.enumerate() if item.name == "pietto-parse"] == []
+    assert [
+        item
+        for item in threading.enumerate()
+        if item.name == "pietto-parse" and item.is_alive()
+    ] == []
     assert parse_source(_query("    select: a\n")).diagnostics == ()
 
 

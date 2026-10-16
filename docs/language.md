@@ -433,9 +433,11 @@ directions to the target keeps its one PIE-S2333 at the relation, which is
 reported only when nothing else explains the relation; its message adds the
 candidate list of each such JOIN. A JOIN with `on` and a CROSS JOIN still name
 their source with `from` (PIE-S2378). Single-file checks and LEGACY_FLAT
-project checks do not resolve JOIN sources or roles, written or omitted: such a
-JOIN passes `check` like its explicit form, and single-file `explain` and
-`emit-sql` refuse both with PIE-I1000.
+project checks do not infer an omitted `from` or omitted VIA roles. A
+single-file check still checks the JOIN parts that are written (PIE-S2301 and
+PIE-S2335) and skips the omitted ones and the VIA path they would decide, so
+such a JOIN passes `check` when its written parts are valid; single-file
+`explain` and `emit-sql` refuse JOINs with PIE-I1000 either way.
 
 Zero `via` lines use exact direct-relationship shorthand. One or more lines
 name an explicit ordered path as `via relationship: source_role -> target_role`,

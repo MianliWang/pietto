@@ -1411,6 +1411,14 @@ def test_single_file_check_treats_an_inferred_join_like_its_explicit_form() -> N
         assert [item.code for item in build_ir(script, semantic.model).diagnostics] == [
             "PIE-I1000"
         ]
+    # The written parts of an inferred JOIN are still checked.
+    written = _parse(
+        head + "query q:\n    from employees\n    inner join departments as d\n"
+        "    left join sites as s: via nosuch\n    select:\n        id\n"
+    )
+    assert [(d.code, d.message) for d in analyze(written).diagnostics] == [
+        ("PIE-S2335", "Unknown relationship in JOIN VIA: nosuch")
+    ]
 
 
 def _completed_project(root: Path, files: dict[str, str]) -> Any:
