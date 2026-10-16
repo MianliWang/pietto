@@ -686,6 +686,19 @@ _SIGNED64_MAX = 9223372036854775807
 def _checked_window(call: str, *, frame: str = "", lets: str = "") -> list[str]:
     """Single-file check diagnostics of one selected window call."""
 
+    return [
+        f"{code} {message}"
+        for code, message, _, _ in _located_window_diagnostics(
+            call, frame=frame, lets=lets
+        )
+    ]
+
+
+def _located_window_diagnostics(
+    call: str, *, frame: str = "", lets: str = ""
+) -> list[tuple[str, str, int, int]]:
+    """Code, message, line and column of each `_checked_window` diagnostic."""
+
     source = (
         "shape Row:\n    id: Int not null\n    value: Int not null\n"
         'source rows: Row is postgres.table("rows")\n'
@@ -697,10 +710,14 @@ def _checked_window(call: str, *, frame: str = "", lets: str = "") -> list[str]:
     )
     parsed = parse_source(source, path="frame.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
-    return [
-        f"{diagnostic.code} {diagnostic.message}"
-        for diagnostic in semantic_package.analyze(parsed.ast).diagnostics
-    ]
+    located: list[tuple[str, str, int, int]] = []
+    for diagnostic in semantic_package.analyze(parsed.ast).diagnostics:
+        location = diagnostic.location
+        assert location is not None
+        located.append(
+            (diagnostic.code, diagnostic.message, location.line, location.column)
+        )
+    return located
 
 
 @pytest.mark.parametrize("unit", ("rows", "groups"))
@@ -745,6 +762,64 @@ def test_single_file_check_judges_frame_offsets_after_let_inlining(
             f"{_SIGNED64_MAX}"
         ]
     )
+
+
+@pytest.mark.parametrize(
+    ("lets", "offset", "expected"),
+    (
+        ("a = a + 1", "a", [("PIE-S2330", "Let binding cannot reference itself: a")]),
+        (
+            "a = b\n        b = a",
+            "a",
+            [("PIE-S2330", "Let binding cannot reference a later binding: b")],
+        ),
+        (
+            'k = "x" + 1',
+            "k",
+            [
+                (
+                    "PIE-S2105",
+                    "Invalid operands for operator +: expected numeric operands",
+                )
+            ],
+        ),
+        ("k = zz", "k", [("PIE-S2102", "Unknown field: zz")]),
+        ("j = zz\n        k = j + 1", "k", [("PIE-S2102", "Unknown field: zz")]),
+    ),
+)
+def test_frame_offset_reading_a_let_with_its_own_error_reports_only_that_error(
+    lets: str,
+    offset: str,
+    expected: list[tuple[str, str]],
+) -> None:
+    # Before: each case also reported PIE-S2104 at the window call.
+    diagnostics = _located_window_diagnostics(
+        "first_value(value)",
+        frame=f"rows between {offset} preceding and current row",
+        lets=lets,
+    )
+
+    assert diagnostics == [(code, message, 8, 13) for code, message in expected]
+
+
+def test_field_frame_offset_named_like_a_refused_let_is_still_refused() -> None:
+    # Before: the refused `value` let hid the PIE-S2104 of the `value` field.
+    diagnostics = _located_window_diagnostics(
+        "first_value(value)",
+        frame="rows between value preceding and current row",
+        lets="value = 1",
+    )
+
+    assert diagnostics == [
+        ("PIE-S2329", "Let binding cannot shadow input field: value", 8, 9),
+        (
+            "PIE-S2104",
+            "Invalid window frame for function first_value: ROWS offsets must be "
+            f"nonnegative integer literals up to {_SIGNED64_MAX}",
+            10,
+            18,
+        ),
+    ]
 
 
 @pytest.mark.parametrize(

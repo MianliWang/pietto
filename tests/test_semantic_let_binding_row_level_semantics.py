@@ -287,6 +287,37 @@ def test_invalid_let_binding_cases_fail_closed(
             "        gross\n"
             "        n = count()\n"
         ),
+        # Before: each window read below also reported PIE-S2102.
+        (
+            "    let:\n"
+            "        gross = amount + tax\n"
+            "    select:\n"
+            "        id\n"
+            "        gross\n"
+            "        p = row_number() window:\n"
+            "            partition by:\n"
+            "                gross\n"
+            "            order by:\n"
+            "                id\n"
+            "        o = row_number() window:\n"
+            "            order by:\n"
+            "                gross\n"
+            "        f = first_value(gross) window:\n"
+            "            order by:\n"
+            "                id\n"
+            "        v = lag(gross) window:\n"
+            "            order by:\n"
+            "                id\n"
+            "        d = lag(id, 1, gross) window:\n"
+            "            order by:\n"
+            "                id\n"
+            "        n = row_number() window w\n"
+            "    window w:\n"
+            "        partition by:\n"
+            "            gross\n"
+            "        order by:\n"
+            "            id\n"
+        ),
     ],
 )
 def test_reads_of_a_refused_let_name_report_only_the_refusal(body: str) -> None:

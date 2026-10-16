@@ -727,6 +727,7 @@ def _analyze_relation_schema_expressions(
             definition: scope.value_types for definition, scope in let_scopes.items()
         },
         type_expansions=type_expansions,
+        let_diagnostics=let_diagnostics,
     )
     relation_value_types.update(let_value_types)
     relation_expression_diagnostics.extend(let_diagnostics)

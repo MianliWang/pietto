@@ -236,6 +236,63 @@ def test_projection_alias_is_not_an_order_by_name_scope() -> None:
     ]
 
 
+_AGGREGATE_OUTPUT_HINT = (
+    "an aggregate output cannot be ordered there (a grouped query can order by "
+    "its name)"
+)
+_CONSTANT_OUTPUT_HINT = "a constant output sorts nothing and cannot be an ORDER BY key"
+
+
+@pytest.mark.parametrize(
+    ("let_line", "output", "hint", "grouped_keys"),
+    [
+        (None, "count()", _AGGREGATE_OUTPUT_HINT, ("COUNT(*)", "COUNT(*)")),
+        (None, "sum(id)", _AGGREGATE_OUTPUT_HINT, ('SUM("id")', "SUM(`id`)")),
+        (None, "1", _CONSTANT_OUTPUT_HINT, None),
+        (None, "-1", _CONSTANT_OUTPUT_HINT, None),
+        ('label = "x"', "label", _CONSTANT_OUTPUT_HINT, None),
+    ],
+    ids=("count", "sum", "literal", "signed-literal", "let-literal"),
+)
+def test_output_key_outside_a_grouped_query_offers_only_an_accepted_remedy(
+    let_line: str | None,
+    output: str,
+    hint: str,
+    grouped_keys: tuple[str, str] | None,
+) -> None:
+    ungrouped = _relation_source(
+        projections=(f"total = {output}",), order_items=("total",)
+    )
+    if let_line is not None:
+        ungrouped = ungrouped.replace(
+            "    select:\n", f"    let:\n        {let_line}\n    select:\n"
+        )
+
+    result = analyze(_parse(POSTGRES_PREFIX + ungrouped))
+
+    # Before: the hint offered restating the output or binding it in `let:`.
+    # PIE-S2308 refuses both for an aggregate; for a bare constant, `let:` and
+    # a restated signed or text literal are PIE-S2380, a restated integer is
+    # PIE-P1000.
+    assert [(d.code, d.message) for d in result.diagnostics] == [
+        (
+            "PIE-S2102",
+            "Unknown field: total; outside a grouped query an ORDER BY key "
+            f"cannot name a SELECT output, and {hint}",
+        )
+    ]
+    if grouped_keys is None:
+        return
+    postgres_key, mysql_key = grouped_keys
+    grouped = ungrouped.replace(
+        "    select:\n", "    group by:\n        email\n    select:\n"
+    )
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + grouped))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + grouped))
+    assert postgres.artifacts[0].sql.endswith(f"ORDER BY\n    {postgres_key} ASC")
+    assert mysql.artifacts[0].sql.endswith(f"ORDER BY\n    {mysql_key} ASC")
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     (
