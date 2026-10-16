@@ -481,7 +481,10 @@ The implemented outcomes are:
   U+202A to U+202E, and U+2066 to U+2069 become `\uNNNN`, for example
   `\u202e` for U+202E. Project `check` text follows the same rule, and project
   `emit-sql` and `explain` text apply the same `\uNNNN` escapes after their
-  own C0 escaping. JSON keeps these characters raw.
+  own C0 escaping. The canonical JSON records in project `emit-sql` text write
+  every one of these controls as a JSON escape, such as `\u001b` or `\u202e`,
+  so each record still decodes to the same value. SQL text stays verbatim, and
+  JSON fields keep these characters as raw values.
 - Decoded JSON values preserve the original structured path, message,
   suggestion, and SQL text.
 - Handled JSON errors must not expose Python tracebacks.

@@ -514,15 +514,16 @@ def type_relation_expressions(
                     type_expansions=type_expansions,
                 )
                 # A key that already reported its own error gets no PIE-S2380.
+                # A bare constant key needs no field knowledge: with an unknown
+                # input row a `let:` name is inlined, as emission inlines it.
                 problem = (
                     None
-                    if input_schema.is_unknown
-                    or len(diagnostics) > key_diagnostic_count
+                    if len(diagnostics) > key_diagnostic_count
                     else _order_key_problem(
                         item.expression,
                         input_schema,
                         let_expressions or {},
-                        aggregated=aggregated,
+                        aggregated=aggregated and not input_schema.is_unknown,
                     )
                 )
                 if problem is not None:

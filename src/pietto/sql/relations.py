@@ -144,8 +144,10 @@ def qualify_alias_captured_order_fields(
     same input field reads the same value, so it captures nothing. PostgreSQL
     also names an unaliased computed item implicitly (`lower`, `coalesce`,
     `case`, ...), so there any unaliased computed item counts as a capture.
-    MySQL names it by its expression text, which is a bare name only for an
-    unaliased Text literal.
+    MySQL names it by its expression text; of those names only an unaliased
+    Text literal's, its value, is counted. Whether MySQL names an unaliased
+    TRUE, FALSE or NULL item by that bare word is not verified, so those
+    items are not counted.
     """
 
     def spelling(name: str) -> str:

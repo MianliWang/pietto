@@ -570,9 +570,21 @@ def _diagnostic_line(diagnostic: dict[str, Any]) -> str:
     )
 
 
+def _record(value: object) -> str:
+    """One canonical JSON record as single-line terminal text.
+
+    JSON already escapes C0 controls; DEL and the C1, separator and bidi
+    controls it leaves raw become \\uNNNN too, so the line still decodes to
+    the same value.
+    """
+
+    text = canonical(value).decode("utf-8")
+    return escape_unicode_controls(text).replace("\x7f", "\\u007f")
+
+
 def _records(label: str, records: list[Any]) -> list[str]:
     return [f"{label} ({len(records)}):"] + [
-        "  " + canonical(record).decode("utf-8") for record in records
+        "  " + _record(record) for record in records
     ]
 
 
@@ -583,12 +595,13 @@ def _render_verified(document: dict[str, Any]) -> str:
     owner = request["owner"]
     lines = [
         f"{document['format']} {document['status']}",
-        f"target: {target['family']} {target['release']}",
+        f"target: {_escape(target['family'])} {_escape(target['release'])}",
         *_records("environment", target["environment"]),
-        f"owner: {owner['module']} {owner['kind']} {owner['name']}",
+        f"owner: {_escape(owner['module'])} {_escape(owner['kind'])}"
+        f" {_escape(owner['name'])}",
         f"literal_policy: {request['literal_policy']}",
         *_records("sources", request["sources"]),
-        "contract: " + canonical(request["contract"]).decode("utf-8"),
+        "contract: " + _record(request["contract"]),
         "sql:",
         document["sql"],
         "end sql",

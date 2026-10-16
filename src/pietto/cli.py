@@ -112,10 +112,12 @@ class _CliArgumentParser(argparse.ArgumentParser):
     def _print_message(self, message: str, file: object = None) -> None:
         if not message:
             return
-        if file is not None and file is sys.stderr:
-            _write_stderr(message)
-        else:
+        # argparse passes sys.stdout or sys.stderr, None when it is closed. A
+        # None that is not a closed stdout is a closed stderr: drop the text.
+        if file is sys.stdout:
             _write_stdout(message)
+        else:
+            _write_stderr(message)
 
     def error(self, message: str) -> NoReturn:
         """Print one safe usage error and terminate argument parsing."""

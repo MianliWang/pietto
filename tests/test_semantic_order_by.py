@@ -517,6 +517,73 @@ def test_bare_constant_order_key_is_refused_at_check(
         assert "PIE-S2380" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("connector", ["postgres", "mysql"])
+@pytest.mark.parametrize(
+    ("let_lines", "key", "accepted"),
+    [
+        (("k = 2",), "k", False),
+        ((), '"x"', False),
+        ((), "-1", False),
+        (("k = id + 1",), "k", True),
+        ((), "1 + 1", True),
+    ],
+)
+def test_bare_constant_key_is_refused_from_a_source_without_a_shape(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    connector: str,
+    let_lines: tuple[str, ...],
+    key: str,
+    accepted: bool,
+) -> None:
+    let_clause = "".join(f"        {line}\n" for line in let_lines)
+    path = tmp_path / "loose.pietto"
+    path.write_text(
+        f'source raw is {connector}.table("raw")\n'
+        "query selected:\n"
+        "    from raw\n"
+        + ("    let:\n" + let_clause if let_clause else "")
+        + "    select:\n        id\n        amount\n"
+        f"    order by:\n        {key}\n",
+        encoding="utf-8",
+    )
+
+    checked = cli.main(["check", "--check-mode", "loose", str(path)])
+    check_err = capsys.readouterr().err
+    emitted = cli.main(
+        ["emit-sql", "--check-mode", "loose", str(path), "--dialect", connector]
+    )
+    emit_out, emit_err = capsys.readouterr()
+
+    # Before: with no shape the key went unchecked; `let: k = 2` emitted the
+    # column position `ORDER BY 2 ASC`. Emission inlines `k` as the let.
+    if accepted:
+        assert (checked, emitted, check_err) == (0, 0, "")
+        assert "ORDER BY" in emit_out
+    else:
+        assert (checked, emitted) == (1, 1)
+        assert "PIE-S2380" in check_err and "PIE-S2380" in emit_err
+
+
+def test_key_over_the_let_inline_limit_reports_only_that_error() -> None:
+    lets = "".join(f"        l{i} = l{i - 1} + 1\n" for i in range(1, 301))
+    source = (
+        "shape Row:\n    amount: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query q:\n"
+        "    from rows\n"
+        "    let:\n        l0 = amount\n" + lets + "    select:\n"
+        "        n = count()\n"
+        "    order by:\n"
+        "        l300\n"
+    )
+
+    # Before: PIE-S2380 joined the key's own PIE-S2328.
+    assert [diagnostic.code for diagnostic in analyze(_parse(source)).diagnostics] == [
+        "PIE-S2328"
+    ]
+
+
 @pytest.mark.parametrize(
     ("let_lines", "key", "postgres_key", "mysql_key"),
     [

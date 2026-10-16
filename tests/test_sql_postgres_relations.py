@@ -163,7 +163,12 @@ def test_output_alias_over_63_bytes_reports_pie_b1000_on_postgresql_only() -> No
     # Before: PostgreSQL truncated the alias silently to its first 63 bytes.
     assert result.artifacts == ()
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-B1000"]
-    assert "must not exceed 63 bytes" in result.diagnostics[0].message
+    # The refusal names the identifier and is not reported as unimplemented.
+    assert result.diagnostics[0].message == (
+        "PostgreSQL SQL emission refuses RelationIR: long_names. PostgreSQL "
+        f'identifier "{"a" * 24}..." is 67 bytes, over the 63 bytes PostgreSQL '
+        "keeps of a name"
+    )
     assert mysql.diagnostics == ()
     assert f"`email` AS `{alias}`" in mysql.artifacts[0].sql
 

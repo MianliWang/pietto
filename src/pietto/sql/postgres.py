@@ -19,6 +19,7 @@ from pietto.ir import (
 )
 from pietto.sql.model import SqlArtifact, SqlArtifactKind, SqlResult
 from pietto.sql.relations import render_relation_sql
+from pietto.sql.render import IdentifierTooLongError
 
 _MetadataDefinitionIR = TypeIR | EnumIR | ShapeIR | ConstraintIR | DeriveIR | SourceIR
 
@@ -62,6 +63,7 @@ def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
                     _unsupported_definition_diagnostic(
                         definition,
                         reason=str(error),
+                        refused=isinstance(error, IdentifierTooLongError),
                     )
                 )
                 continue
@@ -87,13 +89,17 @@ def _unsupported_definition_diagnostic(
     definition: DefinitionIR,
     *,
     reason: str | None = None,
+    refused: bool = False,
 ) -> Diagnostic:
-    """Report one unsupported PostgreSQL emission target at its IR span."""
+    """Report one unsupported PostgreSQL emission target at its IR span.
+
+    A `refused` target is one the emitter supports but must not emit.
+    """
 
     diagnostic_definition = cast(_DiagnosticDefinition, definition)
     span = diagnostic_definition.span
     message = (
-        "PostgreSQL SQL emission is not implemented for "
+        f"PostgreSQL SQL emission {'refuses' if refused else 'is not implemented for'} "
         f"{type(definition).__name__}: {diagnostic_definition.name}"
     )
     if reason is not None:

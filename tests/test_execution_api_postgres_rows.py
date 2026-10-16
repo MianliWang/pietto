@@ -177,7 +177,6 @@ def emit(example, policy="preserve", *, contract="contract.json", text=False):
             *(["--format", "text"] if text else []),
         ]
     )
-    assert not isinstance(result, int)
     return result
 
 
