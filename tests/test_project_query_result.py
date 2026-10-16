@@ -768,6 +768,69 @@ def test_explicit_project_check_refuses_like_escape_and_null_cast(
     assert text.err == expected
 
 
+_NEVER_TRUE = "comparison with null is never true"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    where age == null\n    select:\n        id\n",
+            f"main.pietto:7:11 PIE-S2105 error: Invalid operands for operator ==: "
+            f"{_NEVER_TRUE}; write `is null` instead\n",
+        ),
+        (
+            "    where null != age\n    select:\n        id\n",
+            f"main.pietto:7:11 PIE-S2105 error: Invalid operands for operator !=: "
+            f"{_NEVER_TRUE}; write `is not null` instead\n",
+        ),
+        (
+            "    select:\n        id\n        f = age >= null\n",
+            f"main.pietto:9:13 PIE-S2105 error: Invalid operands for operator >=: "
+            f"{_NEVER_TRUE}\n",
+        ),
+        (
+            "    let:\n        nothing = null\n        f = age < nothing\n"
+            "    where f\n    select:\n        id\n",
+            f"main.pietto:9:13 PIE-S2105 error: Invalid operands for operator <: "
+            f"{_NEVER_TRUE}\n",
+        ),
+        (
+            "    where age between null and null\n    select:\n        id\n",
+            f"main.pietto:7:11 PIE-S2105 error: Invalid operands for operator between: "
+            f"{_NEVER_TRUE}\n",
+        ),
+        (
+            "    where age not in (null)\n    select:\n        id\n",
+            f"main.pietto:7:11 PIE-S2105 error: Invalid operands for operator not in: "
+            f"{_NEVER_TRUE}; write `is not null` instead\n",
+        ),
+    ],
+    ids=("where-eq", "where-ne", "select", "let", "between", "not-in"),
+)
+def test_explicit_project_check_refuses_comparison_with_null(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+    expected: str,
+) -> None:
+    root = _project(
+        tmp_path / "null-comparison",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    age: Int nullable\n"
+        'source rows: Row is postgres.table("app.rows")\n'
+        "query result:\n"
+        "    from rows\n" + body,
+    )
+
+    # Before: each passed check, or the SELECT one gave PIE-S2333.
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == expected
+
+
 def test_project_and_single_file_checks_agree_on_alias_comparison_operands(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

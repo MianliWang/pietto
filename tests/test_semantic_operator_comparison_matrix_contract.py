@@ -140,7 +140,6 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
         "active != active",
         "order_date <= created_at",
         'created_at >= "2024-01-01"',
-        "null == status",
         "amount between tax and score",
     ):
         value, diagnostics = expression_facts(expression)
@@ -160,6 +159,20 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
             (
                 "PIE-S2105",
                 f"Invalid operands for operator {operator}: expected comparable operands",
+            ),
+        )
+
+    for expression, operator, remedy in (
+        ("null == status", "==", "; write `is null` instead"),
+        ("amount between null and null", "between", ""),
+    ):
+        value, diagnostics = expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == (
+            (
+                "PIE-S2105",
+                f"Invalid operands for operator {operator}: "
+                f"comparison with null is never true{remedy}",
             ),
         )
 

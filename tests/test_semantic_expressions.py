@@ -755,6 +755,84 @@ def test_comparison_operands_of_different_families_report_s2105(
         )
 
 
+NULL_LET_SOURCE = (
+    COMPARISON_SOURCE + "    let:\n        nothing = null\n        alias = nothing\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "operator", "remedy", "column"),
+    [
+        ("email == null", "==", "is null", 11),
+        ("null == email", "==", "is null", 11),
+        ("email != null", "!=", "is not null", 11),
+        ("count < null", "<", None, 11),
+        ("count <= null", "<=", None, 11),
+        ("null > count", ">", None, 11),
+        ("count >= null", ">=", None, 11),
+        ("email == nothing", "==", "is null", 11),
+        ("email != alias", "!=", "is not null", 11),
+        ('name == "x" and not (email == null)', "==", "is null", 32),
+        ("null between 1 and count", "between", None, 11),
+        ("count between nothing and alias", "between", None, 11),
+        ("count in (null, nothing)", "in", "is null", 11),
+        ("count not in (null)", "not in", "is not null", 11),
+        ("null in (1, count)", "in", None, 11),
+        ("nothing not in (1)", "not in", None, 11),
+    ],
+)
+def test_comparison_with_null_is_refused_as_never_true(
+    predicate: str,
+    operator: str,
+    remedy: str | None,
+    column: int,
+) -> None:
+    source = f"{NULL_LET_SOURCE}    where {predicate}\n    select:\n        count\n"
+    message = (
+        f"Invalid operands for operator {operator}: comparison with null is never true"
+    )
+    if remedy is not None:
+        message += f"; write `{remedy}` instead"
+    for mode in CheckMode:
+        result = analyze(_parse(source), mode_override=mode)
+
+        # Before: each passed check and emitted a test such as `= NULL`.
+        assert [
+            (
+                diagnostic.code,
+                diagnostic.severity,
+                diagnostic.message,
+                diagnostic.location.line,
+                diagnostic.location.column,
+            )
+            for diagnostic in result.diagnostics
+        ] == [("PIE-S2105", Severity.ERROR, message, COMPARISON_WHERE_LINE + 3, column)]
+        assert result.model.expression_value_types[_where_expression(result)].kind is (
+            ValueTypeKind.UNKNOWN
+        )
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "count between null and 10",
+        "count between 1 and nothing",
+        "count in (1, null)",
+        "count not in (1, nothing)",
+        "null in ()",
+    ],
+)
+def test_null_operands_that_can_be_false_or_match_are_not_refused(
+    predicate: str,
+) -> None:
+    result = analyze(
+        _parse(f"{NULL_LET_SOURCE}    where {predicate}\n    select:\n        count\n"),
+        mode_override=CheckMode.STRICT,
+    )
+
+    assert result.diagnostics == ()
+
+
 @pytest.mark.parametrize(
     "predicate",
     [
@@ -772,7 +850,8 @@ def test_comparison_operands_of_different_families_report_s2105(
         "payload == 1",
         'status == "active"',
         "age > 18",
-        "email == null",
+        "email == name",
+        'coalesce(email, null) == "x"',
         'email is null or email == "x"',
         "count between 1 and 10",
     ],

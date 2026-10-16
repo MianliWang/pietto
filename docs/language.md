@@ -590,10 +590,10 @@ not have exactly one output column, with PIE-B1003
 `membership_type_pair_not_admitted` when the type or physical carrier of `value`
 does not pair with its column, and with PIE-B1003
 `expression_evidence_unavailable` for a bare `null` value, which has no type
-there, like an all-NULL literal list. Project SQL renders the read as `(value
-[NOT] IN (SELECT e<n>.<column> FROM <block> AS e<n>))`, so an `order by` and
-`limit` of the read block stay inside its CTE and no IN subquery carries a
-LIMIT.
+there; a literal list whose elements are all null is PIE-S2105 at check. Project
+SQL renders the read as `(value [NOT] IN (SELECT e<n>.<column> FROM <block> AS
+e<n>))`, so an `order by` and `limit` of the read block stay inside its CTE and
+no IN subquery carries a LIMIT.
 
 In an EXPLICIT_MODULES project a typed VALUES body is also the body of a
 top-level table or query. It is its own zero-input relation, read by `from`, a
@@ -1125,6 +1125,20 @@ a text literal is the only constant form for those types; non-literal `Text`
 operands such as fields, calls and `let` values are not yet checked against
 those types either. Operands typed `Any`, `Bytes`, `Json`, an enum, or a shape
 are not checked.
+
+A comparison with `null` is never true: SQL evaluates `x = NULL`, `x <> NULL`
+and the ordering comparisons to NULL for every `x`. A comparison (`==`, `!=`,
+`<`, `<=`, `>`, `>=`) whose operand is the null literal, or a `let:` name bound
+to it, is therefore PIE-S2105; write `x is null` for `x == null` and `x is not
+null` for `x != null`. The same applies to a `between` whose value or both
+bounds are null and to an `in`/`not in` list whose value or every option is
+null. A `between` with one null bound (never true, but false when the other
+bound fails), an `in` list with a null among other options (it can still
+match), a comparison with an operand that may be NULL at run time, and calls
+such as `coalesce(x, null)` stay accepted. In an EXPLICIT_MODULES project a
+relation with a `let:` binding of unknown type, such as `nothing = null`, does
+not check its WHERE yet, so `where x == nothing` there is BLOCKED at emission
+(PIE-B1003) instead.
 
 The closed scalar surface has explicit signatures; it has no overload search:
 
