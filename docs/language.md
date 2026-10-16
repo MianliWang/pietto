@@ -1078,7 +1078,33 @@ when_false`. The conditional binds loosest and nests to the right, so
 `"a" if n > 1 else "b" if n > 0 else "c"` reads as `"a" if n > 1 else ("b" if
 n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
-(PIE-S2105). Semantic support is intentionally narrower
+(PIE-S2105).
+
+`/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
+2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`
+would return a DECIMAL, emits `a DIV b`. With a `Float` operand the result is a
+`Float`, emitted as a bare `a / b` on both targets; Pietto never inserts a
+cast. A type alias operand counts as the type it expands to. To keep the
+fraction of an `Int` division, convert explicitly:
+
+```pietto
+query rates:
+    from orders
+    select:
+        whole = amount / quantity
+        exact = amount * 1.0 / quantity
+        approximate = cast(amount as Float) / quantity
+```
+
+`amount * 1.0 / quantity` keeps the decimal digits the target computes
+(PostgreSQL `numeric`, MySQL DECIMAL), and `cast(amount as Float) / quantity`
+divides binary floating-point values. A `Text`, `Bool`, `Date`, `Timestamp` or
+`UUID` operand is PIE-S2105. Division by zero follows the target: PostgreSQL
+raises an error, while MySQL `/` and `DIV` return NULL. Dividing the smallest
+`Int` by -1 overflows the signed 64-bit range; what each target does then is
+not specified here. Division with a `Decimal` operand is not specified yet: it
+has no result type and emits a bare `/`, so each target applies its own
+numeric division. Semantic support is intentionally narrower
 than parsing for some type/operator pairs; rejected pairs use diagnostics
 rather than implicit conversions.
 

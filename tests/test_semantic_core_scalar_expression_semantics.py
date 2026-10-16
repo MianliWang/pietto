@@ -19,7 +19,6 @@ from pietto.parser_api import parse_source
 from pietto.semantic import (
     EffectiveNullability,
     SemanticResult,
-    TypeKind,
     ValueTypeKind,
     analyze,
 )
@@ -217,22 +216,132 @@ def test_unknown_children_suppress_s2105_cascades(body: str) -> None:
     assert "PIE-S2105" not in [diagnostic.code for diagnostic in semantic.diagnostics]
 
 
-def test_division_remains_semantically_deferred_without_s2105() -> None:
-    script = _parse(
-        SOURCE_PREFIX + "table projected:\n"
-        "    from rows\n"
-        "    select:\n"
-        "        value = count / 2\n"
-    )
-    expression = _select_expression(script, 0)
+@pytest.mark.parametrize(
+    ("value", "type_name", "postgres_sql", "mysql_sql"),
+    [
+        ("n / m", "Int", '"n" / "m"', "`n` DIV `m`"),
+        ("n / f", "Float", '"n" / "f"', "`n` / `f`"),
+        ("f / n", "Float", '"f" / "n"', "`f` / `n`"),
+        ("f / g", "Float", '"f" / "g"', "`f` / `g`"),
+        ("age / 2", "Int", '"age" / 2', "`age` DIV 2"),
+        ("ratio / 2", "Float", '"ratio" / 2', "`ratio` / 2"),
+        ("n * 1.0 / m", "Float", '("n" * 1.0) / "m"', "(`n` * 1.0) / `m`"),
+        (
+            "cast(n as Float) / m",
+            "Float",
+            '(CAST("n" AS double precision)) / "m"',
+            "(CAST(`n` AS DOUBLE)) / `m`",
+        ),
+    ],
+    ids=(
+        "int-int",
+        "int-float",
+        "float-int",
+        "float-float",
+        "int-alias",
+        "float-alias",
+        "times-one",
+        "cast-float",
+    ),
+)
+def test_division_follows_sql_and_never_inserts_a_cast(
+    value: str,
+    type_name: str,
+    postgres_sql: str,
+    mysql_sql: str,
+) -> None:
+    def source(connector: str) -> str:
+        return (
+            "type Age = Int not null\n"
+            "type Ratio = Float not null\n"
+            "shape Row:\n"
+            "    n: Int not null\n"
+            "    m: Int not null\n"
+            "    f: Float not null\n"
+            "    g: Float not null\n"
+            "    age: Age not null\n"
+            "    ratio: Ratio not null\n"
+            f'source rows: Row is {connector}.table("rows")\n'
+            "table divided:\n"
+            "    from rows\n"
+            "    select:\n"
+            f"        value = {value}\n"
+        )
 
-    semantic = analyze(script)
-    value_type = semantic.model.expression_value_types[expression]
+    script, semantic, postgres_ir = _compile(source("postgres"))
+    _, _, mysql_ir = _compile(source("mysql"))
+    value_type = semantic.model.expression_value_types[_select_expression(script, 0)]
 
+    # Int / Int truncates toward zero as SQL does: PostgreSQL keeps its bare
+    # `/` (unchanged bytes) and MySQL, whose `/` gives DECIMAL, emits DIV.
     assert semantic.diagnostics == ()
-    assert isinstance(expression, BinaryExpr)
-    assert value_type.kind is ValueTypeKind.UNKNOWN
-    assert value_type.resolved_type.kind is TypeKind.UNKNOWN
+    assert value_type.kind is ValueTypeKind.KNOWN
+    assert value_type.resolved_type.name == type_name
+    assert emit_postgres_sql(postgres_ir).artifacts[0].sql == (
+        f'SELECT\n    {postgres_sql} AS "value"\nFROM "rows"'
+    )
+    assert emit_mysql_sql(mysql_ir).artifacts[0].sql == (
+        f"SELECT\n    {mysql_sql} AS `value`\nFROM `rows`"
+    )
+
+
+def test_decimal_division_keeps_its_deferred_type_and_bare_sql() -> None:
+    # Byte-identical to main; Decimal division awaits a decision.
+    body = (
+        "    select:\n"
+        "        dd = d / e\n"
+        "        di = d / n\n"
+        "        id = n / d\n"
+        "        df = d / f\n"
+        "        fd = f / d\n"
+    )
+    shape = (
+        "shape Money:\n"
+        "    n: Int not null\n"
+        "    f: Float not null\n"
+        "    d: Decimal(10, 2) not null\n"
+        "    e: Decimal(12, 4) nullable\n"
+    )
+    columns = ("dd", "di", "id", "df", "fd")
+    expected = ("d / e", "d / n", "n / d", "d / f", "f / d")
+    for connector, emitter, quote in (
+        ("postgres", emit_postgres_sql, '"'),
+        ("mysql", emit_mysql_sql, "`"),
+    ):
+        script, semantic, script_ir = _compile(
+            shape
+            + f'source money: Money is {connector}.table("money")\n'
+            + "table divided:\n    from money\n"
+            + body
+        )
+        assert semantic.diagnostics == ()
+        assert all(
+            semantic.model.expression_value_types[_select_expression(script, i)].kind
+            is ValueTypeKind.UNKNOWN
+            for i in range(len(columns))
+        )
+        sql = emitter(script_ir).artifacts[0].sql
+        for column, division in zip(columns, expected, strict=True):
+            left, right = division.split(" / ")
+            assert (
+                f"    {quote}{left}{quote} / {quote}{right}{quote} "
+                f"AS {quote}{column}{quote}"
+            ) in sql
+
+
+@pytest.mark.parametrize(
+    "value", ["text / 2", "count / active", "(count / 2) and active"]
+)
+def test_division_of_non_numeric_operands_reports_s2105(value: str) -> None:
+    semantic = analyze(
+        _parse(
+            SOURCE_PREFIX
+            + "table projected:\n    from rows\n    select:\n"
+            + f"        value = {value}\n"
+        )
+    )
+
+    assert [code for code, _ in _diagnostics(semantic)] == ["PIE-S2105"]
 
 
 def test_existing_unqualified_sql_bytes_remain_stable() -> None:

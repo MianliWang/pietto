@@ -158,11 +158,14 @@ def test_decimal_and_unsupported_numeric_boundaries_fail_closed(
 @pytest.mark.parametrize(
     "projection",
     [
-        "value = amount / tax",
         "value = price / discount",
+        "value = price / amount",
+        "value = amount / price",
+        "value = price / score",
+        "value = score / price",
     ],
 )
-def test_division_remains_deferred_unknown_without_new_diagnostic(
+def test_decimal_division_remains_deferred_unknown_without_new_diagnostic(
     projection: str,
 ) -> None:
     result = analyze(

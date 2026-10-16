@@ -170,12 +170,12 @@ def test_unary_computed_alias_preserves_expression_nullability() -> None:
     assert ir_expression.value_type.nullability is NullabilityIR.NON_NULL
 
 
-def test_deferred_division_alias_remains_unknown_without_poisoning_schema() -> None:
+def test_deferred_null_alias_remains_unknown_without_poisoning_schema() -> None:
     script = _parse(
         SOURCE_PREFIX + "table enriched:\n"
         "    from rows\n"
         "    select:\n"
-        "        value = count / 2\n"
+        "        value = null\n"
     )
     relation = _relation(script, "enriched")
     expression = _select_expression(relation, 0)

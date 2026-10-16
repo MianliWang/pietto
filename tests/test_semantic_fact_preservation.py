@@ -1923,7 +1923,7 @@ def test_deferred_upstream_state_and_reason_propagate_without_concretization(
             _prefix() + "query pending:\n"
             "    from rows\n"
             "    select:\n"
-            "        divided = amount / 2\n"
+            "        unset = null\n"
             "query result:\n"
             "    from pending\n"
         ),
@@ -2986,7 +2986,7 @@ def test_aggregate_grouped_concrete_unknown_deferred_and_blocked_states_are_atom
     cases = {
         "concrete": _query("    select:\n        total = sum(amount)\n"),
         "unknown": _query("    select:\n        total = sum(missing)\n"),
-        "deferred": _query("    select:\n        divided = amount / 2\n"),
+        "deferred": _query("    select:\n        unset = null\n"),
         "blocked": _query(
             "    let:\n        gross = amount\n"
             "    group by:\n        id\n"
@@ -3456,9 +3456,9 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
             _prefix() + "query pending:\n"
             "    from rows\n"
             "    select:\n"
-            "        divided = amount / 2\n"
+            "        unset = null\n"
             "query result:\n"
-            "    from pending\n" + unavailable_body("divided"),
+            "    from pending\n" + unavailable_body("unset"),
             ProjectRelationRowSchemaStatus.DEFERRED,
             preservation.ProjectModuleCandidateBucketStatus.DEFERRED,
         ),

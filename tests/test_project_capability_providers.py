@@ -142,9 +142,9 @@ def test_complete_zero_match_and_malformed_scope_remain_absent_and_unknown() -> 
         (
             CapabilityKey(
                 CapabilityDomain.BINARY_OPERATOR,
-                subject="Int",
+                subject="Decimal",
                 operation="/",
-                operands=("Int", "Int", "unknown"),
+                operands=("Decimal", "Decimal", "unknown"),
                 context="expression",
             ),
             CapabilityReasonCode.NO_CURRENT_RESULT_RULE,

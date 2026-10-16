@@ -520,7 +520,7 @@ def _binary_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         "orExpression and andExpression"
         if kind == "bool"
         else "multiplicativeExpression"
-        if kind == "modulo"
+        if kind in {"modulo", "division"}
         else "additiveExpression and multiplicativeExpression"
     )
     semantic_reference = {
@@ -528,6 +528,7 @@ def _binary_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         "decimal": "_binary_value_type and _binary_arithmetic_result_type Decimal/Decimal branch",
         "decimal_int": "_binary_value_type, _binary_arithmetic_result_type, and _is_decimal_int_pair",
         "modulo": "_binary_value_type modulo branch",
+        "division": "resolved_binary_value_type SQL division branch and _is_numeric",
         "bool": "_binary_value_type Boolean branch",
     }[kind]
     semantic_test_path = {
@@ -535,6 +536,7 @@ def _binary_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         "decimal": "tests/test_semantic_decimal_scalar_expression_semantics.py",
         "decimal_int": "tests/test_semantic_decimal_int_exact_arithmetic.py",
         "modulo": "tests/test_semantic_core_scalar_expression_semantics.py",
+        "division": "tests/test_semantic_operator_comparison_matrix_contract.py",
         "bool": "tests/test_semantic_core_scalar_expression_semantics.py",
     }[kind]
     semantic_test = {
@@ -542,6 +544,7 @@ def _binary_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         "decimal": "test_decimal_add_subtract_computed_projection_schema_is_locked",
         "decimal_int": "test_decimal_int_add_subtract_scalar_matrix_returns_logical_decimal",
         "modulo": "test_modulo_projection_requires_int_and_returns_int",
+        "division": "test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior",
         "bool": "test_boolean_binary_where_resolves_to_known_bool",
     }[kind]
     evidence = (
@@ -662,6 +665,10 @@ _BINARY_SIGNATURES = (
     ("Float", "*", "Float", "Float", "int_float"),
     ("Decimal", "*", "Decimal", "Decimal", "decimal"),
     ("Int", "%", "Int", "Int", "modulo"),
+    ("Int", "/", "Int", "Int", "division"),
+    ("Int", "/", "Float", "Float", "division"),
+    ("Float", "/", "Int", "Float", "division"),
+    ("Float", "/", "Float", "Float", "division"),
     ("Bool", "and", "Bool", "Bool", "bool"),
     ("Bool", "or", "Bool", "Bool", "bool"),
 )

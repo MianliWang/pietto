@@ -719,23 +719,17 @@ def test_exact_stage_queries_and_no_construction_in_readers(
     assert inspect_project_sql_plan(checked).plan is fresh
 
 
-def test_division_remains_nonpositive_while_q1_calls_are_admitted(
+def test_typed_division_and_q1_calls_reach_the_plan(
     tmp_path: Path,
 ) -> None:
-    roots = _roots(
-        tmp_path / "where", _source("    where id / 2 > 0\n    select:\n        id\n")
-    )
-    assert roots[0].ok and not roots[0].diagnostics
-    terminal = build_project_sql_plan(*roots)
-    assert isinstance(terminal, ProjectSQLPlanUnavailable)
-    assert [b.kind.value for b in terminal.blockers] == [
-        "expression_evidence_unavailable"
-    ]
-    roots = _roots(
-        tmp_path / "division", _source("    select:\n        value = id / 2\n")
-    )
-    assert not roots[0].ok
-    assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
+    # SQL division types as Int here; project row emission still refuses `/`.
+    for name, body in (
+        ("where", "    where id / 2 > 0\n    select:\n        id\n"),
+        ("division", "    select:\n        value = id / 2\n"),
+    ):
+        roots = _roots(tmp_path / name, _source(body))
+        assert roots[0].ok and not roots[0].diagnostics
+        assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlan)
     _, coalesce, _ = _product(
         tmp_path / "coalesce",
         _source("    select:\n        value = coalesce(key, 1)\n"),

@@ -214,7 +214,7 @@ def test_unknown_numeric_operand_suppresses_s2105_cascade() -> None:
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 
-def test_division_remains_deferred_without_diagnostic() -> None:
+def test_int_division_projects_an_int_field() -> None:
     result = analyze(
         _parse(
             SOURCE_PREFIX + "table projected:\n"
@@ -229,10 +229,10 @@ def test_division_remains_deferred_without_diagnostic() -> None:
     value_type = result.model.expression_value_types[expression]
 
     assert result.diagnostics == ()
-    assert field.resolved_type.kind is TypeKind.UNKNOWN
+    assert field.resolved_type.kind is TypeKind.BUILTIN
+    assert field.resolved_type.name == "Int"
     assert field.nullability is EffectiveNullability.UNKNOWN
-    assert value_type.kind is ValueTypeKind.UNKNOWN
-    assert value_type.resolved_type.kind is TypeKind.UNKNOWN
+    assert value_type.kind is ValueTypeKind.KNOWN
 
 
 def test_decimal_multiplication_preserves_the_decimal_scalar_type() -> None:

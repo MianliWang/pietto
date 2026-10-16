@@ -15,7 +15,7 @@ SELECT
     `score` + 2 AS `added`,
     `score` - 2 AS `subtracted`,
     `score` * 2 AS `multiplied`,
-    `score` / 2 AS `divided`,
+    `score` DIV 2 AS `divided`,
     `score` % 2 AS `modulo`,
     `active` AND TRUE AS `conjunction`,
     `active` OR FALSE AS `disjunction`,

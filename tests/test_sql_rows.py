@@ -334,6 +334,23 @@ def test_row_boundaries_keep_no_usable_partial_sql(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_typed_division_stays_outside_the_project_row_boundary(tmp_path, target):
+    item = probe.fixture(target, "V_row_blocked", "modulo")
+    source = item["source"].replace("rest = id % 2", "half = id / 2")
+    assert source != item["source"]
+    checked, outcome = probe.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert ("PIE-B1003", "binary_operator_not_admitted") in [
+        (blocker["code"], blocker["subject"]["detail"])
+        for blocker in public["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_between_preserves_ordered_three_operand_realization(tmp_path, target):
     item = probe.fixture(target, "V_row_blocked", "between")
     checked, outcome = probe.build_case(

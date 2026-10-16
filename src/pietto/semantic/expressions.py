@@ -1544,6 +1544,10 @@ def _binary_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    if expression.operator == "/":
+        # Division reads a type alias as the type it expands to.
+        left_type = _canonical_value_type(left_type, type_expansions)
+        right_type = _canonical_value_type(right_type, type_expansions)
     result, expected = resolved_binary_value_type(
         expression.operator, left_type, right_type
     )
@@ -1554,14 +1558,49 @@ def _binary_value_type(
     return result
 
 
+def _canonical_value_type(
+    value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """Return a type alias value as the builtin type it expands to."""
+
+    if (
+        value_type.kind is not ValueTypeKind.KNOWN
+        or value_type.resolved_type.kind is not TypeKind.TYPE_ALIAS
+    ):
+        return value_type
+    canonical = _canonical_resolved_type(value_type, type_expansions)
+    if canonical is None or canonical.kind is not TypeKind.BUILTIN:
+        return value_type
+    return ValueType(resolved_type=canonical, nullability=value_type.nullability)
+
+
 def resolved_binary_value_type(
     operator: str, left_type: ValueType, right_type: ValueType
 ) -> tuple[ValueType, str | None]:
     """Original binary rule; no expression, name lookup or source elaboration."""
-    if operator == "/" or (
+    if (
         left_type.kind is ValueTypeKind.UNKNOWN
         or right_type.kind is ValueTypeKind.UNKNOWN
     ):
+        return _UNKNOWN_VALUE_TYPE, None
+    if operator == "/":
+        # SQL division: Int / Int is Int, truncated toward zero, and a Float
+        # operand gives Float. A Decimal operand has no decided rule and stays
+        # deferred, as do unchecked operand types.
+        if _is_numeric(left_type) and _is_numeric(right_type):
+            name = (
+                "Float"
+                if _is_builtin(left_type, "Float") or _is_builtin(right_type, "Float")
+                else "Int"
+            )
+            return _builtin_value_type(name, EffectiveNullability.UNKNOWN), None
+        if any(
+            _is_builtin(value_type, name)
+            for value_type in (left_type, right_type)
+            for name in _NON_NUMERIC_DIVISION_OPERANDS
+        ):
+            return _UNKNOWN_VALUE_TYPE, "numeric operands"
         return _UNKNOWN_VALUE_TYPE, None
     if operator in {"and", "or"}:
         if _is_builtin(left_type, "Bool") and _is_builtin(right_type, "Bool"):
@@ -1578,6 +1617,9 @@ def resolved_binary_value_type(
         return _UNKNOWN_VALUE_TYPE, "numeric operands"
     return _UNKNOWN_VALUE_TYPE, None
 
+
+# The checked non-numeric comparison families' types; see _COMPARISON_FAMILIES.
+_NON_NUMERIC_DIVISION_OPERANDS = ("Text", "Bool", "Date", "Timestamp", "UUID")
 
 # Builtin families from the canonical scalar type registry trait vocabulary.
 # Any, Bytes, Json, enums and shapes stay unchecked (deferred).
