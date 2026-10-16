@@ -12,6 +12,7 @@ import pietto.cli as cli
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
+    BinaryIR,
     ExpressionIR,
     FieldId,
     FieldRefIR,
@@ -30,7 +31,9 @@ from pietto.ir.model import StaticValue
 from pietto.parser_api import parse_file
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
+from pietto.sql.expressions import render_expression_sql
 from pietto.sql.mysql import emit_mysql_sql
+from pietto.sql.mysql_expressions import render_mysql_expression
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
@@ -103,6 +106,57 @@ def test_direct_backend_sum_avg_sql_matches_reviewed_golden(
     assert len(result.artifacts) == 1
     assert result.artifacts[0].name == "paid_order_stats"
     assert _render_artifacts(result) == _golden_bytes(golden_name)
+
+
+@pytest.mark.parametrize(
+    ("render", "expected"),
+    [
+        (
+            render_expression_sql,
+            (
+                'AVG(CAST("amount" AS double precision))',
+                'AVG(CAST(("amount" + 1) AS double precision))',
+                'AVG("score")',
+                'AVG("price")',
+                'SUM("amount")',
+            ),
+        ),
+        (
+            render_mysql_expression,
+            (
+                "AVG(CAST(`amount` AS DOUBLE))",
+                "AVG(CAST((`amount` + 1) AS DOUBLE))",
+                "AVG(`score`)",
+                "AVG(`price`)",
+                "SUM(`amount`)",
+            ),
+        ),
+    ],
+)
+def test_avg_int_casts_its_argument_to_the_float_it_is_typed(
+    render: Callable[[ExpressionIR], str],
+    expected: tuple[str, ...],
+) -> None:
+    # Both targets average integers as exact decimals; Pietto types avg(Int) as
+    # Float, so only that argument is cast, as project SQL does.
+    amount = _field("amount", INT_NON_NULL)
+    shifted = BinaryIR(
+        span=SPAN,
+        value_type=INT_NON_NULL,
+        left=amount,
+        operator="+",
+        right=_literal(1, INT_NON_NULL),
+    )
+    float_type = replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL)
+    decimal_type = replace(DECIMAL_NON_NULL, nullability=NullabilityIR.NULLABLE)
+
+    assert (
+        render(_aggregate("avg", FLOAT_NULLABLE, amount)),
+        render(_aggregate("avg", FLOAT_NULLABLE, shifted)),
+        render(_aggregate("avg", FLOAT_NULLABLE, _field("score", float_type))),
+        render(_aggregate("avg", decimal_type, _field("price", DECIMAL_NON_NULL))),
+        render(_aggregate("sum", INT_NULLABLE, amount)),
+    ) == expected
 
 
 @pytest.mark.parametrize(

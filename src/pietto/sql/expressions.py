@@ -77,7 +77,6 @@ _FUNCTION_NAMES = {
     "len": "length",
     "replace": "replace",
     "abs": "abs",
-    "sign": "sign",
 }
 _FUNCTION_ARITIES = {
     "lower": 1,
@@ -635,7 +634,11 @@ def _render_numeric_aggregate(
             f"PostgreSQL aggregate {expression.function} result type does not "
             "match approved logical shape"
         )
-    return f"{function_name}({_render_expression_sql(argument, nested=True)})"
+    argument_sql = _render_expression_sql(argument, nested=True)
+    if expression.function == "avg" and argument_type == "Int":
+        # PostgreSQL AVG of an integer is an exact decimal; Pietto says Float.
+        argument_sql = f"CAST({argument_sql} AS double precision)"
+    return f"{function_name}({argument_sql})"
 
 
 def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
@@ -892,6 +895,9 @@ def _render_call(expression: CallIR) -> str:
         return (
             f"CAST(EXTRACT({expression.callee.upper()} FROM {arguments[0]}) AS bigint)"
         )
+    if expression.callee == "sign":
+        # PostgreSQL sign() returns double precision or numeric; Pietto says Int.
+        return f"CAST(sign({arguments[0]}) AS bigint)"
     return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"
 
 

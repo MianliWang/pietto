@@ -105,7 +105,8 @@ def test_grouped_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
             "postgres",
             (
                 'SUM(("amount" + "tax")) AS "total"',
-                'AVG((("amount" + "tax") - "discount")) AS "average_net"',
+                'AVG(CAST((("amount" + "tax") - "discount") AS double precision)) '
+                'AS "average_net"',
             ),
             ('"gross"', '"net"', "WITH ", "FROM (SELECT"),
         ),
@@ -114,7 +115,8 @@ def test_grouped_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
             "mysql",
             (
                 "SUM((`amount` + `tax`)) AS `total`",
-                "AVG(((`amount` + `tax`) - `discount`)) AS `average_net`",
+                "AVG(CAST(((`amount` + `tax`) - `discount`) AS DOUBLE)) "
+                "AS `average_net`",
             ),
             ("`gross`", "`net`", "WITH ", "FROM (SELECT"),
         ),

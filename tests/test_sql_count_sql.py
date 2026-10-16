@@ -299,13 +299,13 @@ def test_supported_aggregate_ir_shapes_render_without_changing_count_sql() -> No
         render_expression_sql(
             _aggregate("avg", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
         )
-        == 'AVG("amount")'
+        == 'AVG(CAST("amount" AS double precision))'
     )
     assert (
         render_mysql_expression(
             _aggregate("avg", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
         )
-        == "AVG(`amount`)"
+        == "AVG(CAST(`amount` AS DOUBLE))"
     )
 
 
