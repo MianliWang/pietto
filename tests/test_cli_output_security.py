@@ -308,7 +308,7 @@ def test_neighbors_of_escaped_unicode_controls_stay_raw(
 
 
 @pytest.mark.parametrize("character", ["\u009b", "\u2028", "\u202e"])
-def test_source_unicode_controls_are_escaped_in_text_and_raw_in_json(
+def test_source_unicode_controls_are_escaped_in_text_and_parser_messages(
     character: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -320,12 +320,14 @@ def test_source_unicode_controls_are_escaped_in_text_and_raw_in_json(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert f"input '{escape}'" in captured.err
+    assert f"Unexpected '{escape}'" in captured.err
     assert character not in captured.err
 
+    # The parser message itself spells the character as an escape, so the
+    # JSON message carries that spelling and never the raw control.
     assert cli.main(["check", str(path), "--format", "json"]) == 1
-    document = json.loads(capsys.readouterr().out)
-    assert f"input '{character}'" in document["diagnostics"][0]["message"]
+    message = json.loads(capsys.readouterr().out)["diagnostics"][0]["message"]
+    assert f"Unexpected '{escape}'" in message and character not in message
 
     valid = _write(tmp_path, f"ok{character}.pietto", SOURCE)
     assert cli.main(["check", str(valid)]) == 0
