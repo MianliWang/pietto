@@ -382,11 +382,11 @@ def test_a_file_indented_as_a_whole_reports_its_first_code_line(
         ("shape Row:\r\n\tid: Int\r\n", 2),
         # A lone CR ends a line for the tab check as for every position.
         ("shape S:\r    a: Int not null\r\tx: Int\r", 3),
-        # It also ends a line at a form feed inside a comment.
-        ("# a\fb\nshape Row:\n\tid: Int\n", 4),
+        # A form feed inside a comment ends no line.
+        ("# a\fb\nshape Row:\n\tid: Int\n", 3),
     ),
 )
-def test_tab_errors_count_lines_as_they_always_did(source: str, line: int) -> None:
+def test_tab_errors_count_lines_like_every_position(source: str, line: int) -> None:
     result = parse_source(source)
 
     assert [
@@ -394,3 +394,12 @@ def test_tab_errors_count_lines_as_they_always_did(source: str, line: int) -> No
         for item in result.diagnostics
         if item.code == "PIE-P1004"
     ] == [("PIE-P1004", line, 1)]
+
+
+@pytest.mark.parametrize("separator", ["\f", "\v", "\x1c", "\x85", "\u2028", "\u2029"])
+def test_a_tab_after_another_separator_in_a_comment_is_not_indentation(
+    separator: str,
+) -> None:
+    result = parse_source(f"# a{separator}\tb\ntype A = Int not null\n")
+
+    assert [item.code for item in result.diagnostics if item.code == "PIE-P1004"] == []

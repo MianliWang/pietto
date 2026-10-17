@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,9 +37,8 @@ def find_leading_tab_diagnostics(
     diagnostics: list[Diagnostic] = []
     path_text = source_path(path)
 
-    # Lines are counted as they always were, with ``splitlines``: it also ends
-    # a line at a lone CR, form feed or U+2028 that a comment or string holds.
-    for line_number, line in enumerate(source.splitlines(), start=1):
+    # LF, CRLF and a lone CR each end one line, as for every other position.
+    for line_number, line in enumerate(re.split(r"\r\n|\r|\n", source), start=1):
         leading = line[: len(line) - len(line.lstrip(" \t"))]
         tab_column = leading.find("\t")
         if tab_column >= 0:

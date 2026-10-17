@@ -23,10 +23,8 @@ one-based line and column, and the column counts characters after the last line
 end, so a file with CR endings reports the positions of the same file with LF
 endings. No other character ends a line: form feed, vertical tab, U+001C to
 U+001E, U+0085, U+2028 and U+2029 are ordinary characters in a comment or string
-literal and a syntax error (PIE-P1000) elsewhere. Only the leading-tab check
-(PIE-P1004) still splits lines at them as well, as Python's `str.splitlines`
-does, so after one of them it reports a later line and may report a tab that
-follows it inside a comment or string.
+literal and a syntax error (PIE-P1000) elsewhere, and the leading-tab check
+(PIE-P1004) counts lines the same way.
 
 The single-file `check`, `explain`, and `emit-sql` commands choose the check
 mode with `--check-mode loose`, `checked`, or `strict`; the default is
