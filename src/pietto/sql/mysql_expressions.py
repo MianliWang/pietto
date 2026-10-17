@@ -632,11 +632,10 @@ def _numeric_aggregate_argument_shape(
         if left_type is None or right_type is None:
             return None, False, False
         if expression_type == "Decimal":
-            if expression.operator == "*":
-                return None, False, False
-            if {left_type, right_type} - {"Decimal", "Int"}:
-                return None, False, False
-            if "Decimal" not in {left_type, right_type}:
+            operand_types = {left_type, right_type}
+            # Decimal * Int is refused at check; only Decimal * Decimal is typed.
+            allowed = {"Decimal"} if expression.operator == "*" else {"Decimal", "Int"}
+            if operand_types - allowed or "Decimal" not in operand_types:
                 return None, False, False
             return (
                 expression_type,

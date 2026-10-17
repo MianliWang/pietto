@@ -117,8 +117,17 @@ there are no Decimal literals, and no cast reads or produces `Decimal`
 (`cast(Int as Float)` is the only cast). An accepted result is logical
 `Decimal` with no precision or scale, even when its operands are declared
 `Decimal(p, s)`, and both targets emit the bare operator with no inserted cast.
-Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, but
-`emit-sql` refuses it on both targets with `PIE-B1000`.
+Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, and
+single-file `emit-sql` renders it on both targets as it renders a `Decimal`
+`+` or `-` argument, with no inserted cast: `sum(a * b)` emits
+`SUM(("a" * "b"))` on PostgreSQL and the same SQL with backtick-quoted names
+on MySQL. `emit-sql --project` still reports it BLOCKED, as it does every
+`Decimal` `sum` and `avg`. Each target computes a `Decimal * Decimal` product,
+alone or inside `sum` and `avg`, with its own decimal arithmetic, so the two
+targets can return different values: MySQL rounds the product to at most 30
+fractional digits and, without a warning, can drop fractional digits of
+operands with many digits, such as `Decimal(65, 30)` values, before it
+multiplies.
 
 ## Comparison And Predicate Matrix
 

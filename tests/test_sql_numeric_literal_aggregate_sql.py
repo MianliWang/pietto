@@ -419,7 +419,7 @@ def test_unsupported_source_shapes_stop_before_sql_with_semantic_diagnostics(
         "max_expression_argument",
         "count_distinct_binary_argument",
         "decimal_literal_argument",
-        "decimal_multiplication_argument",
+        "decimal_int_multiplication_argument",
         "mixed_decimal_float_argument",
     ],
 )
@@ -541,7 +541,6 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
     tax = _field("tax", INT_NON_NULL)
     score = _field("score", FLOAT_NON_NULL)
     price = _field("price", DECIMAL_NON_NULL)
-    discount = _field("discount", DECIMAL_NON_NULL)
     status = _field("status", TEXT_NON_NULL)
 
     if case == "sum_literal_argument":
@@ -600,11 +599,11 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
             DECIMAL_NULLABLE,
             _binary(price, "+", _literal(1, INT_NON_NULL), DECIMAL_NON_NULL),
         )
-    if case == "decimal_multiplication_argument":
+    if case == "decimal_int_multiplication_argument":
         return _aggregate(
             "sum",
             DECIMAL_NULLABLE,
-            _binary(price, "*", discount, DECIMAL_NON_NULL),
+            _binary(price, "*", amount, DECIMAL_NON_NULL),
         )
     if case == "mixed_decimal_float_argument":
         return _aggregate(

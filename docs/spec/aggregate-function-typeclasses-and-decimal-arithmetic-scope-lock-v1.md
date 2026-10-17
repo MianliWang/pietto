@@ -80,8 +80,8 @@ Current behavior, recorded after this scope lock: `Decimal * Decimal` is also
 accepted as logical `Decimal`, while `Decimal * Int`, a `Decimal`/`Float` mix
 under `+`, `-` or `*`, `%`, and unary `+`/`-` on `Decimal` report `PIE-S2105`;
 Decimal division is still deferred, and no computed precision or scale exists.
-Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, but
-`emit-sql` refuses it on both targets with `PIE-B1000`. The
+Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, and
+single-file `emit-sql` renders it on both targets with no inserted cast. The
 [operator and comparison matrix](operator-comparison-matrix-contract-v1.md)
 records the current rules.
 

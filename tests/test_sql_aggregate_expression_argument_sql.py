@@ -132,6 +132,16 @@ BASE_SHAPE = (
             "AVG((`price` - `amount`))",
         ),
         (
+            "decimal_product_total = sum(price * price)",
+            'SUM(("price" * "price"))',
+            "SUM((`price` * `price`))",
+        ),
+        (
+            "decimal_product_average = avg(price * price + amount)",
+            'AVG((("price" * "price") + "amount"))',
+            "AVG(((`price` * `price`) + `amount`))",
+        ),
+        (
             "normalized = count_distinct(lower(status))",
             'COUNT(DISTINCT lower("status"))',
             "COUNT(DISTINCT LOWER(`status`))",
@@ -569,6 +579,96 @@ def test_cli_json_output_writes_supported_expression_argument_sql(
     assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
 
 
+DECIMAL_PRODUCT_SOURCE = (
+    "type Money = Decimal(12, 2) not null\n"
+    "type Cash = Money not null\n"
+    "shape Line:\n"
+    "    region: Text not null\n"
+    "    price: Decimal(12, 2) not null\n"
+    "    rate: Decimal(10, 4) nullable\n"
+    "    fee: Money not null\n"
+    "    cash: Cash not null\n"
+    "    qty: Int not null\n"
+    'source lines: Line is {connector}("lines")\n'
+    "query decimal_products:\n"
+    "    from lines\n"
+    "    let:\n"
+    "        gross = price * rate\n"
+    "        gross_again = gross\n"
+    "    group by:\n"
+    "        region\n"
+    "    select:\n"
+    "        region\n"
+    "        direct = sum(price * rate)\n"
+    "        average = avg(price * price)\n"
+    "        aliased = sum(fee * cash)\n"
+    "        nested = avg(price * rate + qty)\n"
+    "        bound = sum(gross)\n"
+    "        chained = avg(gross_again)\n"
+    "    satisfying:\n"
+    "        direct > 0\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("dialect", "connector", "expected_sql"),
+    [
+        (
+            "postgres",
+            "postgres.table",
+            "SELECT\n"
+            '    "region" AS "region",\n'
+            '    SUM(("price" * "rate")) AS "direct",\n'
+            '    AVG(("price" * "price")) AS "average",\n'
+            '    SUM(("fee" * "cash")) AS "aliased",\n'
+            '    AVG((("price" * "rate") + "qty")) AS "nested",\n'
+            '    SUM(("price" * "rate")) AS "bound",\n'
+            '    AVG(("price" * "rate")) AS "chained"\n'
+            'FROM "lines"\n'
+            "GROUP BY\n"
+            '    "region"\n'
+            "HAVING\n"
+            '    SUM(("price" * "rate")) > 0',
+        ),
+        (
+            "mysql",
+            "mysql.table",
+            "SELECT\n"
+            "    `region` AS `region`,\n"
+            "    SUM((`price` * `rate`)) AS `direct`,\n"
+            "    AVG((`price` * `price`)) AS `average`,\n"
+            "    SUM((`fee` * `cash`)) AS `aliased`,\n"
+            "    AVG(((`price` * `rate`) + `qty`)) AS `nested`,\n"
+            "    SUM((`price` * `rate`)) AS `bound`,\n"
+            "    AVG((`price` * `rate`)) AS `chained`\n"
+            "FROM `lines`\n"
+            "GROUP BY\n"
+            "    `region`\n"
+            "HAVING\n"
+            "    SUM((`price` * `rate`)) > 0",
+        ),
+    ],
+)
+def test_cli_emits_decimal_product_sum_and_avg_arguments(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    dialect: str,
+    connector: str,
+    expected_sql: str,
+) -> None:
+    path = _write(
+        tmp_path,
+        f"{dialect}-decimal-products.pietto",
+        DECIMAL_PRODUCT_SOURCE.format(connector=connector),
+    )
+
+    assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == expected_sql + "\n"
+
+
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
     [
@@ -637,7 +737,7 @@ def test_unsupported_semantic_shapes_stop_before_sql_without_artifacts(
         "count_division_argument",
         "min_expression_argument",
         "max_expression_argument",
-        "decimal_multiplication_argument",
+        "decimal_int_multiplication_argument",
     ],
 )
 def test_malformed_hand_built_aggregate_expression_ir_fails_closed_with_pie_b1000(
@@ -758,11 +858,11 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
         return _aggregate("min", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
     if case == "max_expression_argument":
         return _aggregate("max", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
-    if case == "decimal_multiplication_argument":
+    if case == "decimal_int_multiplication_argument":
         return _aggregate(
             "sum",
             DECIMAL_NULLABLE,
-            _binary(price, "*", price, DECIMAL_NON_NULL),
+            _binary(price, "*", amount, DECIMAL_NON_NULL),
         )
     raise AssertionError(f"Unknown malformed aggregate case: {case}")
 
