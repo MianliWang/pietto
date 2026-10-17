@@ -146,6 +146,9 @@ def analyze(
                 diagnostics=inline_diagnostics,
                 script=script,
             )
+        # Measured with every def call inlined, as analysis reads the script:
+        # an expansion can nest deeper than its call. The checks above walk
+        # the parsed script without recursion, so their errors come first.
         if _expression_levels(script) <= _MAX_EXPRESSION_LEVELS:
             result = _analyze(script, mode=mode)
             return replace(

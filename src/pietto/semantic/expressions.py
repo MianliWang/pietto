@@ -1784,9 +1784,10 @@ def _cast_value_type(
         # the operand's own error explains it: an unknown input row does not,
         # since no cast but the Float one reads the operand's type.
         explained = len(diagnostics) > diagnostic_count
-        # A `let:` name bound to null is the null literal emission inlines.
-        null_operand = _is_null_literal(
-            let_value(expression.value, row_schema, bare_value_expressions)
+        # A `let:` name bound to null is the null literal emission inlines; a
+        # null def argument that does not fit its parameter is PIE-S2395 alone.
+        null_operand = _reads_null_literal(
+            (expression.value,), row_schema, bare_value_expressions
         )
         if null_operand or not (explained or float_target):
             diagnostics.append(

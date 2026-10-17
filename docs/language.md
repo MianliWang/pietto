@@ -301,10 +301,12 @@ expression with `PIE-S2306` at the argument, unless the connector call already
 has an error of its own: an unknown connector, or `postgres.table` or
 `mysql.table` without exactly one argument, fails single-file `check` with
 `PIE-S2306` on the whole call whatever its arguments are, unless an argument
-reports an error of its own such as that `PIE-S2102`. Project mode does not
-split or interpret the name, although its check still rejects an empty
-`mysql.table` string; project SQL emission takes the physical relation from its
-emission contract.
+reports an error of its own such as that `PIE-S2102`; where defs are
+available, a call of a `def` there is PIE-S2397 instead (see
+[Inline functions](#inline-functions-def)). Project mode does not split or
+interpret the name, although its check still rejects an empty `mysql.table`
+string; project SQL emission takes the physical relation from its emission
+contract.
 
 Tables and queries share this ordered clause shape:
 
@@ -356,10 +358,10 @@ lowering inlines a `let` binding wherever a relation expression reads it, so an
 expression that reads bindings and would exceed 768 nested levels or 100,000
 expression nodes once they are inlined fails `check` with PIE-S2328. A
 conditional or `in` list counts two levels, a function call three, and each let
-substitution, a plain alias `b = a` included, one more; a binding that nothing
-reads is not counted. An expression written inline is bounded only by
-PIE-S2006 (450 nested levels, see Expressions), and moving it into one binding
-read as `y = v` keeps it accepted.
+substitution, a plain alias `b = a` included, one more; a `def` call counts as
+its expansion, and a binding that nothing reads is not counted. An expression
+written inline is bounded only by PIE-S2006 (450 nested levels, see
+Expressions), and moving it into one binding read as `y = v` keeps it accepted.
 Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
@@ -1387,9 +1389,10 @@ n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
 (PIE-S2105). A single-file expression nests at most 450 levels: each operator,
 operand, call, cast or conditional on its deepest path counts one, so a chain
-such as `a and b and c` or `x + y + z` nests one level per operand. A single
-file with a deeper expression anywhere, a relationship `on` condition, a type
-`ensure` condition and a window frame offset included, fails `check`,
+such as `a and b and c` or `x + y + z` nests one level per operand, and a `def`
+call counts as its expansion (see [Inline functions](#inline-functions-def)). A
+single file with a deeper expression anywhere, a relationship `on` condition, a
+type `ensure` condition and a window frame offset included, fails `check`,
 `emit-sql` and `explain` alike with PIE-S2006. A project is not held to that
 bound (see Diagnostics, IR, SQL, and output).
 
@@ -1715,7 +1718,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   expansion makes it, in both checks. With its arguments, one expansion has
   at most 1000 expression nodes and 64 levels of nesting (PIE-S2399); every
   expression counts, also those in a window call's arguments and
-  specification and in a cast's type arguments.
+  specification and in a cast's type arguments. A single file counts the
+  450 levels of an expression (PIE-S2006, see Expressions) with every call
+  in it replaced by its expansion, so a call nested 400 levels deep whose
+  body nests 60 levels makes the expression 459 levels deep.
 - Reporting: an error in a def itself (PIE-S2001 for a def, PIE-S2396 to
   PIE-S2399, PIE-S2402), a wrong argument count or a relation-read argument
   stops the check of the file before semantic analysis, so other semantic
@@ -2156,9 +2162,9 @@ the compiler's recursion limit allows, such as a WHERE of several hundred `and`
 conditions, fails closed with PIE-S2006 over one whole file. A project reports
 it from `check --project` and, BLOCKED, from `emit-sql --project`: for the
 module whose own syntax checks exceed the limit, or, once the modules are
-analyzed together, for the module whose syntax nests deepest, where a
-relationship `on` adds no depth: a project reads each of its conjuncts one at a
-time and only at its top. Project emission uses more of the limit than project
+analyzed together, for the module whose syntax, each `def` call counted as its
+expansion, nests deepest, where a relationship `on` adds no depth: a project
+reads each of its conjuncts one at a time and only at its top. Project emission uses more of the limit than project
 checking, so `emit-sql --project` can report PIE-S2006 for a project that
 `check --project` accepts; when planning or emitting the selected `table` or
 `query` exceeds the limit, it reports it for the selected module, also when the

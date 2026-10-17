@@ -881,6 +881,30 @@ NULLS = {
             )
         ],
     ),
+    # A null argument for a nullable parameter makes a cast of the body a cast
+    # of null; one that does not fit its `not null` parameter is PIE-S2395 alone.
+    "null_argument_in_a_body_cast": (
+        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
+        "def fn(x: Int nullable) -> Float nullable: return cast(x as Float)\n"
+        "table t:\n    from rows\n    select:\n        id\n"
+        "        a = fl(null)\n        b = fn(null)\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 6,
+                13,
+                "Invalid argument for def fl at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            (
+                "PIE-S2105",
+                BODY_LINE + 7,
+                13,
+                "Invalid cast: cast(null as Float) is not supported; "
+                "expected cast(Int as Float), the only supported cast",
+            ),
+        ],
+    ),
     "null_comparison_body": (
         "def f(x: Int nullable) -> Bool nullable: return x == null\n",
         [
@@ -1127,6 +1151,97 @@ def test_an_equal_error_outside_a_def_call_is_still_repeated() -> None:
         ("PIE-S2503", 3, 5, "Duplicate target field in index i: missing"),
         ("PIE-S2105", 3, 44, IS_NULL),
     ]
+
+
+UNKNOWN_ROW = (
+    'source u is postgres.table("u")\n'
+    "def twice(a: Int nullable) -> Int nullable: return a + a\n"
+    "def same(a: Text nullable) -> Bool nullable: return a == a\n"
+    "table t:\n    from u\n    select:\n        v = {call}\n"
+)
+NO_SHAPE = ("PIE-S2303", 1, 1, "Source u has no bound shape; row schema is unknown")
+UNKNOWN_ROW_ONCE = {
+    "unknown_function": ("twice(foo(x))", "PIE-S2103", "Unknown function: foo"),
+    "window_without_window": (
+        "twice(lag(x))",
+        "PIE-S2103",
+        "Window function needs a `window` specification: lag (write `lag(...) "
+        "window:` in a SELECT item, with an indented `order by:`)",
+    ),
+    "arity": (
+        "twice(sign(x, x))",
+        "PIE-S2104",
+        "Invalid arguments for function sign: expected 1, got 2",
+    ),
+    "substr_bounds": (
+        "same(substr(x, 0, 1))",
+        "PIE-S2104",
+        "Invalid arguments for function substr: start must be a positive Int "
+        "literal and count must be a non-negative Int literal",
+    ),
+    "cast_target": (
+        "same(cast(x as Text))",
+        "PIE-S2105",
+        "Invalid cast: cast(unknown as Text) is not supported; expected "
+        "cast(Int as Float), the only supported cast",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("call", "code", "message"), UNKNOWN_ROW_ONCE.values(), ids=UNKNOWN_ROW_ONCE
+)
+def test_a_check_that_reads_no_argument_type_runs_once_in_a_call_over_an_unknown_row(
+    call: str, code: str, message: str
+) -> None:
+    """A field of a source without a shape is of unknown type, which hides no
+    check that reads no argument's type: as written by hand, it is reported
+    at the argument, and once, though the body uses the argument twice."""
+    column = 13 + call.index("(") + 1
+    assert _errors(UNKNOWN_ROW.format(call=call)) == [
+        NO_SHAPE,
+        (code, 7, column, message),
+    ]
+
+
+def _plus(levels: int, first: str) -> str:
+    """``first + 1 + ... + 1``, nesting ``levels`` levels with ``first`` deepest."""
+    return " + ".join([first, *["1"] * (levels - 1)])
+
+
+DEEP_DEF = "def deep(x: Int nullable) -> Int nullable: return " + _plus(60, "x") + "\n"
+UNUSED = "Def bad parameter x is not used in its body; every parameter must be used"
+RECURSION_LIMIT = "Semantic analysis recursion limit exceeded while processing source."
+
+
+@pytest.mark.parametrize(
+    ("levels", "extra", "expected"),
+    [
+        (391, "", []),
+        (392, "", [("PIE-S2006", 1, 1, RECURSION_LIMIT)]),
+        (
+            392,
+            "def bad(x: Int nullable) -> Int nullable: return 1\n",
+            [("PIE-S2397", 2, 9, UNUSED)],
+        ),
+    ],
+    ids=["450_levels", "451_levels", "def_error_first"],
+)
+def test_the_expression_bound_counts_a_call_as_its_expansion(
+    levels: int, extra: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    """The call sits `levels` deep and its body nests 60 more levels, so the
+    written expression stays far below 450 levels while the inlined one, which
+    analysis reads, reaches 450 and then 451. A def error stops the check
+    before the bound is measured."""
+    source = (
+        DEEP_DEF
+        + extra
+        + SHAPES
+        + "table t:\n    from rows\n    select:\n"
+        + f"        v = {_plus(levels, 'deep(n)')}\n"
+    )
+    assert _errors(source) == expected
 
 
 def test_inlined_spans_are_real_locations() -> None:

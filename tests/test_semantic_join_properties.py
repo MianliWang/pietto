@@ -436,6 +436,46 @@ def test_an_enum_field_joins_whatever_its_declared_nullability(
             ) == [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)]
 
 
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
+@pytest.mark.parametrize(
+    "join",
+    (
+        "    {kind} join customers as c\n",
+        "    {kind} join customers as c: via order_customer\n",
+    ),
+    ids=("inferred", "inferred_roles"),
+)
+def test_an_enum_field_joins_through_an_inferred_relationship_join_as_written(
+    tmp_path: Path, kind: str, join: str
+) -> None:
+    # The JOIN that infers its source or its VIA roles completes, and fails a
+    # read of the field after it, exactly as the JOIN written with `from`.
+    for position, modifier in enumerate(("", " nullable", " not null")):
+        written = ENUM_JOIN_SOURCE.format(
+            modifier=modifier,
+            inputs="",
+            left="orders",
+            kind=kind,
+            right="customers",
+            condition="",
+        )
+        inferred = written.replace(
+            f"    {kind} join customers as c:\n        from orders\n",
+            join.format(kind=kind),
+        )
+        assert inferred != written
+        for suffix, expected in (
+            ("", []),
+            (
+                "        s = orders.status\n",
+                [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)],
+            ),
+        ):
+            for name, source in (("written", written), ("inferred", inferred)):
+                directory = tmp_path / f"{position}-{bool(suffix)}-{name}"
+                assert _completed_diagnostics(directory, source + suffix) == expected
+
+
 @pytest.mark.parametrize("kind", ("inner", "left", "full", "cross"))
 @pytest.mark.parametrize(
     ("relation", "line"),

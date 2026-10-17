@@ -568,18 +568,20 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
 ) -> None:
     """A local alias is its base type in a signature; a comparison with the
     null literal is PIE-S2105 once, in an argument or made by a null
-    argument, and a null argument that does not fit is only PIE-S2395."""
+    argument, and a null argument that does not fit is only PIE-S2395, also
+    where the body casts it."""
     source = DEF_HEAD + (
         "type Money = Int not null\n"
         "def bump(x: Money nullable) -> Money nullable: return x + 1\n"
         "def flag(b: Bool not null) -> Bool nullable: return b or b\n"
         "def low(x: Int nullable) -> Bool nullable: return x < 3\n"
+        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
         "query q:\n    from rows\n"
         "    where flag(n == null) and low(null) and pos(null)\n"
-        "    select:\n        id\n        v = bump(id)\n"
+        "    select:\n        id\n        v = bump(id)\n        w = fl(null)\n"
     )
     never = "comparison with null is never true"
-    line = DEF_LINE + 6
+    line = DEF_LINE + 7
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
         (
             "PIE-S2105",
@@ -596,6 +598,7 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
             f"Invalid operands for operator <: {never}",
         ),
         _mismatch("pos", line, 45, "Int not null", "null"),
+        _mismatch("fl", line + 4, 13, "Int not null", "null"),
     ]
 
 

@@ -20,6 +20,8 @@ SHAPES = (
     "    text: Text not null\n"
     "    note: Text nullable\n"
     "    lower: Text not null\n"
+    "    price: Decimal(10, 2) not null\n"
+    "    qty: Decimal(10, 2) nullable\n"
     'source rows: Row is postgres.table("rows")\n'
 )
 # A program that calls defs, and the same program with each call written out
@@ -67,6 +69,25 @@ PROGRAMS = {
         "def f(upper: Text not null) -> Text not null: return upper(upper)\n"
         "table t:\n    from rows\n    select:\n        id\n        v = f(lower)\n",
         "table t:\n    from rows\n    select:\n        id\n        v = upper(lower)\n",
+    ),
+    # A Decimal value in a list of Int options, as by hand.
+    "decimal_int_membership": (
+        "def cheap(p: Decimal not null) -> Bool nullable: return p in (1, 2)\n"
+        "def among(k: Int not null, p: Decimal nullable) -> Bool nullable: "
+        "return k not in (p, 3)\n"
+        "table t:\n    from rows\n    where cheap(price) or among(id, qty)\n"
+        "    select:\n        id\n",
+        "table t:\n    from rows\n    where (price in (1, 2)) or (id not in (qty, 3))\n"
+        "    select:\n        id\n",
+    ),
+    # A Decimal product inside sum and avg, as by hand.
+    "decimal_product_aggregate": (
+        "def line(p: Decimal not null, q: Decimal nullable) -> Decimal nullable: "
+        "return p * q\n"
+        "table t:\n    from rows\n    group by: id\n    select:\n        id\n"
+        "        s = sum(line(price, qty))\n        a = avg(line(price, qty))\n",
+        "table t:\n    from rows\n    group by: id\n    select:\n        id\n"
+        "        s = sum((price * qty))\n        a = avg((price * qty))\n",
     ),
 }
 EMITTERS = {

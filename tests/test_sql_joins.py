@@ -398,9 +398,11 @@ DISTINCT_ENDPOINT_SQL = {
 def test_a_relationship_only_via_over_a_distinct_endpoint_emits_its_on_form(
     tmp_path, target, kind, side
 ):
-    """Its relationship equality is the SQL of the equivalent explicit ON."""
+    """Its relationship equality is the SQL of the equivalent explicit ON,
+    also when the JOIN leaves its source or VIA roles to be inferred."""
     left, right = ("d", "rhs") if side == "source" else ("lhs", "d")
     producer = "lhs" if side == "source" else "rhs"
+    block = f"    {kind} join {right} as r:\n        from {left}\n"
     docs = {
         route: public(
             emit(
@@ -417,28 +419,28 @@ relationship near:
     on l.id == r.id
 query result:
     from {left}
-    {kind} join {right} as r:
-        from {left}
-{condition}    select:
+{join}    select:
         a = {left}.id
         b = r.key
 """,
             )
         )
-        for route, condition in (
-            ("via", "        via near: l -> r\n"),
-            ("zero_via", ""),
-            ("on", f"        on {left}.id == r.id\n"),
+        for route, join in (
+            ("via", block + "        via near: l -> r\n"),
+            ("zero_via", block),
+            ("on", block + f"        on {left}.id == r.id\n"),
+            ("inferred", f"    {kind} join {right} as r\n"),
+            ("inferred_roles", f"    {kind} join {right} as r: via near\n"),
         )
     }
     expected = DISTINCT_ENDPOINT_SQL[side].replace(" INNER ", f" {kind.upper()} ")
     if target == "mysql":
         expected = expected.replace('"public"', '"phase66"').replace('"', "`")
-    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 3
-    assert [doc["sql"] for doc in docs.values()] == [expected] * 3
+    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 5
+    assert [doc["sql"] for doc in docs.values()] == [expected] * 5
     assert [
         requirement_kinds(doc)["relationship_equality"] for doc in docs.values()
-    ] == [1, 1, 0]
+    ] == [1, 1, 0, 1, 1]
 
 
 # --------------------------------------------------------------------------
@@ -679,6 +681,62 @@ def test_a_grouped_result_joined_twice_emits(tmp_path, target, kind):
         result_on=f" ON ({q}m2{q}.{q}c0{q} = {q}m3{q}.{q}order.id{q})" if inner else "",
     )
     assert [column["label"] for column in doc["columns"]] == ["id", "n"]
+
+
+# A chain of two relationship JOINs that reads relations and relationships
+# its module declares after it.
+FORWARD_JOIN_CHAIN = """query result:
+    from mid
+{joins}    select:
+        a = mid.id
+        b = z.key
+        c = w.key
+relationship mr:
+    endpoint m: mid
+    endpoint r: rhs
+    on m.id == r.id
+relationship rd:
+    endpoint r: rhs
+    endpoint x: d
+    on r.key == x.id
+query d:
+    from rhs
+    where key > 0
+    select:
+        id
+        key
+table mid:
+    from lhs
+    where id > 1
+    select:
+        id
+        key
+"""
+FORWARD_JOINS = {
+    "written": "    left join rhs as z:\n        from mid\n        via mr: m -> r\n"
+    "    inner join d as w:\n        from z\n        via rd: r -> x\n",
+    "inferred": "    left join rhs as z\n    inner join d as w\n",
+    "header_steps": "    left join rhs as z: via mr\n    inner join d as w: from z\n",
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_join_chain_over_later_declarations_infers_its_written_sql(tmp_path, target):
+    header = probe.JOIN_WITNESS_HEADER.format(target=target)
+    docs = [
+        public(
+            emit(
+                tmp_path / name,
+                target,
+                {"main.pietto": FORWARD_JOIN_CHAIN.format(joins=joins) + header},
+            )
+        )
+        for name, joins in FORWARD_JOINS.items()
+    ]
+    assert [doc["status"] for doc in docs] == ["VERIFIED"] * 3
+    for key in ("sql", "columns"):
+        assert [doc[key] for doc in docs] == [docs[0][key]] * 3, key
+    assert [requirement_kinds(doc) for doc in docs] == [requirement_kinds(docs[0])] * 3
 
 
 # --------------------------------------------------------------------------
