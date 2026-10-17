@@ -7,7 +7,9 @@ owners; project checks live with the project owners.
 
 from __future__ import annotations
 
+import sys
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields, is_dataclass
 from typing import Any, cast
@@ -27,6 +29,7 @@ from pietto.ast_nodes import (
 )
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
+from pietto.semantic import inline_functions as inline_module
 from pietto.semantic.inline_functions import inline_functions
 
 SHAPES = (
@@ -1067,6 +1070,92 @@ def test_a_window_call_may_be_a_repeated_qualify_argument() -> None:
     assert _shape(left.spec.frame) == _shape(right.spec.frame)
     # A single file does not type QUALIFY (explain and emit-sql refuse it).
     assert _errors(source) == []
+
+
+def _def_chain(count: int) -> str:
+    """Each def calls the one before it; none is called."""
+
+    return "def f0(x: Int not null) -> Int not null: return x\n" + "".join(
+        f"def f{i}(x: Int not null) -> Int not null: return f{i - 1}(x)\n"
+        for i in range(1, count)
+    )
+
+
+def _wide_calls(count: int) -> str:
+    """Twenty calls to a def with ``count`` parameters."""
+
+    parameters = ", ".join(f"a{i}: Int not null" for i in range(count))
+    body = ", ".join(f"a{i}" for i in range(count))
+    call = ", ".join(["id"] * count)
+    return (
+        SHAPES
+        + f"def g({parameters}) -> Int not null: return coalesce({body})\n"
+        + "table t:\n    from rows\n    select:\n        id\n"
+        + "".join(f"        v{i} = g({call})\n" for i in range(20))
+    )
+
+
+def _refused_nest(count: int) -> str:
+    """``count`` nested calls around one with a wrong argument count."""
+
+    return (
+        SHAPES
+        + DEFS
+        + "table t:\n    from rows\n    select:\n        id\n        v = "
+        + "up(" * count
+        + "text, text"
+        + ")" * count
+        + "\n"
+    )
+
+
+class _OverBudget(Exception):
+    pass
+
+
+def _inlining_lines(source: str, budget: int) -> int:
+    """Lines run in the inlining module, an operation count that does not
+    depend on the machine; past ``budget`` the run stops."""
+
+    parsed = parse_source(source, path="m.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    lines = 0
+
+    def count(frame: Any, event: str, arg: object) -> Any:
+        nonlocal lines
+        if event == "line":
+            lines += 1
+            if lines > budget:
+                raise _OverBudget
+        return count
+
+    def enter(frame: Any, event: str, arg: object) -> Any:
+        return count if frame.f_code.co_filename == inline_module.__file__ else None
+
+    previous = sys.gettrace()
+    sys.settrace(enter)
+    try:
+        inline_functions(parsed.ast)
+    except _OverBudget:
+        pass
+    finally:
+        sys.settrace(previous)
+    return lines
+
+
+@pytest.mark.parametrize(
+    ("build", "size"),
+    [(_def_chain, 1000), (_wide_calls, 100), (_refused_nest, 40)],
+    ids=["def_chain", "parameters_per_call", "nested_refused_calls"],
+)
+def test_inlining_work_grows_linearly(build: Callable[[int], str], size: int) -> None:
+    """Twice the input costs at most about twice the work: recursion is found
+    by one pass over the call graph, a def is measured once, and a refused
+    call marks the calls around it without walking their arguments again."""
+
+    work = _inlining_lines(build(size), sys.maxsize)
+    budget = work * 21 // 10
+    assert _inlining_lines(build(2 * size), budget) <= budget
 
 
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:

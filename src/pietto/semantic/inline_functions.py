@@ -11,7 +11,7 @@ import itertools
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import fields, is_dataclass, replace
 from types import MappingProxyType
-from typing import cast
+from typing import NamedTuple, cast
 
 from pietto._inline_argument import InlinedArgument
 from pietto._syntax_admission import source_order
@@ -158,21 +158,22 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
         name: _with_alias_bases(function, aliases) for name, function in defined.items()
     }
 
-    templates: dict[str, Expression] = {}
+    templates: dict[str, tuple[Expression, _Size]] = {}
     occurrences = itertools.count(1)
     for function in _callee_order(defined):
         expansion = _Expansion(defined, templates, found, occurrences)
         body = expansion.expand(function.body)
         if expansion.failed:
             continue
-        nodes, depth = _measure(body)
-        if nodes > _MAX_EXPANSION_NODES or depth > _MAX_EXPANSION_DEPTH:
-            found.append(_size_diagnostic(function, nodes, depth, body.span))
+        size = _measure(body)
+        if size.nodes > _MAX_EXPANSION_NODES or size.depth > _MAX_EXPANSION_DEPTH:
+            found.append(_size_diagnostic(function, size.nodes, size.depth, body.span))
             continue
         before = len(found)
         _check_body(function, body, found)
         if len(found) == before:
-            templates[function.name] = body
+            # Measured once here, not at every call.
+            templates[function.name] = (body, size)
     if found:
         return script, _ordered(found)
     if len(templates) != len(defined):
@@ -204,7 +205,7 @@ class _Expansion:
     def __init__(
         self,
         defined: dict[str, FunctionDef],
-        templates: dict[str, Expression],
+        templates: dict[str, tuple[Expression, _Size]],
         found: list[Diagnostic],
         occurrences: Iterator[int],
     ) -> None:
@@ -213,12 +214,36 @@ class _Expansion:
         self.found = found
         self.occurrences = occurrences
         self.failed = False
+        # Each node that is or holds a call left unexpanded, kept alive so
+        # its id stays its own; a parent is marked from its children alone.
+        self.unexpanded: dict[int, object] = {}
 
     def expand(self, expression: Expression) -> Expression:
         return cast(Expression, self.expand_tree(expression))
 
     def expand_tree(self, value: object) -> object:
-        return _rebuild(value, self._expand_call)
+        return _rebuild(value, self._visit)
+
+    def _visit(self, original: object, rebuilt: object) -> object:
+        result = self._expand_call(original, rebuilt)
+        if result is rebuilt and self._holds_unexpanded(rebuilt):
+            self.unexpanded[id(rebuilt)] = rebuilt
+        return result
+
+    def _holds_unexpanded(self, node: object) -> bool:
+        pending = list(_children(node) or ())
+        while pending:
+            value = pending.pop()
+            if type(value) is tuple:
+                pending.extend(cast(tuple[object, ...], value))
+            elif id(value) in self.unexpanded:
+                return True
+        return False
+
+    def _refuse(self, call: CallExpr) -> CallExpr:
+        self.failed = True
+        self.unexpanded[id(call)] = call
+        return call
 
     def _expand_call(self, original: object, rebuilt: object) -> object:
         if (
@@ -230,17 +255,16 @@ class _Expansion:
         function = self.defined.get(cast(NameExpr, call.callee).name)
         if function is None:
             return rebuilt
-        template = self.templates.get(function.name)
-        if template is None:
+        checked = self.templates.get(function.name)
+        if checked is None:
             # The callee failed its own checks, which reported it.
-            self.failed = True
-            return rebuilt
-        if any(self._unexpanded(argument) for argument in call.arguments):
+            return self._refuse(call)
+        template, size = checked
+        if any(id(argument) in self.unexpanded for argument in call.arguments):
             # An inner call failed and reported why.
-            self.failed = True
-            return rebuilt
+            return self._refuse(call)
         if len(call.arguments) != len(function.parameters):
-            self.failed = True
+            self._refuse(call)
             self.found.append(
                 _diagnostic(
                     "PIE-S2395",
@@ -249,7 +273,7 @@ class _Expansion:
                     call.span,
                 )
             )
-            return rebuilt
+            return call
         reads = [
             (position, parameter)
             for position, (parameter, argument) in enumerate(
@@ -260,7 +284,7 @@ class _Expansion:
         if reads:
             # A relation read's SQL alias follows its source position, which
             # a body that repeats or reorders its parameters would change.
-            self.failed = True
+            self._refuse(call)
             self.found.extend(
                 _diagnostic(
                     "PIE-S2395",
@@ -271,7 +295,7 @@ class _Expansion:
                 )
                 for position, parameter in reads
             )
-            return rebuilt
+            return call
         # Each argument carries the parameter it must fit, so wherever its
         # expansion is typed, the argument is checked against it.
         arguments = {
@@ -290,28 +314,22 @@ class _Expansion:
                 zip(function.parameters, call.arguments), start=1
             )
         }
-        nodes, depth = _measure(template)
+        nodes, depth = size.nodes, size.depth
         for name, argument in arguments.items():
-            uses, deepest = _parameter_uses(template, name)
-            argument_nodes, argument_depth = _measure(argument)
-            nodes += uses * (argument_nodes - 1)
-            depth = max(depth, deepest + argument_depth - 1)
+            uses, deepest = size.names.get(name, (0, 0))
+            argument_size = _measure(argument)
+            nodes += uses * (argument_size.nodes - 1)
+            depth = max(depth, deepest + argument_size.depth - 1)
         if nodes > _MAX_EXPANSION_NODES or depth > _MAX_EXPANSION_DEPTH:
-            self.failed = True
+            self._refuse(call)
             self.found.append(_size_diagnostic(function, nodes, depth, call.span))
-            return rebuilt
+            return call
         return cast(
             Expression,
             _rebuild(
                 template,
                 _substitution(arguments, template, call.span, self.occurrences),
             ),
-        )
-
-    def _unexpanded(self, expression: Expression) -> bool:
-        return any(
-            _def_call_name(node, self.defined) is not None
-            for node in _tree_nodes(expression)
         )
 
 
@@ -437,20 +455,6 @@ def _child_names(value: object) -> tuple[str, ...]:
     )
 
 
-def _parameter_uses(template: Expression, name: str) -> tuple[int, int]:
-    """How often ``name`` is read, and the deepest level (the root is 1)."""
-
-    uses = deepest = 0
-    pending = [(template, 1)]
-    while pending:
-        node, level = pending.pop()
-        if type(node) is NameExpr and cast(NameExpr, node).name == name:
-            uses += 1
-            deepest = max(deepest, level)
-        pending.extend((child, level + 1) for child in _expression_children(node))
-    return uses, deepest
-
-
 def _tree_nodes(root: object) -> list[object]:
     """``root`` and every AST node below it that ``_rebuild`` visits, in
     source order: a cast's type arguments and a window's specification too."""
@@ -475,15 +479,28 @@ def _def_call_name(node: object, defined: dict[str, FunctionDef]) -> str | None:
     return name if name in defined else None
 
 
-def _measure(expression: Expression) -> tuple[int, int]:
+class _Size(NamedTuple):
+    """An expression's node count and nesting depth (the root is 1), and for
+    each name it reads, how often and at the deepest level."""
+
+    nodes: int
+    depth: int
+    names: dict[str, tuple[int, int]]
+
+
+def _measure(expression: Expression) -> _Size:
     nodes = depth = 0
+    names: dict[str, tuple[int, int]] = {}
     pending = [(expression, 1)]
     while pending:
         node, level = pending.pop()
         nodes += 1
         depth = max(depth, level)
+        if type(node) is NameExpr:
+            uses, deepest = names.get(cast(NameExpr, node).name, (0, 0))
+            names[cast(NameExpr, node).name] = (uses + 1, max(deepest, level))
         pending.extend((child, level + 1) for child in _expression_children(node))
-    return nodes, depth
+    return _Size(nodes, depth, names)
 
 
 def _expression_children(node: Expression) -> list[Expression]:
@@ -756,14 +773,12 @@ def _recursion_diagnostics(defined: dict[str, FunctionDef]) -> list[Diagnostic]:
     order, naming a shortest call path from it back to itself."""
 
     edges = {name: _calls(function, defined) for name, function in defined.items()}
-    reach = {name: _reachable(name, edges) for name in defined}
+    source_order = {name: position for position, name in enumerate(defined)}
     found: list[Diagnostic] = []
-    cyclic: set[str] = set()
-    for name in defined:
-        if name in cyclic or name not in reach[name]:
+    for group in _call_groups(edges):
+        name = min(group, key=source_order.__getitem__)
+        if len(group) == 1 and name not in edges[name]:
             continue
-        group = {other for other in reach[name] if name in reach[other]}
-        cyclic.update(group)
         path = _shortest_cycle(name, edges, group)
         found.append(
             _diagnostic(
@@ -775,15 +790,49 @@ def _recursion_diagnostics(defined: dict[str, FunctionDef]) -> list[Diagnostic]:
     return found
 
 
-def _reachable(start: str, edges: dict[str, list[str]]) -> set[str]:
-    seen: set[str] = set()
-    pending = list(edges[start])
-    while pending:
-        name = pending.pop()
-        if name not in seen:
-            seen.add(name)
-            pending.extend(edges[name])
-    return seen
+def _call_groups(edges: dict[str, list[str]]) -> list[set[str]]:
+    """The strongly connected groups of the call graph, by one iterative
+    Tarjan pass: each def and each call is visited once, so a long chain of
+    defs costs no more than its length."""
+
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    groups: list[set[str]] = []
+    for root in edges:
+        if root in index:
+            continue
+        work = [(root, 0)]
+        while work:
+            name, position = work[-1]
+            if position == 0:
+                index[name] = low[name] = len(index)
+                stack.append(name)
+                on_stack.add(name)
+            callees = edges[name]
+            if position < len(callees):
+                work[-1] = (name, position + 1)
+                callee = callees[position]
+                if callee not in index:
+                    work.append((callee, 0))
+                elif callee in on_stack:
+                    low[name] = min(low[name], index[callee])
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[name])
+            if low[name] == index[name]:
+                group: set[str] = set()
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    group.add(member)
+                    if member == name:
+                        break
+                groups.append(group)
+    return groups
 
 
 def _shortest_cycle(
