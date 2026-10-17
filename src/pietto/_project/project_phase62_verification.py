@@ -92,6 +92,7 @@ from pietto._project.project_multifact import (
     ProjectMultiFactNonConcreteRegionSubject,
     ProjectMultiFactRequirement,
     ProjectMultiFactStructuralAlignment,
+    project_aggregate_stage_field,
 )
 from pietto._project.project_relationship_conditions import (
     ProjectConcreteRelationshipCondition,
@@ -1510,8 +1511,8 @@ def _verify_multifact_catalog(
             if any(member is fact.home_field for member in value_class.members)
         )
         valid = valid and (
-            ordinal < len(result_properties.fields)
-            and fact.stage_scalar_output is result_properties.fields[ordinal]
+            fact.stage_scalar_output
+            is project_aggregate_stage_field(result_properties, fact.select_fact)
             and ordinal < len(home_properties.fields)
             and fact.home_field is home_properties.fields[ordinal]
             and fact.stage_scalar_output.evidence is fact.home_field.evidence

@@ -144,6 +144,82 @@ def test_partition_and_order_bind_established_pre_window_ports(target):
     assert " ASC" in sql
 
 
+GROUPED_WINDOWS_FIRST = """table result:
+    from rows
+    group by:
+        text
+    select:
+        w = rank() window:
+            order by:
+                total desc
+        text
+        total = max(id)
+        n = row_number() window:
+            order by:
+                text
+        c = count()
+"""
+GROUPED_WINDOWS_LAST = """table result:
+    from rows
+    group by:
+        text
+    select:
+        text
+        total = max(id)
+        c = count()
+        w = rank() window:
+            order by:
+                total desc
+        n = row_number() window:
+            order by:
+                text
+"""
+GROUPED_WINDOWS_FIRST_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."text `""é" AS "c0", '
+        'MAX("s0"."order.id") AS "c1", COUNT(*) AS "c2" '
+        'FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."text `""é"), '
+        '"p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", '
+        '"t1"."c1" AS "c1", "t1"."c2" AS "c2", '
+        'RANK() OVER (ORDER BY "t1"."c1" DESC) AS "c3", '
+        'ROW_NUMBER() OVER (ORDER BY "t1"."c0" ASC) AS "c4" FROM "p0" AS "t1") '
+        'SELECT "t2"."c3" AS "w", "t2"."c0" AS "text", "t2"."c1" AS "total", '
+        '"t2"."c4" AS "n", "t2"."c2" AS "c" FROM "p1" AS "t2"'
+    ),
+    "mysql": (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`text ``"é` AS `c0`, '
+        "MAX(`s0`.`order.id`) AS `c1`, COUNT(*) AS `c2` "
+        'FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`text ``"é`), '
+        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, "
+        "`t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, "
+        "RANK() OVER (ORDER BY `t1`.`c1` DESC) AS `c3`, "
+        "ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS `c4` FROM `p0` AS `t1`) "
+        "SELECT `t2`.`c3` AS `w`, `t2`.`c0` AS `text`, `t2`.`c1` AS `total`, "
+        "`t2`.`c4` AS `n`, `t2`.`c2` AS `c` FROM `p1` AS `t2`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_grouped_windows_selected_before_aggregates_keep_their_stage_columns(target):
+    """Selection order moves only the final projection, never a stage column."""
+    first = emit(target, GROUPED_WINDOWS_FIRST)
+    last = emit(target, GROUPED_WINDOWS_LAST)
+    assert first.status == "VERIFIED", blockers(first)
+    assert last.status == "VERIFIED", blockers(last)
+    sql = sql_of(first)
+    assert sql == GROUPED_WINDOWS_FIRST_SQL[target]
+    assert [column["label"] for column in public(first)["columns"]] == [
+        "w",
+        "text",
+        "total",
+        "n",
+        "c",
+    ]
+    stages = sql.rsplit(") SELECT ", 1)[0]
+    assert sql_of(last).rsplit(") SELECT ", 1)[0] == stages
+
+
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("frame", sorted(FRAMES))
 def test_admitted_frames_emit_their_exact_unit_and_bounds(target, frame):

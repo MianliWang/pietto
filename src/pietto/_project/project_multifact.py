@@ -194,8 +194,10 @@ class ProjectAggregateFactOccurrence:
             or self.home_relation_properties.output
             is not self.context.fragment.root_relation_output
             or self.stage_scalar_output.output is not self.context.result_row_output
-            or self.stage_scalar_output.field_position != ordinal
-            or self.stage_scalar_output.evidence is not self.select_fact.field
+            or self.stage_scalar_output
+            is not project_aggregate_stage_field(
+                self.result_row_properties, self.select_fact
+            )
             or self.home_field.output is not self.home_relation_properties.output
             or self.home_field.field_position != ordinal
             or self.home_field.evidence is not self.select_fact.field
@@ -1120,6 +1122,22 @@ def _properties_for_output(
     return item
 
 
+def project_aggregate_stage_field(
+    properties: ProjectIROutputRelationalProperties,
+    select_fact: ProjectModuleSelectFact,
+) -> ProjectIROutputFieldOccurrence | None:
+    """The one aggregate-stage field of a selected aggregate, or None.
+
+    The stage row is the pre-window result, so a selected window before the
+    aggregate shifts its final ordinal but not its stage field.
+    """
+
+    matches = tuple(
+        item for item in properties.fields if item.evidence is select_fact.field
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
 def _build_fact(
     *,
     base_properties: Mapping[
@@ -1145,11 +1163,9 @@ def _build_fact(
     home_properties = _properties_for_output(
         base_properties, context.fragment.root_relation_output
     )
-    if ordinal >= len(result_properties.fields) or ordinal >= len(
-        home_properties.fields
-    ):
+    stage_scalar = project_aggregate_stage_field(result_properties, select_fact)
+    if stage_scalar is None or ordinal >= len(home_properties.fields):
         raise ValueError("Aggregate selected ordinal is outside exact row authority.")
-    stage_scalar = result_properties.fields[ordinal]
     home_field = home_properties.fields[ordinal]
     final_matches = tuple(
         output

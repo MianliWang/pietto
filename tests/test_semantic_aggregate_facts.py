@@ -16,6 +16,10 @@ from pietto._project import project_relationship_paths as paths
 from pietto._project import project_relationship_uses as relationship_uses
 from pietto._project import project_relationships, project_row_keys, project_value_fds
 from pietto._project.model import build_empty_project_semantic_result
+from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
+    build_project_completed_semantic_result,
+)
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
     ProjectGrainDependencyFact,
@@ -34,6 +38,9 @@ from pietto._project.project_ir_relational_properties import (
 from pietto._project.project_ir_verification import (
     build_project_ir_analysis_bundle,
     verify_project_ir_stage,
+)
+from pietto._project.project_phase62_verification import (
+    ProjectPhase62VerificationStatus,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -410,6 +417,66 @@ def test_fact_retains_exact_stage_home_value_and_distinct_same_name_authority(
     assert orders.aggregate_result.output_name == returns.aggregate_result.output_name
     assert orders.identity != returns.identity
     assert orders.aggregate_result is not returns.aggregate_result
+
+
+def test_windows_selected_before_aggregates_keep_pre_window_stage_fields(
+    tmp_path: Path,
+) -> None:
+    # The aggregate stage row is (region, total, c); the final row interleaves
+    # r and rn, so each final ordinal differs from its stage field position.
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.pietto").write_text(
+        """shape Order:
+    region: Text not null
+    amount: Int not null
+source orders: Order is postgres.table("orders")
+query ranked:
+    from orders
+    group by:
+        region
+    select:
+        r = rank() window:
+            order by:
+                total desc
+        region
+        total = max(amount)
+        rn = row_number() window:
+            order by:
+                region
+        c = count()
+""",
+        encoding="utf-8",
+    )
+    parsed = project_check.check_project_parse_only(tmp_path)
+    assert parsed.ok, parsed.diagnostics
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    )
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.diagnostics == ()
+    assert completed.verification.status is ProjectPhase62VerificationStatus.VERIFIED
+    facts = completed.verification.root.facts
+    assert tuple(
+        (
+            fact.aggregate_result.output_name,
+            fact.selected_output_ordinal,
+            fact.stage_scalar_output.field_position,
+            fact.home_field.field_position,
+        )
+        for fact in facts
+    ) == (("total", 2, 1, 2), ("c", 4, 2, 4))
+    for fact in facts:
+        assert fact.stage_scalar_output.evidence is fact.select_fact.field
+        assert fact.home_field.evidence is fact.select_fact.field
+        assert (
+            fact.stage_scalar_output
+            is fact.result_row_properties.fields[
+                fact.stage_scalar_output.field_position
+            ]
+        )
 
 
 def test_same_context_facts_remain_distinct_and_exactly_aligned(
