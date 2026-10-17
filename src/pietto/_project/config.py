@@ -234,6 +234,13 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
 
     try:
         parsed = tomllib.loads(config_text)
+        return _validate_config(
+            root_model,
+            config_model,
+            parsed,
+            config_text,
+            pinned_root,
+        )
     except tomllib.TOMLDecodeError as error:
         return _load_error(
             root_model,
@@ -242,14 +249,16 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
             f"Project configuration TOML is invalid: {error}.",
             pinned_root,
         )
-
-    return _validate_config(
-        root_model,
-        config_model,
-        parsed,
-        config_text,
-        pinned_root,
-    )
+    except RecursionError:
+        # Parsing, and validation's parses of the text with header probes,
+        # recurse once per nesting level.
+        return _load_error(
+            root_model,
+            config_model,
+            ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+            "Project configuration TOML is nested too deeply.",
+            pinned_root,
+        )
 
 
 class _ConfigTrustError(OSError):

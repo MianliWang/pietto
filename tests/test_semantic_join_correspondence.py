@@ -711,6 +711,34 @@ def test_valid_relationship_conditions_check_clean_in_both_modes(
     assert _checked_both_ways(tmp_path, source) == ((), ())
 
 
+@pytest.mark.parametrize("valid", [True, False])
+@pytest.mark.parametrize("used", [False, True])
+def test_a_long_relationship_condition_checks_every_equality(
+    tmp_path: Path, used: bool, valid: bool
+) -> None:
+    # A Project check of 3,000 `and` equalities used to raise RecursionError.
+    last = "customer.id" if valid else "customer.name"
+    condition = " and ".join(
+        ["customer.id == region.id"] * 2999 + [f"{last} == region.id"]
+    )
+    source = _CONDITION_SOURCE.format(condition=condition) + (
+        _JOIN_QUERY if used else _UNUSED_QUERY
+    )
+    project = _project_diagnostics(tmp_path, {"main.pietto": source})
+
+    error = (
+        "PIE-S2604",
+        "Incompatible relationship condition operands: "
+        "customer.name (Text) == region.id (Int)",
+        12,
+        8 + 2999 * len("customer.id == region.id and "),
+    )
+    assert _located(project[:1]) == ([] if valid else [error])
+    assert [
+        (item.code, item.location.line, item.location.column) for item in project[1:]
+    ] == ([("PIE-S2333", 13, 1)] if used and not valid else [])
+
+
 def test_unproved_relationship_condition_forms_are_not_check_errors(
     tmp_path: Path,
 ) -> None:

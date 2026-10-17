@@ -617,6 +617,55 @@ def test_a_loaded_bundle_that_cannot_become_a_template_has_the_query_codes(
     assert load(bundle).origin == "bundle"
 
 
+def test_a_query_too_deep_to_become_a_template_is_not_executable(
+    example, bundle, monkeypatch
+):
+    """The template stage walks the verified query again, from a deeper stack
+    than its emission: exhausting the recursion limit there is PIE-R1004,
+    never the unclassified PIE-R1999, for a compile and for a load."""
+
+    def exhausted(*arguments, **keywords):
+        raise RecursionError
+
+    monkeypatch.setattr(
+        "pietto._project.project_execution_template.prepare_live_template",
+        exhausted,
+    )
+    assert refused(compiled, example) == ("PIE-R1004", None)
+    monkeypatch.setattr(composition, "bundle_template", exhausted)
+    assert refused(load, bundle) == ("PIE-R1004", None)
+
+
+def test_compile_query_blocks_a_condition_nested_past_the_recursion_limit(tmp_path):
+    """The command's PIE-S2006 failure document, as for every refused project
+    input; it used to be the unclassified PIE-R1999."""
+    project = variant(tmp_path, " and ".join(["id > 1"] * 3000))
+    with pytest.raises(execution.CompileRejected) as error:
+        compiled(project)
+    document = json.loads(error.value.emission)
+    assert error.value.status == document["status"] == "BLOCKED"
+    assert document["diagnostics"] == [
+        {
+            "code": "PIE-S2006",
+            "severity": "error",
+            "message": "Semantic analysis recursion limit exceeded while "
+            "processing source.",
+            "location": {
+                "path": "main.pietto",
+                "line": 1,
+                "column": 1,
+                "end_line": 12,
+                "end_column": 14,
+            },
+            "suggestion": None,
+        }
+    ]
+    assert str(error.value) == (
+        "pietto.sql-emission.v1 BLOCKED\nmain.pietto:1:1 PIE-S2006 error: "
+        "Semantic analysis recursion limit exceeded while processing source."
+    )
+
+
 def test_a_stray_distribution_never_changes_what_is_accepted(
     tmp_path, example, live, bundle, monkeypatch, unconnected
 ):

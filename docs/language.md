@@ -1647,6 +1647,19 @@ Parser, semantic, IR, backend, and runtime diagnostic families remain
 separate. Diagnostic codes, ordering, and source locations are stable public
 behavior as described in [diagnostics](spec/diagnostics.md).
 
+An expression nested deeper than the compiler's recursion limit allows, such as
+a WHERE of several hundred `and` conditions, fails closed with PIE-S2006 over
+one whole file. A single file reports it for that file. A project reports it
+from `check --project` and, BLOCKED, from `emit-sql --project`: for the module
+whose own syntax checks exceed the limit, or, once the modules are analyzed
+together, for the module whose syntax nests deepest, where a relationship `on`
+nests only as deep as its deepest `and` equality. Project emission uses more of
+the limit than project checking, so `emit-sql --project` can report PIE-S2006
+for a project that `check --project` accepts; when planning or emitting the
+selected `table` or `query` exceeds the limit, it reports it for the selected
+module, also when the deep syntax is in a declaration it reads from another
+module.
+
 IR construction consumes successful semantic facts without reparsing or
 mutating earlier stages. SQL backends consume IR and fail closed on unsupported
 hand-built or unavailable shapes. Stable reviewed SQL bytes are owned by the

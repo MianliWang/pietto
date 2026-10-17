@@ -456,7 +456,7 @@ The planned v2 project kinds are:
 | `config_schema` | Parsed configuration violates the strict schema |
 | `project_path` | A configured or selected path violates project path policy |
 | `project_glob` | A pattern is invalid or source selection fails |
-| `project_resource` | A project discovery, loading, or presentation budget is exceeded |
+| `project_resource` | A project discovery, loading, or presentation budget is exceeded, including TOML in `pietto.toml` or a package manifest nested too deeply to load |
 | `source_read` | A selected source cannot be read or decoded |
 | `output_path` | Project output path fails safety validation |
 | `output_write` | Atomic project output write or replacement fails, or the output file is read-only |

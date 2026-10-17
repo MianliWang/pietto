@@ -392,6 +392,10 @@ def request_failure(error):
         code = "PIE-R1006"
     elif word is not None and type(error) in _QUERY_ERRORS:
         code = "PIE-R1004"
+    elif type(error) is RecursionError:
+        # Preparing walks the verified query again, from a deeper stack than
+        # its emission did: a query that nests too deeply for that.
+        code = "PIE-R1004"
     else:
         code = "PIE-R1999"
     return failure(code, word, cause=type(error).__name__)

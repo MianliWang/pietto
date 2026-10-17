@@ -8,7 +8,7 @@ from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
 from collections.abc import Iterator, Mapping
 from dataclasses import fields, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pietto.ast_nodes import (
     AuthoredJoinKind,
@@ -35,6 +35,7 @@ from pietto.ast_nodes import (
     Node,
     Nullability,
     QueryDef,
+    RelationshipMatchClause,
     Script,
     ShapeDef,
     SourceDef,
@@ -121,27 +122,55 @@ def analyze(
             )
         return _analyze(script, mode=mode)
     except RecursionError:
-        span = script.span
         return SemanticResult(
             model=SemanticModel(mode=mode),
-            diagnostics=(
-                Diagnostic(
-                    code="PIE-S2006",
-                    severity=Severity.ERROR,
-                    message=(
-                        "Semantic analysis recursion limit exceeded while "
-                        "processing source."
-                    ),
-                    location=SourceLocation(
-                        path=span.path,
-                        line=span.line,
-                        column=span.column,
-                        end_line=span.end_line,
-                        end_column=span.end_column,
-                    ),
-                ),
-            ),
+            diagnostics=(recursion_limit_diagnostic(script),),
         )
+
+
+def recursion_limit_diagnostic(*scripts: Script) -> Diagnostic:
+    """Report PIE-S2006 over the whole file of the script that nests deepest,
+    the first such script."""
+
+    span = max(scripts, key=_nesting_depth).span
+    return Diagnostic(
+        code="PIE-S2006",
+        severity=Severity.ERROR,
+        message="Semantic analysis recursion limit exceeded while processing source.",
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def _nesting_depth(script: Script) -> int:
+    deepest = 0
+    # A project checks the `and` equalities of a relationship `on` one at a
+    # time, so each one counts at the depth of the whole chain.
+    pending: list[tuple[object, int, bool]] = [(script, 0, False)]
+    while pending:
+        value, depth, conjunct = pending.pop()
+        if type(value) is tuple:
+            pending.extend(
+                (item, depth, False) for item in cast(tuple[object, ...], value)
+            )
+        elif conjunct and type(value) is BinaryExpr and value.operator == "and":
+            pending.extend(((value.left, depth, True), (value.right, depth, True)))
+        elif isinstance(value, Node):
+            deepest = max(deepest, depth)
+            pending.extend(
+                (
+                    getattr(value, item.name),
+                    depth + 1,
+                    type(value) is RelationshipMatchClause,
+                )
+                for item in fields(value)
+            )
+    return deepest
 
 
 def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:

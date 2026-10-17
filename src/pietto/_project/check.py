@@ -37,6 +37,7 @@ from pietto._project.trusted_source import (
     _load_trusted_source,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.semantic.analyzer import recursion_limit_diagnostic
 
 _PROJECT_ROOT_PATH = "."
 _PROJECT_CONFIG_PATH = "pietto.toml"
@@ -124,6 +125,20 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
     )
 
 
+def project_recursion_limit_diagnostic(
+    parse_result: ProjectParseCheckResult,
+) -> Diagnostic:
+    """Report PIE-S2006 once project processing exceeds the recursion limit.
+
+    As in a single file it spans one whole source: the parsed module whose
+    syntax nests deepest, the first such module in module order.
+    """
+
+    return recursion_limit_diagnostic(
+        *(parsed.script for parsed in parse_result.parsed_inputs)
+    )
+
+
 def _parse_selected_input(
     pinned_root: ProjectPinnedRoot,
     selected_input: ProjectSelectedInputEntry,
@@ -194,32 +209,36 @@ def _parse_selected_input(
             ),
             diagnostics,
         )
+    try:
+        admission = (
+            # Capture refusals are pre-admission diagnostics: one source
+            # order with the gate's, then the header checks.
+            *sorted(
+                (
+                    *unadmitted_syntax_diagnostics(
+                        parse_result.ast, explicit_modules=explicit_modules
+                    ),
+                    *(
+                        capture_diagnostics(parse_result.ast)
+                        if explicit_modules
+                        else ()
+                    ),
+                ),
+                key=source_order,
+            ),
+            *(
+                query_parameter_diagnostics(parse_result.ast)
+                if explicit_modules
+                else ()
+            ),
+        )
+    except RecursionError:
+        admission = (recursion_limit_diagnostic(parse_result.ast),)
     diagnostics = (
         *diagnostics,
         *(
             _with_project_relative_path(diagnostic, selected_input.identity.path)
-            for diagnostic in (
-                # Capture refusals are pre-admission diagnostics: one source
-                # order with the gate's, then the header checks.
-                *sorted(
-                    (
-                        *unadmitted_syntax_diagnostics(
-                            parse_result.ast, explicit_modules=explicit_modules
-                        ),
-                        *(
-                            capture_diagnostics(parse_result.ast)
-                            if explicit_modules
-                            else ()
-                        ),
-                    ),
-                    key=source_order,
-                ),
-                *(
-                    query_parameter_diagnostics(parse_result.ast)
-                    if explicit_modules
-                    else ()
-                ),
-            )
+            for diagnostic in admission
         ),
     )
     return (

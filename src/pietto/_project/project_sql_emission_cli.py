@@ -57,6 +57,7 @@ from pietto._project.project_sql_plan import build_project_sql_plan
 from pietto._project.project_sql_plan_literals import ProjectSQLLiteralPolicy
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 from pietto._terminal_text import escape_unicode_controls
+from pietto.semantic.analyzer import recursion_limit_diagnostic
 
 __all__: tuple[str, ...] = ()
 
@@ -316,64 +317,79 @@ def emit_project(
     )
     if not parsed.ok:
         return EmissionOutcome("BLOCKED", diagnostics), ()
-    completed = build_project_completed_semantic_result(
-        build_empty_project_semantic_result(parsed)
-    )
-    diagnostics = completed.diagnostics
-    if (
-        type(completed) is not ProjectConcreteCompletedSemanticResult
-        or not completed.ok
-    ):
-        return EmissionOutcome("BLOCKED", diagnostics), ()
+    # Exhausting the recursion limit is PIE-S2006, as in single-file analysis:
+    # over the module that nests deepest while the whole project is completed
+    # and built, then over the selected owner's module, the only one planning
+    # and emission walk.
+    scripts = tuple(parsed_input.script for parsed_input in parsed.parsed_inputs)
     try:
-        ir = build_project_query_block_ir(completed)
-        bundle = build_project_query_block_ir_analysis_bundle(
-            verify_project_query_block_ir(ir)
+        completed = build_project_completed_semantic_result(
+            build_empty_project_semantic_result(parsed)
         )
-        modules = completed.semantic_result.modules
-        # The same three public owner coordinates the artifact publishes; a
-        # relation let is a block of its declaration, never a selectable owner.
-        owners = [
-            owner
-            for owner in ir.owners
-            if not owner.block_local
-            and modules[owner.module_position].path == module
-            and owner.identity.declaration_kind.value == kind
-            and owner.definition.name == name
-        ]
-        if len(owners) != 1:
+        diagnostics = completed.diagnostics
+        if (
+            type(completed) is not ProjectConcreteCompletedSemanticResult
+            or not completed.ok
+        ):
+            return EmissionOutcome("BLOCKED", diagnostics), ()
+        try:
+            ir = build_project_query_block_ir(completed)
+            bundle = build_project_query_block_ir_analysis_bundle(
+                verify_project_query_block_ir(ir)
+            )
+            modules = completed.semantic_result.modules
+            # The same three public owner coordinates the artifact publishes; a
+            # relation let is a block of its declaration, never a selectable owner.
+            owners = [
+                owner
+                for owner in ir.owners
+                if not owner.block_local
+                and modules[owner.module_position].path == module
+                and owner.identity.declaration_kind.value == kind
+                and owner.definition.name == name
+            ]
+            if len(owners) != 1:
+                return rejected(
+                    InputError(
+                        "emission_selector", "Selected owner is absent or ambiguous."
+                    )
+                )
+            scripts = tuple(
+                parsed_input.script
+                for parsed_input in parsed.parsed_inputs
+                if parsed_input.path == module
+            )
+            plan = build_project_sql_plan(
+                completed, bundle, owners[0], literal_policy=policy
+            )
+            checked = verify_project_sql_plan(
+                plan, completed, bundle, owners[0], literal_policy=policy
+            )
+        except (TypeError, ValueError):
             return rejected(
                 InputError(
-                    "emission_selector", "Selected owner is absent or ambiguous."
+                    "emission_selector", "Project planning roots are unavailable."
                 )
             )
-        plan = build_project_sql_plan(
-            completed, bundle, owners[0], literal_policy=policy
-        )
-        checked = verify_project_sql_plan(
-            plan, completed, bundle, owners[0], literal_policy=policy
-        )
-    except (TypeError, ValueError):
-        return rejected(
-            InputError("emission_selector", "Project planning roots are unavailable.")
-        )
-    prepared = prepare_project_sql_emission(checked, contract_bytes)
-    if type(prepared) is PreparationFailure:
-        return EmissionOutcome(
-            "INPUT_REJECTED" if prepared.errors else "BLOCKED",
-            prepared.diagnostics,
-            blockers=prepared.blockers,
-            cli_errors=prepared.errors,
-        ), ()
-    if prepared.family != dialect:
-        return rejected(
-            InputError(
-                "emission_contract_schema",
-                "Emission contract target family conflicts with --dialect.",
-                "target/family",
+        prepared = prepare_project_sql_emission(checked, contract_bytes)
+        if type(prepared) is PreparationFailure:
+            return EmissionOutcome(
+                "INPUT_REJECTED" if prepared.errors else "BLOCKED",
+                prepared.diagnostics,
+                blockers=prepared.blockers,
+                cli_errors=prepared.errors,
+            ), ()
+        if prepared.family != dialect:
+            return rejected(
+                InputError(
+                    "emission_contract_schema",
+                    "Emission contract target family conflicts with --dialect.",
+                    "target/family",
+                )
             )
-        )
-    return realize_project_sql(prepared), tuple(protected)
+        return realize_project_sql(prepared), tuple(protected)
+    except RecursionError:
+        return EmissionOutcome("BLOCKED", (recursion_limit_diagnostic(*scripts),)), ()
 
 
 def _usage(message: str, text: bool) -> ProjectEmitResult:

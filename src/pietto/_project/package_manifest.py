@@ -585,6 +585,7 @@ def _normalize_package_manifest_at_path(
         )
     try:
         document = tomllib.loads(manifest_text)
+        errors = _validate_document(manifest_path, manifest_text, document)
     except tomllib.TOMLDecodeError:
         return construct_result(
             None,
@@ -596,7 +597,19 @@ def _normalize_package_manifest_at_path(
                 ),
             ),
         )
-    errors = _validate_document(manifest_path, manifest_text, document)
+    except RecursionError:
+        # Parsing, and validation's parses of the text with header probes,
+        # recurse once per nesting level.
+        return construct_result(
+            None,
+            (
+                (
+                    ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+                    "Package manifest TOML is nested too deeply.",
+                    manifest_path,
+                ),
+            ),
+        )
     if errors:
         return construct_result(None, errors)
 

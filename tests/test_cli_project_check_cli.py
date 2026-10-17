@@ -321,6 +321,100 @@ def test_project_check_counts_lf_crlf_and_lone_cr_as_one_line_end_per_module(
     )
 
 
+_RECURSION_LIMIT = "Semantic analysis recursion limit exceeded while processing source."
+
+
+@pytest.mark.parametrize("schema", [1, 2], ids=["legacy_flat", "explicit_modules"])
+def test_project_check_reports_the_recursion_limit_at_the_most_nested_module(
+    schema: int,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A WHERE of 3,000 conditions used to raise RecursionError out of the check.
+    root = _project_root(
+        tmp_path,
+        config_text=f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(root, "a.pietto", _RELATION_SOURCE)
+    _write(
+        root,
+        "b.pietto",
+        "shape Row:\n    id: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table deep:\n    from rows\n"
+        f"    where {' and '.join(['id == 1'] * 3000)}\n"
+        "    select:\n        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"b.pietto:1:1 PIE-S2006 error: {_RECURSION_LIMIT}\n"
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = _read_json_document(capsys)
+    assert (document["ok"], document["diagnostics"]) == (
+        False,
+        [
+            {
+                "code": "PIE-S2006",
+                "severity": "error",
+                "message": _RECURSION_LIMIT,
+                "location": {
+                    "path": "b.pietto",
+                    "line": 1,
+                    "column": 1,
+                    "end_line": 8,
+                    "end_column": 11,
+                },
+                "suggestion": None,
+                "related_locations": [],
+            }
+        ],
+    )
+
+
+def test_project_check_reports_the_recursion_limit_past_a_long_relationship_on(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # a.pietto alone checks: its 3,000 `on` equalities are checked one at a
+    # time, so the shallower WHERE of b.pietto exceeds the limit.
+    root = _project_root(
+        tmp_path,
+        config_text='schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    header = (
+        "shape Row:\n    id: Int not null\n"
+        'source xs: Row is postgres.table("xs")\n'
+        'source ys: Row is postgres.table("ys")\n'
+    )
+    _write(
+        root,
+        "a.pietto",
+        header + "relationship r:\n    endpoint a: xs\n    endpoint b: ys\n"
+        f"    on {' and '.join(['a.id == b.id'] * 3000)}\n",
+    )
+    _write(
+        root,
+        "b.pietto",
+        header + "table deep:\n    from xs\n"
+        f"    where {' and '.join(['id == 1'] * 1000)}\n"
+        "    select:\n        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == (
+        "",
+        f"b.pietto:1:1 PIE-S2006 error: {_RECURSION_LIMIT}\n",
+    )
+    (root / "b.pietto").unlink()
+    assert cli.main(["check", "--project", str(root)]) == 0
+    assert capsys.readouterr().err == ""
+
+
 def test_project_check_rejects_path_and_project_together(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

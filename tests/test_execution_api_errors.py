@@ -62,6 +62,8 @@ def test_documented_runtime_codes_are_exactly_the_implemented_codes():
         (BindingError("BINDING_INVALID"), "PIE-R1004"),
         (CompiledError("COMPILED_EXPORT_SHAPE"), "PIE-R1004"),
         (ResultError("PRODUCER_UNSUPPORTED"), "PIE-R1004"),
+        # Preparing a verified query that nests too deeply for the stack.
+        (RecursionError("maximum recursion depth exceeded"), "PIE-R1004"),
         (ex.ExecutionError("COMPILED_COMPATIBILITY"), "PIE-R1005"),
         (CompiledError("COMPILED_CODE_ORIGIN"), "PIE-R1005"),
         (ex.ExecutionError("SOMETHING_NEW"), "PIE-R1999"),

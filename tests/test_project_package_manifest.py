@@ -187,6 +187,36 @@ def test_byte_utf8_and_toml_hard_failures_are_exact() -> None:
         assert len(result.errors) == 1
 
 
+@pytest.mark.parametrize("probe", (False, True), ids=("parse", "header_probe"))
+def test_a_manifest_nested_too_deeply_is_a_resource_failure(
+    monkeypatch: pytest.MonkeyPatch, probe: bool
+) -> None:
+    # Both used to raise RecursionError out of normalization: the parse of a
+    # 5,000-deep array, and validation's second parse with a header probe of
+    # a value just shallow enough for the first.
+    manifest = _valid_manifest()
+    if probe:
+
+        def exhausted(*args: object, **kwargs: object) -> bool:
+            del args, kwargs
+            raise RecursionError
+
+        monkeypatch.setattr(package_manifest, "_has_exact_array_of_tables", exhausted)
+    else:
+        manifest = b"x = " + b"[" * 5000 + b"]" * 5000 + b"\n" + manifest
+
+    result = _normalize_package_manifest(_activation("packages/demo"), manifest)
+
+    assert not result.ok and result.manifest is None
+    assert result.errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+            "Package manifest TOML is nested too deeply.",
+            "packages/demo/pietto-package.toml",
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     "replacement",
     (

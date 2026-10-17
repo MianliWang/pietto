@@ -765,12 +765,16 @@ class ProjectRelationshipConditionSet:
 
 
 def _condition_conjuncts(expression: Expression) -> tuple[Expression, ...]:
-    if type(expression) is BinaryExpr and expression.operator == "and":
-        return (
-            *_condition_conjuncts(expression.left),
-            *_condition_conjuncts(expression.right),
-        )
-    return (expression,)
+    # Iterative, so an `and` chain of any length keeps its source order.
+    conjuncts: list[Expression] = []
+    pending = [expression]
+    while pending:
+        current = pending.pop()
+        if type(current) is BinaryExpr and current.operator == "and":
+            pending.extend((current.right, current.left))
+        else:
+            conjuncts.append(current)
+    return tuple(conjuncts)
 
 
 def _condition_state(

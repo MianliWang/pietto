@@ -8,8 +8,12 @@ import pietto.ir as ir_api
 import pietto.semantic as semantic_api
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
-from pietto._project.check import check_project_parse_only
+from pietto._project.check import (
+    check_project_parse_only,
+    project_recursion_limit_diagnostic,
+)
 from pietto._project.model import ProjectDiscoveryErrorKind, ProjectInput
+from pietto.errors import Diagnostic, Severity, SourceLocation
 
 
 def test_parse_only_project_check_parses_selected_sources_deterministically(
@@ -106,6 +110,73 @@ def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
     ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11), ("PIE-S2348", 7, 30)] * (
         schema == 1
     ) + [("PIE-S2348", 11, 19)]
+
+
+_RECURSION_LIMIT = "Semantic analysis recursion limit exceeded while processing source."
+
+
+def test_parse_only_project_check_bounds_recursion_per_module(tmp_path: Path) -> None:
+    # The capture checks of this LATERAL let used to raise RecursionError.
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    _write(root, "a.pietto", "query valid:\n    from rows\n    select:\n        id\n")
+    condition = " and ".join(["ys.id == xs.id"] * 3000)
+    _write(
+        root,
+        "b.pietto",
+        "shape A:\n    id: Int not null\n"
+        'source xs: A is postgres.table("xs")\n'
+        'source ys: A is postgres.table("ys")\n'
+        "query q:\n    let w:\n        capture xs\n        from ys\n"
+        f"        where {condition}\n"
+        "        select:\n            yid = id\n"
+        "    from xs\n    cross join w as o:\n        from xs\n"
+        "    select:\n        id\n        yid = o.yid\n",
+    )
+
+    result = check_project_parse_only(root)
+
+    assert not result.ok and result.errors == ()
+    assert result.inputs == (
+        ProjectInput(path="a.pietto", status="parsed"),
+        ProjectInput(path="b.pietto", status="parsed"),
+    )
+    assert result.diagnostics == (
+        Diagnostic(
+            code="PIE-S2006",
+            severity=Severity.ERROR,
+            message=_RECURSION_LIMIT,
+            location=SourceLocation(
+                path="b.pietto", line=1, column=1, end_line=17, end_column=20
+            ),
+        ),
+    )
+
+
+def test_recursion_limit_diagnostic_spans_the_first_most_nested_module(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    body = (
+        "query {name}:\n    from rows\n    where {condition}\n    select:\n        id\n"
+    )
+    _write(root, "a.pietto", body.format(name="a", condition="id == 1"))
+    _write(root, "b.pietto", body.format(name="b", condition="id == 1 and id == 2"))
+    _write(root, "c.pietto", body.format(name="c", condition="id == 2 or id == 3"))
+
+    result = check_project_parse_only(root)
+
+    assert result.ok
+    assert project_recursion_limit_diagnostic(result) == Diagnostic(
+        code="PIE-S2006",
+        severity=Severity.ERROR,
+        message=_RECURSION_LIMIT,
+        location=SourceLocation(
+            path="b.pietto", line=1, column=1, end_line=5, end_column=11
+        ),
+    )
 
 
 def test_parse_only_project_check_reports_source_read_errors_and_continues(

@@ -25,7 +25,10 @@ from pietto._metadata.serializer import (
     semantic_metadata_artifact_to_json_dict,
 )
 from pietto._metadata.text import render_semantic_metadata_text
-from pietto._project.check import check_project_parse_only
+from pietto._project.check import (
+    check_project_parse_only,
+    project_recursion_limit_diagnostic,
+)
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
@@ -562,10 +565,7 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     parse_result = check_project_parse_only(root)
     if output_format == _FORMAT_JSON:
         if parse_result.ok:
-            semantic_result = build_empty_project_semantic_result(parse_result)
-            semantic_diagnostics, semantic_ok = _project_semantic_boundary(
-                semantic_result
-            )
+            semantic_diagnostics, semantic_ok = _project_check_semantics(parse_result)
             _print_project_check_json(
                 parse_result,
                 semantic_diagnostics=semantic_diagnostics,
@@ -591,14 +591,27 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     if _has_errors(parse_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = build_empty_project_semantic_result(parse_result)
-    semantic_diagnostics, semantic_ok = _project_semantic_boundary(semantic_result)
+    semantic_diagnostics, semantic_ok = _project_check_semantics(parse_result)
     _render_diagnostics(semantic_diagnostics, fallback_path=Path("."))
     if not semantic_ok:
         return _EXIT_DIAGNOSTIC_ERROR
 
     _write_stdout(f"Project check OK: .\nFiles checked: {len(parse_result.inputs)}\n")
     return 0
+
+
+def _project_check_semantics(
+    parse_result: ProjectParseCheckResult,
+) -> tuple[tuple[Diagnostic, ...], bool]:
+    """Check project semantics; as in a single file, exhausting the recursion
+    limit is PIE-S2006."""
+
+    try:
+        return _project_semantic_boundary(
+            build_empty_project_semantic_result(parse_result)
+        )
+    except RecursionError:
+        return (project_recursion_limit_diagnostic(parse_result),), False
 
 
 def _project_semantic_boundary(

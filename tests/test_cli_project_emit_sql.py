@@ -917,6 +917,74 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("stage", ["semantics", "planning"])
+def test_the_recursion_limit_blocks_emission_with_one_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, stage: str
+) -> None:
+    # A WHERE of 3,000 conditions used to raise RecursionError out of emit-sql;
+    # planning or emitting a shallower one may exhaust the limit first, and
+    # is reported over the selected module even beside a module that nests
+    # deeper but is neither planned nor emitted.
+    root, _ = project(tmp_path, target)
+    source = (root / "main.pietto").read_text().split("table result:", 1)[0]
+    if stage == "semantics":
+        condition = " and ".join(["id == 1"] * 3000)
+    else:
+        condition = "id == 1"
+        (root / "a.pietto").write_text(
+            source
+            + "table other:\n    from rows\n"
+            + f"    where {' and '.join(['id == 1'] * 50)}\n"
+            + "    select:\n        id\n"
+        )
+
+        def exhausted(*args: object, **kwargs: object) -> object:
+            del args, kwargs
+            raise RecursionError
+
+        monkeypatch.setattr(emission_cli, "build_project_sql_plan", exhausted)
+    (root / "main.pietto").write_text(
+        source
+        + f"table result:\n    from rows\n    where {condition}\n"
+        + "    select:\n        id\n"
+    )
+
+    code, out, err = run(argv(root, target))
+
+    document = failure(out)
+    assert (code, err, document["status"], document["cli_errors"]) == (
+        1,
+        "",
+        "BLOCKED",
+        [],
+    )
+    assert probe.decode_public(out)["blockers"] == []
+    assert document["diagnostics"] == [
+        {
+            "code": "PIE-S2006",
+            "severity": "error",
+            "message": "Semantic analysis recursion limit exceeded while "
+            "processing source.",
+            "location": {
+                "path": "main.pietto",
+                "line": 1,
+                "column": 1,
+                "end_line": 12,
+                "end_column": 11,
+            },
+            "suggestion": None,
+        }
+    ]
+    code, out, err = run(argv(root, target, format="text"))
+    assert (code, out, err) == (
+        1,
+        b"",
+        "pietto.sql-emission.v1 BLOCKED\nmain.pietto:1:1 PIE-S2006 error: "
+        "Semantic analysis recursion limit exceeded while processing source.\n",
+    )
+
+
+@pytest.mark.parametrize("target", TARGETS)
 def test_c03_fixed_values_preserve_and_bind_safe(tmp_path: Path, target: str) -> None:
     documents = {}
     for variant, policy in (

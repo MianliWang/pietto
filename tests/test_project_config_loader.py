@@ -4,9 +4,14 @@ from pathlib import Path
 
 import pytest
 
+from pietto._project import config
 from pietto._project.config import load_project_config
 from pietto._project.module_carrier import ProjectCompilationMode
-from pietto._project.model import ProjectConfigLoadResult, ProjectDiscoveryErrorKind
+from pietto._project.model import (
+    ProjectConfigLoadResult,
+    ProjectDiscoveryError,
+    ProjectDiscoveryErrorKind,
+)
 
 
 def test_valid_project_config_is_loaded_without_source_selection(
@@ -200,6 +205,37 @@ def test_invalid_toml_reports_config_parse(
     assert not result.ok
     assert result.config is None
     assert _error_kinds(result) == (ProjectDiscoveryErrorKind.CONFIG_PARSE,)
+
+
+@pytest.mark.parametrize("probe", [False, True], ids=["parse", "header_probe"])
+def test_toml_nested_too_deeply_reports_project_resource(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: bool
+) -> None:
+    # Both used to raise RecursionError out of the loader: the parse of a
+    # 5,000-deep array, and validation's second parse with a header probe of
+    # a value just shallow enough for the first.
+    if probe:
+        config_text = 'schema_version = 3\n[package]\npath = "package"\n'
+
+        def exhausted(*args: object) -> bool:
+            del args
+            raise RecursionError
+
+        monkeypatch.setattr(config, "_has_exact_root_package_table", exhausted)
+    else:
+        config_text = "schema_version = 1\nx = " + "[" * 5000 + "]" * 5000 + "\n"
+    root = _project_root(tmp_path, config_text)
+
+    result = load_project_config(root)
+
+    assert not result.ok and result.config is None
+    assert result.errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+            "Project configuration TOML is nested too deeply.",
+            "pietto.toml",
+        ),
+    )
 
 
 def test_missing_config_reports_config_read(tmp_path: Path) -> None:
