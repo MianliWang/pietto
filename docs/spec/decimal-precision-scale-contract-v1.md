@@ -43,6 +43,12 @@ aggregate/type propagation phase, native SQL type/DDL/dialect contracts, native
 DB metadata prerequisites, schema-versioned public output contracts, Artifact
 v2/display contracts, and cast syntax/design prerequisites.
 
+Later work widened the Current Decimal Scalar Behavior below: `Decimal` with
+`Decimal` under `+`, `-` and `*`, and `Decimal` with `Int` under `+` and `-`,
+now return logical `Decimal UNKNOWN`. The
+[operator and comparison matrix](operator-comparison-matrix-contract-v1.md)
+records the current accepted, refused and deferred Decimal pairs.
+
 ## Trusted Baseline
 
 Slice 6 starts from the completed Phase 30 Slice 5 baseline:

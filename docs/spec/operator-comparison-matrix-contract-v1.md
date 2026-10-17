@@ -84,9 +84,10 @@ nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 | Unary `+` / `-` | `Text`, `Bool`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`, `Any`, `Enum` | currently rejected with existing invalid numeric-operand behavior where the operand type is known; unknown or unsupported operands remain unknown |
 | Binary `+` / `-` / `*` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Binary `+` / `-` / `*` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN` |
-| Binary `+` / `-` | `Decimal` / `Decimal` | currently accepted as `Decimal UNKNOWN` |
-| Binary `*` | `Decimal` / `Decimal` | currently rejected with existing `PIE-S2105`; no Decimal multiplication |
-| Binary `+` / `-` / `*` | `Decimal` mixed with `Int` or `Float` | currently rejected with existing `PIE-S2105`; no mixed Decimal promotion |
+| Binary `+` / `-` / `*` | `Decimal` / `Decimal` | currently accepted as `Decimal UNKNOWN` |
+| Binary `+` / `-` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; an integer literal such as `2` is an `Int` operand |
+| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently rejected with existing `PIE-S2105` (`expected numeric operands`) |
+| Binary `+` / `-` / `*` | `Decimal` / `Float`, `Float` / `Decimal` | currently rejected with existing `PIE-S2105` (`expected numeric operands`); a dotted literal such as `1.5` is a `Float` operand |
 | Modulo `%` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Modulo `%` | all other known operand pairs | currently rejected with existing `PIE-S2105`; `%` requires Int operands |
 | Division `/` | `Int` / `Int` | currently accepted as `Int UNKNOWN`: SQL division truncating toward zero; PostgreSQL emits `a / b` and MySQL emits `a DIV b` |
@@ -109,10 +110,15 @@ Text concatenation is not supported by Slice 7. `Text + Text` is not a string
 concatenation operator and must remain rejected under current numeric-operand
 rules.
 
-Decimal boundaries remain those from Slice 6: no Decimal multiplication, no
-Decimal division, no mixed Decimal/Int promotion, no mixed Decimal/Float
-promotion, no Decimal literals, no casts, and no Decimal precision/scale
-semantics.
+Slice 7 recorded the Slice 6 Decimal boundaries. Later work accepted
+`Decimal * Decimal` and `Decimal` with `Int` under `+` and `-`, so the rows
+above are the current Decimal arithmetic: Decimal division stays deferred,
+there are no Decimal literals, and no cast reads or produces `Decimal`
+(`cast(Int as Float)` is the only cast). An accepted result is logical
+`Decimal` with no precision or scale, even when its operands are declared
+`Decimal(p, s)`, and both targets emit the bare operator with no inserted cast.
+Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, but
+`emit-sql` refuses it on both targets with `PIE-B1000`.
 
 ## Comparison And Predicate Matrix
 

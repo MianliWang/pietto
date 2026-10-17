@@ -76,6 +76,15 @@ Future Decimal precision/scale fusion is scoped as:
 Those formulas are planning constraints only. They require expression-level
 computed Decimal precision facts that do not exist today.
 
+Current behavior, recorded after this scope lock: `Decimal * Decimal` is also
+accepted as logical `Decimal`, while `Decimal * Int`, a `Decimal`/`Float` mix
+under `+`, `-` or `*`, `%`, and unary `+`/`-` on `Decimal` report `PIE-S2105`;
+Decimal division is still deferred, and no computed precision or scale exists.
+Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, but
+`emit-sql` refuses it on both targets with `PIE-B1000`. The
+[operator and comparison matrix](operator-comparison-matrix-contract-v1.md)
+records the current rules.
+
 ## Decimal Carrier Boundary
 
 Phase 41 added a private type-expression-level carrier:
@@ -139,6 +148,18 @@ input fields or supported qualified direct input fields. It must not authorize
 projection alias aggregation, let-name aggregate arguments, hidden CTEs,
 hidden subqueries, relation-layer rewrites, relationship traversal, or
 fanout-aware aggregate behavior.
+
+Current behavior, recorded after this scope lock: projection aliases are still
+output names only, so naming one in a later SELECT item or in an aggregate
+argument reports `PIE-S2102`. In single-file mode an aggregate argument that
+names a row `let:` binding is checked as the bound expression for `count`,
+`count_distinct`, `sum` and `avg`, while `min` and `max` of a `let:` name
+report `PIE-S2102`. Declared type aliases are no longer limited to direct input
+fields: in single-file mode an arithmetic, `not`, `and`/`or`, comparison,
+`between` or `in` operand and an aggregate argument read a type alias, an alias
+chain included, as the builtin type it expands to (see the
+[operator and comparison matrix](operator-comparison-matrix-contract-v1.md)).
+The [language reference](../language.md) covers the remaining positions.
 
 ## Warning And Dialect Caveat Boundary
 
