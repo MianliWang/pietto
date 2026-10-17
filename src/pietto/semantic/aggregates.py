@@ -512,13 +512,18 @@ def has_unknown_field_reference(
 
     if expression_value_types is None:
         return False
-    if isinstance(expression, (NameExpr, DottedNameExpr)):
-        value_type = expression_value_types.get(expression)
-        return value_type is None or value_type.kind is ValueTypeKind.UNKNOWN
-    return any(
-        has_unknown_field_reference(child, expression_value_types)
-        for child in child_expressions(expression)
-    )
+    # A loop, not recursion: an argument with its let bindings inlined may nest
+    # up to the PIE-S2328 limit, deeper than the interpreter's recursion limit.
+    pending = [expression]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, (NameExpr, DottedNameExpr)):
+            value_type = expression_value_types.get(current)
+            if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
+                return True
+        else:
+            pending.extend(reversed(child_expressions(current)))
+    return False
 
 
 def is_supported_numeric_argument(value_type: ValueType) -> bool:

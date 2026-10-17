@@ -7,7 +7,8 @@ from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
 from collections.abc import Iterator, Mapping
-from dataclasses import fields, replace
+from dataclasses import fields, is_dataclass, replace
+from heapq import heappop, heappush
 from typing import TYPE_CHECKING, cast
 
 from pietto.ast_nodes import (
@@ -39,6 +40,7 @@ from pietto.ast_nodes import (
     Script,
     ShapeDef,
     SourceDef,
+    Span,
     TableDef,
     TypeDef,
     TypeExpr,
@@ -80,7 +82,11 @@ from pietto.semantic.model import (
 )
 from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_limits import check_relation_limits
-from pietto.semantic.relation_schemas import propagate_relation_schemas
+from pietto.semantic.relation_schemas import (
+    project_relation_schema,
+    propagate_relation_schemas,
+    reads_relation_input,
+)
 from pietto.semantic.relationship_metadata import (
     check_relationship_conditions,
     check_relationship_metadata,
@@ -103,6 +109,11 @@ if TYPE_CHECKING:
     )
 
 _DECIMAL_PRECISION_MAX = 65
+# Analysis spends up to two Python frames per nested expression level, so this
+# bound keeps it well inside the interpreter's recursion limit: a deeper
+# expression is PIE-S2006 for every command and caller alike. RecursionError
+# stays the guard for other deep chains, such as type aliases.
+_MAX_EXPRESSION_LEVELS = 450
 
 
 def analyze(
@@ -120,12 +131,34 @@ def analyze(
             return SemanticResult(
                 model=SemanticModel(mode=mode), diagnostics=unadmitted
             )
-        return _analyze(script, mode=mode)
+        if _expression_levels(script) <= _MAX_EXPRESSION_LEVELS:
+            return _analyze(script, mode=mode)
     except RecursionError:
-        return SemanticResult(
-            model=SemanticModel(mode=mode),
-            diagnostics=(recursion_limit_diagnostic(script),),
-        )
+        pass
+    return SemanticResult(
+        model=SemanticModel(mode=mode),
+        diagnostics=(recursion_limit_diagnostic(script),),
+    )
+
+
+def _expression_levels(script: Script) -> int:
+    """Return the most expressions nested one in another anywhere in a script."""
+
+    deepest = 0
+    pending: list[tuple[object, int]] = [(script, 0)]
+    while pending:
+        value, levels = pending.pop()
+        if type(value) is tuple:
+            pending.extend((item, levels) for item in value)
+        elif type(value) is not Span and is_dataclass(value):
+            # Every AST dataclass, a window frame and its bounds included.
+            if isinstance(value, Expression):
+                levels += 1
+                deepest = max(deepest, levels)
+            pending.extend(
+                (getattr(value, field.name), levels) for field in fields(value)
+            )
+    return deepest
 
 
 def recursion_limit_diagnostic(*scripts: Script) -> Diagnostic:
@@ -692,44 +725,89 @@ def _analyze_relation_schema_expressions(
     iteration_limit = derived_relation_count + 1
     stabilized = False
 
+    # Each pass types every relation against the previous pass's schemas, then
+    # projects every relation after the relation it reads. A pass redoes only a
+    # relation whose input changed, so a chain of tables that settles one level
+    # per pass costs linear rather than quadratic time, with the same passes
+    # and schemas as redoing every relation. Expressions belong to one relation
+    # each, so its value types replace the ones it had.
+    ordered = list(relation_row_schemas)
+    positions = {definition: index for index, definition in enumerate(ordered)}
+    readers: dict[DerivedRelation, list[DerivedRelation]] = {}
+    for definition in ordered:
+        target = from_resolutions.get(definition.from_clause)
+        if isinstance(target, (TableDef, QueryDef)):
+            readers.setdefault(target, []).append(definition)
+    temporary_value_types: dict[Expression, ValueType] = {}
+    typed: dict[DerivedRelation, tuple[Expression, ...]] = {}
+    retyped = ordered
     for _ in range(iteration_limit):
-        temporary_let_scopes, temporary_let_value_types, _ = (
-            analyze_relation_let_bindings(
-                script.definitions,
+        for definition in retyped:
+            for expression in typed.pop(definition, ()):
+                del temporary_value_types[expression]
+            temporary_let_scopes, temporary_let_value_types, _ = (
+                analyze_relation_let_bindings(
+                    (definition,),
+                    from_resolutions=from_resolutions,
+                    source_row_schemas=source_row_schemas,
+                    relation_row_schemas=relation_row_schemas,
+                    type_expansions=type_expansions,
+                )
+            )
+            relation_value_types, _, _, _ = type_relation_expressions(
+                replace(script, definitions=(definition,)),
                 from_resolutions=from_resolutions,
                 source_row_schemas=source_row_schemas,
                 relation_row_schemas=relation_row_schemas,
+                relation_let_value_types={
+                    relation: scope.value_types
+                    for relation, scope in temporary_let_scopes.items()
+                },
                 type_expansions=type_expansions,
             )
-        )
-        temporary_value_types, _, _, _ = type_relation_expressions(
-            script,
-            from_resolutions=from_resolutions,
-            source_row_schemas=source_row_schemas,
-            relation_row_schemas=relation_row_schemas,
-            relation_let_value_types={
-                definition: scope.value_types
-                for definition, scope in temporary_let_scopes.items()
-            },
-            type_expansions=type_expansions,
-        )
-        temporary_value_types.update(temporary_let_value_types)
-        refined_schemas, _ = propagate_relation_schemas(
-            script,
-            mode=mode,
-            from_resolutions=from_resolutions,
-            source_row_schemas=source_row_schemas,
-            cyclic_relations=cyclic_relations,
-            expression_value_types=temporary_value_types,
-            type_expansions=type_expansions,
-        )
-        if _relation_schema_fingerprint(refined_schemas) == (
-            _relation_schema_fingerprint(relation_row_schemas)
-        ):
-            relation_row_schemas = refined_schemas
-            stabilized = True
+            relation_value_types.update(temporary_let_value_types)
+            typed[definition] = tuple(relation_value_types)
+            temporary_value_types.update(relation_value_types)
+        pending = sorted(positions[definition] for definition in retyped)
+        queued = set(pending)
+        retyped = []
+        stabilized = True
+        while pending:
+            definition = ordered[heappop(pending)]
+            input_schema = (
+                _relation_input_schema(
+                    definition,
+                    from_resolutions=from_resolutions,
+                    source_row_schemas=source_row_schemas,
+                    relation_row_schemas=relation_row_schemas,
+                )
+                if reads_relation_input(definition, cyclic_relations)
+                else RowSchema(is_unknown=True)
+            )
+            schema = project_relation_schema(
+                definition,
+                input_schema,
+                mode=mode,
+                expression_value_types=temporary_value_types,
+                type_expansions=type_expansions,
+            )
+            previous = relation_row_schemas[definition]
+            if schema == previous:
+                continue
+            relation_row_schemas[definition] = schema
+            if _schema_fingerprint(schema) != _schema_fingerprint(previous):
+                stabilized = False
+            for reader in readers.get(definition, ()):
+                retyped.append(reader)
+                position = positions[reader]
+                if (
+                    reads_relation_input(reader, cyclic_relations)
+                    and position not in queued
+                ):
+                    queued.add(position)
+                    heappush(pending, position)
+        if stabilized:
             break
-        relation_row_schemas = refined_schemas
 
     let_scopes, let_value_types, let_diagnostics = analyze_relation_let_bindings(
         script.definitions,
@@ -792,33 +870,22 @@ def _analyze_relation_schema_expressions(
     )
 
 
-def _relation_schema_fingerprint(
-    relation_row_schemas: Mapping[DerivedRelation, RowSchema],
-) -> tuple[
-    tuple[
-        str,
-        bool,
-        tuple[tuple[str, str, TypeKind, EffectiveNullability], ...],
-    ],
-    ...,
-]:
+def _schema_fingerprint(
+    schema: RowSchema,
+) -> tuple[bool, tuple[tuple[str, str, TypeKind, EffectiveNullability], ...]]:
     """Compare relation schemas by stable semantic facts instead of identity."""
 
-    return tuple(
-        (
-            definition.name,
-            schema.is_unknown,
-            tuple(
-                (
-                    name,
-                    field.resolved_type.name,
-                    field.resolved_type.kind,
-                    field.nullability,
-                )
-                for name, field in schema.fields.items()
-            ),
-        )
-        for definition, schema in relation_row_schemas.items()
+    return (
+        schema.is_unknown,
+        tuple(
+            (
+                name,
+                field.resolved_type.name,
+                field.resolved_type.kind,
+                field.nullability,
+            )
+            for name, field in schema.fields.items()
+        ),
     )
 
 

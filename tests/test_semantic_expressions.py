@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -24,6 +26,7 @@ from pietto.ast_nodes import (
     TableDef,
     UnaryExpr,
 )
+from pietto import cli
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import (
@@ -1118,6 +1121,143 @@ def test_deep_binary_expression_returns_semantic_recursion_diagnostic(
         location.end_line,
         location.end_column,
     ) == (1, column, 2 + line_one.count("\n"), 4802)
+
+
+_NESTING_SOURCES = (
+    "shape A:\n"
+    "    id: Int not null\n"
+    'source xs: A is postgres.table("xs")\n'
+    'source ys: A is postgres.table("ys")\n'
+)
+_S2006_MESSAGE = "Semantic analysis recursion limit exceeded while processing source."
+
+
+def _nested_source(position: str, levels: int) -> str:
+    """Return a file whose deepest expression nests exactly ``levels`` levels."""
+
+    if position == "where":
+        conjuncts = " and ".join(["id == 1"] * (levels - 1))
+        return (
+            f"{_NESTING_SOURCES}table q:\n    from xs\n    where {conjuncts}\n"
+            "    select:\n        id\n"
+        )
+    if position == "select":
+        terms = " + ".join(["id"] * levels)
+        return f"{_NESTING_SOURCES}table q:\n    from xs\n    select:\n        x = {terms}\n"
+    if position == "relationship":
+        conjuncts = " and ".join(["a.id == b.id"] * (levels - 1))
+        return (
+            f"{_NESTING_SOURCES}relationship r:\n    endpoint a: xs\n"
+            f"    endpoint b: ys\n    on {conjuncts}\n"
+        )
+    if position == "frame":
+        # The window use is one level and its frame offset the rest.
+        offset = " + ".join(["1"] * (levels - 1))
+        return (
+            f"{_NESTING_SOURCES}query q:\n    from xs\n    select:\n"
+            "        r = last_value(id) window:\n"
+            "            order by:\n                id\n"
+            f"            range between {offset} preceding and current row\n"
+        )
+    conjuncts = " and ".join(["self > 0"] * (levels - 1))
+    return f"type Positive = Int not null:\n    ensure {conjuncts}\n"
+
+
+@pytest.mark.parametrize(
+    "position", ["where", "select", "relationship", "ensure", "frame"]
+)
+def test_an_expression_nested_past_450_levels_is_s2006_wherever_it_is(
+    position: str,
+) -> None:
+    # Before, the limit was wherever Python's recursion limit happened to fall
+    # for the caller: about 990 levels in a relationship or a type rule, and
+    # about 490 in a window frame offset, which the first bound did not read.
+    accepted = analyze(_parse(_nested_source(position, 450)))
+    script = _parse(_nested_source(position, 451))
+    refused = analyze(script)
+
+    assert accepted.diagnostics == ()
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.severity,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+            diagnostic.location.end_line,
+            diagnostic.location.end_column,
+        )
+        for diagnostic in refused.diagnostics
+    ] == [
+        (
+            "PIE-S2006",
+            Severity.ERROR,
+            _S2006_MESSAGE,
+            1,
+            1,
+            script.span.end_line,
+            script.span.end_column,
+        )
+    ]
+    assert refused.model.expression_value_types == {}
+
+
+def test_the_expression_nesting_bound_does_not_depend_on_the_callers_stack() -> None:
+    def analyze_below(frames: int, script: Script) -> SemanticResult:
+        return analyze(script) if frames == 0 else analyze_below(frames - 1, script)
+
+    deeper = _parse(_nested_source("where", 451))
+    deepest_accepted = _parse(_nested_source("where", 450))
+
+    # Before, 451 levels passed here and failed 200 frames further down.
+    assert [d.code for d in analyze_below(0, deeper).diagnostics] == ["PIE-S2006"]
+    assert [d.code for d in analyze_below(200, deeper).diagnostics] == ["PIE-S2006"]
+    assert analyze_below(0, deepest_accepted).diagnostics == ()
+    assert analyze_below(10, deepest_accepted).diagnostics == ()
+
+
+@pytest.mark.parametrize("position", ["where", "frame"])
+def test_every_command_treats_an_expression_past_the_bound_alike(
+    position: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Before, `emit-sql` wrote SQL for a WHERE that `check` refused, and every
+    # command accepted a frame offset just past the bound.
+    text_commands = (
+        ["check"],
+        ["emit-sql", "--dialect", "postgres"],
+        ["emit-sql", "--dialect", "mysql"],
+        ["explain"],
+    )
+    json_commands = (
+        ["check", "--format", "json"],
+        ["emit-sql", "--dialect", "postgres", "--format", "json"],
+        ["explain", "--format", "json"],
+    )
+    accepted = tmp_path / "accepted.pietto"
+    accepted.write_text(_nested_source(position, 450), encoding="utf-8")
+    refused = tmp_path / "refused.pietto"
+    refused.write_text(_nested_source(position, 451), encoding="utf-8")
+
+    for command in (*text_commands, *json_commands):
+        assert cli.main([*command, str(refused)]) == 1, command
+        captured = capsys.readouterr()
+        if command in text_commands:
+            assert (captured.out, captured.err) == (
+                "",
+                f"{refused}:1:1 PIE-S2006 error: {_S2006_MESSAGE}\n",
+            )
+        else:
+            diagnostics = json.loads(captured.out)["diagnostics"]
+            assert [(d["code"], d["message"]) for d in diagnostics] == [
+                ("PIE-S2006", _S2006_MESSAGE)
+            ]
+    for command in (["check"], ["emit-sql", "--dialect", "postgres"], ["explain"]):
+        status = cli.main([*command, str(accepted)])
+        assert "PIE-S2006" not in capsys.readouterr().err
+        # PostgreSQL emission refuses a RANGE offset as PIE-B1000.
+        assert status == int(position == "frame" and command[0] == "emit-sql")
 
 
 def test_expression_value_types_mapping_is_readonly() -> None:

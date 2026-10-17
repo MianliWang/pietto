@@ -389,6 +389,40 @@ def test_let_inline_expansion_is_bounded_on_read_paths(
     assert (location.line, location.column) == (node.span.line, node.span.column)
 
 
+@pytest.mark.parametrize("ones", [314, 315])
+def test_an_aggregate_argument_reads_bindings_inlined_up_to_the_limit(
+    ones: int,
+) -> None:
+    # Before, checking the inlined argument met Python's recursion limit near
+    # 495 levels, so `check` refused it with PIE-S2006 while text `emit-sql`,
+    # one frame shallower, could still write SQL for it.
+    terms = " + ".join(["amount"] * 449)
+    relation, semantic = _analyze_relation(
+        "query totals:\n    from orders\n"
+        f"    let:\n        v0 = {terms}\n        v1 = v0{' + 1' * ones}\n"
+        "    group by:\n        status\n"
+        "    select:\n        status\n        total = sum(v1)\n"
+    )
+
+    node = relation.select_items[1].expression
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in semantic.diagnostics
+    ] == (
+        []
+        if ones == 314
+        else [
+            (
+                "PIE-S2328",
+                "Expression exceeds the single-file let inline expansion limit "
+                "of 768 nested levels after inlining the let bindings it reads",
+                node.span.line,
+                node.span.column,
+            )
+        ]
+    )
+
+
 def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

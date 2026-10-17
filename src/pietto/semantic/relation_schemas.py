@@ -126,6 +126,43 @@ def propagate_relation_schemas(
     return schemas, diagnostics
 
 
+def reads_relation_input(
+    definition: DerivedRelation,
+    cyclic_relations: set[DerivedRelation],
+) -> bool:
+    """Whether propagation projects a relation from its input's schema.
+
+    As in ``propagate_relation_schemas``, a relation on a cycle reads an
+    Unknown input instead, and one with an unsupported join is Unknown itself.
+    """
+
+    return definition not in cyclic_relations and not any(
+        unsupported_join(clause) for clause in definition.join_clauses
+    )
+
+
+def project_relation_schema(
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    *,
+    mode: CheckMode,
+    expression_value_types: Mapping[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+) -> RowSchema:
+    """Project one relation's schema from the schema it reads, as propagation does."""
+
+    if any(unsupported_join(clause) for clause in definition.join_clauses):
+        return _unknown_schema()
+    return _project_schema(
+        definition,
+        input_schema,
+        mode=mode,
+        expression_value_types=expression_value_types,
+        relation_let_expressions=None,
+        type_expansions=type_expansions,
+    )[0]
+
+
 def _project_schema(
     definition: DerivedRelation,
     input_schema: RowSchema,

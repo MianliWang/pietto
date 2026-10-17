@@ -211,7 +211,8 @@ expression nodes once they are inlined fails `check` with PIE-S2328. A
 conditional or `in` list counts two levels, a function call three, and each let
 substitution, a plain alias `b = a` included, one more; a binding that nothing
 reads is not counted. An expression written inline is bounded only by
-PIE-S2006, and moving it into one binding read as `y = v` keeps it accepted.
+PIE-S2006 (450 nested levels, see Expressions), and moving it into one binding
+read as `y = v` keeps it accepted.
 Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
@@ -1096,7 +1097,11 @@ when_false`. The conditional binds loosest and nests to the right, so
 `"a" if n > 1 else "b" if n > 0 else "c"` reads as `"a" if n > 1 else ("b" if
 n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
-(PIE-S2105).
+(PIE-S2105). An expression nests at most 450 levels: each operator, operand,
+call, cast or conditional on its deepest path counts one, so a chain such as
+`a and b and c` or `x + y + z` nests one level per operand. A single file with
+a deeper expression anywhere, a window frame offset included, fails `check`,
+`emit-sql` and `explain` alike with PIE-S2006.
 
 Arithmetic (`+ - * / %` and unary `+`/`-`), `not`, `and`, `or`, comparisons,
 `like`/`not like`, `between`, `in`, the arguments of the scalar functions

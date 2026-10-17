@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 from antlr4 import ParserRuleContext
@@ -13,6 +14,7 @@ from pietto.ast_nodes import Node, QueryDef, Script, SourceDef, TableDef
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import EffectiveNullability, RowSchema, SemanticResult, analyze
+from pietto.semantic import analyzer
 
 SOURCE = (
     "shape User:\n"
@@ -376,6 +378,50 @@ def test_relation_cycles_produce_unknown_schemas_with_cycle_diagnostic() -> None
     assert result.model.relation_row_schemas[first].is_unknown is True
     assert result.model.relation_row_schemas[second].is_unknown is True
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_long_chain_of_computed_tables_is_refined_in_linear_work(
+    reverse: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Each table computes its output from the one before, so refinement types
+    # one more table per pass. Before, every pass typed every table again.
+    count = 150
+    tables = [
+        f"table t{index}:\n    from t{index - 1}\n    select:\n        a = a + 1\n"
+        for index in range(1, count + 1)
+    ]
+    source = (
+        "shape T:\n    a: Int not null\n"
+        'source t0: T is postgres.table("t0")\n'
+        + "".join(reversed(tables) if reverse else tables)
+        + f"table last:\n    from t{count}\n    select:\n        b = missing\n"
+    )
+    typed_tables: list[int] = []
+    type_relation_expressions = analyzer.type_relation_expressions
+
+    def counted(script: Script, **arguments: Any) -> Any:
+        typed_tables.append(
+            sum(isinstance(item, TableDef) for item in script.definitions)
+        )
+        return type_relation_expressions(script, **arguments)
+
+    monkeypatch.setattr(analyzer, "type_relation_expressions", counted)
+    result = analyze(_parse(source))
+
+    for index in range(1, count + 1):
+        table = _relation(result, f"t{index}", TableDef)
+        field = result.model.relation_row_schemas[table].fields["a"]
+        assert (field.resolved_type.name, field.nullability) == (
+            "Int",
+            EffectiveNullability.UNKNOWN,
+        )
+    assert [
+        (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+    ] == [("PIE-S2102", 4 * count + 7, 13)]
+    assert sum(typed_tables) < 4 * (count + 1)
 
 
 def test_relation_row_schema_mapping_is_readonly() -> None:

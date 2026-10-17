@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from typing import cast
 
 from pietto.ast_nodes import Expression, QueryDef, Script, TableDef
@@ -17,7 +15,6 @@ from pietto.semantic import (
 from pietto.sql import emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PREFIX = (
     "shape Row:\n"
     "    id: UUID not null\n"
@@ -316,74 +313,6 @@ def test_relationship_metadata_remains_outside_schema_ir_and_sql_behavior() -> N
         '    "count" + 1 AS "value"\n'
         'FROM "rows" AS "rows"'
     )
-
-
-def test_slice3_refinement_loop_contract_stays_bounded_and_final_only() -> None:
-    analyzer = (REPO_ROOT / "src/pietto/semantic/analyzer.py").read_text(
-        encoding="utf-8",
-    )
-    tree = ast.parse(analyzer)
-    function = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_analyze_relation_schema_expressions"
-    )
-    loop = next(
-        node
-        for node in function.body
-        if isinstance(node, ast.For)
-        and ast.unparse(node.iter) == "range(iteration_limit)"
-    )
-    loop_body = ast.get_source_segment(analyzer, loop)
-    assert loop_body is not None
-    temporary_assignment = next(
-        node
-        for node in ast.walk(loop)
-        if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Name)
-        and node.value.func.id == "type_relation_expressions"
-    )
-    assert len(temporary_assignment.targets) == 1
-    assert ast.unparse(temporary_assignment.targets[0]) == (
-        "(temporary_value_types, _, _, _)"
-    )
-    final_assignment = next(
-        node
-        for node in function.body
-        if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Name)
-        and node.value.func.id == "type_relation_expressions"
-    )
-    assert len(final_assignment.targets) == 1
-    assert ast.unparse(final_assignment.targets[0]) == (
-        "(relation_value_types, relation_expression_diagnostics, "
-        "window_expression_analyses, named_window_namespaces)"
-    )
-    return_statement = next(
-        node for node in function.body if isinstance(node, ast.Return)
-    )
-    assert return_statement.value is not None
-    assert ast.unparse(return_statement.value) == (
-        "(relation_row_schemas, schema_diagnostics, relation_value_types, "
-        "relation_expression_diagnostics, let_scopes, window_expression_analyses, "
-        "named_window_namespaces)"
-    )
-    fingerprint_start = analyzer.index("def _relation_schema_fingerprint")
-    fingerprint_body = analyzer[fingerprint_start:]
-
-    assert "iteration_limit = derived_relation_count + 1" in analyzer
-    assert "refined_schemas, _ = propagate_relation_schemas" in loop_body
-    assert "diagnostics.extend" not in loop_body
-    assert "_relation_schema_fingerprint(refined_schemas)" in loop_body
-    assert "field.resolved_type.name" in fingerprint_body
-    assert "field.resolved_type.kind" in fingerprint_body
-    assert "field.nullability" in fingerprint_body
-    assert "id(" not in fingerprint_body
-    assert "final_schemas, schema_diagnostics = propagate_relation_schemas" in analyzer
-    assert "expression_value_types=relation_value_types" in analyzer
 
 
 def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
