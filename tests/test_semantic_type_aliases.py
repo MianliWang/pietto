@@ -612,6 +612,83 @@ def test_alias_arguments_and_conditions_are_checked_as_their_base_type() -> None
     )
 
 
+def test_count_of_an_enum_alias_is_refused_as_count_of_the_enum() -> None:
+    # count and count_distinct read an alias of an enum, alias chains, let
+    # values and derived fields included, as that enum: PIE-S2314 at check,
+    # never a program that passes check and then fails to emit.
+    def facts(*, aliased: bool) -> tuple[tuple[str, str, int, int], ...]:
+        # The enum twin keeps the alias lines blank, so both programs report
+        # at the same line and column.
+        aliases = (
+            "type Phase = Status not null\ntype Stage = Phase nullable\n"
+            if aliased
+            else "\n\n"
+        )
+        state, stage = ("Phase", "Stage") if aliased else ("Status", "Status")
+        result = analyze(
+            _parse(
+                f"enum Status:\n    active\n    closed\n{aliases}"
+                "shape Order:\n"
+                "    id: Int not null\n"
+                "    region: Text not null\n"
+                f"    state: {state} not null\n"
+                f"    stage: {stage} nullable\n"
+                'source orders: Order is postgres.table("orders")\n'
+                "table counted:\n"
+                "    from orders\n"
+                "    select:\n"
+                "        n = count(state)\n"
+                "query grouped:\n"
+                "    from orders\n"
+                "    group by:\n"
+                "        region\n"
+                "    select:\n"
+                "        region\n"
+                "        n = count(stage)\n"
+                "        d = count_distinct(state)\n"
+                "table via_let:\n"
+                "    from orders\n"
+                "    let:\n"
+                "        v = stage\n"
+                "    select:\n"
+                "        n = count(v)\n"
+                "table copied:\n"
+                "    from orders\n"
+                "    select:\n"
+                "        id\n"
+                "        state\n"
+                "query recounted:\n"
+                "    from copied\n"
+                "    select:\n"
+                "        n = count(state)\n"
+            )
+        )
+        return tuple(
+            (d.code, d.message, d.location.line, d.location.column)
+            for d in result.diagnostics
+        )
+
+    count = "Aggregate function count expects concrete non-Any field argument, got "
+    count_distinct = (
+        "Aggregate function count_distinct expects Bool, Int, Float, Decimal, "
+        "Text, Date, Timestamp, or UUID field argument, got "
+    )
+    assert facts(aliased=True) == (
+        ("PIE-S2314", count + "Phase", 15, 13),
+        ("PIE-S2314", count + "Stage", 22, 13),
+        ("PIE-S2314", count_distinct + "Phase", 23, 13),
+        ("PIE-S2314", count + "Stage", 29, 13),
+        ("PIE-S2314", count + "Phase", 38, 13),
+    )
+    assert facts(aliased=False) == (
+        ("PIE-S2314", count + "Status", 15, 13),
+        ("PIE-S2314", count + "Status", 22, 13),
+        ("PIE-S2314", count_distinct + "Status", 23, 13),
+        ("PIE-S2314", count + "Status", 29, 13),
+        ("PIE-S2314", count + "Status", 38, 13),
+    )
+
+
 def _parse(source: str) -> Script:
     result = parse_source(source)
     assert result.diagnostics == ()

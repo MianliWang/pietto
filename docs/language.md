@@ -1114,7 +1114,9 @@ Flag not null` field filters as a `Bool` field does. A pair the base type
 refuses is refused alike, such as `amount * 2` or `-amount` (PIE-S2105),
 `count` of an alias of `Any` is PIE-S2314 as `count` of `Any` is, and
 `lower(amount)` is PIE-S2104, whose message names the type as written (`got
-Money`). An alias of an enum or a shape is not expanded.
+Money`). An alias of a shape is not expanded, and an alias of an enum only for
+an aggregate argument: with `type Phase = Status not null`, `count` of a
+`Phase` field is PIE-S2314 as `count` of a `Status` field is (`got Phase`).
 
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`

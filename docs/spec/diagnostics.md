@@ -62,7 +62,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2311` | Nested aggregate is unsupported |
 | `PIE-S2312` | Aggregate projection mixed with non-aggregate projection without `GROUP BY` |
 | `PIE-S2313` | Aggregate projection without an explicit alias |
-| `PIE-S2314` | Aggregate field argument has an unsupported type. A type alias argument is checked as the builtin type it expands to, an alias chain included, so `sum` of an alias of `Decimal` is accepted and `count` of an alias of `Any` is refused as `count` of `Any` is; the message names the type as written, such as `got Email` for `min` of an alias of `Text`. An alias of an enum or a shape is not expanded |
+| `PIE-S2314` | Aggregate field argument has an unsupported type. A type alias argument is checked as the builtin or enum type it expands to, an alias chain included, so `sum` of an alias of `Decimal` is accepted and `count` of an alias of `Any` or of an enum is refused as `count` of `Any` or of the enum is; the message names the type as written, such as `got Email` for `min` of an alias of `Text`. An alias of a shape is not expanded |
 | `PIE-S2315` | Aggregate expression argument is not supported yet |
 | `PIE-S2316` | Historical GROUP BY IR/SQL lowering gate, retired after SQL lowering |
 | `PIE-S2317` | Duplicate GROUP BY key |

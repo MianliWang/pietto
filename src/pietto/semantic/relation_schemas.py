@@ -322,7 +322,9 @@ def _aggregate_projection_diagnostics(
                 invalid_items.add(item)
                 continue
             # An aggregate reads a type alias argument as the type it expands to.
-            argument_type = _canonical_value_type(authored_type, type_expansions)
+            argument_type = _canonical_value_type(
+                authored_type, type_expansions, enum=True
+            )
             if not is_supported_semantic_aggregate_argument(
                 function_name,
                 argument_type,

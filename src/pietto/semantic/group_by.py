@@ -409,7 +409,7 @@ def _aggregate_output_field(
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
             return _unknown_row_field(item.alias), diagnostics, False
         # An aggregate reads a type alias argument as the type it expands to.
-        argument_type = _canonical_value_type(authored_type, type_expansions)
+        argument_type = _canonical_value_type(authored_type, type_expansions, enum=True)
         if not is_supported_semantic_aggregate_argument(
             function_name,
             argument_type,

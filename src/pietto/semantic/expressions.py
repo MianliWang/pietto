@@ -1661,8 +1661,14 @@ def _binary_value_type(
 def _canonical_value_type(
     value_type: ValueType,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    enum: bool = False,
 ) -> ValueType:
-    """Return a type alias value as the builtin type it expands to."""
+    """Return a type alias value as the builtin type it expands to.
+
+    With ``enum``, as for an aggregate argument, an alias of an enum also reads
+    as that enum.
+    """
 
     if (
         value_type.kind is not ValueTypeKind.KNOWN
@@ -1670,7 +1676,9 @@ def _canonical_value_type(
     ):
         return value_type
     canonical = _canonical_resolved_type(value_type, type_expansions)
-    if canonical is None or canonical.kind is not TypeKind.BUILTIN:
+    if canonical is None or not (
+        canonical.kind is TypeKind.BUILTIN or (enum and canonical.kind is TypeKind.ENUM)
+    ):
         return value_type
     return ValueType(resolved_type=canonical, nullability=value_type.nullability)
 
@@ -2358,6 +2366,7 @@ def _call_argument_types(
                 relation_columns=relation_columns,
             ),
             type_expansions,
+            enum=True,
         )
         if is_supported_semantic_aggregate_argument_expression(
             function_name,
