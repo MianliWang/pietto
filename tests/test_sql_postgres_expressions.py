@@ -278,7 +278,7 @@ def test_q1_empty_membership_is_a_checked_boolean_constant(
             "right(\"name\", length('to')) = 'to'",
         ),
         (_call("abs", _field("amount")), 'abs("amount")'),
-        (_call("sign", _field("amount")), 'sign("amount")'),
+        (_call("sign", _field("amount")), 'CAST(sign("amount") AS bigint)'),
         (_call("date_of", _field("happened_at")), 'CAST("happened_at" AS date)'),
         (
             _call("year", _field("happened_at")),

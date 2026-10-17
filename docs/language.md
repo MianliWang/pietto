@@ -1165,6 +1165,13 @@ minute(Timestamp) -> Int
 date_of(Timestamp) -> Date
 ```
 
+`sign` returns -1, 0 or 1 as an `Int`. PostgreSQL `sign` itself returns
+`double precision` for an integer argument and `numeric` for a numeric one, so
+PostgreSQL SQL casts the result: single-file `emit-sql` renders
+`CAST(sign(x) AS bigint)` and project SQL `CAST(sign(x) AS pg_catalog.int8)`.
+MySQL `SIGN` already returns an integer; single-file MySQL SQL renders
+`SIGN(x)` and project SQL `CAST(SIGN(x) AS SIGNED)`.
+
 `coalesce` requires at least two same-canonical-type arguments. `nullif`
 requires exactly two. `substr` is one-based and requires a statically admitted
 positive start and nonnegative count. PostgreSQL additionally requires each
@@ -1235,6 +1242,18 @@ links no JOIN side, so the group keys alone must fix every side.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
+
+Single-file `emit-sql` renders `sum` without a cast, and `avg` without one
+except over `Int`, so each result column has the type the target gives that
+aggregate. Over `Float` it is a floating-point type and over `Decimal` it is
+PostgreSQL `numeric` or MySQL DECIMAL, as the Pietto types say. `sum(Int)` is
+an `Int`, a whole number, returned in the target's exact type: PostgreSQL
+`bigint` for a `smallint` or `integer` column and `numeric` for a `bigint`
+column, and MySQL DECIMAL. These `numeric` and DECIMAL sums are exact and can
+leave the signed 64-bit range. `avg(Int)` is a `Float` average on both
+targets: as in project SQL, its argument is cast before averaging (PostgreSQL
+`AVG(CAST(x AS double precision))`, MySQL `AVG(CAST(x AS DOUBLE))`), so the
+target returns a binary64 average instead of its own decimal one.
 
 In an explicit-module project a JOIN must not let an aggregate see one input
 row several times. A JOIN repeats the rows of one side when the other side may

@@ -569,7 +569,11 @@ def _render_numeric_aggregate(
             f"MySQL aggregate {expression.function} result type does not match "
             "approved logical shape"
         )
-    return f"{function_name}({_render_mysql_expression(argument, nested=True)})"
+    argument_sql = _render_mysql_expression(argument, nested=True)
+    if expression.function == "avg" and argument_type == "Int":
+        # MySQL AVG of an integer is an exact decimal; Pietto says Float.
+        argument_sql = f"CAST({argument_sql} AS DOUBLE)"
+    return f"{function_name}({argument_sql})"
 
 
 def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:

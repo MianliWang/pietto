@@ -47,6 +47,38 @@ def test_pipeline_emits_quoted_source_backed_relation_sql() -> None:
     )
 
 
+def test_pipeline_casts_sign_to_the_int_its_semantics_declare() -> None:
+    # PostgreSQL sign() returns double precision for an integer and numeric for
+    # a numeric argument; Pietto types every sign() as Int.
+    result = _compile_and_emit(
+        "shape Acct:\n"
+        "    n: Int not null\n"
+        "    d: Decimal(10, 2) not null\n"
+        "    m: Int nullable\n"
+        'source accts: Acct is postgres.table("accts")\n'
+        "table q:\n"
+        "    from accts\n"
+        "    where sign(m) == -1\n"
+        "    select:\n"
+        "        sn = sign(n)\n"
+        "        sd = sign(d)\n"
+        "        sm = sign(n - 1)\n"
+        "    order by:\n"
+        "        sign(d) desc\n",
+    )
+
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n"
+        '    CAST(sign("n") AS bigint) AS "sn",\n'
+        '    CAST(sign("d") AS bigint) AS "sd",\n'
+        '    CAST(sign(("n" - 1)) AS bigint) AS "sm"\n'
+        'FROM "accts"\n'
+        'WHERE CAST(sign("m") AS bigint) = (-1)\n'
+        "ORDER BY\n"
+        '    CAST(sign("d") AS bigint) DESC'
+    ]
+
+
 def test_pipeline_uses_escape_string_for_backslash_quote_payload() -> None:
     result = _compile_and_emit(
         "shape User:\n"

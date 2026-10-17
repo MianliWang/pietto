@@ -175,13 +175,13 @@ def test_direct_renderers_support_count_field_and_preserve_existing_aggregates()
         render_expression_sql(
             _aggregate("avg", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
         )
-        == 'AVG("amount")'
+        == 'AVG(CAST("amount" AS double precision))'
     )
     assert (
         render_mysql_expression(
             _aggregate("avg", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
         )
-        == "AVG(`amount`)"
+        == "AVG(CAST(`amount` AS DOUBLE))"
     )
     assert (
         render_expression_sql(
