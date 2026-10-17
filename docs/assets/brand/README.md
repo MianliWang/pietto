@@ -13,8 +13,10 @@ These files are byte-identical copies from the owner's Pietto Brand Kit v2.
 Use the lockup where the name should appear and the mark where it already
 appears nearby. To switch between the two lockups by theme, pair them in a
 `<picture>` element with `prefers-color-scheme`, as the top of the repository
-`README.md` does. GitHub renders those relative paths; the PyPI long
-description cannot, so a release needs absolute, tag-pinned image URLs.
+`README.md` does. That README is also the PyPI long description, which cannot
+resolve repository paths and drops the `<source>` element, so it names the
+files by absolute URLs pinned to a commit and its `<img>` fallback is the
+light-theme lockup.
 
 ## Palette
 

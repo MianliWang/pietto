@@ -62,7 +62,7 @@ from pietto._output_file import (
 from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
-_FALLBACK_VERSION = "0.1.3"
+_FALLBACK_VERSION = "0.1.4"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
