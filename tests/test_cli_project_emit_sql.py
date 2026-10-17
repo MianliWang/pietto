@@ -34,6 +34,7 @@ from _pietto_project_path_trust import (
     report_reparse_point,
 )
 import _pietto_sql_emission as probe
+from pietto import _output_file as output_file
 from pietto import cli
 from pietto._project import path_trust
 from pietto._project import project_sql_emission_cli as emission_cli
@@ -1179,12 +1180,23 @@ def test_output_file_accepts_the_longest_file_name_the_os_accepts(
 def test_output_file_mode_follows_the_umask_and_a_replaced_file_keeps_its_bits(
     tmp_path: Path,
 ) -> None:
+    if sys.platform == "linux":
+        # A default ACL a shared base directory passes on would override the
+        # umask and mask the group bits of every new file.
+        for name in ("system.posix_acl_default", "system.posix_acl_access"):
+            try:
+                os.removexattr(tmp_path, name)
+            except OSError as error:
+                if error.errno not in {errno.ENODATA, errno.ENOTSUP, errno.EOPNOTSUPP}:
+                    raise
     root, item = project(tmp_path, "postgres")
     expected = api_bytes(tmp_path, item)
     # A new file gets 0o666 less the umask; a replaced file keeps its own bits,
-    # neither narrowed by the umask nor widened to it.
+    # neither narrowed by the umask nor widened to it (only its owner bits
+    # elsewhere than on Linux).
     cases = ((0o022, None, 0o644), (0o077, None, 0o600))
-    cases += ((0o077, 0o664, 0o664), (0o022, 0o600, 0o600))
+    cases += ((0o077, 0o664, 0o664 if sys.platform == "linux" else 0o600),)
+    cases += ((0o022, 0o600, 0o600),)
     for umask, existing, mode in cases:
         output = tmp_path / f"artifact-{umask:03o}-{existing}.json"
         if existing is not None:
@@ -1367,6 +1379,34 @@ def test_injected_file_faults_preserve_destinations_and_report_honestly(
     monkeypatch.setattr(emission_cli.os, "replace", real_replace)
     assert run(argv(root, "postgres", output=str(existing))) == (0, expected, "")
     assert existing.read_bytes() == expected
+
+
+def test_a_refused_temporary_file_open_leaves_nothing_to_remove(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stubbed fault: an audit hook refuses the open of the temporary file.
+
+    Python audits an open before the file is created, so even a removal the
+    file system would refuse has nothing left to remove or report.
+    """
+    root, _ = project(tmp_path, "postgres")
+    existing = tmp_path / "existing.json"
+    existing.write_bytes(b"stale")
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise PermissionError(errno.EACCES, SENTINEL)
+
+    monkeypatch.setattr(output_file, "open", refuse, raising=False)
+    monkeypatch.setattr(os, "unlink", refuse)
+    monkeypatch.setattr(Path, "unlink", refuse)
+    code, out, err = run(argv(root, "postgres", output=str(existing)))
+
+    assert (code, err) == (2, "")
+    assert [(e["kind"], e["message"]) for e in failure(out)["cli_errors"]] == [
+        ("output_write", "Output file could not be written.")
+    ]
+    assert existing.read_bytes() == b"stale" and SENTINEL not in out.decode()
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 def test_stdout_failure_is_not_success_and_never_rolls_back_a_replaced_file(

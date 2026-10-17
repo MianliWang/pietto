@@ -59,10 +59,13 @@ regular-file or uninspectable output parent as `output_write` after
 compilation, and report an unreadable input as `file_read`. A closed or
 unwritable stdout exits `2` without a traceback, and text output writes C1,
 separator, and bidi controls as `\uNNNN` escapes; project mode follows both
-rules too. In both modes `--output` refuses an existing output file the user
-may not write as `output_write`, creates a new output file with `0o666` less
-the process umask, and keeps a replaced file's read, write, and execute
-permission bits.
+rules too. In both modes `--output` refuses an existing regular output file
+the user may not write as `output_write`, creates a new output file with
+`0o666` less the process umask, and keeps a replaced regular file's read,
+write, and execute permission bits only on Linux when both files have the
+same owner and group and are shown to carry no ACL, otherwise at most its
+owner bits; a replacement never takes the replaced file's own ACL, only the
+one its directory gives new files.
 
 Phase 8 adds no command or option to this baseline.
 

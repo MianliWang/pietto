@@ -442,9 +442,16 @@ The implemented outcomes are:
 - successful or warning-only compilation with at least one SQL artifact writes
   atomically, sets `output.written` to `true`, keeps artifacts in JSON, and
   exits `0`. A new output file gets the permissions of any new file the
-  process creates, `0o666` less the process umask; a replaced regular file
-  keeps its own read, write, and execute permission bits where the file system
-  stores them, but not its owner, group, set-id, or sticky bits;
+  process creates, `0o666` less the process umask. Where the file system
+  stores permission bits, the file replacing an existing output never gets
+  wider ones: it receives the replaced read, write, and execute permission
+  bits only on Linux, when both have the same owner and group and are shown to
+  carry no ACL (no `system.` extended attribute and no CIFS security
+  descriptor), and otherwise at most the owner bits. The replaced output's
+  owner, group, set-id, and sticky bits and its own ACL are not copied: like
+  any new file, the replacement has only the ACL its directory gives new
+  files. Windows keeps only a read-only attribute, so there both are ordinary
+  writable files;
 - successful or warning-only compilation without SQL artifacts does not write
   or create the output file, reports `output_write` with the message
   `no SQL artifacts to write; the output file was not changed`, sets

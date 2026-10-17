@@ -8,16 +8,13 @@ complete content.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import secrets
 import stat
 import sys
 from pathlib import Path
 from typing import BinaryIO
-
-# O_EXCL never reuses an existing name, so a collision is a reported failure;
-# O_BINARY keeps the written bytes, LF line endings included, on Windows.
-_CREATE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
 
 
 def is_read_only(output: Path) -> bool:
@@ -27,42 +24,118 @@ def is_read_only(output: Path) -> bool:
     mode bits, ACLs and root on POSIX, the read-only attribute on Windows.
     """
 
-    return _replaced_mode(output) is not None and not os.access(output, os.W_OK)
+    replaced = _replaced(output)
+    return (
+        replaced is not None
+        and stat.S_ISREG(replaced.st_mode)
+        and not os.access(output, os.W_OK)
+    )
 
 
 def open_replacement(output: Path) -> tuple[BinaryIO, Path]:
     """Create the hidden same-directory temporary file that will replace output.
 
     The short ``.pietto-*.tmp`` name keeps every output name the file system
-    accepts writable. A new output gets the mode ``open(output, "w")`` gives:
-    the operating system applies the process umask to 0o666, so the umask is
-    never read or changed. A replaced regular file keeps its read, write and
-    execute bits: the temporary file is created with them, which the umask can
-    only narrow, so it is never more open than the file it replaces, and then
-    receives them exactly where the file system stores them. Ownership and the
-    set-id and sticky bits are not copied. Windows keeps only a read-only
-    attribute, which a writable target never has, so there both files are
-    ordinary writable files.
+    accepts writable. Mode ``x`` never reuses an existing name, so a collision
+    is a reported failure, and binary mode keeps the written bytes, LF line
+    endings included, on Windows. A new output gets the mode
+    ``open(output, "w")`` gives: the operating system applies the process
+    umask to 0o666, so the umask is never read or changed.
+
+    Whatever the output path holds other than a directory (a regular file, a
+    FIFO or a socket) is replaced, and its permission bits bound the new
+    file's: all of a regular file's read, write and execute bits, but only the
+    owner's read and write bits of anything else. The temporary file is
+    created with only the owner's share of that bound, which the umask or an
+    inherited default ACL can only narrow, so a file system that refuses
+    ``fchmod`` leaves it at most that open. It then receives the whole bound
+    where ``_same_access`` holds, otherwise the owner's share alone.
+    Ownership, the set-id and sticky bits and the replaced object's own ACL
+    are not copied: like any new file, the replacement gets only the ACL its
+    directory hands every new file. Windows keeps only a read-only attribute,
+    which a writable target never has, so there both files are ordinary
+    writable files.
+
+    Each ``OSError`` raised here comes before the file exists, so the caller
+    reports every failure and owns every removal: an audit hook sees both
+    ``open`` events before the file is created. The steps after it can only
+    narrow the file, so any exception they raise leaves it at its creation
+    mode or the owner bits instead of escaping. Only an interruption between
+    creation and return closes and removes the file here.
     """
 
-    mode = _replaced_mode(output)
+    replaced = _replaced(output)
     temporary = output.parent / f".pietto-{secrets.token_hex(4)}.tmp"
-    handle = open(os.open(temporary, _CREATE, 0o666 if mode is None else mode), "wb")
-    if mode is not None and sys.platform != "win32":
-        # A file system without permission bits (FAT, some shares) refuses;
-        # the umask-narrowed mode then stands.
+    bound = 0
+    if replaced is not None:
+        bound = replaced.st_mode & (0o777 if stat.S_ISREG(replaced.st_mode) else 0o600)
+    creation = 0o666 if replaced is None else bound & 0o700
+    handle = open(
+        temporary, "xb", opener=lambda path, flags: os.open(path, flags, creation)
+    )
+    try:
+        if replaced is not None and sys.platform != "win32":
+            descriptor = handle.fileno()
+            same = _same_access(replaced, output, descriptor)
+            # A file system without permission bits (FAT, some shares) or an
+            # audit hook refuses; the owner-only creation mode then stands.
+            with contextlib.suppress(Exception):
+                os.fchmod(descriptor, bound & (0o777 if same else 0o700))
+    except BaseException:
         with contextlib.suppress(OSError):
-            os.fchmod(handle.fileno(), mode)
+            handle.close()
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
     return handle, temporary
 
 
-def _replaced_mode(output: Path) -> int | None:
-    """The permission bits of an existing regular output, else None."""
+def _same_access(replaced: os.stat_result, output: Path, descriptor: int) -> bool:
+    """Whether the replaced bits grant on the new file exactly what they did.
+
+    Only on Linux, and only when both have the same owner and group and
+    neither carries an ACL, under which the group bits are a mask and named
+    entries can deny what the bits allow. Whatever cannot be read, for any
+    reason, counts as different.
+    """
+
+    if sys.platform != "linux":
+        return False
+    try:
+        created = os.fstat(descriptor)
+        return (
+            (created.st_uid, created.st_gid) == (replaced.st_uid, replaced.st_gid)
+            and not _has_acl(output)
+            and not _has_acl(descriptor)
+        )
+    except Exception:
+        return False
+
+
+def _has_acl(target: Path | int) -> bool:
+    """Whether target carries an ACL; OSError when that cannot be told.
+
+    Linux lists POSIX and NFSv4 ACLs as ``system.`` attributes. A CIFS client
+    lists only the server's own attributes, so its security descriptor is
+    asked for by name.
+    """
+
+    if any(name.startswith("system.") for name in os.listxattr(target)):
+        return True
+    try:
+        os.getxattr(target, "system.cifs_acl")
+    except OSError as error:
+        if error.errno in {errno.ENODATA, errno.EOPNOTSUPP}:
+            return False
+        raise
+    return True
+
+
+def _replaced(output: Path) -> os.stat_result | None:
+    """The state of what output names, unless it is absent or a directory."""
 
     try:
         state = os.stat(output)
     except OSError:
         return None
-    if not stat.S_ISREG(state.st_mode):
-        return None
-    return stat.S_IMODE(state.st_mode) & 0o777
+    return None if stat.S_ISDIR(state.st_mode) else state

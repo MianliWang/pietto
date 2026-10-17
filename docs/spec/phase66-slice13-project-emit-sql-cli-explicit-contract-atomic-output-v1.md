@@ -105,10 +105,16 @@ merely shares a name is not. Only VERIFIED publishes: the bytes are written to a
 same-directory temporary file with a short `.pietto-*.tmp` name and installed with
 one `os.replace` after
 compilation, verification and serialization are complete. A new destination
-gets `0o666` less the process umask, like any new file the process creates; a
-replaced regular file keeps its own read, write and execute permission bits
-where the file system stores them, but not its owner, group, set-id or sticky
-bits. An existing regular destination the user may not write (the `access`
+gets `0o666` less the process umask, like any new file the process creates. The
+file replacing a regular destination, where the file system stores permission
+bits, receives the destination's read, write and execute permission bits only
+on Linux, when both have the same owner and group and are shown to carry no ACL
+(no `system.` extended attribute and no CIFS security descriptor), and
+otherwise at most its owner bits. The destination's owner, group, set-id and
+sticky bits and its own ACL are not copied: like any new file, the replacement
+has only the ACL its directory gives new files. Windows keeps only a read-only
+attribute, so there both are ordinary writable files. An existing regular
+destination the user may not write (the `access`
 write check; the read-only attribute on Windows) is refused before a temporary
 file is created, as `output_write` with the message `Output file is read-only.`
 A creation, write,

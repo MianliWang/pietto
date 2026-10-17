@@ -4,6 +4,7 @@ import errno
 import json
 import os
 import stat
+import struct
 import sys
 from pathlib import Path
 
@@ -93,6 +94,7 @@ def test_successful_output_atomically_overwrites_regular_file(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
 def test_new_output_file_mode_follows_the_umask(tmp_path: Path) -> None:
+    _without_inherited_acl(tmp_path)
     path = _write(tmp_path, "input.pietto", SOURCE)
     for umask, expected in ((0o022, 0o644), (0o077, 0o600)):
         output = tmp_path / f"new-{umask:03o}.sql"
@@ -107,8 +109,10 @@ def test_new_output_file_mode_follows_the_umask(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
 def test_replaced_output_file_keeps_its_permission_bits(tmp_path: Path) -> None:
+    _without_inherited_acl(tmp_path)
     path = _write(tmp_path, "input.pietto", SOURCE)
-    # Neither narrowed by the umask nor widened to it.
+    # Neither narrowed by the umask nor widened to it; elsewhere than on Linux
+    # only the owner bits are kept.
     for mode, umask in ((0o664, 0o077), (0o600, 0o022)):
         output = _write(tmp_path, f"kept-{mode:03o}.sql", "stale SQL\n")
         output.chmod(mode)
@@ -117,11 +121,249 @@ def test_replaced_output_file_keeps_its_permission_bits(tmp_path: Path) -> None:
             assert _emit(path, output) == 0
         finally:
             os.umask(previous)
-        assert stat.S_IMODE(output.stat().st_mode) == mode, oct(mode)
+        kept = mode if sys.platform == "linux" else mode & 0o700
+        assert stat.S_IMODE(output.stat().st_mode) == kept, oct(mode)
         assert output.read_text(encoding="utf-8") == (
             'SELECT\n    "email" AS "email"\nFROM "users"\n'
         )
     assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+@pytest.mark.parametrize("carrier", ["replaced", "temporary"])
+@pytest.mark.parametrize("acl", ["none", "listed", "unlisted", "unlistable", "unknown"])
+def test_only_a_pair_shown_free_of_acls_keeps_more_than_the_owner_bits(
+    carrier: str, acl: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "stale SQL\n")
+    output.chmod(0o764)
+    # The replaced file is asked by path, the temporary file by descriptor. A
+    # POSIX ACL is listed; a CIFS security descriptor is only read by name.
+    probed = Path if carrier == "replaced" else int
+
+    def listxattr(target: Path | int) -> list[str]:
+        if isinstance(target, probed) and acl == "unlistable":
+            raise OSError(errno.EIO, "attributes could not be listed")
+        if isinstance(target, probed) and acl == "listed":
+            return ["user.note", "system.posix_acl_access"]
+        return ["user.note"]
+
+    def getxattr(target: Path | int, name: str) -> bytes:
+        assert name == "system.cifs_acl"
+        if isinstance(target, probed) and acl == "unlisted":
+            return b"security descriptor"
+        if isinstance(target, probed) and acl == "unknown":
+            raise OSError(errno.EIO, "attribute could not be read")
+        raise OSError(errno.ENODATA, "no such attribute")
+
+    monkeypatch.setattr(os, "listxattr", listxattr, raising=False)
+    monkeypatch.setattr(os, "getxattr", getxattr, raising=False)
+
+    assert _emit(path, output) == 0
+
+    kept = 0o764 if acl == "none" and sys.platform == "linux" else 0o700
+    assert stat.S_IMODE(output.stat().st_mode) == kept
+    assert output.read_text(encoding="utf-8") == (
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+    )
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs Linux POSIX ACL xattrs")
+@pytest.mark.parametrize("acl", ["access", "default"])
+def test_a_real_posix_acl_never_widens_a_replaced_file(
+    acl: str, tmp_path: Path
+) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    directory = tmp_path / "out"
+    directory.mkdir()
+    output = _write(directory, "output.sql", "stale SQL\n")
+    output.chmod(0o640)
+    if acl == "access":
+        # The owning group is denied; stat shows the mask as its read bit.
+        target, name = output, "system.posix_acl_access"
+        entries = [(1, 6, _NO_ID), (4, 0, _NO_ID), (16, 4, _NO_ID)]
+    else:
+        # New files here would let nobody read and write.
+        target, name = directory, "system.posix_acl_default"
+        entries = [(1, 6, _NO_ID), (2, 6, _NOBODY), (4, 4, _NO_ID), (16, 6, _NO_ID)]
+    try:
+        os.setxattr(target, name, _posix_acl([*entries, (32, 0, _NO_ID)]))
+    except OSError as error:
+        if error.errno in {errno.ENOTSUP, errno.EOPNOTSUPP}:
+            pytest.skip("the file system under tmp_path stores no POSIX ACLs")
+        if acl == "default" and error.errno == errno.EINVAL:
+            # The access case shows the encoding is accepted here, so only the
+            # named user is refused: a user namespace that does not map it.
+            pytest.skip("this user namespace does not map the user nobody")
+        raise
+    assert stat.S_IMODE(output.stat().st_mode) == 0o640
+
+    assert _emit(path, output) == 0
+
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    # A replacement carries only the ACL its directory hands every new file,
+    # and the cleared group bits are its mask: nobody and the group get none.
+    assert _posix_acl_entries(output) == (
+        None
+        if acl == "access"
+        else [
+            (1, 6, _NO_ID),
+            (2, 6, _NOBODY),
+            (4, 4, _NO_ID),
+            (16, 0, _NO_ID),
+            (32, 0, _NO_ID),
+        ]
+    )
+    assert output.read_text(encoding="utf-8") == (
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+    )
+    assert not tuple(directory.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX groups")
+@pytest.mark.parametrize("changed", ["replaced", "directory"])
+def test_a_replacement_in_another_group_keeps_only_the_owner_bits(
+    changed: str, tmp_path: Path
+) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    directory = tmp_path / "out"
+    directory.mkdir()
+    output = _write(directory, "output.sql", "stale SQL\n")
+    output.chmod(0o664)
+    new_gid = output.stat().st_gid
+    for other_gid in os.getgroups():
+        if other_gid == new_gid:
+            continue
+        try:
+            os.chown(output if changed == "replaced" else directory, -1, other_gid)
+        except OSError:
+            continue  # A group this user namespace does not map, say.
+        break
+    else:
+        pytest.skip("needs membership in a second group the file system accepts")
+    if changed == "directory":
+        # A set-group-ID directory gives every new file its own group.
+        directory.chmod(0o2775)
+    assert stat.S_IMODE(output.stat().st_mode) == 0o664
+
+    assert _emit(path, output) == 0
+
+    state = output.stat()
+    assert (stat.S_IMODE(state.st_mode), state.st_gid) == (
+        0o600,
+        new_gid if changed == "replaced" else other_gid,
+    )
+    assert not tuple(directory.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+def test_a_refused_fchmod_never_leaves_a_replacement_wider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "stale SQL\n")
+    output.chmod(0o764)
+
+    def refuse(descriptor: int, mode: int) -> None:
+        raise PermissionError(errno.EPERM, "no permission bits here")
+
+    monkeypatch.setattr(os, "fchmod", refuse)
+    previous = os.umask(0)
+    try:
+        assert _emit(path, output) == 0
+    finally:
+        os.umask(previous)
+
+    # The creation mode, even with no umask, already holds only the owner bits.
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+@pytest.mark.parametrize("refused", ["fstat", "listxattr", "getxattr", "fchmod"])
+def test_any_refused_access_step_keeps_only_the_owner_bits(
+    refused: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "stale SQL\n")
+    output.chmod(0o764)
+
+    def refuse(*arguments: object) -> None:
+        # An audit hook may refuse an event with any exception, not only OSError.
+        raise RuntimeError(f"os.{refused} refused")
+
+    monkeypatch.setattr(os, refused, refuse, raising=False)
+    previous = os.umask(0)
+    try:
+        assert _emit(path, output) == 0
+    finally:
+        os.umask(previous)
+
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert output.read_text(encoding="utf-8") == (
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+    )
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX FIFOs")
+@pytest.mark.parametrize("mode", [0o600, 0o400, 0o777], ids=oct)
+def test_a_replaced_fifo_is_never_left_more_open(mode: int, tmp_path: Path) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = tmp_path / "output.sql"
+    os.mkfifo(output)
+    # Only a regular file is refused as read-only, so a FIFO the user may not
+    # write is replaced like any other, and the replacement keeps at most the
+    # FIFO owner's read and write bits.
+    output.chmod(mode)
+    previous = os.umask(0o022)
+    try:
+        assert _emit(path, output) == 0
+    finally:
+        os.umask(previous)
+
+    state = output.stat()
+    assert (stat.S_ISREG(state.st_mode), stat.S_IMODE(state.st_mode)) == (
+        True,
+        mode & 0o600,
+    )
+    assert output.read_text(encoding="utf-8") == (
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+    )
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+def test_an_interruption_after_creation_closes_and_removes_the_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "stale SQL\n")
+    descriptors: list[int] = []
+
+    def interrupt(descriptor: int, mode: int) -> None:
+        descriptors.append(descriptor)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "fchmod", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        _emit(path, output)
+
+    assert output.read_text(encoding="utf-8") == "stale SQL\n"
+    assert not tuple(tmp_path.glob("*.tmp"))
+    assert len(descriptors) == 1
+    with pytest.raises(OSError) as closed:
+        os.fstat(descriptors[0])
+    assert closed.value.errno == errno.EBADF
 
 
 @pytest.mark.parametrize("presentation", ["text", "json"])
@@ -459,3 +701,42 @@ def _write(tmp_path: Path, name: str, content: str) -> Path:
     path = tmp_path / name
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _without_inherited_acl(directory: Path) -> None:
+    """Let new files in directory get exactly their mode less the umask.
+
+    A shared or HPC base directory can pass tmp_path a default POSIX ACL,
+    which overrides the umask and masks the group bits of every new file.
+    """
+
+    if sys.platform != "linux":
+        return
+    for name in ("system.posix_acl_default", "system.posix_acl_access"):
+        try:
+            os.removexattr(directory, name)
+        except OSError as error:
+            if error.errno not in {errno.ENODATA, errno.ENOTSUP, errno.EOPNOTSUPP}:
+                raise
+
+
+# Linux POSIX ACL xattr: version 2, then little-endian (tag, perm, id) entries;
+# tags 1 owner, 2 named user, 4 owning group, 16 mask, 32 other.
+_NO_ID = 0xFFFFFFFF
+_NOBODY = 65534
+
+
+def _posix_acl(entries: list[tuple[int, int, int]]) -> bytes:
+    return struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", *entry) for entry in entries
+    )
+
+
+def _posix_acl_entries(path: Path) -> list[tuple[int, int, int]] | None:
+    try:
+        value = os.getxattr(path, "system.posix_acl_access")
+    except OSError as error:
+        if error.errno == errno.ENODATA:
+            return None
+        raise
+    return list(struct.iter_unpack("<HHI", value[4:]))
