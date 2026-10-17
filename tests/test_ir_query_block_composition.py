@@ -1200,14 +1200,141 @@ def test_only_a_base_plan_read_may_point_backwards(tmp_path: Path) -> None:
     )
     outer_row = stage.outputs[1]
     assert outer_row.anchor == outer_read.slot.consumer.anchor
-    # inner now reads outer's row while outer still reads inner's: the
-    # backward base read stays exempt and the cycle is refused.
+    # inner now reads outer's row while outer still reads inner's: the read
+    # leaves its edge's producer and the cycle is refused.
     object.__setattr__(inner_read, "output", outer_row)
     result = verify_project_query_block_ir(snapshot)
     assert result.status is ProjectIRQueryBlockVerificationStatus.INVALID
     assert tuple(issue.kind for issue in result.issues) == (
         ProjectIRQueryBlockVerificationIssueKind.HISTORICAL_REUSE,
+        ProjectIRQueryBlockVerificationIssueKind.STRUCTURAL_ENDPOINT,
         ProjectIRQueryBlockVerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE,
+    )
+    with pytest.raises(ValueError, match="Only VERIFIED query-block IR"):
+        build_project_query_block_ir_analysis_bundle(result)
+
+
+# Every use kind with a same-shaped, acyclic wrong read: a base read, a base
+# operator flow, a new operator flow, a JOIN tail's first flow, a rebound flow
+# and a retained JOIN input.
+WRONG_READ_SOURCE = """shape Row:
+    id: Int not null
+source early: Row is postgres.table("early")
+source lhs: Row is postgres.table("lhs")
+query result:
+    from lhs
+    select distinct:
+        id
+query ranked:
+    from lhs
+    select:
+        id
+    qualify:
+        row_number() window:
+            order by:
+                id
+        <= 3
+query rebound:
+    from ranked
+    select:
+        id
+query joined:
+    from lhs
+    inner join early as e:
+        from lhs
+        on lhs.id == e.id
+    select:
+        id = lhs.id
+source late: Row is postgres.table("late")
+"""
+STALE_JOIN_SOURCE = """shape Row:
+    id: Int not null
+source early: Row is postgres.table("early")
+source lhs: Row is postgres.table("lhs")
+query ranked:
+    from lhs
+    select:
+        id
+        n = row_number() window:
+            order by:
+                id
+    qualify:
+        n <= 3
+relationship lhs_ranked:
+    endpoint l: lhs
+    endpoint r: ranked
+    on l.id == r.id
+query stale:
+    from lhs
+    inner join ranked as r:
+        from lhs
+        via lhs_ranked: l -> r
+    select:
+        id = r.id
+"""
+
+
+def _owned(snapshot: ProjectIRQueryBlockSnapshot, name: str) -> Any:
+    (entry,) = (e for e in snapshot.entries if e.owner.identity.declared_name == name)
+    return entry
+
+
+def _base_read(snapshot: ProjectIRQueryBlockSnapshot, name: str) -> Any:
+    (edge,) = (
+        edge
+        for edge in snapshot.base_plan.cross_relation_edges
+        if edge.consumer.subject.anchor.identity.identity.declared_name == name
+    )
+    return edge
+
+
+def _base_flow(snapshot: ProjectIRQueryBlockSnapshot, name: str) -> Any:
+    node = _base_read(snapshot, name).consumer.logical_stage.operators[1].node
+    stage = snapshot.base_plan.structural_stage
+    (use,) = (use for use in stage.uses if use.slot.consumer is node)
+    return use
+
+
+@pytest.mark.parametrize(
+    ("source", "pick", "wrong"),
+    (
+        # B5-02: the DISTINCT owner's base read names a later declaration.
+        (WRONG_READ_SOURCE, lambda s: _base_read(s, "result").use, "late"),
+        (WRONG_READ_SOURCE, lambda s: _base_read(s, "result").use, "early"),
+        (WRONG_READ_SOURCE, lambda s: _base_flow(s, "result"), "early"),
+        (WRONG_READ_SOURCE, lambda s: _named(s, "result").uses[1], "early"),
+        (WRONG_READ_SOURCE, lambda s: _named(s, "joined").uses[0], "early"),
+        (
+            WRONG_READ_SOURCE,
+            lambda s: _owned(s, "rebound").rebuilt_fragment.structural_stage.uses[0],
+            "early",
+        ),
+        (STALE_JOIN_SOURCE, lambda s: s.join_stage.structural.uses[0], "early"),
+    ),
+    ids=(
+        "base-read-later",
+        "base-read-earlier",
+        "base-flow",
+        "query-block-flow",
+        "join-tail-flow",
+        "rebound-flow",
+        "join-input",
+    ),
+)
+def test_each_use_reads_exactly_the_output_its_owner_names(
+    tmp_path: Path, source: str, pick: Any, wrong: str
+) -> None:
+    snapshot = _snapshot(tmp_path, source)
+    assert verify_project_query_block_ir(snapshot).issues == ()
+    use = pick(snapshot)
+    read = _owned(snapshot, wrong).active_output.occurrence
+    assert read is not use.output
+    assert read.anchor.identity.identity.declared_name == wrong
+    object.__setattr__(use, "output", read)
+    result = verify_project_query_block_ir(snapshot)
+    assert result.status is ProjectIRQueryBlockVerificationStatus.INVALID
+    assert tuple(issue.kind for issue in result.issues) == (
+        ProjectIRQueryBlockVerificationIssueKind.STRUCTURAL_ENDPOINT,
     )
     with pytest.raises(ValueError, match="Only VERIFIED query-block IR"):
         build_project_query_block_ir_analysis_bundle(result)

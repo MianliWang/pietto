@@ -101,9 +101,16 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputRelationalProperties,
 )
 from pietto._project.project_ir_verification import (
+    _verify_cross_relation_endpoints,
+    _verify_operator_flow,
     ProjectIRChangeDomain,
     ProjectIRReachabilityEntry,
+    ProjectIRVerificationIssue,
     ProjectIRVerificationRequirement,
+)
+from pietto._project.project_phase62_verification import (
+    _verify_join_structural_endpoints,
+    ProjectPhase62VerificationIssue,
 )
 from pietto._project.project_joined_aggregation import (
     ProjectJoinedAggregationMode,
@@ -1679,8 +1686,18 @@ def _verify_structural_endpoints(
         *root.join_stage.structural.input_slots,
         *root.structural.input_slots,
     )
+    # Each historical use reads exactly the output its Phase-62 owner names:
+    # a relation read its edge producer's root at the edge slot, an operator
+    # flow its previous operator's row and a JOIN input its retained input.
+    historical: list[ProjectIRVerificationIssue] = []
+    _verify_cross_relation_endpoints(root.base_plan, historical)
+    _verify_operator_flow(root.base_plan, historical)
+    joins: list[ProjectPhase62VerificationIssue] = []
+    _verify_join_structural_endpoints(root.completed.verification.root, joins)
     valid = (
-        len({node.ref for node in nodes}) == len(nodes)
+        not historical
+        and not joins
+        and len({node.ref for node in nodes}) == len(nodes)
         and len({output.ref for output in outputs}) == len(outputs)
         and len({slot.ref for slot in slots}) == len(slots)
         and len({use.ref for use in uses}) == len(uses)
@@ -1691,8 +1708,8 @@ def _verify_structural_endpoints(
             and any(use.slot is slot for slot in slots)
             for use in uses
         )
-        # Base-plan relation and field reads follow declaration order, so a
-        # read of a later declaration points backwards; acyclicity covers them.
+        # Base-plan relation reads follow declaration order, so a read of a
+        # later declaration points backwards; acyclicity covers them.
         and all(
             type(use) is ProjectIRUseOccurrence
             or use.output.producer.ref.position < use.slot.consumer.ref.position
@@ -1705,15 +1722,29 @@ def _verify_structural_endpoints(
         and len({use.slot.ref for use in uses}) == len(uses)
     )
     for entry in root.entries:
+        # Each new operator reads exactly the row before it.
         if type(entry) is ProjectIRCompletedQueryBlockOutput:
             valid = valid and all(
                 use.slot is slot
                 and slot.consumer is operator.node
                 and slot.input_ordinal == 0
-                for operator, slot, use in zip(
+                and use.output is incoming.occurrence
+                for operator, slot, use, incoming in zip(
                     entry.operators,
                     entry.input_slots,
                     entry.uses,
+                    (entry.source_properties.output, *entry.row_outputs[:-1]),
+                    strict=True,
+                )
+            )
+        elif type(entry) is ProjectIRReboundExistingOutput:
+            fragment = entry.rebuilt_fragment
+            valid = valid and all(
+                use.slot.consumer is operator.node and use.output is incoming.occurrence
+                for operator, use, incoming in zip(
+                    fragment.logical_stage.operators[1:],
+                    fragment.structural_stage.uses,
+                    _rebound_row_outputs(entry)[:-1],
                     strict=True,
                 )
             )
