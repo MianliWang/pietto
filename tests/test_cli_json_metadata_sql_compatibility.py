@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -524,6 +524,49 @@ def test_postgres_having_sql_covers_all_aggregate_let_families(
         assert identifier not in captured.out
     assert "WITH " not in captured.out.upper()
     assert "FROM (SELECT" not in captured.out.upper()
+
+
+DEF_SHAPES = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    n: Int nullable\n"
+    "    text: Text not null\n"
+    "    note: Text nullable\n"
+    "    lower: Text not null\n"
+    'source rows: Row is postgres.table("rows")\n'
+)
+
+
+def test_explain_lists_no_def_and_locates_each_argument_use_at_the_argument(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write_source(
+        tmp_path,
+        "twice.pietto",
+        "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        "table t:\n    from rows\n    select:\n        id\n        d = twice(n)\n",
+        DEF_SHAPES,
+    )
+    assert cli.main(["explain", str(path), "--format", "json"]) == 0
+    metadata = cast(dict[str, Any], _read_json(capsys)["metadata"])
+    assert [(d["name"], d["kind"]) for d in metadata["definitions"]] == [
+        ("Row", "shape"),
+        ("rows", "source"),
+        ("t", "table"),
+    ]
+    (lineage,) = [
+        entry for entry in metadata["relations"][0]["lineage"] if entry["output"] == "d"
+    ]
+    # Both uses of the argument are the real `n` at 13:19-13:20.
+    assert [
+        (
+            leaf["location"]["line"],
+            leaf["location"]["column"],
+            leaf["location"]["end_line"],
+            leaf["location"]["end_column"],
+        )
+        for leaf in lineage["field_leaves"]
+    ] == [(13, 19, 13, 20)] * 2
 
 
 def _write_source(

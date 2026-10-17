@@ -183,7 +183,6 @@ def test_source_ast_does_not_expose_antlr_nodes() -> None:
         'source users User is postgres.table("public.users")\n',
         'source users: User postgres.table("public.users")\n',
         "source users: User is\n",
-        'source users: User is postgres.table("public.users"\n',
         'source users: User is postgres.table("public.users") extra\n',
         "source users:\n",
     ],
@@ -193,6 +192,16 @@ def test_malformed_sources_return_syntax_diagnostic(source: str) -> None:
 
     assert result.ast is None
     assert _has_code(result, "PIE-P1000")
+
+
+def test_unclosed_connector_call_reports_the_open_parenthesis() -> None:
+    result = parse_source('source users: User is postgres.table("public.users"\n')
+
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-P1008", "'(' is never closed.", 1, 37)]
 
 
 def test_source_rejects_old_postfix_nullability() -> None:

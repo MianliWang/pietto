@@ -62,6 +62,7 @@ from pietto.semantic.expressions import (
     type_source_connector_arguments,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
+from pietto.semantic.inline_functions import inline_functions
 from pietto.semantic.let_bindings import (
     analyze_relation_let_bindings,
     let_expansion_diagnostics,
@@ -129,16 +130,24 @@ def analyze(
     mode = mode_override or CheckMode.CHECKED
     try:
         mode = mode_override or _mode_from_script(script)
-        unadmitted = unadmitted_syntax_diagnostics(script)
+        unadmitted = unadmitted_syntax_diagnostics(script, single_file=True)
         if unadmitted:
             return SemanticResult(
-                model=SemanticModel(mode=mode), diagnostics=unadmitted
+                model=SemanticModel(mode=mode), diagnostics=unadmitted, script=script
+            )
+        script, inline_diagnostics = inline_functions(script)
+        if inline_diagnostics:
+            return SemanticResult(
+                model=SemanticModel(mode=mode),
+                diagnostics=inline_diagnostics,
+                script=script,
             )
         if _expression_levels(script) <= _MAX_EXPRESSION_LEVELS:
             return _analyze(script, mode=mode)
     except RecursionError:
         pass
     return SemanticResult(
+        script=script,
         model=SemanticModel(mode=mode),
         diagnostics=(recursion_limit_diagnostic(script),),
     )
@@ -396,6 +405,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         for diagnostic in syntax_diagnostics(definition)
     )
     return SemanticResult(
+        script=script,
         model=SemanticModel(
             mode=mode,
             type_symbols=type_symbols,

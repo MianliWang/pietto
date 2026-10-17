@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from pietto import ast_nodes as ast
-from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
+from pietto.ast_nodes import (
+    SetRelationDef,
+    TableFunctionRelationDef,
+    ValuesRelationDef,
+    inlined_arguments,
+)
 from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._project.project_table_function import table_function_diagnostics
 from pietto._project.project_values import ProjectValuesRelation, values_diagnostics
@@ -3802,7 +3807,12 @@ def _select_facts(
         if (
             input_schema is not None
             and not input_schema.is_unknown
-            and type(item.expression) not in {WindowExpr, NameExpr, DottedNameExpr}
+            and (
+                type(item.expression) not in {WindowExpr, NameExpr, DottedNameExpr}
+                # A field passed to an identity def is still checked as an
+                # argument (PIE-S2395).
+                or bool(inlined_arguments(item.expression))
+            )
             and not contains_semantic_aggregate(item.expression)
             and item.expression not in expression_types
         ):
@@ -3822,6 +3832,14 @@ def _select_facts(
                 relation_columns=read_types,
                 captured_value_types=captures,
             )
+            if type(item.expression) in {NameExpr, DottedNameExpr}:
+                # Other readers report the name itself; this one adds only
+                # the argument check.
+                expression_diagnostics[:] = [
+                    diagnostic
+                    for diagnostic in expression_diagnostics
+                    if diagnostic.code == "PIE-S2395"
+                ]
             retained_types = failed_types
         output_name = _projection_output_name(item)
         expression_schema = None

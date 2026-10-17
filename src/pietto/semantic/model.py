@@ -17,6 +17,7 @@ from pietto.ast_nodes import (
     Node,
     QueryDef,
     SatisfyingClause,
+    Script,
     SourceDef,
     TableDef,
     TypeExpr,
@@ -409,7 +410,14 @@ class SemanticModel:
 
 @dataclass(frozen=True, slots=True)
 class SemanticResult:
-    """A semantic model and its ordered diagnostics."""
+    """A semantic model and its ordered diagnostics.
+
+    ``script`` is the analyzed script, which the model's facts describe:
+    the input with every ``def`` call inlined. Later readers such as IR
+    lowering take it instead of the parsed script. It is not part of the
+    result's value.
+    """
 
     model: SemanticModel
     diagnostics: tuple[Diagnostic, ...]
+    script: Script | None = field(default=None, compare=False, repr=False)

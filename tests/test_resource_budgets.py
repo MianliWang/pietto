@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from antlr4.BufferedTokenStream import BufferedTokenStream
 
 import pietto.cli as cli
 from pietto.errors import Severity
@@ -76,6 +77,79 @@ def test_token_budget_stops_at_first_excess_non_eof_token() -> None:
         1,
         _TOKEN_LIMIT + 1,
     )
+
+
+_BLANK_LINES = 1_000
+_ROWS = 'shape R:\n    a: Int not null\nsource r: R is postgres.table("r")\n'
+_QUERY = _ROWS + "query q:\n    from r\n"
+_UNKNOWN_FOO = "Unexpected 'foo'; expected a declaration, end of file or end of line."
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        ("", "type A = Int not null\n", []),
+        ("", "pietto 1\ntype A = Int not null\n", []),
+        ("", "foo\n", [("PIE-P1000", _BLANK_LINES + 1, 1, _UNKNOWN_FOO)]),
+        (
+            _ROWS + "relationship rel:\n    endpoint a: R\n    endpoint b: R\n",
+            "    on a.a == b.a\n",
+            [],
+        ),
+        (
+            _QUERY + "    inner join r as x:\n        via rel\n",
+            "        on x.a == r.a\n    select: a\n",
+            [],
+        ),
+        (
+            _QUERY + "    select: a\n    window w:\n        partition by: a\n",
+            "        order by: a\n",
+            [],
+        ),
+        (_ROWS + "table t:\n    from r\n", "    select: a\n", []),
+        (_QUERY + "    select: a\n", "    order by: a\n    limit 1\n", []),
+        (
+            _ROWS + "query q:\n    let l:\n        capture c\n",
+            "        from r\n        select: a\n    from l\n    select: a\n",
+            [],
+        ),
+    ],
+    ids=[
+        "script",
+        "header",
+        "error",
+        "relationship",
+        "join",
+        "window",
+        "table",
+        "query",
+        "let",
+    ],
+)
+@pytest.mark.parametrize("line", ["\n", "# note\n"], ids=["blank", "comment"])
+def test_blank_and_comment_lines_cost_linear_parser_lookahead(
+    monkeypatch: pytest.MonkeyPatch,
+    before: str,
+    after: str,
+    expected: list[tuple[str, int, int, str]],
+    line: str,
+) -> None:
+    consumed = 0
+    consume = BufferedTokenStream.consume
+
+    def counted(self: BufferedTokenStream) -> None:
+        nonlocal consumed
+        consumed += 1
+        consume(self)
+
+    monkeypatch.setattr(BufferedTokenStream, "consume", counted)
+    result = parse_source(before + line * _BLANK_LINES + after)
+
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == expected
+    assert consumed <= 3 * _BLANK_LINES
 
 
 def test_check_text_source_budget_is_diagnostic_without_traceback(

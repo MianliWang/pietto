@@ -789,6 +789,26 @@ def test_a_parameterized_plan_stays_outside_the_closed_schema(tmp_path, where):
     assert refused.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
 
 
+@pytest.mark.parametrize(
+    "layout", (": via link", ":\n        from lhs\n        via link")
+)
+def test_an_inferred_join_plan_stays_outside_the_closed_schema(tmp_path, layout):
+    """The schema records the authored `from` and roles, which are absent."""
+    from _pietto_plan_windows import _planned
+
+    source = LET_ORDER.split("query result:")[0] + (
+        'source rhs: Row is postgres.table("rhs")\n'
+        "relationship link:\n    endpoint l: lhs\n    endpoint r: rhs\n"
+        "    on l.id == r.id\n"
+        f"query result:\n    from lhs\n    inner join rhs as r{layout}\n"
+        "    select:\n        id = lhs.id\n"
+    )
+    _, _, verified, _ = _planned(tmp_path, source)
+    with pytest.raises(portable.TransportError) as refused:
+        portable.build_project_sql_plan_portable(verified)
+    assert refused.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
+
+
 def test_coherent_document_is_not_runtime_authentication(tmp_path):
     verified = construction(tmp_path / "source", CORPUS[0][1], CORPUS[0][2])
     product = portable.build_project_sql_plan_portable(verified)

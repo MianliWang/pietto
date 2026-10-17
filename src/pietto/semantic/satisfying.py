@@ -35,6 +35,7 @@ from pietto.semantic.aggregates import (
 )
 from pietto.semantic.expressions import (
     _is_canonical_builtin,
+    checks_inlined_arguments,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
@@ -285,6 +286,7 @@ def _is_direct_aggregate_projection(item: SelectItem) -> bool:
     )
 
 
+@checks_inlined_arguments
 def _infer_predicate(
     expression: Expression,
     output_scope: Mapping[str, _SatisfyingOutput],
@@ -303,6 +305,7 @@ def _infer_predicate(
             let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
+            type_expansions=type_expansions,
         )
         value_types[expression] = value_type
         return value_type
@@ -324,6 +327,7 @@ def _infer_predicate(
             let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
+            type_expansions=type_expansions,
         )
         right_type = _infer_value(
             expression.right,
@@ -332,6 +336,7 @@ def _infer_predicate(
             let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
+            type_expansions=type_expansions,
         )
         if (
             left_type.kind is ValueTypeKind.UNKNOWN
@@ -386,6 +391,7 @@ def _infer_predicate(
     return _UNKNOWN_VALUE_TYPE
 
 
+@checks_inlined_arguments
 def _infer_value(
     expression: Expression,
     output_scope: Mapping[str, _SatisfyingOutput],
@@ -394,6 +400,7 @@ def _infer_value(
     let_expansions: Mapping[str, Expression],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
     if isinstance(expression, LiteralExpr):
         value_type = _literal_value_type(expression)

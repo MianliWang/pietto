@@ -124,6 +124,14 @@ def check_join_references(
                     )
                 )
             name = clause.source_binding_name
+            if name is None:
+                # Single-file checks do not infer an omitted JOIN source.
+                diagnostics.extend(
+                    _via_diagnostics(
+                        clause, relationships, relation_symbols, source_relation=None
+                    )
+                )
+                continue
             matches = [
                 relation
                 for binding, relation, visible in bindings[: position + 1]
@@ -179,6 +187,7 @@ def _via_diagnostics(
     diagnostics: list[Diagnostic] = []
     hops: list[tuple[str, str]] = []
     reported_elsewhere = False
+    roles_omitted = False
     for step in clause.traversal_steps:
         candidates = relationships.get(step.relationship_name, [])
         if not candidates:
@@ -205,6 +214,11 @@ def _via_diagnostics(
             # PIE-S2601..PIE-S2603 already report this relationship.
             reported_elsewhere = True
             continue
+        if step.source_endpoint_role is None or step.target_endpoint_role is None:
+            # Single-file checks do not infer omitted VIA roles, so the path
+            # that the steps form is not checked either.
+            roles_omitted = True
+            continue
         roles = (step.source_endpoint_role, step.target_endpoint_role)
         unknown = [role for role in roles if role not in endpoints]
         diagnostics.extend(
@@ -225,7 +239,7 @@ def _via_diagnostics(
                 )
             )
         hops.append((endpoints.get(roles[0], ""), endpoints.get(roles[1], "")))
-    if not hops or diagnostics or reported_elsewhere:
+    if not hops or diagnostics or reported_elsewhere or roles_omitted:
         return diagnostics
     for (_, end), (start, _) in zip(hops, hops[1:]):
         if end != start:

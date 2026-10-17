@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
+from antlr4 import ParserRuleContext
+from antlr4.Token import CommonToken
+from antlr4.tree.Tree import TerminalNodeImpl
+
+from pietto.ast_builder import AstBuilder
 
 from pietto.ast_nodes import (
     BinaryExpr,
+    BlockRelationDef,
     CallExpr,
     CastExpr,
     ComparisonExpr,
@@ -15,11 +24,13 @@ from pietto.ast_nodes import (
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
+    SelectBody,
     Span,
     TableDef,
     TypeDef,
     UnaryExpr,
 )
+from pietto.generated.PiettoParser import PiettoParser
 from pietto.parser_api import parse_source
 
 
@@ -177,6 +188,54 @@ def test_scalar_reads_exactly_one_relation_column() -> None:
     assert type(nested.value) is RelationScalarExpr
 
 
+@pytest.mark.parametrize("column", ["select", "from", "where", "type", "is", "limit"])
+def test_scalar_reads_a_soft_keyword_column(column: str) -> None:
+    expression = _ensure_expression(f"scalar m.{column} > 0")
+
+    assert type(expression) is ComparisonExpr
+    assert expression.left == RelationScalarExpr(
+        span=Span(
+            path="scalar.pietto",
+            line=1,
+            column=27,
+            end_line=1,
+            end_column=36 + len(column),
+        ),
+        relation_name="m",
+        column_name=column,
+    )
+
+
+def test_scalar_reads_a_soft_keyword_column_in_select_and_qualify() -> None:
+    result = parse_source(
+        "query q:\n"
+        "    let m:\n"
+        "        values (select: Int not null):\n"
+        "            1\n"
+        "    from m\n"
+        "    select: x = scalar m.select\n"
+        "    qualify:\n"
+        "        scalar m.select > 0\n"
+    )
+
+    assert result.diagnostics == () and result.ast is not None
+    query = result.ast.definitions[0]
+    assert type(query) is BlockRelationDef and type(query.body) is SelectBody
+    assert query.body.select_items[0].expression == RelationScalarExpr(
+        span=Span(path=None, line=6, column=17, end_line=6, end_column=32),
+        relation_name="m",
+        column_name="select",
+    )
+    assert query.body.qualify_clause is not None
+    qualified = query.body.qualify_clause.expression
+    assert type(qualified) is ComparisonExpr
+    assert qualified.left == RelationScalarExpr(
+        span=Span(path=None, line=8, column=9, end_line=8, end_column=24),
+        relation_name="m",
+        column_name="select",
+    )
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -223,3 +282,53 @@ def test_new_words_remain_ordinary_names_and_order_columns() -> None:
     assert [
         (type(item.expression), item.direction) for item in query.order_by_clause.items
     ] == [(NameExpr, "asc"), (NameExpr, "desc")]
+
+
+def test_a_flat_operator_chain_computes_its_span_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contexts: list[str] = []
+    span = AstBuilder._span
+
+    def counted(self: AstBuilder, ctx: ParserRuleContext) -> Span:
+        contexts.append(type(ctx).__name__)
+        return span(self, ctx)
+
+    monkeypatch.setattr(AstBuilder, "_span", counted)
+    terms = " + ".join(["1"] * 2000)
+    result = parse_source(f"derive total() -> Int not null:\n    {terms}\n")
+
+    assert result.diagnostics == () and result.ast is not None
+    assert contexts.count("AdditiveExpressionContext") == 1
+
+
+class _Children(list[Any]):
+    """Children that count how many of them a search touches."""
+
+    touched = 0
+
+    def __iter__(self) -> Iterator[Any]:
+        for item in super().__iter__():
+            self.touched += 1
+            yield item
+
+    def __reversed__(self) -> Iterator[Any]:
+        for item in super().__reversed__():
+            self.touched += 1
+            yield item
+
+
+class _Node:
+    def __init__(self, children: _Children) -> None:
+        self.children = children
+
+
+def test_the_last_significant_token_search_touches_only_trailing_nodes() -> None:
+    token = CommonToken(type=PiettoParser.IDENTIFIER)
+    token.text = "x"
+    children = _Children(
+        [*(_Node(_Children()) for _ in range(5000)), TerminalNodeImpl(token)]
+    )
+
+    assert AstBuilder._last_significant_token(_Node(children)) is token
+    assert children.touched == 1

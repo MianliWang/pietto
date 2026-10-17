@@ -74,6 +74,7 @@ from pietto.semantic import group_by as semantic_group_by
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic import aggregates as semantic_aggregates
 from pietto.semantic.expressions import (
+    checks_inlined_arguments,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
@@ -2186,6 +2187,7 @@ def _matching_aggregate_reference(
     )
 
 
+@checks_inlined_arguments
 def _infer_satisfying_value(
     expression: Expression,
     *,
@@ -2280,6 +2282,7 @@ def _infer_satisfying_value(
     return value_type
 
 
+@checks_inlined_arguments
 def _infer_satisfying_predicate(
     expression: Expression,
     *,

@@ -49,6 +49,23 @@ from pietto.semantic.nullability_formulas import NullabilityEvaluationMatch
 
 __all__: tuple[str, ...] = ()
 
+# The built-in window functions a window call may name.
+WINDOW_FUNCTION_NAMES = frozenset(
+    {
+        "row_number",
+        "rank",
+        "dense_rank",
+        "percent_rank",
+        "cume_dist",
+        "ntile",
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }
+)
+
 
 class WindowExpressionStage(StrEnum):
     """The standalone private stage carried by one window-expression fact."""

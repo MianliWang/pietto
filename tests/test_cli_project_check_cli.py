@@ -374,6 +374,36 @@ def test_project_check_reports_the_recursion_limit_at_the_most_nested_module(
     )
 
 
+def test_project_check_reports_the_recursion_limit_through_def_calls(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Every def call is inlined before the module is checked, so a WHERE of
+    # 3,000 calls nests as its expansion does and is contained the same way.
+    root = _project_root(
+        tmp_path,
+        config_text='schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(
+        root,
+        "b.pietto",
+        "def one(x: Int not null) -> Bool nullable: return x == 1\n"
+        "shape Row:\n    id: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table deep:\n    from rows\n"
+        f"    where {' and '.join(['one(id)'] * 3000)}\n"
+        "    select:\n        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == (
+        "",
+        f"b.pietto:1:1 PIE-S2006 error: {_RECURSION_LIMIT}\n",
+    )
+
+
 @pytest.mark.parametrize(
     "condition",
     [
