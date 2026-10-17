@@ -293,6 +293,31 @@ rejection boundaries; a successful project check is not SQL capability.
 Current JOIN roots are retained in private combined query-block IR and its
 VERIFIED-only inspection. Project Explain keeps its separate schema boundary.
 
+A JOIN of any kind above may read a source, table or query with fields typed
+by an enum or a shape, or by an alias of either, with or without `nullable` or
+`not null`, and `check --project` completes it. After the JOIN, scalar typing
+reads such a field as of unknown type, so a `where` test, a SELECT output, a
+`let:` value or an ORDER BY key may read it only inside an expression whose own
+type stays known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), `is null`,
+`is not null`, and `and`, `or` and `not` over such tests, for example
+`c.status == "active"`, `coalesce(c.status, "x") == "active"` or
+`c.status is null or c.id > 0`. Any other read there is not supported yet and
+reports PIE-S2333 at the table or query: the field itself (selected, bound in
+`let:` or used as an ORDER BY key), a call such as `lower(c.status)`, and every
+`in`, `not in`, `between`, `like` or `not like` test of it, in `where` too.
+GROUP BY may name the field, but selecting it from the groups reports
+PIE-S2333 as well. An aggregate of it, such as `count(c.status)`, reports
+PIE-S2315 at the call, and a window partitioned or ordered by it reports
+PIE-S2103 (`window partition field type must be concrete` or `window order
+field type must be concrete`); a JOIN `on` that reads such a field reports
+PIE-S2334 and PIE-S2335. A relation `let` with such a field cannot be a JOIN
+input yet: a JOIN that reads the `let`, as its FROM input or as the JOIN
+target, reports PIE-S2333 at the table or query even when the field is never
+read. Project SQL emission has no representation for enum or shape
+fields: with or without a JOIN, `emit-sql --project` reports a table or query
+that passes `check --project` and reads a source declaring one BLOCKED with
+PIE-B1003 (for example `representation_not_in_initial_domain` at the field).
+
 An alternate complete table/query body retains named set operands:
 
 ```pietto

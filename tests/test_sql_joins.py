@@ -1020,3 +1020,86 @@ def test_a_nullable_bool_on_conjunct_is_blocked_and_its_where_form_emits(
         (b["code"], b["subject"]["detail"], b["location"])
         for b in published["blockers"]
     ] == [("PIE-B1002", "join_output_nullability_drift", None)]
+
+
+# An enum field is outside the initial representation domain of project SQL
+# emission, so a source declaring one is BLOCKED whether or not a JOIN reads it,
+# whatever the field's nullability modifier.
+ENUM_TEXT_DOMAIN = {
+    "postgres": ({"kind": "pg_text"}, "UTF8", "C"),
+    "mysql": ({"kind": "my_varchar", "length": 64}, "utf8mb4", "utf8mb4_0900_bin"),
+}
+
+
+def enum_field_document(directory, target, body, modifier):
+    item = probe.join_witness(target, body)
+    source = "enum Status:\n    active\n    closed\n" + item["source"].replace(
+        "    key: Int nullable\n",
+        f"    key: Int nullable\n    state: Status{modifier}\n",
+    )
+    storage, encoding, collation = ENUM_TEXT_DOMAIN[target]
+    contract = json.loads(item["contract"])
+    for declared in contract["sources"]:
+        declared["fields"].append(
+            {
+                "ordinal": 2,
+                "name": "state",
+                "column": "state",
+                "representation": {
+                    "storage": storage,
+                    "nullable": modifier == " nullable",
+                    "domain": {
+                        "kind": "text",
+                        "max_characters": 64,
+                        "encoding": encoding,
+                        "collation": collation,
+                        "padding": "NO PAD",
+                    },
+                },
+            }
+        )
+    _, outcome = probe.build_case(
+        directory, source, probe.encoded(contract).decode(), item["policy"]
+    )
+    return document(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("modifier", (" nullable", " not null"))
+def test_an_enum_field_of_a_join_input_blocks_as_without_the_join(
+    tmp_path, target, modifier
+):
+    field = {
+        "path": "main.pietto",
+        "line": 7,
+        "column": 5,
+        "end_line": 7,
+        "end_column": 27,
+    }
+    join_input = (
+        "PIE-B1004",
+        {
+            "detail": "join_input_field_representation_missing",
+            "reference": {"kind": "join_port", "position": 2},
+        },
+        None,
+    )
+
+    def outside_domain(position):
+        reference = {"kind": "source_port", "position": position}
+        detail = "representation_not_in_initial_domain"
+        return ("PIE-B1003", {"detail": detail, "reference": reference}, field)
+
+    def blockers(directory, body):
+        published = enum_field_document(directory, target, body, modifier)
+        assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
+        return [(b["code"], b["subject"], b["location"]) for b in published["blockers"]]
+
+    unjoined = "query result:\n    from lhs\n    select:\n        a = lhs.id\n"
+    assert blockers(tmp_path / "unjoined", unjoined) == [outside_domain(2)]
+    for kind in KINDS:
+        assert blockers(tmp_path / kind, kinds_body(kind)) == [
+            join_input,
+            outside_domain(2),
+            outside_domain(5),
+        ]

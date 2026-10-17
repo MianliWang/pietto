@@ -60,6 +60,10 @@ from pietto._project.project_scalar_namespaces import (
 from pietto._project.project_scalar_references import (
     ProjectScalarEnvironmentField,
 )
+from pietto._project.row_expression_type_facts import (
+    project_row_field_to_semantic_value_type,
+)
+from pietto.semantic.model import ValueType
 
 __all__: tuple[str, ...] = ()
 
@@ -133,6 +137,15 @@ class ProjectJoinedRowPropertyBridge:
     @property
     def grain(self) -> ProjectIRProvidedIntrinsicGrain:
         return self.relational.grain
+
+
+def _joined_value_type(joined_field: ProjectIRJoinedRowField) -> ValueType:
+    # The scalar type of a joined field is its adaptation at the post-JOIN
+    # nullability; the adapter alone decides that a type it does not know, such
+    # as an enum, is wholly unknown, nullability included.
+    return project_row_field_to_semantic_value_type(
+        joined_field.evidence, joined_field.effective_nullability
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -230,10 +243,7 @@ class ProjectJoinedRowFieldSemantics:
                 raise ValueError(
                     "Current lineage must retain its exact completed producer field."
                 )
-            if (
-                self.scalar_field.value_type.nullability.value
-                != self.joined_field.effective_nullability.value
-            ):
+            if self.scalar_field.value_type != _joined_value_type(self.joined_field):
                 raise ValueError("Current field nullability must remain coherent.")
             # The complete original field/stage graph stays at current.original;
             # no historical source-root projection is synthesized for this boundary.
@@ -244,10 +254,7 @@ class ProjectJoinedRowFieldSemantics:
             or self.lineage.field is not self.canonical_field
         ):
             raise ValueError("Joined field semantics require exact canonical lineage.")
-        if (
-            self.scalar_field.value_type.nullability.value
-            != self.joined_field.effective_nullability.value
-        ):
+        if self.scalar_field.value_type != _joined_value_type(self.joined_field):
             raise ValueError("Joined field scalar nullability must remain coherent.")
         if self.canonical_field.kind is ProjectModuleRowFieldKind.SOURCE_FIELD:
             if (

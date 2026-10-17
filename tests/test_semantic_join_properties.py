@@ -8,6 +8,7 @@ import pytest
 
 from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE, _build
 from _pietto_repository_facts import REPOSITORY_FACTS
+from pietto._project import check as project_check
 from pietto._project import project_joined_row_semantics as joined_semantics
 from pietto._project import project_query_block as query_blocks
 from pietto._project import project_scalar_bindings as scalar_bindings
@@ -18,6 +19,7 @@ from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
     ProjectRowFieldNullability,
     ProjectSemanticResult,
+    build_empty_project_semantic_result,
 )
 from pietto._project.module_attribution import (
     ProjectModuleAttributionFactSet,
@@ -25,6 +27,9 @@ from pietto._project.module_attribution import (
     ProjectModuleRowFieldKind,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto._project.project_ir_joins import (
     ProjectIRConcreteJoinRegion,
     ProjectIRJoinUnavailableProperty,
@@ -342,6 +347,243 @@ def test_nullability_coheres_for_original_inner_left_and_transitive_cases(
         no_nulling.property_bridge.ordering.availability
         is ProjectIRPropertyAvailability.UNKNOWN
     )
+
+
+ENUM_JOIN_SOURCE = """enum Status:
+    active
+    suspended
+shape Order:
+    id: Int not null
+    customer_id: Int not null
+    status: Status{modifier}
+source orders: Order is postgres.table("orders")
+shape Customer:
+    id: Int not null
+    status: Status{modifier}
+source customers: Customer is postgres.table("customers")
+relationship order_customer:
+    endpoint order: orders
+    endpoint customer: customers
+    on order.customer_id == customer.id
+{inputs}query q:
+    from {left}
+    {kind} join {right} as c:
+        from {left}
+{condition}    select:
+        id = {left}.id
+"""
+ENUM_JOIN_ON = "        on orders.customer_id == c.id\n"
+ENUM_JOIN_FORMS = {
+    "inner_on": ("inner", ENUM_JOIN_ON),
+    "left_on": ("left", ENUM_JOIN_ON),
+    "right_on": ("right", ENUM_JOIN_ON),
+    "full_on": ("full", ENUM_JOIN_ON),
+    "semi_on": ("semi", ENUM_JOIN_ON),
+    "anti_on": ("anti", ENUM_JOIN_ON),
+    "cross": ("cross", ""),
+    "inner_relationship": ("inner", ""),
+    "left_relationship": ("left", ""),
+    "right_relationship": ("right", ""),
+    "full_relationship": ("full", ""),
+    "semi_relationship": ("semi", ""),
+    "anti_relationship": ("anti", ""),
+    "left_via": ("left", "        via order_customer: order -> customer\n"),
+}
+ENUM_READ_UNAVAILABLE = "Project relation semantic completion is unavailable: q"
+
+
+def _completed_diagnostics(root: Path, source: str) -> list[tuple[str, str, int, int]]:
+    root.mkdir(parents=True)
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (root / "main.pietto").write_text(source)
+    parsed = project_check.check_project_parse_only(root)
+    assert parsed.ok
+    located = []
+    for item in build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    ).diagnostics:
+        assert item.location is not None
+        located.append(
+            (item.code, item.message, item.location.line, item.location.column)
+        )
+    return located
+
+
+@pytest.mark.parametrize("form", ENUM_JOIN_FORMS)
+def test_an_enum_field_joins_whatever_its_declared_nullability(
+    tmp_path: Path, form: str
+) -> None:
+    # Scalar typing reads an enum field as wholly unknown, nullability included,
+    # whatever the JOIN makes of the field: the JOIN completes, and a read of
+    # the field after it stays PIE-S2333 for every modifier.
+    kind, condition = ENUM_JOIN_FORMS[form]
+    reads = ("orders.status",) + (() if kind in {"semi", "anti"} else ("c.status",))
+    for position, modifier in enumerate(("", " nullable", " not null")):
+        source = ENUM_JOIN_SOURCE.format(
+            modifier=modifier,
+            inputs="",
+            left="orders",
+            kind=kind,
+            right="customers",
+            condition=condition,
+        )
+        assert _completed_diagnostics(tmp_path / f"{position}", source) == []
+        for ordinal, read in enumerate(reads):
+            assert _completed_diagnostics(
+                tmp_path / f"{position}-{ordinal}", f"{source}        s = {read}\n"
+            ) == [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)]
+
+
+@pytest.mark.parametrize("kind", ("inner", "left", "full", "cross"))
+@pytest.mark.parametrize(
+    ("relation", "line"),
+    [
+        ("table b:\n    from orders\n    select:\n        id\n        status\n", 22),
+        (
+            "table b:\n    from orders\n    group by:\n        id\n        status\n"
+            "    select:\n        id\n        status\n        n = count()\n",
+            26,
+        ),
+    ],
+    ids=("selected", "grouped"),
+)
+def test_a_relation_output_with_an_enum_field_joins_whatever_its_nullability(
+    tmp_path: Path, kind: str, relation: str, line: int
+) -> None:
+    condition = "" if kind == "cross" else "        on b.id == c.id\n"
+    for position, modifier in enumerate(("", " nullable", " not null")):
+        source = ENUM_JOIN_SOURCE.format(
+            modifier=modifier,
+            inputs=relation,
+            left="b",
+            kind=kind,
+            right="b",
+            condition=condition,
+        )
+        assert _completed_diagnostics(tmp_path / f"{position}", source) == []
+        assert _completed_diagnostics(
+            tmp_path / f"{position}-read", f"{source}        s = c.status\n"
+        ) == [("PIE-S2333", ENUM_READ_UNAVAILABLE, line, 1)]
+
+
+ENUM_UNAVAILABLE_AT_QUERY = [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)]
+ENUM_GROUPED = "    group by:\n        orders.id\n        c.status\n"
+ENUM_WINDOW = (
+    "        rn = row_number() window:\n            partition by:\n"
+    "                {}\n            order by:\n                {}\n"
+)
+ENUM_WINDOW_REFUSED = (
+    "Unsupported window computation for function row_number: "
+    "window {} field type must be concrete"
+)
+ENUM_LET = (
+    "query q:\n    let x:\n        from orders\n        select:\n"
+    "            id\n            customer_id\n            status\n"
+)
+# (before SELECT, after its first output, expected diagnostics) per read of
+# c.status after a LEFT JOIN, as docs/language.md states them.
+ENUM_JOINED_READS = {
+    "where_is_null": ("    where c.status is null\n", "", []),
+    "where_comparisons": (
+        '    where coalesce(c.status, "x") == "active" or c.id > 0\n',
+        "",
+        [],
+    ),
+    "select_comparison": ("", '        v = c.status != "active"\n', []),
+    "let_test": ("    let:\n        v = c.status is not null\n", "", []),
+    "order_comparison": ("", '    order by:\n        c.status >= "b"\n', []),
+    "group_key": (ENUM_GROUPED, "        n = count()\n", []),
+    "where_in": ('    where c.status in ("active")\n', "", ENUM_UNAVAILABLE_AT_QUERY),
+    "where_between": (
+        '    where c.status between "a" and "z"\n',
+        "",
+        ENUM_UNAVAILABLE_AT_QUERY,
+    ),
+    "where_not_like": (
+        '    where c.status not like "a%"\n',
+        "",
+        ENUM_UNAVAILABLE_AT_QUERY,
+    ),
+    "select_call": ("", "        v = lower(c.status)\n", ENUM_UNAVAILABLE_AT_QUERY),
+    "order_field": ("", "    order by:\n        c.status\n", ENUM_UNAVAILABLE_AT_QUERY),
+    "group_key_selected": (
+        ENUM_GROUPED,
+        "        v = c.status\n        n = count()\n",
+        ENUM_UNAVAILABLE_AT_QUERY,
+    ),
+    "aggregate": (
+        "    group by:\n        orders.id\n",
+        "        n = count(c.status)\n",
+        [
+            (
+                "PIE-S2315",
+                "Aggregate function count requires a direct field argument; "
+                "expression arguments are not supported yet",
+                26,
+                13,
+            )
+        ],
+    ),
+    "window_partition": (
+        "",
+        ENUM_WINDOW.format("c.status", "orders.id"),
+        [("PIE-S2103", ENUM_WINDOW_REFUSED.format("partition"), 24, 14)],
+    ),
+    "window_order": (
+        "",
+        ENUM_WINDOW.format("orders.id", "c.status"),
+        [("PIE-S2103", ENUM_WINDOW_REFUSED.format("order"), 24, 14)],
+    ),
+}
+
+
+@pytest.mark.parametrize("read", ENUM_JOINED_READS)
+def test_after_a_join_an_enum_field_reads_only_inside_a_known_type(
+    tmp_path: Path, read: str
+) -> None:
+    before, after, expected = ENUM_JOINED_READS[read]
+    for position, modifier in enumerate(("", " nullable", " not null")):
+        source = ENUM_JOIN_SOURCE.format(
+            modifier=modifier,
+            inputs="",
+            left="orders",
+            kind="left",
+            right="customers",
+            condition=ENUM_JOIN_ON + before,
+        )
+        assert (
+            _completed_diagnostics(tmp_path / f"{position}", source + after) == expected
+        )
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "condition"),
+    [
+        ("x", "customers", "        on x.customer_id == c.id\n"),
+        ("customers", "x", "        on customers.id == c.customer_id\n"),
+    ],
+    ids=("from", "target"),
+)
+def test_a_relation_let_with_an_enum_field_is_not_a_join_input_yet(
+    tmp_path: Path, left: str, right: str, condition: str
+) -> None:
+    for position, modifier in enumerate(("", " nullable", " not null")):
+        source = ENUM_JOIN_SOURCE.format(
+            modifier=modifier,
+            inputs="",
+            left=left,
+            kind="inner",
+            right=right,
+            condition=condition,
+        ).replace("query q:\n", ENUM_LET)
+        assert (
+            _completed_diagnostics(tmp_path / f"{position}", source)
+            == ENUM_UNAVAILABLE_AT_QUERY
+        )
+        without_field = source.replace("            status\n", "")
+        assert _completed_diagnostics(tmp_path / f"{position}-", without_field) == []
 
 
 def test_source_and_renamed_relation_lineage_reuse_exact_attribution(
