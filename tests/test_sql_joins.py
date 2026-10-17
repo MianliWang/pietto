@@ -372,6 +372,75 @@ query result:
     assert requirement_kinds(doc)["match_condition"] == (1 if refinement else 0)
 
 
+DISTINCT_ENDPOINT_SQL = {
+    "source": 'WITH "p0" ("c0", "c1") AS (SELECT "s0"."order.id" AS "c0",'
+    ' "s0"."key value" AS "c1" FROM "public"."phase66 lhs é" AS "s0"),'
+    ' "p1" ("c0", "c1") AS (SELECT DISTINCT "t0"."c0" AS "c0", "t0"."c1" AS "c1"'
+    ' FROM "p0" AS "t0"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."c0" AS'
+    ' "c0", "m0"."c1" AS "c1", "m1"."order.id" AS "c2", "m1"."key value" AS "c3"'
+    ' FROM "p1" AS "m0" INNER JOIN "public"."phase66 rhs é" AS "m1" ON'
+    ' ("m0"."c0" = "m1"."order.id")) SELECT "t0"."c0" AS "a", "t0"."c3" AS "b"'
+    ' FROM "p2" AS "t0"',
+    "target": 'WITH "p0" ("c0", "c1") AS (SELECT "s0"."order.id" AS "c0",'
+    ' "s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0"),'
+    ' "p1" ("c0", "c1") AS (SELECT DISTINCT "t0"."c0" AS "c0", "t0"."c1" AS "c1"'
+    ' FROM "p0" AS "t0"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."order.id"'
+    ' AS "c0", "m0"."key value" AS "c1", "m1"."c0" AS "c2", "m1"."c1" AS "c3"'
+    ' FROM "public"."phase66 lhs é" AS "m0" INNER JOIN "p1" AS "m1" ON'
+    ' ("m0"."order.id" = "m1"."c0")) SELECT "t0"."c0" AS "a", "t0"."c3" AS "b"'
+    ' FROM "p2" AS "t0"',
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("kind", ("inner", "left"))
+@pytest.mark.parametrize("side", ("source", "target"))
+def test_a_relationship_only_via_over_a_distinct_endpoint_emits_its_on_form(
+    tmp_path, target, kind, side
+):
+    """Its relationship equality is the SQL of the equivalent explicit ON."""
+    left, right = ("d", "rhs") if side == "source" else ("lhs", "d")
+    producer = "lhs" if side == "source" else "rhs"
+    docs = {
+        route: public(
+            emit(
+                tmp_path / route,
+                target,
+                f"""query d:
+    from {producer}
+    select distinct:
+        id
+        key
+relationship near:
+    endpoint l: {left}
+    endpoint r: {right}
+    on l.id == r.id
+query result:
+    from {left}
+    {kind} join {right} as r:
+        from {left}
+{condition}    select:
+        a = {left}.id
+        b = r.key
+""",
+            )
+        )
+        for route, condition in (
+            ("via", "        via near: l -> r\n"),
+            ("zero_via", ""),
+            ("on", f"        on {left}.id == r.id\n"),
+        )
+    }
+    expected = DISTINCT_ENDPOINT_SQL[side].replace(" INNER ", f" {kind.upper()} ")
+    if target == "mysql":
+        expected = expected.replace('"public"', '"phase66"').replace('"', "`")
+    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 3
+    assert [doc["sql"] for doc in docs.values()] == [expected] * 3
+    assert [
+        requirement_kinds(doc)["relationship_equality"] for doc in docs.values()
+    ] == [1, 1, 0]
+
+
 # --------------------------------------------------------------------------
 # Producers: shared uses, membership-changing right sides, imports
 # --------------------------------------------------------------------------

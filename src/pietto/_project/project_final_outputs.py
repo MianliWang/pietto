@@ -6322,6 +6322,45 @@ class _CurrentJoinBuild:
             completion=self.completion, base_entry=base_entry, result=tail.results[0]
         )
 
+    def attempt_optional(
+        self,
+        base_entry: ProjectEffectiveOutputTerminal,
+        available: tuple[ProjectEffectiveOutputCompletionEntry, ...],
+    ) -> ProjectCompletedEffectiveOutput | None:
+        """Adopt only a completed output; any other attempt leaves no trace.
+
+        The owner then keeps its established route, so its operative conditions,
+        scopes and allocations stay those of that route.
+        """
+        saved = (
+            self.allocation,
+            dict(self.providers),
+            dict(self.materialized),
+            dict(self.operative),
+            len(self.scopes),
+            len(self.events),
+            len(self.regions),
+            len(self.readiness),
+            len(self.tails),
+        )
+        result = self.attempt(base_entry, available)
+        if type(result) is ProjectCompletedEffectiveOutput:
+            return result
+        (
+            self.allocation,
+            self.providers,
+            self.materialized,
+            self.operative,
+            *sizes,
+        ) = saved
+        for items, size in zip(
+            (self.scopes, self.events, self.regions, self.readiness, self.tails),
+            sizes,
+            strict=True,
+        ):
+            del items[size:]
+        return None
+
     def condition_result(
         self,
     ) -> ProjectJoinConditionSet | ProjectJoinConditionCompletion:
@@ -6452,15 +6491,17 @@ def build_project_effective_output_completion(
                 changed_current.add(id(owner))
             continue
         current = (
-            current_state.attempt(base_entry, tuple(built_by_owner.values()))
+            (
+                current_state.attempt_optional
+                if optional_route
+                else current_state.attempt
+            )(base_entry, tuple(built_by_owner.values()))
             if type(base_entry) is ProjectEffectiveOutputTerminal
             and current_state is not None
             and current_needed
             else None
         )
-        if current is not None and not (
-            optional_route and type(current) is not ProjectCompletedEffectiveOutput
-        ):
+        if current is not None:
             entry = current
         elif type(base_entry) is ProjectExistingEffectiveOutput:
             changed_upstream = (

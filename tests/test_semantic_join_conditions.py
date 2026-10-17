@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from _pietto_project_join import _completed, _source
+from _pietto_project_join import BASE, _completed, _source
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_completed_semantics import (
@@ -493,6 +493,40 @@ def test_join_effective_input_uses_current_slice4_authority(tmp_path: Path) -> N
     assert facts[0].ready and facts[1].ready
     assert facts[1].references[0].state.value == "resolved"
     assert facts[1].inputs is not None
+
+
+@pytest.mark.parametrize("kind", ("inner", "left"))
+def test_relationship_only_via_keeps_its_route_over_a_distinct_endpoint(
+    tmp_path: Path, kind: str
+) -> None:
+    """A current attempt that completes nothing leaves no condition or scope."""
+    source = (
+        BASE
+        + f"""query d:
+    from lhs
+    select distinct:
+        id
+relationship near:
+    endpoint l: d
+    endpoint r: rhs
+    on l.id == r.id
+query result:
+    from d
+    {kind} join rhs as r:
+        from d
+        via near: l -> r
+    select:
+        id = d.id
+"""
+    )
+    completed = _completed(tmp_path, source)
+    outputs = completed.effective_outputs
+    assert completed.ok and completed.diagnostics == ()
+    assert outputs.operative_conditions is outputs.condition_authority
+    assert [fact.state.value for fact in completed.roots.join_conditions.entries] == [
+        "ready"
+    ]
+    assert outputs.input_scopes == () and outputs.allocation_events == ()
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
