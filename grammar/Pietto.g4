@@ -6,9 +6,7 @@ tokens {
 }
 
 // A run of blank lines belongs to exactly one NEWLINE loop, so no decision
-// reads ahead over the whole run again for each of its lines.  A table body
-// keeps its loops: there, reading ahead over the run is what lets recovery
-// from an unexpected indented line stop before the next declaration.
+// reads ahead over the whole run again for each of its lines.
 script
     : (NEWLINE* header)? NEWLINE* ((definition | relationshipDefinition | moduleStatement) NEWLINE*)* EOF
     ;
@@ -272,12 +270,12 @@ sourceDefinition
 // satisfying/qualify, ordered order items, and limit.  Relation lets may precede
 // a body; a body may also be a set operation or typed VALUES.
 tableDefinition
-    : TABLE identifier COLON NEWLINE NEWLINE* INDENT (NEWLINE* letRelationDefinition)* (tableBody | setOperationBody | valuesBody) DEDENT
+    : TABLE identifier COLON NEWLINE NEWLINE* INDENT letRelationDefinition* (tableBody | setOperationBody | valuesBody) DEDENT
     ;
 
 // Phase 1 queries reuse the minimal table body without execution semantics.
 queryDefinition
-    : QUERY queryHeader COLON NEWLINE NEWLINE* INDENT (NEWLINE* letRelationDefinition)* (tableBody | setOperationBody | valuesBody) DEDENT
+    : QUERY queryHeader COLON NEWLINE NEWLINE* INDENT letRelationDefinition* (tableBody | setOperationBody | valuesBody) DEDENT
     ;
 
 // Only an entry query header declares parameters.  The optional list ends this
@@ -288,7 +286,7 @@ queryHeader
 
 // A relation let is one level deep; only its body may start with captures.
 letRelationDefinition
-    : LET identifier COLON NEWLINE NEWLINE* INDENT (NEWLINE* captureClause)* (tableBody | setOperationBody | valuesBody) DEDENT
+    : LET identifier COLON NEWLINE NEWLINE* INDENT (captureClause NEWLINE*)* (tableBody | setOperationBody | valuesBody) DEDENT
     ;
 
 captureClause
@@ -297,7 +295,7 @@ captureClause
 
 // Typed VALUES rows are one per line; a header without ':' has zero rows.
 valuesBody
-    : NEWLINE* VALUES LPAREN parameterList RPAREN (COLON NEWLINE NEWLINE* INDENT valuesRow (valuesRow | NEWLINE)* DEDENT | NEWLINE) NEWLINE*
+    : VALUES LPAREN parameterList RPAREN (COLON NEWLINE NEWLINE* INDENT valuesRow (valuesRow | NEWLINE)* DEDENT | NEWLINE NEWLINE*)
     ;
 
 valuesRow
@@ -305,7 +303,7 @@ valuesRow
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* (joinClause NEWLINE*)* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* qualifyClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
+    : fromClause NEWLINE* (joinClause NEWLINE*)* (letClause NEWLINE*)? (whereClause NEWLINE*)? (groupByClause NEWLINE*)? selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* (satisfyingClause NEWLINE*)? (qualifyClause NEWLINE*)? (orderByClause NEWLINE*)? (limitClause NEWLINE*)?
     ;
 
 // A FROM input is a relation name or a table function.
@@ -344,7 +342,7 @@ joinOnClause
     ;
 
 setOperationBody
-    : NEWLINE* setOperationKind setQuantifier? COLON NEWLINE NEWLINE* INDENT setOperand (setOperand | NEWLINE)* DEDENT NEWLINE*
+    : setOperationKind setQuantifier? COLON NEWLINE NEWLINE* INDENT setOperand (setOperand | NEWLINE)* DEDENT
     ;
 
 setOperationKind

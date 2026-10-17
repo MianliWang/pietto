@@ -106,8 +106,25 @@ _UNKNOWN_FOO = "Unexpected 'foo'; expected a declaration, end of file or end of 
             "        order by: a\n",
             [],
         ),
+        (_ROWS + "table t:\n    from r\n", "    select: a\n", []),
+        (_QUERY + "    select: a\n", "    order by: a\n    limit 1\n", []),
+        (
+            _ROWS + "query q:\n    let l:\n        capture c\n",
+            "        from r\n        select: a\n    from l\n    select: a\n",
+            [],
+        ),
     ],
-    ids=["script", "header", "error", "relationship", "join", "window"],
+    ids=[
+        "script",
+        "header",
+        "error",
+        "relationship",
+        "join",
+        "window",
+        "table",
+        "query",
+        "let",
+    ],
 )
 @pytest.mark.parametrize("line", ["\n", "# note\n"], ids=["blank", "comment"])
 def test_blank_and_comment_lines_cost_linear_parser_lookahead(
