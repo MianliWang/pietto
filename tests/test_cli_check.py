@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 from pathlib import Path
 
 import pytest
@@ -139,6 +140,50 @@ def test_check_semantic_error_returns_diagnostic_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert f"{path}:2:12 PIE-S2002 error: Unknown type: MissingType" in captured.err
+
+
+@pytest.mark.parametrize(
+    "endings",
+    [("\n",), ("\r\n",), ("\r",), ("\r", "\r\n", "\n")],
+    ids=["lf", "crlf", "cr", "mixed"],
+)
+def test_check_reports_one_line_per_lf_crlf_or_lone_cr(
+    endings: tuple[str, ...],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines = [
+        "shape User:",
+        "    id: UUID not null",
+        "    deleted_at: Timestamp nullable",
+        "",
+        'source users: User is postgres.table("public.users")',
+        "",
+        "query q:",
+        "    from users",
+        "    where missing_field is null",
+        "    select:",
+        "        id",
+    ]
+    path = tmp_path / "line-ends.pietto"
+    path.write_bytes(
+        "".join(
+            line + endings[index % len(endings)] for index, line in enumerate(lines)
+        ).encode("utf-8")
+    )
+
+    assert cli.main(["check", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{path}:9:11 PIE-S2102 error: Unknown field: missing_field\n"
+    )
+
+    assert cli.main(["check", "--format", "json", str(path)]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert [item["location"] for item in document["diagnostics"]] == [
+        {"path": str(path), "line": 9, "column": 11, "end_line": 9, "end_column": 24}
+    ]
 
 
 def test_check_deep_alias_chain_returns_semantic_error_without_traceback(

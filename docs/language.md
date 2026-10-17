@@ -16,6 +16,18 @@ Unsupported combinations fail closed with deterministic diagnostics.
 Blocks use a trailing colon and spaces-only indentation. Braces are not block
 delimiters, and tabs must not be mixed with spaces.
 
+A line ends at LF, CRLF or a lone CR, and one file may mix them; each counts as
+exactly one line end. Every reported position, from parse and indentation
+errors through semantic diagnostics in single-file and project commands, has a
+one-based line and column, and the column counts characters after the last line
+end, so a file with CR endings reports the positions of the same file with LF
+endings. No other character ends a line: form feed, vertical tab, U+001C to
+U+001E, U+0085, U+2028 and U+2029 are ordinary characters in a comment or string
+literal and a syntax error (PIE-P1000) elsewhere. Only the leading-tab check
+(PIE-P1004) still splits lines at them as well, as Python's `str.splitlines`
+does, so after one of them it reports a later line and may report a tab that
+follows it inside a comment or string.
+
 The single-file `check`, `explain`, and `emit-sql` commands choose the check
 mode with `--check-mode loose`, `checked`, or `strict`; the default is
 `checked`. The mode sets the severity of three diagnostics: implicit

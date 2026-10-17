@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from antlr4 import CommonTokenStream, InputStream
+from antlr4.atn.LexerATNSimulator import LexerATNSimulator
 from antlr4.ListTokenSource import ListTokenSource
+from antlr4.PredictionContext import PredictionContextCache
 from antlr4.Token import Token
 
 from pietto.ast_builder import AstBuilder
@@ -30,6 +32,30 @@ from pietto.indentation import (
 _MAX_SOURCE_UTF8_BYTES = 1_048_576
 _MAX_NON_EOF_TOKENS = 200_000
 _SOURCE_SIZE_CHUNK_CHARACTERS = 65_536
+
+
+class _LineEndSimulator(LexerATNSimulator):
+    """Count LF, CRLF and a lone CR as one line end each, as NEWLINE does.
+
+    The ANTLR runtime counts only LF.
+    """
+
+    def consume(self, input: InputStream) -> None:
+        character = input.LA(1)
+        if character == 0x0A or (character == 0x0D and input.LA(2) != 0x0A):
+            self.line += 1
+            self.column = 0
+        else:
+            self.column += 1
+        input.consume()
+
+
+class _PiettoLexer(PiettoLexer):
+    def __init__(self, input: InputStream) -> None:
+        super().__init__(input)
+        self._interp = _LineEndSimulator(
+            self, self.atn, self.decisionsToDFA, PredictionContextCache()
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +120,7 @@ def _parse_source(
     """Implement parsing inside the public recursion containment boundary."""
 
     lexer_listener = DiagnosticErrorListener(path)
-    lexer = PiettoLexer(InputStream(source))
+    lexer = _PiettoLexer(InputStream(source))
     lexer.removeErrorListeners()
     lexer.addErrorListener(lexer_listener)
     raw_tokens, token_budget_diagnostic = _read_tokens(lexer, path=path)

@@ -293,6 +293,10 @@ When non-null, `location` has this complete shape:
 | `end_line` | integer or null | `null` when unavailable |
 | `end_column` | integer or null | `null` when unavailable |
 
+Lines and columns are one-based; LF, CRLF and a lone CR each end one line, and
+a column counts characters after the last line end, as the
+[language guide](../language.md#source-structure) states.
+
 If the entire source location is unavailable, `"location": null` is used.
 Missing end coordinates remain `null`.
 

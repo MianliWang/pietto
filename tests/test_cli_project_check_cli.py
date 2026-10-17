@@ -259,6 +259,68 @@ def test_project_check_json_reports_gate_diagnostics_beside_parse_errors(
     ) + [("PIE-S2348", 11, 19)]
 
 
+def test_project_check_counts_lf_crlf_and_lone_cr_as_one_line_end_per_module(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project_root(
+        tmp_path / "project",
+        config_text='schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    lines = [
+        "shape User:",
+        "    id: UUID not null",
+        "    deleted_at: Timestamp nullable",
+        "",
+        'source users: User is postgres.table("public.users")',
+        "",
+        "query q:",
+        "    from users",
+        "    where missing_field is null",
+        "    select:",
+        "        id",
+    ]
+    endings = {
+        "a": ("\n",),
+        "b": ("\r\n",),
+        "c": ("\r",),
+        "d": ("\r", "\r\n", "\n"),
+    }
+    for name, ends in endings.items():
+        (root / f"{name}.pietto").write_bytes(
+            "".join(
+                line + ends[index % len(ends)] for index, line in enumerate(lines)
+            ).encode("utf-8")
+        )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = _read_json_document(capsys)
+    assert [
+        (item["code"], item["location"], item["related_locations"])
+        for item in cast(list[dict[str, Any]], document["diagnostics"])
+    ] == [
+        (
+            "PIE-S2102",
+            {
+                "path": f"{name}.pietto",
+                "line": 9,
+                "column": 11,
+                "end_line": 9,
+                "end_column": 24,
+            },
+            [],
+        )
+        for name in endings
+    ]
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "".join(
+        f"{name}.pietto:9:11 PIE-S2102 error: Unknown field: missing_field\n"
+        for name in endings
+    )
+
+
 def test_project_check_rejects_path_and_project_together(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

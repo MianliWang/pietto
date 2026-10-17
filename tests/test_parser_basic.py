@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
+import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
@@ -141,6 +142,36 @@ def test_spans_are_one_based_half_open_and_exclude_trailing_newline() -> None:
         end_line=1,
         end_column=19,
     )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "type A = Int\n\ntype Age = Int:\n    ensure self >= 0\n",
+        "type A = Int\r\n\r\ntype Age = Int:\r\n    ensure self >= 0\r\n",
+        "type A = Int\r\rtype Age = Int:\r    ensure self >= 0\r",
+        "type A = Int\r\r\ntype Age = Int:\r    ensure self >= 0",
+        "type A = Int\n\rtype Age = Int:\r\n    ensure self >= 0\r",
+    ],
+    ids=["lf", "crlf", "cr", "cr-crlf", "lf-cr"],
+)
+def test_lf_crlf_and_lone_cr_each_end_one_line_in_spans(source: str) -> None:
+    path = Path("examples/line-ends.pietto")
+    result = parse_source(source, path=path)
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[1]
+    assert isinstance(definition, TypeDef)
+    assert definition.span == Span(
+        path=str(path), line=3, column=1, end_line=4, end_column=21
+    )
+    assert definition.base.span == Span(
+        path=str(path), line=3, column=12, end_line=3, end_column=15
+    )
+    assert [item.span for item in definition.ensures] == [
+        Span(path=str(path), line=4, column=5, end_line=4, end_column=21)
+    ]
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

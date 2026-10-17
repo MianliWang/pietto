@@ -157,5 +157,65 @@ def test_duplicate_or_out_of_order_header_reports_syntax_error(
     assert _has_code(result, "PIE-P1000")
 
 
+_LINE_END_CASES = {
+    "tab": (
+        "type Age = Int:\n    ensure self >= 0\n\tensure self < 9\n",
+        [("PIE-P1004", 3, 1), ("PIE-P1000", 3, 2), ("PIE-P1003", 3, 2)],
+    ),
+    "dedent": (
+        "type Age = Int:\n    ensure self >= 0\n  ensure self <= 130\n",
+        [("PIE-P1000", 3, 3), ("PIE-P1003", 3, 3)],
+    ),
+    "brace": (
+        "type A = Int\n\ntype Age = Int {\n",
+        [("PIE-P1000", 3, 16), ("PIE-P1005", 3, 16)],
+    ),
+    "escape": (
+        'type A = Int\ntype P = Text(default = "a\\q")\n',
+        [("PIE-P1000", 2, 27)],
+    ),
+}
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+@pytest.mark.parametrize("case", sorted(_LINE_END_CASES))
+def test_lf_crlf_and_lone_cr_each_end_one_line_in_diagnostics(
+    case: str, ending: str
+) -> None:
+    source, expected = _LINE_END_CASES[case]
+    result = parse_source(source.replace("\n", ending))
+
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == expected
+
+
+def test_mixed_line_ends_each_end_one_line_in_diagnostics() -> None:
+    result = parse_source(
+        "type A = Int\r\r\n\rtype Age = Int:\n"
+        "    ensure self >= 0\r\tensure self < 9\r\n"
+    )
+
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-P1004", 6, 1), ("PIE-P1000", 6, 2), ("PIE-P1003", 6, 2)]
+
+
+@pytest.mark.parametrize(
+    ("ending", "quoted"),
+    [("\n", "\\n"), ("\r\n", "\\r\\n"), ("\r", "\\r")],
+    ids=["lf", "crlf", "cr"],
+)
+def test_syntax_error_quotes_the_line_end_as_written(ending: str, quoted: str) -> None:
+    result = parse_source(f"type A = Int{ending}{ending}type B ={ending}")
+
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 3, 9, f"no viable alternative at input 'typeB={quoted}'")]
+
+
 def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)
