@@ -11,8 +11,11 @@ import pytest
 import _pietto_project_completed_semantics as slice13
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
+    ProjectGrainDomainFactor,
     ProjectGroupedGrainFactorIdentity,
+    ProjectJoinGrainFactorIdentity,
 )
+from pietto._project.project_ir import ProjectIRUseOccurrence
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto._project.project_ir_verification import (
     ProjectIRChangeDomain,
@@ -1045,3 +1048,227 @@ def test_a_table_function_keeps_its_effects_on_its_own_occurrence(
     object.__setattr__(root, "row_count", 5)
     assert verify_project_query_block_ir(ir).issues == ()
     assert functions.GENERATE_SERIES is signature
+
+
+# Declarations may read relations declared later in their module; the base plan
+# still allocates nodes in declaration order, so those reads point backwards.
+FORWARD_READ_SOURCE = """query outer:
+    from inner
+    select:
+        id
+query inner:
+    from rows
+    select:
+        id
+source rows: Row is postgres.table("rows")
+shape Row:
+    id: Int not null
+"""
+# A grouped producer reached through two JOIN hops.
+GROUPED_JOIN_CHAIN_SOURCE = """shape Row:
+    id: Int not null
+source s: Row is postgres.table("s")
+table up:
+    from s
+    group by:
+        id
+    select:
+        id
+        n = count()
+query mid:
+    from up
+    cross join s as m:
+        from up
+    select:
+        id = up.id
+query last:
+    from mid
+    cross join s as z:
+        from mid
+    select:
+        id = mid.id
+"""
+# Two grouped tables, each completed by its own JOIN reader; neither reads the
+# other.
+TWO_GROUPED_TABLES_SOURCE = """shape Row:
+    id: Int not null
+source s: Row is postgres.table("s")
+table a:
+    from s
+    group by:
+        id
+    select:
+        id
+        n = count()
+table b:
+    from s
+    group by:
+        id
+    select:
+        id
+        n = count()
+query ma:
+    from a
+    cross join s as m:
+        from a
+    select:
+        id = a.id
+query mb:
+    from b
+    cross join s as m:
+        from b
+    select:
+        id = b.id
+"""
+
+
+def _snapshot(root: Path, source: str) -> ProjectIRQueryBlockSnapshot:
+    return build_project_query_block_ir(slice13._build(root, source).completed)
+
+
+def _named(
+    snapshot: ProjectIRQueryBlockSnapshot, name: str
+) -> ProjectIRCompletedQueryBlockOutput:
+    (entry,) = (e for e in snapshot.entries if e.owner.identity.declared_name == name)
+    assert type(entry) is ProjectIRCompletedQueryBlockOutput
+    return entry
+
+
+def _join_factors(grain) -> tuple[ProjectJoinGrainFactorIdentity, ...]:
+    return tuple(
+        f.identity
+        for f in grain.factors
+        if isinstance(f.identity, ProjectJoinGrainFactorIdentity)
+    )
+
+
+def _graft(value, **changes):
+    changed = copy(value)
+    for key, item in changes.items():
+        object.__setattr__(changed, key, item)
+    return changed
+
+
+def test_a_relation_read_before_its_declaration_verifies(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path, FORWARD_READ_SOURCE)
+    assert [
+        (use.output.producer.ref.position, use.slot.consumer.ref.position)
+        for use in snapshot.base_plan.structural_stage.uses
+        if type(use) is ProjectIRUseOccurrence
+    ] == [(3, 0), (4, 2)]
+    result = verify_project_query_block_ir(snapshot)
+    assert result.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
+    assert result.issues == ()
+    bundle = build_project_query_block_ir_analysis_bundle(result)
+    assert [
+        node.anchor.identity.identity.declared_name
+        for node in bundle.combined_topological_order
+    ] == ["rows", "inner", "inner", "outer", "outer"]
+
+
+def test_only_a_base_plan_read_may_point_backwards(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path / "pair", TWO_GROUPED_TABLES_SOURCE)
+    a, b = _named(snapshot, "a"), _named(snapshot, "b")
+    flow, later = a.uses[1], b.uses[1].output
+    assert (later.producer.ref.position, flow.slot.consumer.ref.position) == (10, 8)
+    # a's second operator now reads b's first one: acyclic, but backwards.
+    crossed = _graft(flow, output=later)
+    result = verify_project_query_block_ir(
+        _graft(
+            snapshot,
+            structural=_graft(
+                snapshot.structural,
+                uses=tuple(
+                    crossed if u is flow else u for u in snapshot.structural.uses
+                ),
+            ),
+            entries=tuple(
+                _graft(a, uses=tuple(crossed if u is flow else u for u in a.uses))
+                if e is a
+                else e
+                for e in snapshot.entries
+            ),
+        )
+    )
+    assert tuple(issue.kind for issue in result.issues) == (
+        ProjectIRQueryBlockVerificationIssueKind.STRUCTURAL_ENDPOINT,
+    )
+    snapshot = _snapshot(tmp_path / "loop", FORWARD_READ_SOURCE)
+    stage = snapshot.base_plan.structural_stage
+    outer_read, inner_read = (
+        use for use in stage.uses if type(use) is ProjectIRUseOccurrence
+    )
+    outer_row = stage.outputs[1]
+    assert outer_row.anchor == outer_read.slot.consumer.anchor
+    # inner now reads outer's row while outer still reads inner's: the
+    # backward base read stays exempt and the cycle is refused.
+    object.__setattr__(inner_read, "output", outer_row)
+    result = verify_project_query_block_ir(snapshot)
+    assert result.status is ProjectIRQueryBlockVerificationStatus.INVALID
+    assert tuple(issue.kind for issue in result.issues) == (
+        ProjectIRQueryBlockVerificationIssueKind.HISTORICAL_REUSE,
+        ProjectIRQueryBlockVerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE,
+    )
+    with pytest.raises(ValueError, match="Only VERIFIED query-block IR"):
+        build_project_query_block_ir_analysis_bundle(result)
+
+
+def test_a_grouped_input_two_join_hops_back_keeps_its_exact_image(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(tmp_path, GROUPED_JOIN_CHAIN_SOURCE)
+    result = verify_project_query_block_ir(snapshot)
+    assert result.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
+    assert result.issues == ()
+    up, mid, last = (_named(snapshot, n) for n in ("up", "mid", "last"))
+    (grouped,) = (
+        f.identity
+        for f in up.active_properties.relational.grain.factors
+        if type(f.identity) is ProjectGroupedGrainFactorIdentity
+    )
+    (through_mid,) = (
+        f
+        for f in _join_factors(mid.active_properties.relational.grain)
+        if f.base is grouped
+    )
+    joined = last.join_properties[0].relational
+    (factor,) = (f for f in _join_factors(joined.grain) if f.base is grouped)
+    assert factor.source_factor is through_mid
+    prefix = last.join_prefix
+    assert prefix is not None
+    (semantic,) = (
+        f
+        for f in _join_factors(prefix.joins[0].source_properties.grain)
+        if type(f.base) is ProjectGroupedGrainFactorIdentity
+    )
+    assert semantic.base is not grouped and semantic.base != grouped
+    # An equal-looking copy of the grouped factor is not its image.
+    copied = replace(
+        factor,
+        base=copy(grouped),
+        source_factor=replace(through_mid, base=copy(grouped)),
+    )
+    assert copied == factor
+    grain = _graft(
+        joined.grain,
+        factors=tuple(
+            ProjectGrainDomainFactor(identity=copied) if f.identity is factor else f
+            for f in joined.grain.factors
+        ),
+        active=tuple(copied if f is factor else f for f in joined.grain.active),
+    )
+    grafted = _graft(
+        last,
+        join_properties=(
+            _graft(last.join_properties[0], relational=_graft(joined, grain=grain)),
+        ),
+    )
+    invalid = verify_project_query_block_ir(
+        _graft(
+            snapshot,
+            entries=tuple(grafted if e is last else e for e in snapshot.entries),
+        )
+    )
+    assert tuple(issue.kind for issue in invalid.issues) == (
+        ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE,
+    )

@@ -535,6 +535,83 @@ def test_an_ordered_join_chain_emits_one_unit_per_occurrence(tmp_path, target):
     assert nullability(doc) == [("a", True), ("b", True), ("c", False)]
 
 
+# A grouped result read by a JOIN whose result another JOIN reads.
+GROUPED_JOIN_CHAIN = """table up:
+    from lhs
+    group by:
+        id
+    select:
+        id
+        n = count()
+query mid:
+    from up
+    {kind} join rhs as m:
+        from up
+{mid_on}    select:
+        id = up.id
+        n = up.n
+query result:
+    from mid
+    {kind} join rhs as z:
+        from mid
+{result_on}    select:
+        id = mid.id
+        n = mid.n
+"""
+GROUPED_JOIN_CHAIN_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."order.id" AS "c0", COUNT(*) AS "c1"'
+        ' FROM "public"."phase66 lhs é" AS "s0" GROUP BY "s0"."order.id"), "p1" ("c0",'
+        ' "c1") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1" FROM "p0" AS "t1"),'
+        ' "p2" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."c0" AS "c0", "m0"."c1" AS'
+        ' "c1", "m1"."order.id" AS "c2", "m1"."key value" AS "c3" FROM "p1" AS "m0"'
+        ' {join} "public"."phase66 rhs é" AS "m1"{mid_on}), "p3" ("c0", "c1") AS'
+        ' (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1" FROM "p2" AS "t0"), "p4" ("c0",'
+        ' "c1", "c2", "c3") AS (SELECT "m2"."c0" AS "c0", "m2"."c1" AS "c1",'
+        ' "m3"."order.id" AS "c2", "m3"."key value" AS "c3" FROM "p3" AS "m2" {join}'
+        ' "public"."phase66 rhs é" AS "m3"{result_on}) SELECT "t1"."c0" AS "id",'
+        ' "t1"."c1" AS "n" FROM "p4" AS "t1"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`order.id` AS `c0`, COUNT(*) AS `c1`"
+        " FROM `phase66`.`phase66 lhs é` AS `s0` GROUP BY `s0`.`order.id`), `p1` (`c0`,"
+        " `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM `p0` AS `t1`),"
+        " `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `m0`.`c0` AS `c0`, `m0`.`c1` AS"
+        " `c1`, `m1`.`order.id` AS `c2`, `m1`.`key value` AS `c3` FROM `p1` AS `m0`"
+        " {join} `phase66`.`phase66 rhs é` AS `m1`{mid_on}), `p3` (`c0`, `c1`) AS"
+        " (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1` FROM `p2` AS `t0`), `p4` (`c0`,"
+        " `c1`, `c2`, `c3`) AS (SELECT `m2`.`c0` AS `c0`, `m2`.`c1` AS `c1`,"
+        " `m3`.`order.id` AS `c2`, `m3`.`key value` AS `c3` FROM `p3` AS `m2` {join}"
+        " `phase66`.`phase66 rhs é` AS `m3`{result_on}) SELECT `t1`.`c0` AS `id`,"
+        " `t1`.`c1` AS `n` FROM `p4` AS `t1`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("kind", ("cross", "inner"))
+def test_a_grouped_result_joined_twice_emits(tmp_path, target, kind):
+    inner = kind == "inner"
+    outcome = emit(
+        tmp_path,
+        target,
+        GROUPED_JOIN_CHAIN.format(
+            kind=kind,
+            mid_on="        on up.id == m.id\n" if inner else "",
+            result_on="        on mid.id == z.id\n" if inner else "",
+        ),
+    )
+    doc = public(outcome)
+    assert doc["status"] == "VERIFIED", document(outcome)
+    q = '"' if target == "postgres" else "`"
+    assert doc["sql"] == GROUPED_JOIN_CHAIN_SQL[target].format(
+        join=f"{kind.upper()} JOIN",
+        mid_on=f" ON ({q}m0{q}.{q}c0{q} = {q}m1{q}.{q}order.id{q})" if inner else "",
+        result_on=f" ON ({q}m2{q}.{q}c0{q} = {q}m3{q}.{q}order.id{q})" if inner else "",
+    )
+    assert [column["label"] for column in doc["columns"]] == ["id", "n"]
+
+
 # --------------------------------------------------------------------------
 # The migrated inputs whose only remaining restriction was the JOIN family
 # --------------------------------------------------------------------------

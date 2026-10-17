@@ -1689,8 +1689,18 @@ def _verify_structural_endpoints(
         and all(
             any(use.output is output for output in outputs)
             and any(use.slot is slot for slot in slots)
-            and use.output.producer.ref.position < use.slot.consumer.ref.position
             for use in uses
+        )
+        # Base-plan relation and field reads follow declaration order, so a
+        # read of a later declaration points backwards; acyclicity covers them.
+        and all(
+            type(use) is ProjectIRUseOccurrence
+            or use.output.producer.ref.position < use.slot.consumer.ref.position
+            for use in root.base_plan.structural_stage.uses
+        )
+        and all(
+            use.output.producer.ref.position < use.slot.consumer.ref.position
+            for use in (*root.join_stage.structural.uses, *root.structural.uses)
         )
         and len({use.slot.ref for use in uses}) == len(uses)
     )
@@ -3426,11 +3436,28 @@ def _verify_composed_joins(
                         producer_entry.active_properties.relational.grain.factors
                     )
                     valid = valid and len(old_factors) == len(new_factors)
-                    for old, new in zip(old_factors, new_factors, strict=True):
-                        prior = factor_images.get(id(old.identity))
-                        if prior is not None and prior is not new.identity:
+                    # A JOIN factor's image also images its nested base and
+                    # source factors: a grouped factor two JOIN hops back is
+                    # reachable only through them.
+                    pending = [
+                        (old.identity, new.identity)
+                        for old, new in zip(old_factors, new_factors, strict=True)
+                    ]
+                    while pending:
+                        old, new = pending.pop()
+                        prior = factor_images.get(id(old))
+                        if prior is not None and prior is not new:
                             valid = False
-                        factor_images[id(old.identity)] = new.identity
+                        factor_images[id(old)] = new
+                        if isinstance(
+                            old, ProjectJoinGrainFactorIdentity
+                        ) and isinstance(new, ProjectJoinGrainFactorIdentity):
+                            pending.append((old.base, new.base))
+                            if (
+                                old.source_factor is not None
+                                and new.source_factor is not None
+                            ):
+                                pending.append((old.source_factor, new.source_factor))
 
         def factor_matches(old, new):
             known = factor_images.get(id(old))

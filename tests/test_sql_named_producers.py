@@ -974,7 +974,7 @@ query result:
 }
 
 
-def _emit(tmp_path: Path, target: str, body: str, *, contract=None):
+def _emit(tmp_path: Path, target: str, body: str | dict[str, str], *, contract=None):
     item = probe.join_witness(target, body)
     checked, outcome = probe.build_case(
         tmp_path, item["source"], contract or item["contract"], item["policy"]
@@ -1343,3 +1343,92 @@ def test_a_forward_let_read_emits_its_source_ordered_sql(
             )
             for d in outcome.artifact.request.layout.definitions
         ] == [("lhs", None), ("base", 2), ("low", 0), ("high", 1), ("result", None)]
+
+
+# A declaration may read a source or relation its module declares after it. The
+# SQL is the reordered module's; an input scan alias is numbered in declaration
+# order, as it already is for a JOIN that reads a later relation.
+LATE_SOURCE = "query result:\n    from lhs\n    select:\n        id\n"
+FORWARD_CHAIN = """query result:
+    from middle
+    where id > 1
+    select:
+        id
+table middle:
+    from lhs
+    select:
+        id
+        key
+"""
+ORDERED_CHAIN = """table middle:
+    from lhs
+    select:
+        id
+        key
+query result:
+    from middle
+    where id > 1
+    select:
+        id
+"""
+FORWARD_CHAIN_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0", "s1"."key value"'
+        ' AS "c1" FROM "public"."phase66 lhs é" AS "s1"), "p1" ("c0", "c1") AS (SELECT'
+        ' "s0"."c0" AS "c0", "s0"."c1" AS "c1" FROM "p0" AS "s0" WHERE ("s0"."c0" >'
+        ' CAST(1 AS pg_catalog.int8))) SELECT "t2"."c0" AS "id" FROM "p1" AS "t2"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s1`.`order.id` AS `c0`, `s1`.`key value`"
+        " AS `c1` FROM `phase66`.`phase66 lhs é` AS `s1`), `p1` (`c0`, `c1`) AS (SELECT"
+        " `s0`.`c0` AS `c0`, `s0`.`c1` AS `c1` FROM `p0` AS `s0` WHERE (`s0`.`c0` >"
+        " CAST(1 AS SIGNED))) SELECT `t2`.`c0` AS `id` FROM `p1` AS `t2`"
+    ),
+}
+ORDERED_CHAIN_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."order.id" AS "c0", "s0"."key value"'
+        ' AS "c1" FROM "public"."phase66 lhs é" AS "s0"), "p1" ("c0", "c1") AS (SELECT'
+        ' "s1"."c0" AS "c0", "s1"."c1" AS "c1" FROM "p0" AS "s1" WHERE ("s1"."c0" >'
+        ' CAST(1 AS pg_catalog.int8))) SELECT "t2"."c0" AS "id" FROM "p1" AS "t2"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value`"
+        " AS `c1` FROM `phase66`.`phase66 lhs é` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT"
+        " `s1`.`c0` AS `c0`, `s1`.`c1` AS `c1` FROM `p0` AS `s1` WHERE (`s1`.`c0` >"
+        " CAST(1 AS SIGNED))) SELECT `t2`.`c0` AS `id` FROM `p1` AS `t2`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_declaration_may_read_what_its_module_declares_later(
+    tmp_path: Path, target: str
+) -> None:
+    header = probe.JOIN_WITNESS_HEADER.format(target=target)
+    documents: dict[str, dict] = {}
+    for name, source in (
+        ("late_source", {"main.pietto": LATE_SOURCE + header}),
+        ("early_source", LATE_SOURCE),
+        ("forward_chain", {"main.pietto": FORWARD_CHAIN + header}),
+        ("ordered_chain", ORDERED_CHAIN),
+        # A forward read elsewhere in the project does not concern this owner.
+        (
+            "beside",
+            LATE_SOURCE + FORWARD_CHAIN.replace("query result:", "query other:"),
+        ),
+    ):
+        _, _, documents[name] = _emit(tmp_path / name, target, source)
+        assert documents[name]["status"] == "VERIFIED", documents[name]
+    sql = {name: document["sql"] for name, document in documents.items()}
+    assert sql["late_source"] == sql["early_source"] == sql["beside"]
+    assert sql["early_source"] == (
+        'SELECT "s0"."order.id" AS "id" FROM "public"."phase66 lhs é" AS "s0"'
+        if target == "postgres"
+        else "SELECT `s0`.`order.id` AS `id` FROM `phase66`.`phase66 lhs é` AS `s0`"
+    )
+    assert sql["forward_chain"] == FORWARD_CHAIN_SQL[target]
+    assert sql["ordered_chain"] == ORDERED_CHAIN_SQL[target]
+    assert (
+        documents["forward_chain"]["columns"] == documents["ordered_chain"]["columns"]
+    )
