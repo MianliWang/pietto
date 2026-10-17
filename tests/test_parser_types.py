@@ -203,3 +203,45 @@ def test_enum_without_final_newline_closes_at_eof() -> None:
     assert definition.members == ("draft", "paid")
     assert definition.span.end_line == 3
     assert definition.span.end_column == 9
+
+
+def test_enum_members_may_share_lines_or_follow_the_header() -> None:
+    header = parse_source("enum OrderStatus: pending, paid, shipped\n")
+    block = parse_source("enum OrderStatus:\n    pending, paid\n\n    shipped\n")
+    long = parse_source("enum OrderStatus:\n    pending\n    paid\n    shipped\n")
+
+    for result in (header, block, long):
+        assert result.diagnostics == ()
+        assert result.ast is not None
+        definition = result.ast.definitions[0]
+        assert isinstance(definition, EnumDef)
+        assert definition.members == ("pending", "paid", "shipped")
+    assert header.ast is not None
+    span = header.ast.definitions[0].span
+    assert (span.line, span.column, span.end_line, span.end_column) == (1, 1, 1, 41)
+
+
+def test_enum_header_line_rejects_a_trailing_comma_and_a_following_block() -> None:
+    trailing = parse_source("enum S: a, b,\n")
+    block = parse_source("enum S: a\n    b\n")
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for result in (trailing, block)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            "A trailing comma does not continue a list on the next line; "
+            "remove the comma.",
+            1,
+            13,
+        ),
+        (
+            "PIE-P1000",
+            "This clause already has its content on the header line after ':'; "
+            "an indented block cannot follow it.",
+            2,
+            5,
+        ),
+    ]

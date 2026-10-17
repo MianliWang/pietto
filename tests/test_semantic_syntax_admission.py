@@ -76,6 +76,19 @@ FAMILIES = {
         "            rows between scalar t.c preceding and current row\n",
         (7, 26, 7, 36),
     ),
+    "on_join_without_from": (
+        "PIE-S2378",
+        "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
+        "query q:\n    from rows\n    inner join others as o: on o.id == rows.id\n"
+        "    select:\n        id\n",
+        (3, 5, 3, 47),
+    ),
+    "cross_join_without_from": (
+        "PIE-S2378",
+        "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
+        "query q:\n    from rows\n    cross join others as o\n    select:\n        id\n",
+        (3, 5, 3, 27),
+    ),
 }
 NESTED = (
     "query q(a: Int not null):\n"
@@ -292,3 +305,31 @@ def test_explicit_modules_admit_capture_lines() -> None:
         ("PIE-S2345", 2, 5),
         ("PIE-S2351", 3, 9),
     ]
+
+
+def test_on_and_cross_joins_without_from_stay_gated_and_def_only_where_inlined() -> (
+    None
+):
+    """Only a relationship JOIN infers an omitted `from` or VIA roles. Single
+    files and EXPLICIT_MODULES projects inline def calls; LEGACY_FLAT and
+    PACKAGE_ROOT projects keep every def gated."""
+    parsed = parse_source(
+        "def f(x: Int not null) -> Int not null:\n    return x\n"
+        "query q:\n    from rows\n    inner join others as o: via link\n"
+        "    left join others as p\n"
+        "    left join others as q: on q.id == rows.id\n"
+        "    cross join others as x\n    select:\n        id\n",
+        path="gate.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    joins = [("PIE-S2378", 7, 5), ("PIE-S2378", 8, 5)]
+    gated = unadmitted_syntax_diagnostics(parsed.ast)
+    assert _located(gated) == [("PIE-S2379", 1, 1), *joins]
+    assert gated[0].message == (
+        "Inline `def` functions are available only in single files and "
+        "EXPLICIT_MODULES projects (schema version 2)."
+    )
+    location = gated[0].location
+    assert (location.end_line, location.end_column) == (2, 13)
+    for options in ({"explicit_modules": True}, {"single_file": True}):
+        assert _located(unadmitted_syntax_diagnostics(parsed.ast, **options)) == joins

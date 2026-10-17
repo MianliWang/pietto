@@ -398,9 +398,11 @@ DISTINCT_ENDPOINT_SQL = {
 def test_a_relationship_only_via_over_a_distinct_endpoint_emits_its_on_form(
     tmp_path, target, kind, side
 ):
-    """Its relationship equality is the SQL of the equivalent explicit ON."""
+    """Its relationship equality is the SQL of the equivalent explicit ON,
+    also when the JOIN leaves its source or VIA roles to be inferred."""
     left, right = ("d", "rhs") if side == "source" else ("lhs", "d")
     producer = "lhs" if side == "source" else "rhs"
+    block = f"    {kind} join {right} as r:\n        from {left}\n"
     docs = {
         route: public(
             emit(
@@ -417,28 +419,28 @@ relationship near:
     on l.id == r.id
 query result:
     from {left}
-    {kind} join {right} as r:
-        from {left}
-{condition}    select:
+{join}    select:
         a = {left}.id
         b = r.key
 """,
             )
         )
-        for route, condition in (
-            ("via", "        via near: l -> r\n"),
-            ("zero_via", ""),
-            ("on", f"        on {left}.id == r.id\n"),
+        for route, join in (
+            ("via", block + "        via near: l -> r\n"),
+            ("zero_via", block),
+            ("on", block + f"        on {left}.id == r.id\n"),
+            ("inferred", f"    {kind} join {right} as r\n"),
+            ("inferred_roles", f"    {kind} join {right} as r: via near\n"),
         )
     }
     expected = DISTINCT_ENDPOINT_SQL[side].replace(" INNER ", f" {kind.upper()} ")
     if target == "mysql":
         expected = expected.replace('"public"', '"phase66"').replace('"', "`")
-    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 3
-    assert [doc["sql"] for doc in docs.values()] == [expected] * 3
+    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 5
+    assert [doc["sql"] for doc in docs.values()] == [expected] * 5
     assert [
         requirement_kinds(doc)["relationship_equality"] for doc in docs.values()
-    ] == [1, 1, 0]
+    ] == [1, 1, 0, 1, 1]
 
 
 # --------------------------------------------------------------------------
@@ -681,6 +683,62 @@ def test_a_grouped_result_joined_twice_emits(tmp_path, target, kind):
     assert [column["label"] for column in doc["columns"]] == ["id", "n"]
 
 
+# A chain of two relationship JOINs that reads relations and relationships
+# its module declares after it.
+FORWARD_JOIN_CHAIN = """query result:
+    from mid
+{joins}    select:
+        a = mid.id
+        b = z.key
+        c = w.key
+relationship mr:
+    endpoint m: mid
+    endpoint r: rhs
+    on m.id == r.id
+relationship rd:
+    endpoint r: rhs
+    endpoint x: d
+    on r.key == x.id
+query d:
+    from rhs
+    where key > 0
+    select:
+        id
+        key
+table mid:
+    from lhs
+    where id > 1
+    select:
+        id
+        key
+"""
+FORWARD_JOINS = {
+    "written": "    left join rhs as z:\n        from mid\n        via mr: m -> r\n"
+    "    inner join d as w:\n        from z\n        via rd: r -> x\n",
+    "inferred": "    left join rhs as z\n    inner join d as w\n",
+    "header_steps": "    left join rhs as z: via mr\n    inner join d as w: from z\n",
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_join_chain_over_later_declarations_infers_its_written_sql(tmp_path, target):
+    header = probe.JOIN_WITNESS_HEADER.format(target=target)
+    docs = [
+        public(
+            emit(
+                tmp_path / name,
+                target,
+                {"main.pietto": FORWARD_JOIN_CHAIN.format(joins=joins) + header},
+            )
+        )
+        for name, joins in FORWARD_JOINS.items()
+    ]
+    assert [doc["status"] for doc in docs] == ["VERIFIED"] * 3
+    for key in ("sql", "columns"):
+        assert [doc[key] for doc in docs] == [docs[0][key]] * 3, key
+    assert [requirement_kinds(doc) for doc in docs] == [requirement_kinds(docs[0])] * 3
+
+
 # --------------------------------------------------------------------------
 # The migrated inputs whose only remaining restriction was the JOIN family
 # --------------------------------------------------------------------------
@@ -731,6 +789,114 @@ def test_the_restricted_full_manifest_case_splits_by_target(tmp_path, target):
     expected = probe.expected_status("V_join_full", "restricted", target)
     assert doc["status"] == expected
     assert expected == ("VERIFIED" if target == "postgres" else "BLOCKED")
+
+
+# --------------------------------------------------------------------------
+# A JOIN without `from` or VIA roles publishes its explicit form
+# --------------------------------------------------------------------------
+
+
+def _authored_layout_free(value):
+    """The document without what only the source text decides: its digest,
+    its size and authored locations."""
+    if isinstance(value, dict):
+        return {
+            key: _authored_layout_free(item)
+            for key, item in value.items()
+            if key not in {"sha256", "byte_count", "location"}
+        }
+    if isinstance(value, list):
+        return [_authored_layout_free(item) for item in value]
+    return value
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
+@pytest.mark.parametrize(
+    ("explicit", "inferred"),
+    (
+        (":\n        from lhs\n", "\n"),
+        (":\n        from lhs\n        via link: l -> r\n", ": via link\n"),
+    ),
+    ids=("direct", "via"),
+)
+def test_an_inferred_join_publishes_its_explicit_form(
+    tmp_path, target, kind, explicit, inferred
+):
+    head = f"query result:\n    from lhs\n    {kind} join rhs as r"
+    tail = "    select:\n        a = lhs.id\n"
+    written, found = (
+        document(emit(tmp_path / label, target, head + layout + tail, link=True))
+        for label, layout in (("explicit", explicit), ("inferred", inferred))
+    )
+    assert found["status"] == written["status"]
+    assert found.get("sql") == written.get("sql")
+    assert _authored_layout_free(found) == _authored_layout_free(written)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_one_line_relationship_publishes_its_block_form(tmp_path, target):
+    """Its endpoint roles are the relation names."""
+    block = (
+        "relationship link:\n    endpoint lhs: lhs\n    endpoint rhs: rhs\n"
+        "    on lhs.id == rhs.id\n"
+        "query result:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
+        "        via link: lhs -> rhs\n    select:\n        a = lhs.id\n"
+    )
+    one_line = (
+        "relationship link: lhs.id == rhs.id\n"
+        "query result:\n    from lhs\n    inner join rhs as r: via link\n"
+        "    select:\n        a = lhs.id\n"
+    )
+    written, found = (
+        document(emit(tmp_path / label, target, body))
+        for label, body in (("block", block), ("one_line", one_line))
+    )
+    assert found["status"] == written["status"] == "VERIFIED"
+    assert _authored_layout_free(found) == _authored_layout_free(written)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("head", "source"),
+    (
+        (
+            "    let v:\n        values(id: Int not null):\n            1\n"
+            "    from lhs\n    inner join v as vv:\n        from lhs\n"
+            "        on vv.id == lhs.id\n",
+            "lhs",
+        ),
+        (
+            "    from generate_series(1, 3, 1) as n\n    inner join lhs as l:\n"
+            "        from n\n        on l.id == n.n\n",
+            "l",
+        ),
+    ),
+    ids=("values_let", "table_function"),
+)
+def test_an_inferred_join_after_an_unmodelled_input_publishes_its_explicit_form(
+    tmp_path, target, head, source
+):
+    """A VALUES or table-function binding with no relationship is no candidate."""
+    tail = "    select:\n        a = r.id\n"
+    written, found = (
+        document(
+            emit(
+                tmp_path / label,
+                target,
+                f"query result:\n{head}    inner join rhs as r{layout}{tail}",
+                link=True,
+            )
+        )
+        for label, layout in (
+            ("explicit", f":\n        from {source}\n"),
+            ("inferred", "\n"),
+        )
+    )
+    assert found["status"] == written["status"]
+    assert target == "mysql" or written["status"] == "VERIFIED"
+    assert found.get("sql") == written.get("sql")
+    assert _authored_layout_free(found) == _authored_layout_free(written)
 
 
 # --------------------------------------------------------------------------

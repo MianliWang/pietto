@@ -1,11 +1,11 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.1.3`
+**Version:** This document describes the public alpha API of the `0.1.4`
 candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.1.3` channels.
-The published `0.1.2` distributions select `pyarrow==25.0.1`; this candidate
-selects `pyarrow==26.0.0`. The historical `0.1.1` wheel does not provide this
-alpha surface.
+files appear on the versioned GitHub pre-release and PyPI `0.1.4` channels.
+The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
+`0.1.3` distributions and this candidate select `pyarrow==26.0.0`. The
+historical `0.1.1` wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
@@ -67,7 +67,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.3` distribution exposes `pietto.execution` when it is released. Install its selected
+The `0.1.4` distribution exposes `pietto.execution` when it is released. Install its selected
 `execute-postgres`, `execute-postgres-adbc`, or `execute-mysql` extra in a
 fresh environment, or build a wheel from the matching checkout. The PostgreSQL
 rows extra adds `psycopg[binary]==3.3.5`; PostgreSQL ADBC adds
@@ -213,7 +213,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.1.3`. They do not add a CLI database
+These APIs are public alpha in `0.1.4`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -1408,9 +1408,9 @@ still running. Interpreter exit waits for the deadline timer, up to
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.2` is refused under `0.1.3` by
-  the changed code identity. The old bytes are preserved; use their matching
-  old environment. Pietto supplies no migration or rewrite.
+  A bundle or saved-job record made under `0.1.3` or earlier is refused under
+  `0.1.4` by the changed code identity. The old bytes are preserved; use their
+  matching old environment. Pietto supplies no migration or rewrite.
 - The pin of a bundle is a content identity, not a signature, and protects the
   bytes only when it comes from your own records. There is no signing,
   registry or revocation.

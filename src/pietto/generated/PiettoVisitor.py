@@ -164,8 +164,8 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by PiettoParser#enumItem.
-    def visitEnumItem(self, ctx:PiettoParser.EnumItemContext):
+    # Visit a parse tree produced by PiettoParser#enumLine.
+    def visitEnumLine(self, ctx:PiettoParser.EnumLineContext):
         return self.visitChildren(ctx)
 
 
@@ -186,6 +186,16 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#constraintBody.
     def visitConstraintBody(self, ctx:PiettoParser.ConstraintBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#functionDefinition.
+    def visitFunctionDefinition(self, ctx:PiettoParser.FunctionDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#functionBody.
+    def visitFunctionBody(self, ctx:PiettoParser.FunctionBodyContext):
         return self.visitChildren(ctx)
 
 
@@ -241,11 +251,6 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#checkDefinition.
     def visitCheckDefinition(self, ctx:PiettoParser.CheckDefinitionContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by PiettoParser#checkBody.
-    def visitCheckBody(self, ctx:PiettoParser.CheckBodyContext):
         return self.visitChildren(ctx)
 
 
@@ -314,6 +319,16 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#joinKind.
+    def visitJoinKind(self, ctx:PiettoParser.JoinKindContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#joinInlineStep.
+    def visitJoinInlineStep(self, ctx:PiettoParser.JoinInlineStepContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#joinBody.
     def visitJoinBody(self, ctx:PiettoParser.JoinBodyContext):
         return self.visitChildren(ctx)
@@ -359,6 +374,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#letLine.
+    def visitLetLine(self, ctx:PiettoParser.LetLineContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#letBinding.
     def visitLetBinding(self, ctx:PiettoParser.LetBindingContext):
         return self.visitChildren(ctx)
@@ -369,6 +389,21 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#predicateSuite.
+    def visitPredicateSuite(self, ctx:PiettoParser.PredicateSuiteContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#predicateBody.
+    def visitPredicateBody(self, ctx:PiettoParser.PredicateBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#predicateLine.
+    def visitPredicateLine(self, ctx:PiettoParser.PredicateLineContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#groupByClause.
     def visitGroupByClause(self, ctx:PiettoParser.GroupByClauseContext):
         return self.visitChildren(ctx)
@@ -376,6 +411,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#groupByBody.
     def visitGroupByBody(self, ctx:PiettoParser.GroupByBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#groupByLine.
+    def visitGroupByLine(self, ctx:PiettoParser.GroupByLineContext):
         return self.visitChildren(ctx)
 
 
@@ -391,6 +431,16 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#selectBody.
     def visitSelectBody(self, ctx:PiettoParser.SelectBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#selectLine.
+    def visitSelectLine(self, ctx:PiettoParser.SelectLineContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#selectWindowItem.
+    def visitSelectWindowItem(self, ctx:PiettoParser.SelectWindowItemContext):
         return self.visitChildren(ctx)
 
 
@@ -429,6 +479,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#windowInlineClause.
+    def visitWindowInlineClause(self, ctx:PiettoParser.WindowInlineClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#windowSpecBody.
     def visitWindowSpecBody(self, ctx:PiettoParser.WindowSpecBodyContext):
         return self.visitChildren(ctx)
@@ -441,6 +496,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#windowPartitionBody.
     def visitWindowPartitionBody(self, ctx:PiettoParser.WindowPartitionBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#windowPartitionLine.
+    def visitWindowPartitionLine(self, ctx:PiettoParser.WindowPartitionLineContext):
         return self.visitChildren(ctx)
 
 
@@ -539,6 +599,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#orderByLine.
+    def visitOrderByLine(self, ctx:PiettoParser.OrderByLineContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#orderItem.
     def visitOrderItem(self, ctx:PiettoParser.OrderItemContext):
         return self.visitChildren(ctx)
@@ -611,6 +676,16 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#namePart.
     def visitNamePart(self, ctx:PiettoParser.NamePartContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#fieldName.
+    def visitFieldName(self, ctx:PiettoParser.FieldNameContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#softKeyword.
+    def visitSoftKeyword(self, ctx:PiettoParser.SoftKeywordContext):
         return self.visitChildren(ctx)
 
 

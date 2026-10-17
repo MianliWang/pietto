@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -20,8 +20,11 @@ from pietto._project.project_completion import ProjectEffectiveOutputTerminalRea
 from pietto._project.project_ir_properties import ProjectIRPropertyAvailability
 from pietto.ast_nodes import (
     BinaryExpr,
+    CallExpr,
+    CastExpr,
     ComparisonExpr,
     DottedNameExpr,
+    MembershipExpr,
     NameExpr,
     QualifyClause,
     QueryDef,
@@ -560,6 +563,72 @@ def test_qualify_clause_order_empty_duplicate_and_hidden_named_are_parser_negati
     )
     assert parsed.ast is None
     assert parsed.diagnostics and parsed.diagnostics[0].code == "PIE-P1000"
+
+
+@pytest.mark.parametrize(
+    ("operand", "tail", "shape"),
+    (
+        ("coalesce(lag(item) window:", ", 0) > 1", "call"),
+        ("abs(lag(item) window:", ") > 1", "call"),
+        ("cast(row_number() window:", "as Int) > 1", "cast"),
+        ("1 in (row_number() window:", ", 2)", "in"),
+        ("not coalesce(rank() window:", ", 0) > 3", "call"),
+        ("(row_number() window:", ") <= 3", "comparison"),
+        ("3 >= (rank() window:", ")", "comparison"),
+        ("not (rank() window:", "> 3)", "not"),
+    ),
+)
+def test_a_window_block_in_parentheses_keeps_its_block_layout(
+    operand: str, tail: str, shape: str
+) -> None:
+    # Inside any parentheses the window block keeps its line breaks until they
+    # close, so these operands parse as they always did.
+    parsed = _parse(
+        MINIMAL_PREFIX
+        + "query ok:\n    from rows\n    select:\n        item\n    qualify:\n"
+        + f"        {operand}\n"
+        + "            order by:\n                item\n"
+        + f"        {tail}\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = cast(QueryDef, parsed.ast.definitions[-1])
+    assert query.qualify_clause is not None
+    found = [
+        node
+        for node in _walk(query.qualify_clause.expression)
+        if type(node) is WindowExpr
+    ]
+    assert len(found) == 1
+    window = cast(WindowExpr, found[0])
+    assert window.use_kind is WindowUseKind.INLINE
+    assert [item.expression for item in window.spec.order_by] == [
+        NameExpr(span=window.spec.order_by[0].expression.span, name="item")
+    ]
+    span = window.span
+    assert (span.line, span.end_line, span.end_column) == (10, 12, 21)
+    holder = {
+        "call": CallExpr,
+        "cast": CastExpr,
+        "in": MembershipExpr,
+        "comparison": ComparisonExpr,
+        "not": UnaryExpr,
+    }[shape]
+    assert any(type(node) is holder for node in _walk(query.qualify_clause.expression))
+
+
+def _walk(node: object) -> list[object]:
+    found: list[object] = []
+    pending = [node]
+    while pending:
+        value = pending.pop()
+        if type(value) is tuple:
+            pending.extend(cast(tuple[object, ...], value))
+            continue
+        if not hasattr(value, "__dataclass_fields__"):
+            continue
+        found.append(value)
+        pending.extend(getattr(value, item.name) for item in fields(cast(Any, value)))
+    return found
 
 
 @pytest.mark.parametrize(

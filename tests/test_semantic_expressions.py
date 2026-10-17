@@ -1254,15 +1254,16 @@ def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
 
 @pytest.mark.parametrize(
     "line_one,column",
+    # An indented first code line is a parse error (PIE-P1000), so line 1
+    # starts a semantic file at column 1, after spaces or after a comment.
     [
         ("", 1),
-        ("  ", 3),
         ("\n", 1),
         ("    \n", 5),
         ("# head\n", 7),
         ("   # head\n", 10),
     ],
-    ids=["plain", "indented", "empty", "spaces", "comment", "spaced_comment"],
+    ids=["plain", "empty", "spaces", "comment", "spaced_comment"],
 )
 def test_deep_binary_expression_returns_semantic_recursion_diagnostic(
     line_one: str, column: int

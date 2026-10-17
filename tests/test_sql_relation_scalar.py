@@ -227,6 +227,19 @@ def test_scalar_reads_emit_one_column_subqueries_without_a_limit(
 
 
 @pytest.mark.parametrize("target", TARGETS)
+def test_a_scalar_read_of_a_soft_keyword_column_emits_like_any_other(
+    tmp_path: Path, target: str
+) -> None:
+    body = CANONICAL.replace("rid = id", "select = id").replace(
+        "picked.rid", "picked.select"
+    )
+    _, outcome = _emit(tmp_path, target, body)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == SQL[target]
+
+
+@pytest.mark.parametrize("target", TARGETS)
 def test_a_source_read_only_through_a_scalar_read_is_a_statement_source(
     tmp_path: Path, target: str
 ) -> None:

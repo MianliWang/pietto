@@ -1784,24 +1784,13 @@ LATERAL_DIAGNOSTICS = {
     "top_k_offset": (
         _top_k("cross", limit="        limit 2\n        offset 1\n"),
         [
-            ("PIE-P1000", "mismatched input 'offset' expecting DEDENT", 16, 9),
-            *(
-                (
-                    "PIE-P1000",
-                    f"extraneous input '{text}' expecting {{<EOF>, 'type', 'enum', "
-                    "'constraint', 'derive', 'shape', 'source', 'table', 'query', "
-                    "'relationship', 'import', 'export', NEWLINE}",
-                    line,
-                    column,
-                )
-                for text, line, column in (
-                    ("", 17, 5),
-                    ("cross", 18, 5),
-                    ("        ", 19, 9),
-                    ("", 20, 5),
-                    ("        ", 21, 9),
-                    ("", 22, 1),
-                )
+            (
+                "PIE-P1000",
+                "Unknown clause 'offset'; a relation body lists from, joins, let:, "
+                "where, group by:, select:, windows, satisfying:, qualify:, "
+                "order by: and limit in that order.",
+                16,
+                9,
             ),
         ],
     ),

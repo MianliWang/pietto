@@ -8,13 +8,16 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import (
+    BinaryExpr,
     CallExpr,
     ConstraintDef,
     DeriveDef,
     EnumDef,
+    FunctionDef,
     NameExpr,
     Nullability,
     Parameter,
+    ShapeDef,
     Span,
     TypeDef,
     TypeExpr,
@@ -235,3 +238,113 @@ def _assert_no_antlr_nodes(value: object) -> None:
 
 def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)
+
+
+def test_def_header_line_and_block_bodies_build_one_function() -> None:
+    header = parse_source(
+        "def reachable(email: Text nullable, coupon: Text nullable) -> Bool nullable:"
+        ' return email like "%@%" and coupon is null\n'
+    )
+    block = parse_source(
+        "def reachable(\n"
+        "    email: Text nullable,\n"
+        "    coupon: Text nullable,\n"
+        ") -> Bool nullable:\n"
+        "    # the only statement\n"
+        '    return email like "%@%" and coupon is null\n'
+    )
+
+    for result in (header, block):
+        assert result.diagnostics == ()
+        assert result.ast is not None
+        (function,) = result.ast.definitions
+        assert isinstance(function, FunctionDef)
+        assert function.name == "reachable"
+        assert [
+            (p.name, p.type.name, p.type.nullability) for p in function.parameters
+        ] == [
+            ("email", "Text", Nullability.NULLABLE),
+            ("coupon", "Text", Nullability.NULLABLE),
+        ]
+        assert function.return_type.nullability is Nullability.NULLABLE
+        assert type(function.body) is BinaryExpr
+    assert block.ast is not None
+    span = block.ast.definitions[0].span
+    assert (span.line, span.column, span.end_line, span.end_column) == (1, 1, 6, 47)
+
+
+@pytest.mark.parametrize(
+    ("source", "role", "column"),
+    (
+        ("def f(x: Int) -> Int not null: return x\n", "parameter", 10),
+        ("def f(x: Int not null) -> Int: return x\n", "return type", 27),
+        ("def f() -> Bool:\n    return true\n", "return type", 12),
+    ),
+)
+def test_def_types_must_state_their_nullability(
+    source: str, role: str, column: int
+) -> None:
+    result = parse_source(source)
+
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            f"A `def` {role} must state its nullability: write `nullable` or "
+            "`not null` after the type.",
+            1,
+            column,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "line", "column", "message"),
+    (
+        ("def f() -> Int not null: 1\n", 1, 26, "Unexpected '1'."),
+        (
+            "def f() -> Int not null:\n    1\n",
+            2,
+            5,
+            "Unexpected '1'; expected 'return' or end of line.",
+        ),
+        (
+            "def f() -> Int not null:\n    return 1\n    return 2\n",
+            3,
+            5,
+            "Unexpected 'return'; expected end of block.",
+        ),
+        ("def f():\n    return 1\n", 1, 8, "Unexpected ':'."),
+        ("def f -> Int not null: return 1\n", 1, 7, "Unexpected '->'."),
+    ),
+)
+def test_def_bodies_are_exactly_one_return(
+    source: str, line: int, column: int, message: str
+) -> None:
+    result = parse_source(source)
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", line, column, message)]
+
+
+def test_def_and_return_remain_ordinary_names() -> None:
+    result = parse_source(
+        "shape Row:\n    def: Int not null\n    return: Text nullable\n"
+        "type return = Int\n"
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    shape = result.ast.definitions[0]
+    assert isinstance(shape, ShapeDef)
+    assert [field.name for field in shape.fields] == [
+        "def",
+        "return",
+    ]
+    assert result.ast.definitions[1].name == "return"

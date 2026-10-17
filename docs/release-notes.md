@@ -1,9 +1,275 @@
-# Phase70 public alpha release notes — 0.1.3
+# Post-Phase70 public alpha release notes — 0.1.4
 
-**Status:** These notes cover the `0.1.3` public-alpha candidate. A release is
+**Status:** These notes cover the `0.1.4` public-alpha candidate. A release is
 established only when the accepted wheel and sdist are available from both the
 versioned GitHub pre-release and PyPI channels; this document neither creates
 those channels nor substitutes for their byte verification.
+
+This release makes Pietto source read more like Python, adds one-line
+relationships, inferred JOIN sources and inline `def` functions, and fixes
+compiler and CLI defects found after 0.1.3. Source that 0.1.3 parsed keeps
+parsing as before, with one exception: a file whose first code line is
+indented is now PIE-P1000.
+Some programs that 0.1.3 accepted are now refused because their SQL would fail
+or mean something else; see
+[Compatibility and retained data](#compatibility-and-retained-data). Pietto
+remains an alpha; the CLI does not execute database queries.
+
+## Highlights
+
+- **Python-style layout.** `select:`, `select distinct:`, `group by:`,
+  `order by:`, `partition by:`, the row `let:` and `enum NAME:` take their
+  items after `:` on the header line, separated by commas, or in an indented
+  block whose lines each hold one item or a comma-separated list, for example
+  `order by: ordered_at desc, id desc`. `where:`, `satisfying:` and a shape's
+  `check NAME:` take one condition after `:` or one condition per line of an
+  indented block; the lines are joined with `and`, each as if written in
+  parentheses. Inside parentheses an expression can continue over several
+  lines; there is no backslash continuation, and an unclosed `(` is PIE-P1008.
+  These forms parse to the same tree as the one-item-per-line form or the
+  `and` chain, so checks and SQL are unchanged.
+- **Soft keywords as names.** 26 words, among them `type`, `source`, `from`,
+  `where`, `select`, `query`, `limit` and `check`, may also name a shape field,
+  a `select` output, a row `let:` binding, a parameter or a typed VALUES
+  column, as in `where type == "click"`. They do not name declarations or
+  relations. `and`, `or`, `not`, `null`, `true`, `false`, `between`, `like`,
+  `nullable` and `window` stay reserved.
+- **One-line relationships.** `relationship r: a.x == b.y`, with one or more
+  `and`-joined equalities between fields of two different relations, declares
+  the endpoints `a` and `b`, so its roles are the relation names. A
+  relationship of a relation to itself keeps the block form.
+- **Shorter relationship JOINs.** A JOIN that follows a declared relationship
+  needs only its header; its `from` line and VIA roles are optional, and the
+  header may carry one step: `: from b`, `: via r` or `: via r: s -> t`. In an
+  explicit-module project (`schema_version = 2`) a JOIN without `from` uses the
+  one earlier binding that has a relationship to its target, in exactly one
+  usable direction. No candidate is preferred: otherwise PIE-S2333 at the JOIN
+  names every candidate. A JOIN with `on` and a CROSS JOIN still name their
+  source with `from` (PIE-S2378). Single-file and schema version 1 project
+  checks do not infer.
+- **Inline `def` functions.** `def f(p: T not null) -> R nullable: return e`
+  names a reusable scalar expression over `Bool`, `Int`, `Float`, `Decimal`,
+  `Text`, `Date`, `Timestamp` or `UUID` parameters with explicit nullability.
+  It is checked once where it is declared, and each call is replaced by its
+  body before the call site is checked, so a call emits exactly the SQL of the
+  same expression written by hand; no database function is created. A def
+  belongs to its module (no import or export), recursion is refused, and an
+  error inside a call is reported once however often the body uses the
+  argument, except in a call written inside another def's body, where it is
+  reported as often as its expansion makes it, and in two project cases (see
+  [Known limitations](#known-limitations)). Available in single files and
+  explicit-module projects.
+- **New diagnostics:** PIE-P1008 (an unclosed `(`), PIE-S2378 (a JOIN with
+  `on` or a CROSS JOIN without `from`), PIE-S2379 (`def` in a schema version 1
+  project), PIE-S2395 to PIE-S2399 (`def` arguments, recursion, forms, names
+  and expansion size), PIE-S2380 (an ORDER BY key a target would misread) and
+  PIE-S2604 (a relationship `on` operand error).
+
+## Compatibility and retained data
+
+- Bundles and saved jobs made by 0.1.3 or earlier are rejected by the 0.1.4
+  code identity. Pietto neither migrates nor rewrites those bytes; use their
+  matching old environment, then compile again for 0.1.4. Format markers are
+  unchanged. The VS Code extension 0.1.0 accepts only the 0.1.2 wheel or the
+  `9e74aa68` baseline fingerprint and refuses 0.1.4. This release adds no
+  stable editor API.
+- Programs that 0.1.3 accepted and 0.1.4 refuses:
+  - a file whose first code line is indented (PIE-P1000);
+  - a comparison with the null literal, or with a `let:` name bound to it,
+    a `between` whose value or both bounds are null, and an `in`/`not in`
+    list whose value or every option is null, all never true (PIE-S2105;
+    write `is null` or `is not null`); an explicit-module project does not
+    check the WHERE of a relation whose `let:` binds `null` yet, and
+    `emit-sql --project` blocks it with PIE-B1003, as 0.1.3 did;
+  - a single file with an expression nested more than 450 levels anywhere,
+    a relationship `on`, a type `ensure` and a window frame offset included
+    (PIE-S2006 in every command; projects are not held to this bound);
+  - checks that do not depend on an argument's type now also run over rows of
+    unknown type, such as a source without a shape: an unknown function or
+    connector, a window function without `window`, the argument count of
+    `sign`, `year`, `month`, `day` and a connector, `substr` bounds, and a
+    cast to any type but `Float` (PIE-S2103, PIE-S2104, PIE-S2105,
+    PIE-S2306);
+  - an ORDER BY key that is a bare constant once `let:` names are inlined, and
+    in a query with aggregates and no GROUP BY a key that reads an input field
+    outside an aggregate (PIE-S2380);
+  - a ROWS or GROUPS frame offset that is not a nonnegative `Int` literal up
+    to 9223372036854775807, a larger window count literal (PIE-S2104),
+    `cast(null as T)` and a literal LIKE pattern ending in an unpaired `!`
+    (PIE-S2105);
+  - a division with a known operand that is not `Int`, `Float` or `Decimal`
+    (PIE-S2105); `Int / Int` is now an `Int` and a `Float` operand gives a
+    `Float`, so a division result is checked where it is used;
+  - `count` of a field typed by an alias of `Any` or of an enum, which 0.1.3
+    passed at check and refused at emission (PIE-B1000), is PIE-S2314 at
+    check;
+  - in single files: a connector argument that is not a string literal
+    (PIE-S2306), a repeated enum member (PIE-S2001), an aliased bare name that
+    names no field (PIE-S2102), an INNER or LEFT JOIN whose target, `from`
+    binding, relationship or role is unknown or whose VIA path does not
+    connect (PIE-S2301, PIE-S2335), and a `let:` chain whose inlined
+    expansion exceeds 768 weighted levels or 100,000 nodes (PIE-S2328);
+  - in explicit-module projects: relationship declaration errors
+    (PIE-S2601 to PIE-S2603), shape item errors (PIE-S2501 to PIE-S2503) and
+    repeated enum members (PIE-S2001), as single files report them, and a
+    relationship `on` operand error (PIE-S2604, in both modes), whether or
+    not a query uses the relationship;
+  - PostgreSQL emission of an identifier longer than 63 bytes, which
+    PostgreSQL would truncate, and of a window integer argument outside int32
+    (PIE-B1000).
+- SQL that differs for programs 0.1.3 already emitted:
+  - MySQL `Int / Int` emits `a DIV b` instead of `a / b`, so the result is an
+    integer, not a DECIMAL; PostgreSQL bytes are unchanged.
+  - Single-file `avg` of an `Int` emits `AVG(CAST(x AS double precision))` on
+    PostgreSQL and `AVG(CAST(x AS DOUBLE))` on MySQL, as project SQL does.
+  - PostgreSQL `sign(x)` of an `Int` emits `CAST(sign(x) AS bigint)`.
+  - An ORDER BY input field that has the same name as a different output alias
+    is qualified with its FROM item's reference name.
+- Diagnostics: many messages name their cause more precisely. Invalid source
+  gets different PIE-P1000 wording, counts and positions: at most one parser
+  error per top-level declaration, naming the unexpected token and what was
+  expected. A lone CR now ends a line in every reported position, and
+  PIE-P1004 counts lines only at LF, CRLF and CR. A project reports a restated
+  diagnostic once.
+- CLI: a failed write to stdout, and a refused `--output` (no SQL to write,
+  an existing output the user may not write or that belongs to another user,
+  or in single-file mode an existing FIFO, socket or device), exit `2`; a
+  failing stderr is ignored and the command keeps its own exit code.
+  Repeated or abbreviated `--format` and `--project` options are resolved as
+  argparse resolves them, so `--form json` is no longer ignored.
+
+## Included repairs
+
+Compiler:
+
+- Division follows SQL: `Int / Int` truncates toward zero (PostgreSQL `/`,
+  MySQL `DIV`), a `Float` operand gives a bare `/`, and Pietto never inserts a
+  cast; write `a * 1.0 / b` or `cast(a as Float) / b` to keep the fraction.
+- Type aliases, alias chains included, are read as their builtin type by
+  arithmetic, `not`/`and`/`or`, comparisons, `between`, `in`, `like`, the
+  fixed-signature scalar functions, Bool conditions, the aggregates and the
+  window value functions, so an alias program checks and emits like its
+  base-typed twin.
+- `sum` and `avg` of a `Decimal * Decimal` argument emit single-file SQL
+  instead of PIE-B1000. `amount in (1, 2)` with a `Decimal` field is accepted
+  wherever `amount == 1` is; project emission refuses that pair with
+  PIE-B1003 (`membership_type_pair_not_admitted`), as it refuses the
+  comparison.
+- The `let:` inline limit (PIE-S2328) measures the recursion emission needs
+  instead of crashing with RecursionError; `let:` bodies are checked with the
+  earlier bindings, and a binding's own error no longer cascades into unknown
+  fields or extra window errors.
+- Single-file analysis of a long chain of tables takes linear time.
+- Gradual typing is kept: an aliased read of a field of any type is a
+  computed output, aggregates and `satisfying` over fields of unknown type are
+  not refused at check, and a `satisfying` predicate of unknown type fails at
+  emission with PIE-B1000 instead of an internal error.
+- In a grouped query, `first_value`, `last_value` and `nth_value` over an
+  aggregate output emit SQL instead of crashing.
+- Projects: a project relation may read a declaration written later in its
+  module; a relationship JOIN over an input completed in the same run, such
+  as a named `select distinct` query, emits instead of INPUT_REJECTED;
+  repeated `on` operands, a VIA through a grouped endpoint, an unknown grain, a
+  grouped query listing a window before an aggregate and a JOIN reading enum
+  or shape fields no longer crash; deeply nested project expressions are
+  PIE-S2006 instead of a RecursionError traceback, and a configuration or
+  package manifest nested too deeply is a `project_resource` error; a `let:`
+  binding read in a SELECT item no longer reports a false unknown field; a
+  bare PIE-S2333 for a relationship JOIN over an input it cannot read yet
+  names the reason; the JOIN fan-out remedy lists each key once; and query
+  block IR verification checks every use against the output its owner names.
+- The execution API reports a recursion overflow while preparing a query as
+  PIE-R1004.
+
+CLI:
+
+- Every command writes its results through one stdout writer. A full device,
+  closed stream or other write failure exits `2` with a fixed notice instead
+  of a traceback, exit `120` or a silent exit `0`, and a reader that closes the
+  pipe early ends the run quietly. `--help`, `--version` and usage errors use
+  the same writers.
+- Operating-system errors are reported by path with a fixed English reason
+  and errno or winerror codes, without temporary names or localized text.
+- `--output` writes UTF-8 with LF line endings on every platform. A new file
+  gets the mode `open(path, "w")` gives (`0o666` less the umask, or what a
+  default ACL grants). A replacement never gets wider permission bits than
+  the file it replaces: it keeps them only on Linux when both files have the
+  same owner and group and are shown to carry no ACL, and otherwise keeps at
+  most the owner bits. Temporary files use short `.pietto-*.tmp` names.
+- C1 controls, line and paragraph separators and bidirectional controls are
+  written as `\uNNNN` in CLI diagnostics, paths and project text records; SQL
+  text (stdout and `--output`) and JSON values keep them raw.
+- Windows: trusted project reads no longer refuse unchanged files because of
+  ctime, and directory junctions are refused like symbolic links.
+
+## Known limitations
+
+- The release target is compiler and package coverage on CPython 3.12 and
+  3.13 for Linux x86-64; the support boundary is established by formal
+  acceptance of the actual distribution bytes. Native-route evidence is
+  limited to CPython 3.13.13 on the qualified integration host with the
+  lock's exact artifacts. Other platforms, Python versions, database releases
+  and driver closures are not claimed. No signing or attestation.
+- A successful `check` is not an emission proof. Single-file `explain` and
+  `emit-sql` refuse an authored `qualify:` block and a relationship JOIN with
+  PIE-I1000; JOINs, set operations, DISTINCT and relation lets need
+  `emit-sql --project`.
+- In an explicit-module project, an ORDER BY key that reads an enum or shape
+  field inside an expression, such as `c.status is null`, may make
+  `emit-sql --project` report the table or query INPUT_REJECTED (exit `2`)
+  instead of BLOCKED with PIE-B1003.
+- An error in a call written inside another def's body is reported at that
+  def as often as the called def's expansion makes it, in single files and
+  projects: with
+  `def low(x: Int nullable) -> Bool nullable: return x < 3 or x < 4`, a def
+  body that calls `low(null)` gets two PIE-S2105.
+- A project check still repeats the errors of a JOIN `on` condition, written
+  by hand or made by a `def` call, and reports a query header parameter passed
+  to a `def` and read in a position that refuses it (PIE-S2355) at each use of
+  the argument.
+- `lag`, `lead`, `first_value`, `last_value` and `nth_value` over a field
+  typed by an alias of an enum are PIE-S2104, while the enum itself is
+  accepted.
+- In an explicit-module project, a relationship JOIN without `on` whose input
+  is a `select distinct` query completes on its own, but reports PIE-S2333 at
+  its table or query when that table or query is itself `select distinct` or
+  once a later table or query reads its result with a JOIN `on`, a CROSS JOIN
+  or `select distinct`. In some shapes, for example when such a query is
+  joined through a relationship with the relation it reads, `check --project`
+  passes but `emit-sql --project` reports INPUT_REJECTED (exit `2`).
+- A function argument of known type is not checked when another argument has
+  an unknown type: over a source without a shape, `matches(a, 1)` passes
+  `check` and PostgreSQL emission writes `"a" ~ 1`.
+- Division with a `Decimal` operand is not specified yet: it has no result
+  type and emits a bare `/`. Division by zero follows the target (PostgreSQL
+  raises an error, MySQL returns NULL), and dividing the smallest `Int` by -1
+  is not specified.
+- `def` takes only the eight builtin types (or a same-file alias of one) and
+  positional arguments; a call is refused where the written form must be a
+  literal, a field or a window call that Pietto checks by its own rule, such
+  as inside a window specification, LIMIT, a VALUES row or a relationship
+  condition (PIE-S2397). A comparison, `between` or arithmetic is not proven
+  non-null, so such defs declare a `nullable` result. An argument appears in
+  the SQL as often as the body uses its parameter. `constraint` and `derive`
+  still cannot be called.
+- `--output` does not copy a replaced file's owner, group, set-id or sticky
+  bits or its ACL entries; the write check uses the real user, so root can
+  still replace a read-only output.
+
+## Support and release boundary
+
+The [language guide](language.md) is the reference for the forms above; its
+[Layout](language.md#layout) and
+[Inline functions](language.md#inline-functions-def) sections describe the new
+syntax. Published bytes are never overwritten. A later defect
+is addressed in a later version; any PyPI yank remains an owner action.
+
+---
+
+# Phase70 public alpha release notes — 0.1.3
+
+**Status:** These notes describe `0.1.3`, published and byte-verified on the
+versioned GitHub pre-release and PyPI channels.
 
 `0.1.3` extends query authoring and checked execution in explicit-module
 projects (`schema_version = 2`). Pietto remains an alpha; the CLI still has no

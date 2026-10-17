@@ -611,7 +611,11 @@ def _visible_names(
             names.add(cast(DottedNameExpr, item.expression).parts[-1])
     names.update(window.name for window in definition.named_windows)
     for clause in definition.join_clauses:
-        names.update((clause.target_binding_name, clause.source_binding_name))
+        # An omitted JOIN source is the FROM input or an earlier JOIN target,
+        # each visible without it.
+        names.add(clause.target_binding_name)
+        if clause.source_binding_name is not None:
+            names.add(clause.source_binding_name)
     for relation in (
         definition.from_clause.source_name,
         *(clause.target_relation_name for clause in definition.join_clauses),

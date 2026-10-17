@@ -5,7 +5,7 @@ documentation does not supersede that evidence.
 
 | Item | State |
 | --- | --- |
-| Repository package and CLI | `0.1.3` public alpha is published and byte-verified on the GitHub pre-release and PyPI channels. Historical `0.1.0`, `0.1.1`, and `0.1.2` bytes remain unchanged. |
+| Repository package and CLI | `0.1.4` public-alpha candidate; availability requires the accepted wheel and sdist to appear on both the versioned GitHub pre-release and PyPI channels, and its tag, GitHub pre-release and PyPI upload wait for the owner. The published `0.1.3` public alpha remains byte-verified on both channels; historical `0.1.0`, `0.1.1`, `0.1.2`, and `0.1.3` bytes remain unchanged. |
 | Phase 55 | `COMPLETED` |
 | Phase 56 | `COMPLETED` |
 | Phase 57 | `COMPLETED` |

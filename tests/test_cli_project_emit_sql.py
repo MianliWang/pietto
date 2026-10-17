@@ -917,18 +917,21 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
 
 
 @pytest.mark.parametrize("target", TARGETS)
-@pytest.mark.parametrize("stage", ["semantics", "planning"])
+@pytest.mark.parametrize("stage", ["semantics", "def", "planning"])
 def test_the_recursion_limit_blocks_emission_with_one_diagnostic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, stage: str
 ) -> None:
     # A WHERE of 3,000 conditions used to raise RecursionError out of emit-sql;
     # planning or emitting a shallower one may exhaust the limit first, and
     # is reported over the selected module even beside a module that nests
-    # deeper but is neither planned nor emitted.
+    # deeper but is neither planned nor emitted. Def calls count as inlined.
     root, _ = project(tmp_path, target)
     source = (root / "main.pietto").read_text().split("table result:", 1)[0]
     if stage == "semantics":
         condition = " and ".join(["id == 1"] * 3000)
+    elif stage == "def":
+        source = "def one(x: Int not null) -> Bool nullable: return x == 1\n" + source
+        condition = " and ".join(["one(id)"] * 3000)
     else:
         condition = "id == 1"
         (root / "a.pietto").write_text(
@@ -969,7 +972,7 @@ def test_the_recursion_limit_blocks_emission_with_one_diagnostic(
                 "path": "main.pietto",
                 "line": 1,
                 "column": 1,
-                "end_line": 12,
+                "end_line": 13 if stage == "def" else 12,
                 "end_column": 11,
             },
             "suggestion": None,
@@ -1127,7 +1130,7 @@ def test_failure_messages_never_echo_roots_or_raw_input(
         (root / "main.pietto").write_text(source.replace("\x1b[31m", control))
         code, out, err = run(argv(root, target, format="text"))
         assert code == 1 and control not in err
-        assert f"input '\\u{ord(control):04x}'" in err
+        assert f"Unexpected '\\u{ord(control):04x}'" in err
 
 
 @pytest.mark.parametrize("target", TARGETS)

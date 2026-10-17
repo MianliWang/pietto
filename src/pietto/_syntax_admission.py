@@ -6,9 +6,12 @@ from dataclasses import fields, is_dataclass
 from typing import cast
 
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
     BlockRelationDef,
     CaptureClause,
     FromClause,
+    FunctionDef,
+    JoinClause,
     LetRelationDef,
     ModuleDeclarationKind,
     Node,
@@ -69,7 +72,18 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
         "PIE-S2352",
         f"Table-function FROM inputs are available only in {_EXPLICIT_MODULES}.",
     ),
+    FunctionDef: (
+        "PIE-S2379",
+        "Inline `def` functions are available only in single files and "
+        f"{_EXPLICIT_MODULES}.",
+    ),
 }
+# Semantics infer an omitted `from` only from relationships: a JOIN with
+# `on` and a CROSS JOIN keep naming their source in every mode.
+_SOURCE_REQUIRED = (
+    "PIE-S2378",
+    "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
+)
 
 
 # Families whose semantics exist only for EXPLICIT_MODULES projects.
@@ -82,6 +96,7 @@ _EXPLICIT_MODULES_ADMITTED: frozenset[type[Node]] = frozenset(
         RelationScalarExpr,
         RelationMembershipExpr,
         CaptureClause,
+        FunctionDef,
     }
 )
 # Expression families admitted only inside a FROM-based relation body; in a
@@ -153,11 +168,12 @@ def admitted_header(definition: Node) -> bool:
 
 
 def unadmitted_syntax_diagnostics(
-    script: Script, *, explicit_modules: bool = False
+    script: Script, *, explicit_modules: bool = False, single_file: bool = False
 ) -> tuple[Diagnostic, ...]:
     """Report every parsed occurrence of a form no existing reader may see.
 
-    Single-file and LEGACY_FLAT callers keep every family gated; an
+    Single-file and LEGACY_FLAT callers keep every family gated, except that
+    a single-file caller admits inline ``def`` functions; an
     EXPLICIT_MODULES caller admits the families its readers implement, up to
     ``_MAX_RELATION_LETS`` relation lets per table or query, and the header of
     an entry query whose own body reads a relation with ``from``, with or
@@ -185,8 +201,16 @@ def unadmitted_syntax_diagnostics(
             explicit_modules
             and kind in _EXPLICIT_MODULES_ADMITTED
             and (body or kind not in _BODY_ONLY)
+            or single_file
+            and kind is FunctionDef
         ):
             found.append(_diagnostic(*family, cast(Node, value).span))
+        if kind is JoinClause:
+            join = cast(JoinClause, value)
+            if join.source_binding_name is None and (
+                join.on_clause is not None or join.kind is AuthoredJoinKind.CROSS
+            ):
+                found.append(_diagnostic(*_SOURCE_REQUIRED, join.span))
         if explicit_modules and kind is BlockRelationDef:
             found.extend(
                 _diagnostic(

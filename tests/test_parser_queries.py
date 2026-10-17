@@ -291,7 +291,6 @@ def test_query_ast_does_not_expose_antlr_nodes() -> None:
         "query active_user_emails:\n    from\n    select:\n        email\n",
         "query active_user_emails:\n    from active_users\n",
         "query active_user_emails:\n    from active_users\n    select:\n",
-        "query active_user_emails:\n    from active_users\n    select: email\n",
         (
             "query active_user_emails:\n"
             "    from active_users\n"
@@ -503,7 +502,7 @@ def test_missing_header_colon_keeps_one_recovered_diagnostic(header: str) -> Non
         (item.code, item.location.line, item.location.column)
         for item in result.diagnostics
     ] == [("PIE-P1000", 1, len(header) + 1)]
-    assert result.diagnostics[0].message.startswith("missing ':'")
+    assert result.diagnostics[0].message == "Missing ':' before end of line."
 
 
 def test_query_rejects_nested_query_syntax() -> None:
