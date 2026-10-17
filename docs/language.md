@@ -1086,12 +1086,25 @@ n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
 (PIE-S2105).
 
+Arithmetic (`+ - * / %` and unary `+`/`-`), `not`, `and`, `or`, comparisons,
+`between`, `in` and the aggregates read a type alias operand or argument, an
+alias chain included, as the builtin type it expands to. The result has that
+base type, not the alias: with `type Age = Int not null` and `type Money =
+Decimal(12, 2) not null`, `age + 1` and `-age` are `Int`, `sum(amount)` and
+`max(amount)` over an `amount: Money not null` field are a `Decimal`, and the
+SQL is that of the same program with base-typed fields. A pair the base type
+refuses is refused alike, such as `amount * 2` or `-amount` (PIE-S2105), and
+`count` of an alias of `Any` is PIE-S2314 as `count` of `Any` is. An alias of
+an enum or a shape is not expanded. `like`/`not like`, the arguments of
+`lower`, `trim`, `len` and `matches`, and a `where` condition that is a bare
+`Bool` alias field do not read an alias as its base type yet, so single-file
+checks refuse them.
+
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`
 would return a DECIMAL, emits `a DIV b`. With a `Float` operand the result is a
 `Float`, emitted as a bare `a / b` on both targets; Pietto never inserts a
-cast. A type alias operand counts as the type it expands to. To keep the
-fraction of an `Int` division, convert explicitly:
+cast. To keep the fraction of an `Int` division, convert explicitly:
 
 ```pietto
 query rates:

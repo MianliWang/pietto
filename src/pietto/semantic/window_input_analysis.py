@@ -16,6 +16,7 @@ from pietto.ast_nodes import (
     QueryDef,
     SelectItem,
     TableDef,
+    TypeExpr,
     WindowExpr,
 )
 from pietto.semantic.aggregates import (
@@ -149,6 +150,7 @@ def build_window_input_scope(
     value_types: Mapping[Expression, ValueType],
     let_value_types: Mapping[str, ValueType] | None = None,
     let_expressions: Mapping[str, Expression] | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> WindowInputScope:
     """Build the exact transient input scope for one relation's window stage."""
 
@@ -173,6 +175,7 @@ def build_window_input_scope(
         value_types=value_types,
         let_value_types=let_value_types,
         let_expressions=let_expressions,
+        type_expansions=type_expansions,
     )
 
 
@@ -230,6 +233,7 @@ def _build_grouped_scope(
     value_types: Mapping[Expression, ValueType],
     let_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> WindowInputScope:
     scratch_types = dict(value_types)
     _populate_aggregate_value_types(
@@ -239,12 +243,14 @@ def _build_grouped_scope(
         value_types=scratch_types,
         let_value_types=let_value_types,
         let_expressions=let_expressions,
+        type_expansions=type_expansions,
     )
     grouped_schema, _ = project_grouped_schema(
         definition,
         input_schema,
         expression_value_types=scratch_types,
         let_expansions=let_expressions,
+        type_expansions=type_expansions,
     )
     output_names = tuple(
         _projection_output_name(item) for item in definition.select_items
@@ -364,6 +370,7 @@ def _populate_aggregate_value_types(
     value_types: dict[Expression, ValueType],
     let_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> None:
     for item in definition.select_items:
         expression = item.expression
@@ -385,6 +392,7 @@ def _populate_aggregate_value_types(
                 field_qualifier=field_qualifier,
                 bare_value_types=let_value_types,
                 bare_value_expressions=let_expressions,
+                type_expansions=type_expansions,
             )
         result = semantic_projection_aggregate_result_value_type(
             function_name,

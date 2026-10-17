@@ -17,6 +17,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     TableDef,
+    TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -37,7 +38,7 @@ from pietto.semantic.aggregates import (
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
-from pietto.semantic.expressions import rejected_let_names
+from pietto.semantic.expressions import _canonical_value_type, rejected_let_names
 from pietto.semantic.group_by import project_grouped_schema
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
@@ -67,6 +68,7 @@ def propagate_relation_schemas(
     expression_value_types: Mapping[Expression, ValueType] | None = None,
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]]
     | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
     """Propagate stable projection names through table and query relations."""
 
@@ -87,6 +89,7 @@ def propagate_relation_schemas(
                 mode=mode,
                 expression_value_types=expression_value_types,
                 relation_let_expressions=relation_let_expressions,
+                type_expansions=type_expansions,
             )
             schemas[definition] = schema
             diagnostics.extend(relation_diagnostics)
@@ -109,6 +112,7 @@ def propagate_relation_schemas(
             mode=mode,
             expression_value_types=expression_value_types,
             relation_let_expressions=relation_let_expressions,
+            type_expansions=type_expansions,
         )
         visiting.remove(definition)
         schemas[definition] = schema
@@ -129,6 +133,7 @@ def _project_schema(
     mode: CheckMode,
     expression_value_types: Mapping[Expression, ValueType] | None,
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build ordered output fields from stable projection names."""
 
@@ -146,6 +151,7 @@ def _project_schema(
             expression_value_types=expression_value_types,
             let_expansions=let_expansions,
             rejected_lets=rejected_lets,
+            type_expansions=type_expansions,
         )
 
     fields: dict[str, RowField] = {}
@@ -156,6 +162,7 @@ def _project_schema(
         definition,
         expression_value_types=expression_value_types,
         let_expansions=let_expansions,
+        type_expansions=type_expansions,
     )
     diagnostics.extend(aggregate_diagnostics)
 
@@ -247,6 +254,7 @@ def _aggregate_projection_diagnostics(
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> tuple[list[Diagnostic], set[SelectItem]]:
     """Validate the direct aliased no-GROUP aggregate projection shape."""
 
@@ -301,18 +309,20 @@ def _aggregate_projection_diagnostics(
                 effective_argument,
                 expression_value_types,
             )
-            argument_type = (
+            authored_type = (
                 None
                 if expression_value_types is None
                 else expression_value_types.get(argument)
             )
-            if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
+            if authored_type is None or authored_type.kind is ValueTypeKind.UNKNOWN:
                 if not has_unknown_reference:
                     diagnostics.append(
                         deferred_argument_expression_diagnostic(expression)
                     )
                 invalid_items.add(item)
                 continue
+            # An aggregate reads a type alias argument as the type it expands to.
+            argument_type = _canonical_value_type(authored_type, type_expansions)
             if not is_supported_semantic_aggregate_argument(
                 function_name,
                 argument_type,
@@ -320,7 +330,7 @@ def _aggregate_projection_diagnostics(
                 diagnostics.append(
                     wrong_argument_type_diagnostic(
                         expression,
-                        actual_name=argument_type.resolved_type.name,
+                        actual_name=authored_type.resolved_type.name,
                     )
                 )
                 invalid_items.add(item)

@@ -17,6 +17,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     TableDef,
+    TypeExpr,
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -38,6 +39,7 @@ from pietto.semantic.aggregates import (
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
+from pietto.semantic.expressions import _canonical_value_type
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -86,6 +88,7 @@ def project_grouped_schema(
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None = None,
     rejected_lets: frozenset[str] = frozenset(),
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build grouped row schema facts while keeping lowering fail-closed.
 
@@ -167,6 +170,7 @@ def project_grouped_schema(
                 output_name=output_name,
                 expression_value_types=expression_value_types,
                 let_expansions=let_expansions,
+                type_expansions=type_expansions,
             )
             diagnostics.extend(aggregate_diagnostics)
             if aggregate_field is not None:
@@ -350,6 +354,7 @@ def _aggregate_output_field(
     output_name: str | None,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> tuple[RowField | None, list[Diagnostic], bool]:
     expression = item.expression
     diagnostics: list[Diagnostic] = []
@@ -394,15 +399,17 @@ def _aggregate_output_field(
             expression_value_types,
         )
 
-        argument_type = (
+        authored_type = (
             None
             if expression_value_types is None
             else expression_value_types.get(argument)
         )
-        if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
+        if authored_type is None or authored_type.kind is ValueTypeKind.UNKNOWN:
             if not has_unknown_reference:
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
             return _unknown_row_field(item.alias), diagnostics, False
+        # An aggregate reads a type alias argument as the type it expands to.
+        argument_type = _canonical_value_type(authored_type, type_expansions)
         if not is_supported_semantic_aggregate_argument(
             function_name,
             argument_type,
@@ -410,7 +417,7 @@ def _aggregate_output_field(
             diagnostics.append(
                 wrong_argument_type_diagnostic(
                     expression,
-                    actual_name=argument_type.resolved_type.name,
+                    actual_name=authored_type.resolved_type.name,
                 )
             )
             return _unknown_row_field(item.alias), diagnostics, False

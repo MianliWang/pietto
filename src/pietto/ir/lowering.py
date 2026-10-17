@@ -83,6 +83,7 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
     semantic_aggregate_result_value_type,
 )
+from pietto.semantic.expressions import _canonical_value_type
 from pietto.semantic import (
     EffectiveNullability,
     ResolvedType,
@@ -1013,7 +1014,10 @@ def _aggregate_type_matches_ir(
         expected = (
             None
             if argument_type is None
-            else semantic_aggregate_result_value_type(function_name, argument_type)
+            else semantic_aggregate_result_value_type(
+                function_name,
+                _canonical_value_type(argument_type, semantic_model.type_expansions),
+            )
         )
     else:
         expected = None

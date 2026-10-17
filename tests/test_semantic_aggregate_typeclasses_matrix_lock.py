@@ -434,19 +434,153 @@ def test_projection_alias_type_alias_and_phase43_row_let_boundaries() -> None:
         EffectiveNullability.NULLABLE,
     )
 
-    type_alias = analyze(
-        _parse(
-            "type Money = Decimal(12, 2) not null\n"
-            "shape Order:\n"
-            "    money: Money not null\n"
-            'source orders: Order is postgres.table("orders")\n'
-            "table aggregate_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        value = sum(money)\n"
-        )
+    type_alias_script = _parse(
+        "type Money = Decimal(12, 2) not null\n"
+        "shape Order:\n"
+        "    money: Money not null\n"
+        'source orders: Order is postgres.table("orders")\n'
+        "table aggregate_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        value = sum(money)\n"
     )
-    assert "PIE-S2314" in _error_codes(type_alias)
+    type_alias = analyze(type_alias_script)
+
+    # A type alias argument aggregates as the type it expands to.
+    assert type_alias.diagnostics == ()
+    _assert_value_type(
+        type_alias.model.relation_row_schemas[_relation_ast(type_alias_script)].fields[
+            "value"
+        ],
+        "Decimal",
+        EffectiveNullability.NULLABLE,
+    )
+
+
+# Every aliased field below, alias chain included, aggregates exactly as its base
+# type does; `status` stays Text for the lower/trim chain.
+ALIAS_TYPES = (
+    "type Flag = Bool not null\n"
+    "type Count = Int not null\n"
+    "type Ratio = Float not null\n"
+    "type Money = Decimal not null\n"
+    "type Cash = Money not null\n"
+    "type Day = Date nullable\n"
+    "type Moment = Timestamp not null\n"
+    "type Ident = UUID not null\n"
+)
+ALIAS_FIELDS = (
+    ("    active: Bool not null\n", "    active: Flag not null\n"),
+    ("    amount: Int not null\n", "    amount: Count not null\n"),
+    ("    tax: Int not null\n", "    tax: Count not null\n"),
+    ("    score: Float not null\n", "    score: Ratio not null\n"),
+    ("    weight: Float not null\n", "    weight: Ratio not null\n"),
+    ("    price: Decimal not null\n", "    price: Money not null\n"),
+    ("    discount: Decimal not null\n", "    discount: Cash not null\n"),
+    ("    order_date: Date nullable\n", "    order_date: Day nullable\n"),
+    ("    created_at: Timestamp not null\n", "    created_at: Moment not null\n"),
+    ("    customer_id: UUID not null\n", "    customer_id: Ident not null\n"),
+)
+
+
+def _aliased(source: str) -> str:
+    for base, alias in ALIAS_FIELDS:
+        assert source.count(base) == 1
+        source = source.replace(base, alias)
+    return ALIAS_TYPES + source
+
+
+@pytest.mark.parametrize(
+    ("grouped", "expected_schema"),
+    [(False, NO_GROUP_ROW_SCHEMA), (True, GROUPED_ROW_SCHEMA)],
+    ids=("no-group", "grouped"),
+)
+def test_type_alias_aggregate_arguments_read_as_their_base_type(
+    grouped: bool,
+    expected_schema: tuple[tuple[str, str, EffectiveNullability], ...],
+) -> None:
+    script, semantic, script_ir = _compile(
+        _aliased(_matrix_source("postgres.table", grouped=grouped))
+    )
+    schema = semantic.model.relation_row_schemas[_relation_ast(script)]
+
+    assert tuple(schema.fields) == tuple(name for name, _, _ in expected_schema)
+    for name, expected_type, expected_nullability in expected_schema:
+        # min/max of an alias give the base type, not the alias.
+        _assert_value_type(schema.fields[name], expected_type, expected_nullability)
+    _assert_aggregate_ir_matrix(script_ir, expected_schema)
+
+    for connector, emitter in (
+        ("postgres.table", emit_postgres_sql),
+        ("mysql.table", emit_mysql_sql),
+    ):
+        base = emitter(_compile(_matrix_source(connector, grouped=grouped))[2])
+        aliased = emitter(
+            _compile(_aliased(_matrix_source(connector, grouped=grouped)))[2]
+        )
+        assert base.diagnostics == aliased.diagnostics == ()
+        assert [artifact.sql for artifact in aliased.artifacts] == [
+            artifact.sql for artifact in base.artifacts
+        ]
+
+
+def test_aggregate_alias_arguments_keep_their_base_type_boundaries() -> None:
+    # An alias of Any counts as Any, which count refuses; an alias of Json or
+    # Bytes counts as before, and refusals name the alias as written.
+    script = _parse(
+        "type Whatever = Any not null\n"
+        "type Doc = Json not null\n"
+        "type Blob = Bytes not null\n"
+        "shape Order:\n"
+        "    anything: Whatever not null\n"
+        "    payload: Doc not null\n"
+        "    raw: Blob not null\n"
+        'source orders: Order is postgres.table("orders")\n'
+        "table counted:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        any_count = count(anything)\n"
+        "        payload_count = count(payload)\n"
+        "        raw_count = count(raw)\n"
+        "        unique_raw = count_distinct(raw)\n"
+        "        top_payload = max(payload)\n"
+    )
+    semantic = analyze(script)
+    schema = semantic.model.relation_row_schemas[_relation_ast(script)]
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2314",
+            "Aggregate function count expects concrete non-Any field argument, "
+            "got Whatever",
+            12,
+            21,
+        ),
+        (
+            "PIE-S2314",
+            "Aggregate function count_distinct expects Bool, Int, Float, Decimal, "
+            "Text, Date, Timestamp, or UUID field argument, got Blob",
+            15,
+            22,
+        ),
+        (
+            "PIE-S2314",
+            "Aggregate function max expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Doc",
+            16,
+            23,
+        ),
+    ]
+    for name in ("payload_count", "raw_count"):
+        _assert_value_type(schema.fields[name], "Int", EffectiveNullability.NON_NULL)
 
 
 def test_decimal_precision_scale_aggregates_remain_logical_non_public_decimal() -> None:
