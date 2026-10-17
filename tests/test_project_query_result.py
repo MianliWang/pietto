@@ -562,6 +562,35 @@ query reads_refused:
     from grouped_via
     select:
         n
+query nofrom_via:
+    from per_user
+    inner join users as x:
+        via per_user_user: p -> u
+    select:
+        n = x.name
+query nofrom:
+    from per_user
+    inner join users as x
+    select:
+        n = x.name
+query header_via:
+    from per_user
+    left join users as x: via per_user_user
+    select:
+        n = x.name
+query inferred_and_written:
+    from per_user
+    inner join users as x
+    inner join sales as y:
+        from per_user
+        via per_user_sale: p -> s
+    select:
+        n = x.name
+query chained_nofrom:
+    from copied
+    inner join users as x
+    select:
+        n = x.name
 """
 
 
@@ -633,6 +662,34 @@ def test_relationship_join_over_an_input_without_join_rows_names_why(
         ),
         ("PIE-S2333", f"{unavailable}grouped_target", 124, 1),
         ("PIE-S2333", f"{unavailable}reads_refused", 138, 1),
+        # A JOIN without `from` reads the input its lookup infers.
+        (
+            "PIE-S2333",
+            f"{unavailable}nofrom_via (JOIN x reads per_user, {grouped}",
+            142,
+            1,
+        ),
+        ("PIE-S2333", f"{unavailable}nofrom (JOIN x reads per_user, {grouped}", 148, 1),
+        (
+            "PIE-S2333",
+            f"{unavailable}header_via (JOIN x reads per_user, {grouped}",
+            153,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}inferred_and_written (JOINs x and y read per_user, "
+            f"{grouped}",
+            158,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}chained_nofrom (JOIN x reads copied, {pending}: "
+            "it reads per_user, which has GROUP BY and a computed SELECT output)",
+            166,
+            1,
+        ),
     ]
 
 

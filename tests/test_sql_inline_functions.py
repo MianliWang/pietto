@@ -56,6 +56,13 @@ PROGRAMS = {
         "table t:\n    from rows\n    select:\n        id\n"
         '        l = ((upper(text)) if id > 0 else "none")\n',
     ),
+    "alias_typed_signature": (
+        "type Count = Int not null\n"
+        "def bump(v: Count not null) -> Count nullable: return v + 1\n"
+        "table t:\n    from rows\n    select:\n        id\n        v = bump(id)\n",
+        "type Count = Int not null\n"
+        "table t:\n    from rows\n    select:\n        id\n        v = (id + 1)\n",
+    ),
     "parameter_named_like_a_function": (
         "def f(upper: Text not null) -> Text not null: return upper(upper)\n"
         "table t:\n    from rows\n    select:\n        id\n        v = f(lower)\n",

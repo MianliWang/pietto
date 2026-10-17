@@ -44,7 +44,10 @@ DEFS = (
 )
 # The first line of a relation written after SHAPES and DEFS.
 BODY_LINE = 10
-SCALARS = "Bool, Int, Float, Decimal, Text, Date, Timestamp or UUID, without arguments"
+SCALARS = (
+    "Bool, Int, Float, Decimal, Text, Date, Timestamp or UUID, without arguments, "
+    "or an alias of one declared in this file without arguments or `ensure`"
+)
 
 
 def _errors(source: str) -> list[tuple[str, int, int, str]]:
@@ -104,19 +107,12 @@ DEFINITION_ERRORS = {
             )
         ],
     ),
-    "alias_enum_any_and_type_arguments": (
+    "enum_any_and_type_arguments": (
         "type Percent = Int not null\nenum Status: a, b\n"
         "def f(p: Percent not null, s: Status not null, a: Any not null, "
         "d: Decimal(9, 2) not null) -> Bool not null: "
         "return p is null and s is null and a is null and d is null\n",
         [
-            (
-                "PIE-S2397",
-                3,
-                10,
-                f"Def f parameter p has type Percent; a def "
-                f"parameter or result type is exactly {SCALARS}",
-            ),
             (
                 "PIE-S2397",
                 3,
@@ -504,6 +500,56 @@ def test_an_alias_argument_matches_its_canonical_type() -> None:
     assert _errors(source) == []
 
 
+ALIASES = (
+    "type Percent = Int not null\ntype Share = Percent nullable\n"
+    "type Positive = Int not null:\n    ensure self > 0\n"
+    "type Code = Text(max = 3) not null\ntype Tag = Code not null\n"
+    "enum Status: a, b\ntype State = Status not null\n"
+)
+
+
+def test_a_def_reads_an_alias_of_its_file_as_the_type_it_expands_to() -> None:
+    """A signature alias is its base type, as an operator reads one: the
+    body and every argument are checked against that type."""
+    source = (
+        ALIASES
+        + SHAPES
+        + "def bump(p: Share nullable) -> Percent nullable: return p + 1\n"
+        "table t:\n    from rows\n    select:\n        id\n"
+        "        b = bump(bump(n))\n        c = bump(text)\n"
+    )
+    assert _errors(source) == [
+        (
+            "PIE-S2395",
+            22,
+            13,
+            "Invalid argument for def bump at position 1 (p): "
+            "expected Int nullable, got Text not null",
+        )
+    ]
+
+
+def test_a_def_refuses_an_alias_with_ensure_or_type_arguments_or_of_an_enum() -> None:
+    source = ALIASES + (
+        "def f(a: Positive not null, b: Tag not null) -> State nullable: "
+        "return a > 0 and b == ''\n"
+    )
+    assert _errors(source) == [
+        (
+            "PIE-S2397",
+            9,
+            column,
+            f"Def f {role} has type {name}; a def parameter or result type is "
+            f"exactly {SCALARS}",
+        )
+        for column, role, name in (
+            (10, "parameter a", "Positive"),
+            (32, "parameter b", "Tag"),
+            (49, "result", "State"),
+        )
+    ]
+
+
 def test_keywords_name_a_def_and_its_parameter() -> None:
     source = (
         SHAPES + "def def(return: Int not null) -> Int nullable: return return + 1\n"
@@ -726,8 +772,8 @@ NULLS = {
         ],
     ),
     "null_into_nullable": (
-        "def opt(x: Int nullable) -> Bool nullable: return x > 0\n"
-        "table t:\n    from rows\n    where opt(null)\n    select:\n        id\n",
+        "def opt(x: Int nullable) -> Int nullable: return coalesce(x, 0)\n"
+        "table t:\n    from rows\n    where opt(null) > 0\n    select:\n        id\n",
         [],
     ),
     "null_body": (
@@ -759,8 +805,9 @@ NULLS = {
     "null_comparison_argument": (
         "def same(x: Text nullable) -> Text nullable: return x\n"
         "def flag(b: Bool nullable) -> Bool nullable: return b\n"
-        "table t:\n    from rows\n    where flag(id == null)\n    select:\n"
-        "        id\n        v = same(text == null)\n        w = up(text == null)\n",
+        "table t:\n    from rows\n    where flag(id == (id + null))\n    select:\n"
+        "        id\n        v = same(id == (id + null))\n"
+        "        w = up(id == (id + null))\n",
         [
             (
                 "PIE-S2395",
@@ -772,6 +819,60 @@ NULLS = {
             for line, name, parameter, nullability in (
                 (7, "same", "x", "nullable"),
                 (8, "up", "t", "not null"),
+            )
+        ],
+    ),
+    # A comparison with the null literal is never true (PIE-S2105), in an
+    # argument as by hand: it is reported at each use of the argument, as any
+    # error inside an argument is, and the argument is then not checked
+    # against the parameter, so no PIE-S2395 restates it.
+    "null_literal_comparison_argument": (
+        "def flag(b: Bool not null) -> Bool nullable: return b or b\n"
+        "table t:\n    from rows\n    where flag(id == null)\n    select:\n"
+        "        id\n        w = up(text != null)\n",
+        [
+            *[
+                (
+                    "PIE-S2105",
+                    BODY_LINE + 3,
+                    16,
+                    "Invalid operands for operator ==: comparison with null is "
+                    "never true; write `is null` instead",
+                )
+            ]
+            * 2,
+            (
+                "PIE-S2105",
+                BODY_LINE + 6,
+                16,
+                "Invalid operands for operator !=: comparison with null is "
+                "never true; write `is not null` instead",
+            ),
+        ],
+    ),
+    # A null argument makes a comparison of the body never true; it is
+    # reported where the expansion is typed, at the call.
+    "null_argument_in_a_body_comparison": (
+        "def low(x: Int nullable) -> Bool nullable: return x < 3\n"
+        "table t:\n    from rows\n    where low(null)\n    select:\n        id\n",
+        [
+            (
+                "PIE-S2105",
+                BODY_LINE + 3,
+                11,
+                "Invalid operands for operator <: comparison with null is never true",
+            )
+        ],
+    ),
+    "null_comparison_body": (
+        "def f(x: Int nullable) -> Bool nullable: return x == null\n",
+        [
+            (
+                "PIE-S2105",
+                BODY_LINE,
+                49,
+                "Invalid operands for operator ==: comparison with null is "
+                "never true; write `is null` instead",
             )
         ],
     ),

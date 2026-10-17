@@ -53,12 +53,9 @@ Top-level declarations are `type`, `enum`, `constraint`, `derive`, `def`,
 
 ### Layout
 
-Lines may end with LF, CRLF or CR. Positions count lines at LF only, so in a
-file whose lines end with CR alone every position, in diagnostics and in the
-AST, is on line 1, with columns running on as they always have. Only the
-PIE-P1004 tab check counts lines differently: it also ends a line at a lone
-CR, and at a vertical tab, form feed, U+001C, U+001D, U+001E, U+0085, U+2028
-or U+2029, even inside a comment or string. A file must not start indented:
+Lines end at LF, CRLF or a lone CR, as [Source structure](#source-structure)
+states; the layout rules below, the indentation and parenthesized-line checks
+among them, count each as one line end. A file must not start indented:
 an indented first code line, after any blank or comment lines, is PIE-P1000
 (`Unexpected indentation.`) at that line. The rest of the file is measured as
 if that line started at column 0, so a file indented as a whole can also get a
@@ -1547,9 +1544,14 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 - Signature: each parameter and the result have exactly one of the types
   `Bool`, `Int`, `Float`, `Decimal`, `Text`, `Date`, `Timestamp` or `UUID`,
   without type arguments, and state `nullable` or `not null`. An omitted
-  marker is a syntax error (PIE-P1000). A type alias, enum, `Any`, `Bytes`,
-  `Json`, type arguments or a shape (a row type, which is not available yet)
-  is PIE-S2397. Arguments are positional only.
+  marker is a syntax error (PIE-P1000). A type alias declared in the same
+  file is read as the type it expands to, as an operator reads one, when its
+  chain of aliases ends at one of these types and no alias in the chain has
+  type arguments or an `ensure`; its own nullability is the marker written in
+  the signature. Any other alias (such as one imported into a module, or an
+  alias of an enum), an enum, `Any`, `Bytes`, `Json`, type arguments or a
+  shape (a row type, which is not available yet) is PIE-S2397. Arguments are
+  positional only.
 - Body: one `return` expression, on the `def` line or in an indented block. It
   reads only its parameters and may use literals, operators, the built-in
   scalar functions and other defs. Every parameter must be used (PIE-S2397).
@@ -1588,13 +1590,18 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   comparison with an always-null operand, such as `id + null`; or a
   `coalesce` or conditional of such values) fits only a `nullable`
   parameter, and its type is still checked when it has one: a comparison
-  such as `text == null` is `Bool`. These are PIE-S2395 at the call, also
-  when the call is in a def body, reported once however many times the body
-  uses the argument and, when the argument is itself a def call, only for
-  the innermost call that does not fit. An
-  argument whose type is unknown for another reason, such as a field of a
-  source without a shape, is not checked, as the same expression written by
-  hand is not. An argument cannot read a relation (`exists`, `scalar` or
+  such as `text == (id + null)` is `Bool`. These are PIE-S2395 at the call,
+  also when the call is in a def body, reported once however many times the
+  body uses the argument and, when the argument is itself a def call, only
+  for the innermost call that does not fit. An argument with an error of its
+  own, such as a comparison with the null literal (`text == null`,
+  PIE-S2105), is not checked against its parameter, and an argument whose
+  type is unknown for another reason, such as a field of a source without a
+  shape, is not checked either, as the same expression written by hand is
+  not. A comparison with null is never true wherever the expansion puts it:
+  `low(null)` with `def low(x: Int nullable) -> Bool nullable: return x < 3`
+  is PIE-S2105 at the call, as `null < 3` is by hand, unless the null
+  argument does not fit its parameter, which is then the one error. An argument cannot read a relation (`exists`, `scalar` or
   `in`) yet (PIE-S2395), because a body that repeats or reorders its
   parameters would change the SQL names of those reads.
 - Positions: a call is refused (PIE-S2397), in a def body as anywhere else,
@@ -2045,9 +2052,10 @@ has `let:` bindings, GROUP BY, `satisfying` or a computed SELECT output, such as
 a grouped or windowed query, or that reads such a relation or a relation let
 through a chain of `from` inputs. When the FROM input of a table or query is
 such an input and every JOIN of it is an INNER or LEFT JOIN through a
-relationship, with or without `via` and without `on`, the check reports
-PIE-S2333 at the table or query with a clause that names the JOINs reading the
-input and why, for example
+relationship, with or without `from` and `via` and without `on`, the check
+reports PIE-S2333 at the table or query with a clause that names the JOINs
+reading the input, by a written `from` or the one their lookup infers, and
+why, for example
 `Project relation semantic completion is unavailable: q (JOIN x reads per_user, whose rows are not available to a relationship JOIN yet: it has GROUP BY and a computed SELECT output)`.
 A RIGHT, FULL, SEMI or ANTI JOIN through a relationship reading such an input
 reports PIE-S2334 and PIE-S2335 at the JOIN, and an INNER or LEFT JOIN with

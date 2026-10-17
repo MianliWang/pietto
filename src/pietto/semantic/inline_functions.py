@@ -43,6 +43,7 @@ from pietto.ast_nodes import (
     TableDef,
     TableFunctionFromClause,
     TypeArgument,
+    TypeDef,
     TypeExpr,
     ValuesBody,
     WindowExpr,
@@ -138,8 +139,9 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
         if type(definition) is FunctionDef:
             defined[name] = cast(FunctionDef, definition)
     shapes = _shape_names(script)
+    aliases = _scalar_aliases(script)
     for function in defined.values():
-        found.extend(_signature_diagnostics(function, shapes))
+        found.extend(_signature_diagnostics(function, shapes, aliases))
         found.extend(_body_form_diagnostics(function))
     found.extend(_recursion_diagnostics(defined))
     # A def body is walked as its expansion is, so a call in a type argument
@@ -151,6 +153,10 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
     )
     if found:
         return script, _ordered(found)
+    # A def reads each alias in its signature as the type it expands to.
+    defined = {
+        name: _with_alias_bases(function, aliases) for name, function in defined.items()
+    }
 
     templates: dict[str, Expression] = {}
     occurrences = itertools.count(1)
@@ -517,8 +523,65 @@ def _shape_names(script: Script) -> frozenset[str]:
     )
 
 
+def _scalar_aliases(script: Script) -> dict[str, str]:
+    """Each type alias declared once in the file, and not named by an import,
+    whose chain of such aliases ends at a def scalar type, with that type. No
+    alias in the chain has type arguments or an ``ensure``."""
+
+    counts: dict[str, int] = {}
+    for definition in script.definitions:
+        if type(definition) is TypeDef:
+            name = cast(TypeDef, definition).name
+            counts[name] = counts.get(name, 0) + 1
+    imported = {
+        item.local_name or item.exported_name
+        for statement in script.module_statements
+        if type(statement) is ImportStatement
+        for item in statement.items
+    }
+    aliases = {
+        definition.name: definition
+        for definition in script.definitions
+        if type(definition) is TypeDef
+        and counts[definition.name] == 1
+        and definition.name not in imported
+    }
+    # Each alias is walked once: a chain stops at an alias already decided.
+    decided: dict[str, str | None] = {}
+    for name in aliases:
+        chain: dict[str, None] = {}
+        current: str | None = name
+        while current in aliases and current not in decided and current not in chain:
+            chain[current] = None
+            alias = aliases[current]
+            current = None if alias.ensures or alias.base.arguments else alias.base.name
+        if current is None or current in chain:
+            base = None
+        elif current in decided:
+            base = decided[current]
+        else:
+            base = current if current in _SCALAR_TYPES else None
+        decided.update(dict.fromkeys(chain, base))
+    return {name: base for name, base in decided.items() if base is not None}
+
+
+def _with_alias_bases(function: FunctionDef, aliases: dict[str, str]) -> FunctionDef:
+    def base(type_expr: TypeExpr) -> TypeExpr:
+        name = aliases.get(type_expr.name)
+        return type_expr if name is None else replace(type_expr, name=name)
+
+    return replace(
+        function,
+        parameters=tuple(
+            replace(parameter, type=base(parameter.type))
+            for parameter in function.parameters
+        ),
+        return_type=base(function.return_type),
+    )
+
+
 def _signature_diagnostics(
-    function: FunctionDef, shapes: frozenset[str]
+    function: FunctionDef, shapes: frozenset[str], aliases: dict[str, str]
 ) -> list[Diagnostic]:
     found: list[Diagnostic] = []
     if function.name in _RESERVED_NAMES:
@@ -544,17 +607,29 @@ def _signature_diagnostics(
         seen.add(parameter.name)
         found.extend(
             _type_diagnostics(
-                function, parameter.type, f"parameter {parameter.name}", shapes
+                function,
+                parameter.type,
+                f"parameter {parameter.name}",
+                shapes,
+                aliases,
             )
         )
-    found.extend(_type_diagnostics(function, function.return_type, "result", shapes))
+    found.extend(
+        _type_diagnostics(function, function.return_type, "result", shapes, aliases)
+    )
     return found
 
 
 def _type_diagnostics(
-    function: FunctionDef, type_expr: TypeExpr, role: str, shapes: frozenset[str]
+    function: FunctionDef,
+    type_expr: TypeExpr,
+    role: str,
+    shapes: frozenset[str],
+    aliases: dict[str, str],
 ) -> list[Diagnostic]:
-    if type_expr.name in _SCALAR_TYPES and not type_expr.arguments:
+    if (
+        type_expr.name in _SCALAR_TYPES or type_expr.name in aliases
+    ) and not type_expr.arguments:
         return []
     if type_expr.name in shapes:
         message = (
@@ -566,7 +641,8 @@ def _type_diagnostics(
         message = (
             f"Def {function.name} {role} has type {written}; a def parameter "
             f"or result type is exactly {', '.join(_SCALAR_TYPES[:-1])} or "
-            f"{_SCALAR_TYPES[-1]}, without arguments"
+            f"{_SCALAR_TYPES[-1]}, without arguments, or an alias of one declared "
+            "in this file without arguments or `ensure`"
         )
     return [_diagnostic("PIE-S2397", message, type_expr.span)]
 

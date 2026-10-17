@@ -256,12 +256,10 @@ def test_tabs_inside_joined_lines_are_still_reported() -> None:
     (
         ("\n", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
         ("\r\n", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
-        # ANTLR counts lines only at LF, so a CR-only file keeps its positions
-        # on line 1, as it always has.
-        ("\r", [(1, 16, 1, 32), (1, 37, 1, 47)], (1, 47), (1, 61)),
+        ("\r", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
     ),
 )
-def test_line_endings_keep_the_positions_they_always_had(
+def test_lf_crlf_and_cr_give_the_same_positions_around_joined_lines(
     ending: str,
     fields: list[tuple[int, int, int, int]],
     shape_end: tuple[int, int],
@@ -382,8 +380,7 @@ def test_a_file_indented_as_a_whole_reports_its_first_code_line(
     (
         ("shape Row:\n\tid: Int\n", 2),
         ("shape Row:\r\n\tid: Int\r\n", 2),
-        # The tab check counts a lone CR as a line end, unlike every other
-        # position in a CR-only file.
+        # A lone CR ends a line for the tab check as for every position.
         ("shape S:\r    a: Int not null\r\tx: Int\r", 3),
         # It also ends a line at a form feed inside a comment.
         ("# a\fb\nshape Row:\n\tid: Int\n", 4),

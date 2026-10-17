@@ -747,6 +747,7 @@ def _fallback_diagnostic(
     entry: ProjectEffectiveOutputCompletionEntry,
     semantic_facts: module_semantic_fact_preservation.ProjectModuleSemanticFactSet
     | None,
+    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
     causes: tuple[str, ...] = (),
 ) -> Diagnostic:
     if type(entry) not in {
@@ -774,7 +775,7 @@ def _fallback_diagnostic(
                 f" ({'; '.join(causes)})"
                 if causes
                 else _fanout_cause(entry)
-                or _deferred_input_cause(entry, semantic_facts)
+                or _deferred_input_cause(entry, semantic_facts, uses)
             )
         ),
         location=SourceLocation(
@@ -791,6 +792,7 @@ def _deferred_input_cause(
     entry: ProjectEffectiveOutputCompletionEntry,
     semantic_facts: module_semantic_fact_preservation.ProjectModuleSemanticFactSet
     | None,
+    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
 ) -> str:
     """Name the relationship JOINs reading an input that has no JOIN facts yet.
 
@@ -812,10 +814,18 @@ def _deferred_input_cause(
     if not isinstance(definition, (TableDef, QueryDef)):
         return ""
     base = definition.from_clause.source_name
+    # A JOIN without `from` reads the source its relationship lookup inferred.
+    inferred = {
+        id(use.clause): use.source_binding.name
+        for ledger in (() if uses is None else uses.ledgers)
+        if ledger.owner is entry.owner
+        for use in ledger.uses
+        if use.source_binding is not None
+    }
     joins = tuple(
         clause.target_binding_name
         for clause in definition.join_clauses
-        if clause.source_binding_name == base
+        if (clause.source_binding_name or inferred.get(id(clause))) == base
     )
     if not joins:
         return ""
@@ -1711,6 +1721,7 @@ def _final_diagnostics(
                 _fallback_diagnostic(
                     entry,
                     semantic_facts,
+                    uses,
                     tuple(cause for clause, cause in causes if not _infers(clause)),
                 ),
             )

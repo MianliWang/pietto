@@ -168,18 +168,20 @@ def test_duplicate_or_out_of_order_header_reports_syntax_error(
     assert _has_code(result, "PIE-P1000")
 
 
+# An indentation or brace error is the cause: its declaration gets no parser
+# error beside it.
 _LINE_END_CASES = {
     "tab": (
         "type Age = Int:\n    ensure self >= 0\n\tensure self < 9\n",
-        [("PIE-P1004", 3, 1), ("PIE-P1000", 3, 2), ("PIE-P1003", 3, 2)],
+        [("PIE-P1004", 3, 1), ("PIE-P1003", 3, 2)],
     ),
     "dedent": (
         "type Age = Int:\n    ensure self >= 0\n  ensure self <= 130\n",
-        [("PIE-P1000", 3, 3), ("PIE-P1003", 3, 3)],
+        [("PIE-P1003", 3, 3)],
     ),
     "brace": (
         "type A = Int\n\ntype Age = Int {\n",
-        [("PIE-P1000", 3, 16), ("PIE-P1005", 3, 16)],
+        [("PIE-P1005", 3, 16)],
     ),
     "escape": (
         'type A = Int\ntype P = Text(default = "a\\q")\n',
@@ -211,21 +213,19 @@ def test_mixed_line_ends_each_end_one_line_in_diagnostics() -> None:
     assert [
         (item.code, item.location.line, item.location.column)
         for item in result.diagnostics
-    ] == [("PIE-P1004", 6, 1), ("PIE-P1000", 6, 2), ("PIE-P1003", 6, 2)]
+    ] == [("PIE-P1004", 6, 1), ("PIE-P1003", 6, 2)]
 
 
-@pytest.mark.parametrize(
-    ("ending", "quoted"),
-    [("\n", "\\n"), ("\r\n", "\\r\\n"), ("\r", "\\r")],
-    ids=["lf", "crlf", "cr"],
-)
-def test_syntax_error_quotes_the_line_end_as_written(ending: str, quoted: str) -> None:
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+def test_a_syntax_error_at_a_line_end_reads_the_same_for_every_ending(
+    ending: str,
+) -> None:
     result = parse_source(f"type A = Int{ending}{ending}type B ={ending}")
 
     assert [
         (item.code, item.location.line, item.location.column, item.message)
         for item in result.diagnostics
-    ] == [("PIE-P1000", 3, 9, f"no viable alternative at input 'typeB={quoted}'")]
+    ] == [("PIE-P1000", 3, 9, "Unexpected end of line.")]
 
 
 def _has_code(result: ParseResult, code: str) -> bool:
@@ -853,17 +853,19 @@ def test_a_cancelled_parse_stops_inside_one_long_token(
     cancel = Event()
     lexers: list[PiettoLexer] = []
 
-    class Watched(PiettoLexer):
+    class Watched(parser_api._PiettoLexer):
         def nextToken(self) -> Any:
             lexers.append(self)
             cancel.set()
             return super().nextToken()
 
-    monkeypatch.setattr(parser_api, "PiettoLexer", Watched)
+    monkeypatch.setattr(parser_api, "_PiettoLexer", Watched)
     with pytest.raises(ParseCancelled):
         parser_api._parse_source(source, path=None, cancel=cancel)
-    # It stopped inside the comment, long before the comment's end.
+    # It stopped inside the comment, long before the comment's end, while
+    # the simulator that counts a lone CR as a line end was lexing.
     assert len(lexers) == 1 and lexers[0].inputStream.index <= 4096
+    assert type(lexers[0]._interp) is parser_api._LineEndSimulator
 
 
 def test_a_parse_without_a_free_thread_runs_on_the_caller(

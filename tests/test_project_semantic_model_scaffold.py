@@ -563,6 +563,64 @@ def test_a_project_checks_def_arguments_in_its_typed_positions(
     ]
 
 
+def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A local alias is its base type in a signature; a comparison with the
+    null literal is PIE-S2105 once, in an argument or made by a null
+    argument, and a null argument that does not fit is only PIE-S2395."""
+    source = DEF_HEAD + (
+        "type Money = Int not null\n"
+        "def bump(x: Money nullable) -> Money nullable: return x + 1\n"
+        "def flag(b: Bool not null) -> Bool nullable: return b or b\n"
+        "def low(x: Int nullable) -> Bool nullable: return x < 3\n"
+        "query q:\n    from rows\n"
+        "    where flag(n == null) and low(null) and pos(null)\n"
+        "    select:\n        id\n        v = bump(id)\n"
+    )
+    never = "comparison with null is never true"
+    line = DEF_LINE + 6
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        (
+            "PIE-S2105",
+            "a.pietto",
+            line,
+            16,
+            f"Invalid operands for operator ==: {never}; write `is null` instead",
+        ),
+        (
+            "PIE-S2105",
+            "a.pietto",
+            line,
+            31,
+            f"Invalid operands for operator <: {never}",
+        ),
+        _mismatch("pos", line, 45, "Int not null", "null"),
+    ]
+
+
+def test_a_project_def_refuses_an_imported_alias(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    files = {
+        "t.pietto": "type Cash = Int not null\nexport:\n    type Cash\n",
+        "a.pietto": 'import "t.pietto":\n    type Cash\n'
+        "def c(x: Cash nullable) -> Int nullable: return x\n",
+    }
+    assert _def_check(tmp_path, capsys, files) == [
+        (
+            "PIE-S2397",
+            "a.pietto",
+            3,
+            10,
+            "Def c parameter x has type Cash; a def parameter or result type is "
+            "exactly Bool, Int, Float, Decimal, Text, Date, Timestamp or UUID, "
+            "without arguments, or an alias of one declared in this file without "
+            "arguments or `ensure`",
+        )
+    ]
+
+
 REPEATED_DEFS = (
     "def blank(x: Text nullable) -> Bool nullable: return x is null or x == ''\n"
     "def same(x: Bool nullable) -> Bool nullable: return x\n"

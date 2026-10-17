@@ -122,14 +122,17 @@ def checks_inlined_arguments(
 
     @functools.wraps(infer)
     def checked(*args: _P.args, **kwargs: _P.kwargs) -> ValueType:
+        diagnostics = cast(list[Diagnostic], kwargs["diagnostics"])
+        reported = len(diagnostics)
         return _check_inlined_argument(
             cast(Expression, args[0]),
             infer(*args, **kwargs),
-            cast(list[Diagnostic], kwargs["diagnostics"]),
+            diagnostics,
             cast(
                 Mapping[TypeExpr, ResolvedType] | None,
                 kwargs.get("type_expansions"),
             ),
+            reported=reported,
         )
 
     return checked
@@ -140,27 +143,37 @@ def _check_inlined_argument(
     value_type: ValueType,
     diagnostics: list[Diagnostic],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    reported: int | None = None,
 ) -> ValueType:
     """Check an argument against each ``def`` parameter it is inlined for.
 
     A known type must be the parameter type after alias expansion, and a
     ``not null`` parameter takes only a value proven non-null. An argument
     that is always null fits only a nullable parameter, and only one of its
-    own type when it has one: a comparison with null is still Bool. Any other
-    argument whose type is unknown is not checked: either an error was
-    reported for it or nothing is known about it, as for a field of a source
-    without a shape. A mismatch is one error at the innermost call that does
-    not fit, however many uses of the argument the body has, and every use
-    then stays Unknown so that the expansion reports nothing else.
+    own type when it has one: a comparison with an always-null operand is
+    still Bool. Any other argument whose type is unknown is not checked:
+    either an error was reported for it (``diagnostics`` grew past
+    ``reported`` while it was typed, as for a comparison with the null
+    literal) or nothing is known about it, as for a field of a source without
+    a shape. A mismatch is one error at the innermost call that does not fit,
+    however many uses of the argument the body has, and every use then stays
+    Unknown so that the expansion reports nothing else.
     """
 
     slots = inlined_arguments(expression)
     if not slots:
         return value_type
-    is_null = always_null(expression)
     known = value_type.kind is not ValueTypeKind.UNKNOWN
-    if not known and not is_null:
+    if not known and (
+        (
+            reported is not None
+            and any(item.severity is Severity.ERROR for item in diagnostics[reported:])
+        )
+        or not always_null(expression)
+    ):
         return value_type
+    is_null = always_null(expression)
     canonical = _canonical_resolved_type(value_type, type_expansions) if known else None
     fits = True
     for slot in slots:
@@ -1184,6 +1197,7 @@ def _infer(
 
     if type(expression) not in _KNOWN_EXPRESSIONS:
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
+    reported = len(diagnostics)
     existing = value_types.get(expression)
     if existing is not None:
         if inlined_arguments(expression):
@@ -1472,7 +1486,7 @@ def _infer(
 
     if inlined_arguments(expression):
         value_type = _check_inlined_argument(
-            expression, value_type, diagnostics, type_expansions
+            expression, value_type, diagnostics, type_expansions, reported=reported
         )
     value_types[expression] = value_type
     return value_type
@@ -2354,11 +2368,19 @@ def _reads_null_literal(
     *,
     every: bool = False,
 ) -> bool:
-    """Whether any (or every) operand is, after `let:` inlining, the null literal."""
+    """Whether any (or every) operand is, after `let:` inlining, the null literal.
+
+    A null ``def`` argument that does not fit its parameter is not: that is
+    PIE-S2395, and its use is Unknown to the expression around it.
+    """
 
     reads = (
-        _is_null_literal(let_value(expression, row_schema, let_expressions))
-        for expression in expressions
+        _is_null_literal(value)
+        and all(slot.nullable for slot in inlined_arguments(value))
+        for value in (
+            let_value(expression, row_schema, let_expressions)
+            for expression in expressions
+        )
     )
     return all(reads) if every else any(reads)
 

@@ -179,6 +179,45 @@ def test_recursion_limit_diagnostic_spans_the_first_most_nested_module(
     )
 
 
+def test_recursion_limit_diagnostic_measures_modules_with_their_defs_inlined(
+    tmp_path: Path,
+) -> None:
+    # As written, b.pietto nests deeper; with its six calls inlined, a.pietto
+    # does, and every later reader walks the inlined module.
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    head = "shape Row:\n    id: Int not null\n" + (
+        'source rows: Row is postgres.table("rows")\n'
+    )
+    _write(
+        root,
+        "a.pietto",
+        head + "def f(x: Int nullable) -> Int nullable: return (x + 1) * 2\n"
+        "query a:\n    from rows\n    where f(f(f(f(f(f(id)))))) > 0\n"
+        "    select:\n        id\n",
+    )
+    _write(
+        root,
+        "b.pietto",
+        head.replace("rows", "others") + "query b:\n    from others\n"
+        f"    where {'(' * 9}id{' + 1)' * 9} > 0\n    select:\n        id\n",
+    )
+
+    result = check_project_parse_only(root)
+
+    assert result.ok
+    assert project_recursion_limit_diagnostic(result) == Diagnostic(
+        code="PIE-S2006",
+        severity=Severity.ERROR,
+        message=_RECURSION_LIMIT,
+        location=SourceLocation(
+            path="a.pietto", line=1, column=1, end_line=9, end_column=11
+        ),
+    )
+
+
 def test_parse_only_project_check_reports_source_read_errors_and_continues(
     tmp_path: Path,
 ) -> None:
