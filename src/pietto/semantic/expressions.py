@@ -1262,6 +1262,12 @@ def _infer(
                     "a pattern that does not end in the escape character ! "
                     "(write !! for a literal !)"
                 )
+        elif _reads_null_literal(
+            (expression.left, expression.right), row_schema, bare_value_expressions
+        ):
+            remedy = {"==": "is null", "!=": "is not null"}.get(expression.operator)
+            diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
+            value_type, expected = _UNKNOWN_VALUE_TYPE, None
         else:
             value_type, expected = resolved_comparison_value_type(
                 left_type, right_type, type_expansions
@@ -1502,6 +1508,24 @@ def _membership_value_type(
         )
         for child in (expression.value, *expression.options)
     )
+    # A non-empty list tests `value == option` for each option: always NULL
+    # when every test reads the null literal; another option may still match.
+    if expression.options:
+        null_value = _reads_null_literal(
+            (expression.value,), row_schema, bare_value_expressions
+        )
+        if null_value or _reads_null_literal(
+            expression.options, row_schema, bare_value_expressions, every=True
+        ):
+            remedy = (
+                None
+                if null_value
+                else "is not null"
+                if expression.negated
+                else "is null"
+            )
+            diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
+            return _UNKNOWN_VALUE_TYPE
     contextual = _contextual_null_literal_types(
         (expression.value, *expression.options),
         child_types,
@@ -1868,6 +1892,18 @@ def _between_value_type(
         )
         for child in (expression.value, expression.lower, expression.upper)
     )
+    # `value >= lower and value <= upper` is always NULL when both comparisons
+    # read the null literal; one null bound is never TRUE but may be FALSE.
+    if _reads_null_literal(
+        (expression.value,), row_schema, bare_value_expressions
+    ) or _reads_null_literal(
+        (expression.lower, expression.upper),
+        row_schema,
+        bare_value_expressions,
+        every=True,
+    ):
+        diagnostics.append(_null_comparison_diagnostic(expression, remedy=None))
+        return _UNKNOWN_VALUE_TYPE
     if any(child_type.kind is ValueTypeKind.UNKNOWN for child_type in child_types):
         return _UNKNOWN_VALUE_TYPE
     for bound_type in child_types[1:]:
@@ -2130,6 +2166,22 @@ def _nullif_value_type(
 
 def _is_null_literal(expression: Expression) -> bool:
     return isinstance(expression, LiteralExpr) and expression.value is None
+
+
+def _reads_null_literal(
+    expressions: Sequence[Expression],
+    row_schema: RowSchema,
+    let_expressions: Mapping[str, Expression] | None,
+    *,
+    every: bool = False,
+) -> bool:
+    """Whether any (or every) operand is, after `let:` inlining, the null literal."""
+
+    reads = (
+        _is_null_literal(let_value(expression, row_schema, let_expressions))
+        for expression in expressions
+    )
+    return all(reads) if every else any(reads)
 
 
 def _contextual_null_literal_type(resolved: ResolvedType | str) -> ValueType:
@@ -2565,6 +2617,34 @@ def _invalid_operator_operands_diagnostic(
 ) -> Diagnostic:
     """Report incompatible known operands at the full operator expression span."""
 
+    return _operator_operands_diagnostic(expression, f"expected {expected}")
+
+
+def _null_comparison_diagnostic(
+    expression: ComparisonExpr | BetweenExpr | MembershipExpr,
+    *,
+    remedy: str | None,
+) -> Diagnostic:
+    """Report a comparison with the null literal, which is never TRUE."""
+
+    detail = "comparison with null is never true"
+    if remedy is not None:
+        detail += f"; write `{remedy}` instead"
+    return _operator_operands_diagnostic(expression, detail)
+
+
+def _operator_operands_diagnostic(
+    expression: (
+        UnaryExpr
+        | BinaryExpr
+        | ComparisonExpr
+        | BetweenExpr
+        | ConditionalExpr
+        | MembershipExpr
+        | ast.RelationMembershipExpr
+    ),
+    detail: str,
+) -> Diagnostic:
     span = expression.span
     if isinstance(expression, BetweenExpr):
         operator = "between"
@@ -2577,7 +2657,7 @@ def _invalid_operator_operands_diagnostic(
     return Diagnostic(
         code="PIE-S2105",
         severity=Severity.ERROR,
-        message=f"Invalid operands for operator {operator}: expected {expected}",
+        message=f"Invalid operands for operator {operator}: {detail}",
         location=SourceLocation(
             path=span.path,
             line=span.line,

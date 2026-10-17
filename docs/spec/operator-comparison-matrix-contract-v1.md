@@ -124,8 +124,13 @@ replaced it with an operand family check:
   constants are decided, because a text literal is the only constant form for
   those types; the deferral also accepts non-literal `Text` operands (fields,
   calls, and `let` values) against those types, which are not yet checked;
-- unknown children and `Any`, `Bytes`, `Json`, Enum, and shape operands are
-  not checked and record `Bool UNKNOWN`;
+- an operand that is the null literal, or a `let:` name bound to it, reports
+  `PIE-S2105` (`comparison with null is never true`, adding ``write `is null`
+  instead`` for `==` and ``write `is not null` instead`` for `!=`) and records
+  `ValueTypeKind.UNKNOWN`, because SQL evaluates the comparison to NULL for
+  every row;
+- other unknown children and `Any`, `Bytes`, `Json`, Enum, and shape operands
+  are not checked and record `Bool UNKNOWN`;
 - the check adds no casts, collation, temporal comparison rules, UUID
   comparison guarantees, Enum comparison behavior, Bytes/Json comparison
   behavior, or SQL lowering changes.
@@ -133,6 +138,10 @@ replaced it with an operand family check:
 `BetweenExpr` applies the same check to its value and each bound:
 
 - it types value, lower, and upper child expressions;
+- a value, or both bounds, that is the null literal or a `let:` name bound to
+  it reports `PIE-S2105` (`comparison with null is never true`) and records
+  `ValueTypeKind.UNKNOWN`, because both comparisons are then NULL; one null
+  bound is not refused, as the other comparison may be FALSE;
 - if any child value type is unknown, current semantic typing records
   `ValueTypeKind.UNKNOWN`;
 - a known bound from another family reports `PIE-S2105` for operator
