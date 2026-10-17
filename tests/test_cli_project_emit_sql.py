@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -1174,6 +1175,68 @@ def test_output_file_accepts_the_longest_file_name_the_os_accepts(
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permission bits")
+def test_output_file_mode_follows_the_umask_and_a_replaced_file_keeps_its_bits(
+    tmp_path: Path,
+) -> None:
+    root, item = project(tmp_path, "postgres")
+    expected = api_bytes(tmp_path, item)
+    # A new file gets 0o666 less the umask; a replaced file keeps its own bits,
+    # neither narrowed by the umask nor widened to it.
+    cases = ((0o022, None, 0o644), (0o077, None, 0o600))
+    cases += ((0o077, 0o664, 0o664), (0o022, 0o600, 0o600))
+    for umask, existing, mode in cases:
+        output = tmp_path / f"artifact-{umask:03o}-{existing}.json"
+        if existing is not None:
+            output.write_bytes(b"stale")
+            output.chmod(existing)
+        previous = os.umask(umask)
+        try:
+            result = run(argv(root, "postgres", output=str(output)))
+        finally:
+            os.umask(previous)
+        assert result == (0, expected, "")
+        assert output.read_bytes() == expected
+        assert stat.S_IMODE(output.stat().st_mode) == mode, (umask, existing)
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("presentation", ["json", "text"])
+def test_a_read_only_destination_is_refused_as_an_output_write_error(
+    tmp_path: Path, presentation: str
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    output = tmp_path / "artifact.json"
+    output.write_bytes(b"stale")
+    output.chmod(0o444)
+    if os.access(output, os.W_OK):
+        pytest.skip("this user may write a read-only file")
+    before = output.stat()
+    arguments = argv(root, "postgres", output=str(output))
+    if presentation == "text":
+        arguments += ["--format", "text"]
+    code, out, err = run(arguments)
+    if presentation == "json":
+        assert (code, err) == (2, "")
+        assert out == (
+            b'{"artifact":null,"blockers":[],"cli_errors":[{"kind":"output_write",'
+            b'"message":"Output file is read-only.","path":null}],"diagnostics":[],'
+            b'"format":"pietto.sql-emission.v1","status":"INPUT_REJECTED"}\n'
+        )
+        assert failure(out)["status"] == "INPUT_REJECTED"
+    else:
+        assert (code, out, err) == (
+            2,
+            b"",
+            "pietto.sql-emission.v1 INPUT_REJECTED\n"
+            "error output_write: Output file is read-only.\n",
+        )
+    assert output.read_bytes() == b"stale"
+    after = output.stat()
+    assert (after.st_mode, after.st_ino) == (before.st_mode, before.st_ino)
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_protected_inputs_and_their_aliases_are_never_replaced(
     tmp_path: Path, target: str
@@ -1245,36 +1308,38 @@ def test_injected_file_faults_preserve_destinations_and_report_honestly(
         ) == (before if before is not None else True)
         assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
 
-    real_temporary = emission_cli.tempfile.NamedTemporaryFile
+    real_open_replacement = emission_cli.open_replacement
 
-    def failing_temporary(*args: Any, **kwargs: Any) -> Any:
+    def failing_creation(output: Path) -> Any:
         raise OSError(errno.ENOSPC, SENTINEL)
 
     written = "Output file could not be written."
     cleanup = "Temporary output file could not be removed."
     existing.write_bytes(b"stale")
-    monkeypatch.setattr(emission_cli.tempfile, "NamedTemporaryFile", failing_temporary)
+    monkeypatch.setattr(emission_cli, "open_replacement", failing_creation)
     check(existing, b"stale", [written])
     check(absent, None, [written])
 
     class FailingWrite:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.handle = real_temporary(*args, **kwargs)
-            self.name = self.handle.name
+        def __init__(self, handle: Any) -> None:
+            self.handle = handle
 
         def __enter__(self) -> "FailingWrite":
-            self.handle.__enter__()
             return self
 
         def __exit__(self, *exc: Any) -> None:
-            self.handle.__exit__(*exc)
+            self.handle.close()
 
         def write(self, data: bytes) -> int:
             raise OSError(errno.EIO, SENTINEL)
 
-    monkeypatch.setattr(emission_cli.tempfile, "NamedTemporaryFile", FailingWrite)
+    def failing_write(output: Path) -> tuple[FailingWrite, Path]:
+        handle, temporary = real_open_replacement(output)
+        return FailingWrite(handle), temporary
+
+    monkeypatch.setattr(emission_cli, "open_replacement", failing_write)
     check(existing, b"stale", [written])
-    monkeypatch.setattr(emission_cli.tempfile, "NamedTemporaryFile", real_temporary)
+    monkeypatch.setattr(emission_cli, "open_replacement", real_open_replacement)
 
     def failing_replace(source: Any, destination: Any) -> None:
         raise OSError(errno.EXDEV, SENTINEL)

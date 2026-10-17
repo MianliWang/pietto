@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any
 
 import pytest
 
@@ -305,20 +304,12 @@ def test_emit_sql_zero_artifacts_refuse_the_output_file(
 
 def test_emit_sql_output_file_uses_lf_on_every_platform(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    # The file receives encoded bytes through a binary (O_BINARY) descriptor,
+    # so no text layer can turn "\n" into "\r\n" on Windows.
     path = _relation_file(tmp_path)
     output = tmp_path / "out.sql"
-    named_temporary_file = cli.tempfile.NamedTemporaryFile
-
-    def windows_text_file(*args: Any, **kwargs: Any) -> Any:
-        # Without newline="", a Windows text file writes "\n" as "\r\n".
-        if kwargs.get("newline") is None:
-            kwargs["newline"] = "\r\n"
-        return named_temporary_file(*args, **kwargs)
-
-    monkeypatch.setattr(cli.tempfile, "NamedTemporaryFile", windows_text_file)
 
     assert (
         cli.main(

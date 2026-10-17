@@ -6,7 +6,6 @@ import argparse
 import errno
 import os
 import sys
-import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
@@ -51,6 +50,7 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
+from pietto._output_file import is_read_only, open_replacement
 from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
@@ -1204,21 +1204,14 @@ def _write_sql_artifacts(
 
     if not artifacts:
         raise ValueError("no SQL artifacts to write; the output file was not changed")
-    text = f"{_format_sql_artifacts(artifacts)}\n"
+    if is_read_only(output_path):
+        raise ValueError("output file is read-only; the output file was not changed")
+    data = f"{_format_sql_artifacts(artifacts)}\n".encode("utf-8")
     temporary_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="",
-            dir=output_path.parent,
-            # A short fixed name keeps every output name the OS accepts usable.
-            prefix=".pietto-",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary_path = Path(temporary.name)
-            temporary.write(text)
+        temporary, temporary_path = open_replacement(output_path)
+        with temporary:
+            temporary.write(data)
         os.replace(temporary_path, output_path)
         temporary_path = None
     finally:
