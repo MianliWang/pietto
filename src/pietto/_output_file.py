@@ -39,11 +39,14 @@ def is_owned_by_another_user(output: Path) -> bool:
     The replacement would belong to this process's user, and the owner bits
     it keeps would then grant that user access the original did not, so such
     an output is not replaced. Root may replace any output, since it already
-    reads and writes every file, but an owner shown as the overflow id is
-    unknown, not root's: root of a user namespace has no power over a file
-    whose owner the namespace does not map. When Linux does not tell which id
-    that is, root replaces only its own outputs. Windows has no POSIX owner
-    to compare. ``OSError`` when the state of output cannot be read.
+    reads and writes every file, but where the user namespace leaves some
+    user unmapped an owner shown as the overflow id is unknown, not root's
+    nor this user's: root of a user namespace has no power over a file whose
+    owner the namespace does not map. When Linux does not tell which id that
+    is, no owner there can be shown to be this user, since the namespace may
+    show both as that id, so no existing output is replaced. Windows has no
+    POSIX owner to compare. ``OSError`` when the state of output cannot be
+    read.
     """
 
     if sys.platform == "win32":
@@ -53,9 +56,9 @@ def is_owned_by_another_user(output: Path) -> bool:
         return False
     user = os.geteuid()
     overflow = _overflow_id("uid")
-    if replaced.st_uid == user:
-        return replaced.st_uid == overflow
-    return user != 0 or overflow is None or replaced.st_uid == overflow
+    if overflow is None or replaced.st_uid == overflow:
+        return True
+    return user != 0 and replaced.st_uid != user
 
 
 def open_replacement(output: Path) -> tuple[BinaryIO, Path]:
@@ -123,11 +126,11 @@ def _same_access(replaced: os.stat_result, output: Path, descriptor: int) -> boo
 
     Only on Linux, and only when both have the same owner and group and
     neither carries an ACL, under which the group bits are a mask and named
-    entries can deny what the bits allow. An owner or group shown as the
-    overflow id is unknown: a user namespace shows every id it does not map
-    as that one id, and when Linux does not tell which id that is, no owner
-    or group is known. Whatever cannot be read, for any reason, counts as
-    different.
+    entries can deny what the bits allow. Where the user namespace leaves
+    some id unmapped, an owner or group shown as the overflow id is unknown:
+    the namespace shows every id it does not map as that one id, and when
+    Linux does not tell which id that is, no owner or group is known.
+    Whatever cannot be read, for any reason, counts as different.
     """
 
     if sys.platform != "linux":
@@ -171,12 +174,24 @@ def _has_acl(target: Path | int) -> bool:
 def _overflow_id(kind: str) -> int | None:
     """The id Linux shows for a user ("uid") or group ("gid") it cannot map.
 
-    The kernel's own setting; None on Linux when it cannot be read, since the
-    setting need not be its default; -1, which no file shows, elsewhere.
+    -1, which no file shows, elsewhere than on Linux and where the map of
+    this process's user namespace covers every id, as the initial one does:
+    the overflow id there is an ordinary user or group. Otherwise the
+    kernel's own setting, or None when it cannot be read, since it need not
+    be its default. A map that cannot be read leaves ids unmapped. An
+    idmapped mount shows the ids its own map leaves out as the overflow id
+    too, but Linux lets nobody write such a file, so ``is_read_only``
+    refuses it as a regular output.
     """
 
     if sys.platform != "linux":
         return -1
+    with contextlib.suppress(OSError, ValueError, IndexError):
+        # The kernel refuses overlapping extents, so their lengths add up to
+        # 2**32 - 1, every valid id, only when they cover all of them.
+        extents = Path(f"/proc/self/{kind}_map").read_text("ascii").splitlines()
+        if sum(int(extent.split()[2]) for extent in extents) == 2**32 - 1:
+            return -1
     try:
         return int(Path(f"/proc/sys/kernel/overflow{kind}").read_text("ascii"))
     except (OSError, ValueError):

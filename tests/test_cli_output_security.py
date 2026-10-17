@@ -452,36 +452,94 @@ def test_root_replaces_another_users_output(
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="needs the Linux overflow ids")
-def test_an_unreadable_overflow_id_leaves_no_owner_or_group_known(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("caller", ["owner", "root"])
+def test_an_unreadable_overflow_id_replaces_no_existing_output(
+    caller: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The overflow ids need not be their default, so when Linux does not
-    # tell them no owner or group can be shown to be the same.
+    # The overflow ids need not be their default, and a user namespace that
+    # maps only this user may show both this user and an unmapped owner as
+    # that id, so when Linux does not tell it no owner can be shown to be the
+    # caller, not even the file's own.
     _without_inherited_acl(tmp_path)
     path = _write(tmp_path, "input.pietto", SOURCE)
     output = _write(tmp_path, "output.sql", "original SQL\n")
     output.chmod(0o664)
     owner = output.stat().st_uid
-    real_read_text = Path.read_text
+    _fake_proc(
+        monkeypatch,
+        {
+            "/proc/self/uid_map": f"0 {owner} 1\n",
+            "/proc/self/gid_map": f"0 {output.stat().st_gid} 1\n",
+            "/proc/sys/kernel/overflowuid": None,
+            "/proc/sys/kernel/overflowgid": None,
+        },
+    )
+    monkeypatch.setattr(os, "geteuid", lambda: owner if caller == "owner" else 0)
 
-    def unreadable_overflow(self: Path, *args: Any, **kwargs: Any) -> str:
-        if str(self).startswith("/proc/sys/kernel/overflow"):
-            raise PermissionError(errno.EACCES, "Permission denied", str(self))
-        return real_read_text(self, *args, **kwargs)
+    assert _emit(path, output) == 2
 
-    monkeypatch.setattr(Path, "read_text", unreadable_overflow)
-    previous = os.umask(0)
-    try:
-        # This user's own output is replaced, keeping only the owner bits.
-        assert _emit(path, output) == 0
-        assert stat.S_IMODE(output.stat().st_mode) == 0o600
-        # Root does not replace an output it cannot show to be its own.
-        output.write_text("original SQL\n", encoding="utf-8")
-        monkeypatch.setattr(os, "geteuid", lambda: 0 if owner else 1)
-        assert _emit(path, output) == 2
-    finally:
-        os.umask(previous)
     assert output.read_text(encoding="utf-8") == "original SQL\n"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o664
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs the Linux overflow ids")
+@pytest.mark.parametrize("kind", ["uid", "gid"])
+@pytest.mark.parametrize("ids_map", ["full", "partial", "unreadable"])
+def test_the_overflow_id_is_unknown_only_where_ids_are_unmapped(
+    ids_map: str,
+    kind: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # This user's own output, whose owner or group the kernel's overflow id
+    # names. A map covering every id, as the initial user namespace has,
+    # leaves no id to show so: the overflow id is an ordinary user or group,
+    # such as nobody running the command. Elsewhere, and when the map cannot
+    # be read, an owner or group shown as it is unknown.
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    output.chmod(0o664)
+    state = output.stat()
+    ids = {"uid": state.st_uid, "gid": state.st_gid}
+    full = "         0          0 4294967295\n"
+    _fake_proc(
+        monkeypatch,
+        {
+            f"/proc/self/{kind}_map": {
+                "full": full,
+                "partial": f"0 {ids[kind]} 1\n",
+                "unreadable": None,
+            }[ids_map],
+            f"/proc/self/{'gid' if kind == 'uid' else 'uid'}_map": full,
+            f"/proc/sys/kernel/overflow{kind}": f"{ids[kind]}\n",
+        },
+    )
+    replaced = 'SELECT\n    "email" AS "email"\nFROM "users"\n'
+
+    if ids_map == "full" or kind == "gid":
+        assert _emit(path, output) == 0
+        assert capsys.readouterr() == ("", "")
+        assert output.read_text(encoding="utf-8") == replaced
+        # Unknown, the group cannot be shown to grant the same access.
+        kept = 0o664 if ids_map == "full" else 0o600
+        assert stat.S_IMODE(output.stat().st_mode) == kept
+    else:
+        # Unknown, the owner cannot be shown to be this user.
+        assert _emit(path, output) == 2
+        message = "output file belongs to another user; the output file was not changed"
+        assert capsys.readouterr() == ("", f"{output}: error: {message}\n")
+        assert output.read_text(encoding="utf-8") == "original SQL\n"
+        assert stat.S_IMODE(output.stat().st_mode) == 0o664
+    if kind == "uid":
+        # Root replaces an owner it knows, not one shown as the overflow id.
+        output.write_text("original SQL\n", encoding="utf-8")
+        monkeypatch.setattr(os, "geteuid", lambda: 0)
+        assert _emit(path, output) == (0 if ids_map == "full" else 2)
+        expected = replaced if ids_map == "full" else "original SQL\n"
+        assert output.read_text(encoding="utf-8") == expected
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -922,6 +980,22 @@ def _write(tmp_path: Path, name: str, content: str) -> Path:
     path = tmp_path / name
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _fake_proc(monkeypatch: pytest.MonkeyPatch, files: dict[str, str | None]) -> None:
+    """Let reading each of these /proc files give its text; None refuses it."""
+
+    real_read_text = Path.read_text
+
+    def read_text(self: Path, *arguments: Any, **keywords: Any) -> str:
+        if str(self) not in files:
+            return real_read_text(self, *arguments, **keywords)
+        text = files[str(self)]
+        if text is None:
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return text
+
+    monkeypatch.setattr(Path, "read_text", read_text)
 
 
 def _without_inherited_acl(directory: Path) -> None:

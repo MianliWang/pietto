@@ -448,11 +448,15 @@ The implemented outcomes are:
   ones: it receives the replaced read, write, and execute permission bits
   only on Linux, when both have the same owner and group and are shown to
   carry no ACL (no `system.` extended attribute and no CIFS security
-  descriptor), and otherwise at most the owner bits. An owner or group shown
-  as the kernel's overflow id (`/proc/sys/kernel/overflowuid` and
-  `overflowgid`; when either cannot be read, no owner or group counts as the
-  same), which a user namespace
-  shows for every id it does not map, never counts as the same. The replaced
+  descriptor), and otherwise at most the owner bits. Where the user namespace
+  of the command leaves some user or group id unmapped (its
+  `/proc/self/uid_map` or `gid_map` does not cover every id, or cannot be
+  read), an owner or group shown as the kernel's overflow id
+  (`/proc/sys/kernel/overflowuid` or `overflowgid`; when that cannot be read,
+  no owner or group counts as the same), which the namespace shows for every
+  id it does not map, never counts as the same; in a namespace that maps
+  every id, as the initial one does, the overflow id is an ordinary user or
+  group. The replaced
   output's owner, group, set-id, and sticky bits and its own ACL are not
   copied: like any new file, the replacement has only the ACL its directory
   gives new files. Windows keeps only a read-only attribute, so there both are
@@ -474,9 +478,12 @@ The implemented outcomes are:
 - outside Windows, an existing output that belongs to another user than the
   one running the command, who is not root, is not replaced either, because
   the replacement would belong to the running user and grant that user access
-  the original did not; an owner shown as the overflow id counts as another
-  user, even for root, and when the overflow id cannot be read root replaces
-  only its own outputs: after compilation the command reports `output_write`
+  the original did not; where the user namespace leaves some user id
+  unmapped, an owner shown as the overflow id counts as another user, even
+  for root and even when the running user is shown as that id, and when the
+  overflow id cannot be read there no existing output is replaced, since no
+  owner can then be shown to be the running user: after compilation the
+  command reports `output_write`
   with the message
   `output file belongs to another user; the output file was not changed`,
   with the same JSON fields, file, and exit code as a read-only output;

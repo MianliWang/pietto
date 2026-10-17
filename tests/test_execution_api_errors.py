@@ -79,9 +79,10 @@ def test_request_refusals_are_classified_by_their_category_word(error, code):
 
 def test_a_recursion_overflow_is_the_query_s_own_only_while_it_is_prepared():
     """Preparing walks the verified query again, from a deeper stack than its
-    emission: a recursion overflow there is PIE-R1004. Before that, such as
-    while a project is read, it stays unclassified; every other refusal is
-    classified alike at both stages."""
+    emission: a recursion overflow there is PIE-R1004. Before that, one that
+    the emission does not report, such as while a caller's path object is
+    read, stays unclassified; every other refusal is classified alike at both
+    stages."""
     overflow = RecursionError("maximum recursion depth exceeded")
     assert errors.request_failure(overflow, preparing=True) == errors.failure(
         "PIE-R1004", cause="RecursionError"

@@ -61,14 +61,16 @@ unwritable stdout exits `2` without a traceback, and text output writes C1,
 separator, and bidi controls as `\uNNNN` escapes; project mode follows both
 rules too. In both modes `--output` refuses as `output_write` an existing
 regular output file the user may not write, outside Windows an existing output
-that belongs to another user than a non-root caller or whose owner is shown as
-the kernel's overflow id, and an output whose state cannot be read for a reason
-other than being absent; it creates a new output file with the mode
+that belongs to another user than a non-root caller or, where the user
+namespace leaves some user id unmapped, whose owner is shown as the kernel's
+overflow id, and an output whose state cannot be read for a reason other than
+being absent; it creates a new output file with the mode
 `open(output, "w")` gives (`0o666` less the umask, or what a default ACL of the
 directory grants), and keeps a replaced regular file's read, write, and
 execute permission bits only on Linux when both files have the same owner and
-group, neither of which is shown as the overflow id, and are shown to carry no
-ACL, otherwise at most its owner bits; a replacement never takes the replaced
+group, neither of which is shown as the overflow id where the namespace leaves
+such ids unmapped, and are shown to carry no ACL, otherwise at most its owner
+bits; a replacement never takes the replaced
 file's own ACL, only the one its directory gives new files.
 
 Phase 8 adds no command or option to this baseline.

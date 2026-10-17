@@ -111,11 +111,14 @@ The file replacing a regular destination, where the file system stores
 permission bits, receives the destination's read, write and execute permission
 bits only on Linux, when both have the same owner and group and are shown to
 carry no ACL (no `system.` extended attribute and no CIFS security descriptor),
-and otherwise at most its owner bits. An owner or group shown as the kernel's
-overflow id (`/proc/sys/kernel/overflowuid` and `overflowgid`; when either cannot
-be read, no owner or group counts as the same), which a user namespace shows for
-every id it does not map,
-never counts as the same. The destination's owner, group, set-id and
+and otherwise at most its owner bits. Where the user namespace of the command
+leaves some user or group id unmapped (its `/proc/self/uid_map` or `gid_map`
+does not cover every id, or cannot be read), an owner or group shown as the
+kernel's overflow id (`/proc/sys/kernel/overflowuid` or `overflowgid`; when that
+cannot be read, no owner or group counts as the same), which the namespace shows
+for every id it does not map, never counts as the same; in a namespace that maps
+every id, as the initial one does, the overflow id is an ordinary user or group.
+The destination's owner, group, set-id and
 sticky bits and its own ACL are not copied: like any new file, the replacement
 has only the ACL its directory gives new files. Windows keeps only a read-only
 attribute, so there both are ordinary writable files. An existing regular
@@ -126,8 +129,10 @@ Outside Windows, an existing destination that belongs to another user than the
 one running the command, who is not root, is refused the same way, with the
 message `Output file belongs to another user.`, because the replacement would
 belong to the running user and grant that user access the destination did not;
-an owner shown as the overflow id counts as another user, even for root, and
-when the overflow id cannot be read root replaces only its own destinations. A
+where the user namespace leaves some user id unmapped, an owner shown as the
+overflow id counts as another user, even for root and even when the running user
+is shown as that id, and when the overflow id cannot be read there no existing
+destination is replaced, since no owner can then be shown to be the running user. A
 destination whose state cannot be read for a reason other than being absent is
 never treated as a new one: it is reported like a creation failure.
 A creation, write,

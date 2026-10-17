@@ -641,9 +641,9 @@ def test_a_query_too_deep_to_become_a_template_is_not_executable(
 
 def test_a_recursion_overflow_outside_preparation_is_unclassified(live, monkeypatch):
     """Only preparing the verified query makes a recursion overflow PIE-R1004:
-    one while the project is read, here through a caller's path object that
-    names itself, or while a compiled query is exported stays the
-    unclassified PIE-R1999."""
+    one that the emission does not report, here while a caller's path object
+    that names itself is read, or one while a compiled query is exported
+    stays the unclassified PIE-R1999."""
 
     class Itself(os.PathLike[str]):
         def __fspath__(self) -> str:
