@@ -1588,6 +1588,20 @@ infers no same-name fields, keys or cardinality and adds no JOIN or SQL. A
 project with `schema_version = 1` does not check relationship declarations
 yet.
 
+A JOIN through a relationship cannot yet read the rows of a `from` input that
+has `let:` bindings, GROUP BY, `satisfying` or a computed SELECT output, such as
+a grouped or windowed query, or that reads such a relation or a relation let
+through a chain of `from` inputs. When the FROM input of a table or query is
+such an input and every JOIN of it is an INNER or LEFT JOIN through a
+relationship, with or without `via` and without `on`, the check reports
+PIE-S2333 at the table or query with a clause that names the JOINs reading the
+input and why, for example
+`Project relation semantic completion is unavailable: q (JOIN x reads per_user, whose rows are not available to a relationship JOIN yet: it has GROUP BY and a computed SELECT output)`.
+A RIGHT, FULL, SEMI or ANTI JOIN through a relationship reading such an input
+reports PIE-S2334 and PIE-S2335 at the JOIN, and an INNER or LEFT JOIN with
+both `via` and `on` reports PIE-S2334 at the `on` and PIE-S2335 at the JOIN.
+An INNER or LEFT JOIN with a JOIN-local `on` and no `via` reads such an input.
+
 Relationship declarations have a separate namespace. In an EXPLICIT_MODULES
 project a relationship traversal of any JOIN kind (`inner`, `left`, `right`,
 `full`, `semi` or `anti`) resolves through them, and project SQL emission

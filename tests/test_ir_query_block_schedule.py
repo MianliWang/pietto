@@ -961,7 +961,13 @@ def test_join_over_an_input_with_deferred_history_stays_unavailable(tmp_path) ->
         is ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
     )
     assert [(d.code, d.message, d.location.line) for d in result.diagnostics] == [
-        ("PIE-S2333", "Project relation semantic completion is unavailable: q", 17)
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: q (JOIN x reads "
+            "per_user, whose rows are not available to a relationship JOIN yet: "
+            "it has GROUP BY and a computed SELECT output)",
+            17,
+        )
     ]
 
 

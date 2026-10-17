@@ -421,6 +421,221 @@ def test_missing_terminal_errors_receive_one_ordered_public_fallback_each(
         assert private not in rendered
 
 
+_DEFERRED_JOIN_INPUT_SOURCE = """shape Sale:
+    id: Int not null
+    uid: Int not null
+    amount: Int not null
+shape User:
+    id: Int not null
+    name: Text not null
+source sales: Sale is postgres.table("sales")
+source users: User is postgres.table("users")
+query per_user:
+    from sales
+    group by:
+        uid
+    select:
+        uid
+        total = sum(amount)
+query ranked:
+    from sales
+    select:
+        uid
+        rn = row_number() window:
+            order by:
+                id
+query bound:
+    from sales
+    let:
+        key = uid
+    select:
+        uid = key
+query copied:
+    from per_user
+    select:
+        uid
+query nested:
+    let picked:
+        from sales
+        select:
+            uid
+    from picked
+    select:
+        uid
+relationship per_user_user:
+    endpoint p: per_user
+    endpoint u: users
+    on p.uid == u.id
+relationship per_user_sale:
+    endpoint p: per_user
+    endpoint s: sales
+    on p.uid == s.uid
+relationship ranked_user:
+    endpoint r: ranked
+    endpoint u: users
+    on r.uid == u.id
+relationship bound_user:
+    endpoint b: bound
+    endpoint u: users
+    on b.uid == u.id
+relationship copied_user:
+    endpoint c: copied
+    endpoint u: users
+    on c.uid == u.id
+relationship nested_user:
+    endpoint n: nested
+    endpoint u: users
+    on n.uid == u.id
+query grouped_via:
+    from per_user
+    inner join users as x:
+        from per_user
+        via per_user_user: p -> u
+    select:
+        n = x.name
+query grouped_left:
+    from per_user
+    left join users as x:
+        from per_user
+        via per_user_user: p -> u
+    select:
+        n = x.name
+query grouped_inferred:
+    from per_user
+    inner join users as x:
+        from per_user
+    select:
+        n = x.name
+query grouped_twice:
+    from per_user
+    inner join users as x:
+        from per_user
+        via per_user_user: p -> u
+    inner join sales as y:
+        from per_user
+        via per_user_sale: p -> s
+    select:
+        n = x.name
+query windowed:
+    from ranked
+    inner join users as x:
+        from ranked
+        via ranked_user: r -> u
+    select:
+        n = x.name
+query let_bound:
+    from bound
+    inner join users as x:
+        from bound
+        via bound_user: b -> u
+    select:
+        n = x.name
+query chained:
+    from copied
+    inner join users as x:
+        from copied
+        via copied_user: c -> u
+    select:
+        n = x.name
+query relation_let:
+    from nested
+    inner join users as x:
+        from nested
+        via nested_user: n -> u
+    select:
+        n = x.name
+query grouped_target:
+    from users
+    inner join per_user as x:
+        from users
+        via per_user_user: u -> p
+    select:
+        t = x.total
+query grouped_on:
+    from per_user
+    inner join users as x:
+        from per_user
+        on per_user.uid == x.id
+    select:
+        n = x.name
+query reads_refused:
+    from grouped_via
+    select:
+        n
+"""
+
+
+def test_relationship_join_over_an_input_without_join_rows_names_why(
+    tmp_path: Path,
+) -> None:
+    built = _build(tmp_path / "deferred-join-input", _DEFERRED_JOIN_INPUT_SOURCE)
+    unavailable = "Project relation semantic completion is unavailable: "
+    pending = "whose rows are not available to a relationship JOIN yet"
+    grouped = f"{pending}: it has GROUP BY and a computed SELECT output)"
+
+    # A JOIN-local ON reads such an input; a grouped JOIN target and a reader
+    # of a refused relation keep the bare message.
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in built.completed.diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            f"{unavailable}grouped_via (JOIN x reads per_user, {grouped}",
+            66,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}grouped_left (JOIN x reads per_user, {grouped}",
+            73,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}grouped_inferred (JOIN x reads per_user, {grouped}",
+            80,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}grouped_twice (JOINs x and y read per_user, {grouped}",
+            86,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}windowed (JOIN x reads ranked, {pending}: "
+            "it has a computed SELECT output)",
+            96,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}let_bound (JOIN x reads bound, {pending}: "
+            "it has let bindings)",
+            103,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}chained (JOIN x reads copied, {pending}: "
+            "it reads per_user, which has GROUP BY and a computed SELECT output)",
+            110,
+            1,
+        ),
+        (
+            "PIE-S2333",
+            f"{unavailable}relation_let (JOIN x reads nested, {pending}: "
+            "it reads picked, which is a relation let)",
+            117,
+            1,
+        ),
+        ("PIE-S2333", f"{unavailable}grouped_target", 124, 1),
+        ("PIE-S2333", f"{unavailable}reads_refused", 138, 1),
+    ]
+
+
 def test_non_concrete_source_relation_receives_public_fallback_without_traceback(
     tmp_path: Path,
 ) -> None:

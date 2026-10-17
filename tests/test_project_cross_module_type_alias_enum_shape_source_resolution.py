@@ -20,7 +20,12 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto.errors import Severity
+from pietto.parser_api import parse_source
+from pietto.semantic import analyze
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -748,6 +753,88 @@ def test_duplicate_local_source_name_is_one_pie_s2001_no_winner(
     assert environment.find_source_name("rows") == ()
     assert _diagnostic_pairs(semantic) == (
         ("PIE-S2001", "Duplicate symbol name in relation namespace: rows"),
+    )
+
+
+_REPEATED_ENUM_MEMBER_SOURCES = {
+    "a.pietto": (
+        "enum Status:\n    active\n    held\n    active\n    held\n    active\n"
+        "shape C:\n    id: Int not null\n    status: Status not null\n"
+        "    unique k on nosuch\n"
+        'source cs: C is postgres.table("cs")\n'
+        "relationship r:\n    endpoint a: nowhere\n    endpoint b: cs\n"
+    ),
+    "b.pietto": (
+        "enum Kind:\n    x\n    x\n"
+        "enum Kind:\n    y\n    y\n"
+        "shape D:\n    id: Int not null\n    unique k on id, id\n"
+    ),
+}
+
+
+def test_project_check_reports_repeated_enum_members_like_a_single_file(
+    tmp_path: Path,
+) -> None:
+    _, explicit = _semantic_project(
+        tmp_path / "explicit", _REPEATED_ENUM_MEMBER_SOURCES
+    )
+    diagnostics = build_project_completed_semantic_result(explicit).diagnostics
+
+    # Per module in selected-module order, after the semantic analysis
+    # diagnostics and before the shape item and relationship diagnostics.
+    assert [
+        (
+            item.code,
+            item.message,
+            item.location.path,
+            item.location.line,
+            item.location.column,
+        )
+        for item in diagnostics
+    ] == [
+        (
+            "PIE-S2001",
+            "Duplicate symbol name in type namespace: Kind",
+            "b.pietto",
+            4,
+            1,
+        ),
+        ("PIE-S2001", "Duplicate member name in enum Status: active", "a.pietto", 1, 1),
+        ("PIE-S2001", "Duplicate member name in enum Status: held", "a.pietto", 1, 1),
+        ("PIE-S2001", "Duplicate member name in enum Kind: x", "b.pietto", 1, 1),
+        ("PIE-S2001", "Duplicate member name in enum Kind: y", "b.pietto", 4, 1),
+        ("PIE-S2502", "Unknown target field in shape C: nosuch", "a.pietto", 10, 5),
+        ("PIE-S2503", "Duplicate target field in unique k: id", "b.pietto", 9, 5),
+        (
+            "PIE-S2601",
+            "Unknown relationship endpoint relation: nowhere",
+            "a.pietto",
+            13,
+            5,
+        ),
+    ]
+    for path, source in _REPEATED_ENUM_MEMBER_SOURCES.items():
+        parsed = parse_source(source, path=path)
+        assert parsed.ast is not None
+        members = [
+            item
+            for item in analyze(parsed.ast).diagnostics
+            if item.message.startswith("Duplicate member name")
+        ]
+        assert members == [
+            item
+            for item in diagnostics
+            if item.location.path == path
+            and item.message.startswith("Duplicate member name")
+        ]
+
+    # LEGACY_FLAT checks report neither them nor shape item errors.
+    _, legacy = _semantic_project(
+        tmp_path / "legacy", _REPEATED_ENUM_MEMBER_SOURCES, schema_version=1
+    )
+    assert legacy.compilation_mode is ProjectCompilationMode.LEGACY_FLAT
+    assert _diagnostic_pairs(legacy) == (
+        ("PIE-S2001", "Duplicate symbol name in type namespace: Kind"),
     )
 
 
