@@ -12,16 +12,22 @@ from pietto.ast_nodes import (
     Script,
     ShapeDef,
     TableDef,
+    TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.model import ValueType, ValueTypeKind
+from pietto.semantic.expressions import _canonical_value_type
+from pietto.semantic.model import ResolvedType, ValueType, ValueTypeKind
 
 
 def check_predicates(
     script: Script,
     expression_value_types: Mapping[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType],
 ) -> list[Diagnostic]:
-    """Require known where, shape check, and index predicates to be Bool."""
+    """Require known where, shape check, and index predicates to be Bool.
+
+    A predicate of a type alias is read as the builtin type it expands to.
+    """
 
     diagnostics: list[Diagnostic] = []
     for definition in script.definitions:
@@ -31,6 +37,7 @@ def check_predicates(
                     definition.where_clause.expression,
                     context="where clause",
                     expression_value_types=expression_value_types,
+                    type_expansions=type_expansions,
                 )
                 if diagnostic is not None:
                     diagnostics.append(diagnostic)
@@ -50,6 +57,7 @@ def check_predicates(
                         expression,
                         context=context,
                         expression_value_types=expression_value_types,
+                        type_expansions=type_expansions,
                     )
                     if diagnostic is not None:
                         diagnostics.append(diagnostic)
@@ -62,13 +70,14 @@ def _check_bool_expression(
     *,
     context: str,
     expression_value_types: Mapping[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> Diagnostic | None:
     """Return a diagnostic when a predicate has a known non-Bool type."""
 
     value_type = expression_value_types.get(expression)
     if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
         return None
-    if value_type.resolved_type.name == "Bool":
+    if _canonical_value_type(value_type, type_expansions).resolved_type.name == "Bool":
         return None
 
     span = expression.span

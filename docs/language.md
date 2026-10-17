@@ -1087,18 +1087,22 @@ both are syntax errors (PIE-P1000), and `+` does not join `Text` values
 (PIE-S2105).
 
 Arithmetic (`+ - * / %` and unary `+`/`-`), `not`, `and`, `or`, comparisons,
-`between`, `in` and the aggregates read a type alias operand or argument, an
+`like`/`not like`, `between`, `in`, the arguments of the scalar functions
+listed below, of the aggregates and of `lag`, `lead`, `first_value`,
+`last_value` and `nth_value`, and a `where`, `satisfying`, shape `check` or
+index `when` condition read a type alias operand, argument or condition, an
 alias chain included, as the builtin type it expands to. The result has that
-base type, not the alias: with `type Age = Int not null` and `type Money =
-Decimal(12, 2) not null`, `age + 1` and `-age` are `Int`, `sum(amount)` and
-`max(amount)` over an `amount: Money not null` field are a `Decimal`, and the
-SQL is that of the same program with base-typed fields. A pair the base type
-refuses is refused alike, such as `amount * 2` or `-amount` (PIE-S2105), and
-`count` of an alias of `Any` is PIE-S2314 as `count` of `Any` is. An alias of
-an enum or a shape is not expanded. `like`/`not like`, the arguments of
-`lower`, `trim`, `len` and `matches`, and a `where` condition that is a bare
-`Bool` alias field do not read an alias as its base type yet, so single-file
-checks refuse them.
+base type, not the alias: with `type Age = Int not null`, `type Money =
+Decimal(12, 2) not null` and `type Email = Text not null`, `age + 1`, `-age`
+and `first_value(age)` are `Int`, `sum(amount)` and `max(amount)` over an
+`amount: Money not null` field are a `Decimal`, `lower(email)` is a `Text` that
+`count(lower(email))` accepts, and the SQL is that of the same program with
+base-typed fields; with `type Flag = Bool not null`, `where flag` over a `flag:
+Flag not null` field filters as a `Bool` field does. A pair the base type
+refuses is refused alike, such as `amount * 2` or `-amount` (PIE-S2105),
+`count` of an alias of `Any` is PIE-S2314 as `count` of `Any` is, and
+`lower(amount)` is PIE-S2104, whose message names the type as written (`got
+Money`). An alias of an enum or a shape is not expanded.
 
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`

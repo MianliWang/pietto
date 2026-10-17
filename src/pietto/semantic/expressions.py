@@ -77,20 +77,6 @@ _UNKNOWN_VALUE_TYPE = ValueType(
 )
 _NULLIF_SIGNATURE = BuiltinFunction("nullif", ("T", "T"), "T")
 _SIGN_SIGNATURE = BuiltinFunction("sign", ("Int|Decimal",), "Int")
-_Q1_FIXED_CANONICAL_FUNCTIONS = frozenset(
-    {
-        "upper",
-        "substr",
-        "replace",
-        "contains",
-        "starts_with",
-        "ends_with",
-        "abs",
-        "date_of",
-        "hour",
-        "minute",
-    }
-)
 
 
 _KNOWN_EXPRESSIONS = frozenset(
@@ -1255,7 +1241,11 @@ def _infer(
             relation_columns=relation_columns,
         )
         if expression.operator in {"like", "not like"}:
-            value_type, expected = resolved_like_value_type(left_type, right_type)
+            # LIKE reads a type alias operand as the type it expands to.
+            value_type, expected = resolved_like_value_type(
+                _canonical_value_type(left_type, type_expansions),
+                _canonical_value_type(right_type, type_expansions),
+            )
             if expected is None and _ends_in_unpaired_like_escape(
                 let_value(expression.right, row_schema, bare_value_expressions)
             ):
@@ -2043,12 +2033,8 @@ def _call_value_type(
         zip(argument_types, signature.parameter_types, strict=True),
         start=1,
     ):
-        matches = (
-            _is_canonical_builtin(argument_type, expected_name, type_expansions)
-            if function_name in _Q1_FIXED_CANONICAL_FUNCTIONS
-            else _is_builtin(argument_type, expected_name)
-        )
-        if not matches:
+        # A function reads a type alias argument as the type it expands to.
+        if not _is_canonical_builtin(argument_type, expected_name, type_expansions):
             diagnostics.append(
                 _wrong_argument_type_diagnostic(
                     expression,

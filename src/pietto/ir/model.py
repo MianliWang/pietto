@@ -839,9 +839,16 @@ class WindowCallIR(ExpressionIR):
             value_type = self.arguments[0].value_type
             if type(value_type) is not TypeRefIR:
                 raise TypeError("frame-value input requires an exact value type")
-            if (
-                replace(value_type, nullability=self.value_type.nullability)
-                != self.value_type
+            # A type alias input binds T to the builtin type it expands to.
+            canonical = replace(
+                value_type,
+                symbol=value_type.canonical_symbol,
+                declared_name=value_type.canonical_name,
+                kind=value_type.canonical_kind,
+            )
+            if self.value_type not in (
+                replace(value_type, nullability=self.value_type.nullability),
+                replace(canonical, nullability=self.value_type.nullability),
             ):
                 raise ValueError("frame-value input and result must share exact T")
         if name == "nth_value":

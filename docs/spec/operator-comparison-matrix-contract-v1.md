@@ -187,6 +187,10 @@ Current scalar function calls remain exact built-ins:
 | `len` | `len(Text) -> Int` |
 | `matches` | `matches(Text, Text) -> Bool` |
 
+A later defect fix reads a type alias argument of these functions, an alias
+chain included, as the builtin type it expands to, as the operators above do;
+an alias of an Enum or shape is not expanded.
+
 Slice 7 records these functions only as current expression-typing facts that
 can feed operator and comparison operands. It does not add scalar functions,
 function overloads, casts, collation behavior, Text comparison guarantees,

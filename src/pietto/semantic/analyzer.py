@@ -295,7 +295,9 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             script, (*connector_expression_diagnostics, *connector_diagnostics)
         )
     )
-    diagnostics.extend(check_predicates(script, expression_value_types))
+    diagnostics.extend(
+        check_predicates(script, expression_value_types, type_expansions)
+    )
     result_predicates, satisfying_diagnostics = check_satisfying_clauses(
         script,
         from_resolutions=from_resolutions,

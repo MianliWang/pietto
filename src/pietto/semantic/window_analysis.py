@@ -471,6 +471,7 @@ def _analyze_recognized_window_expression(
         ),
         named_composition=named_composition,
         admission_failure=admission,
+        type_expansions=type_expansions,
     )
     if type(computation) is WindowComputationUnsupported:
         return WindowExpressionUnsupported(
@@ -495,6 +496,7 @@ def analyze_window_computation(
     named_composition: ComposedNamedWindowUse | None = None,
     admission_failure: _WindowComputationAdmissionFailure | None = None,
     prepare_inputs: Callable[[WindowExpr], None] | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> WindowComputationAnalysis | WindowComputationUnsupported:
     """Analyze one window computation without selected-output identity."""
 
@@ -772,6 +774,7 @@ def analyze_window_computation(
             modifiers=modifiers,
             bare_value_types=bare_value_types,
             allow_qualified_fields=allow_qualified_fields,
+            type_expansions=type_expansions,
         )
         if type(frame_value_result) is WindowComputationUnsupported:
             return frame_value_result
@@ -800,6 +803,7 @@ def analyze_window_computation(
             modifiers=modifiers,
             bare_value_types=bare_value_types,
             allow_qualified_fields=allow_qualified_fields,
+            type_expansions=type_expansions,
         )
         if type(navigation_result) is WindowComputationUnsupported:
             return navigation_result

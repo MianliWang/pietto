@@ -34,6 +34,7 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import (
+    _is_canonical_builtin,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
@@ -138,7 +139,9 @@ def check_satisfying_clauses(
             diagnostics.extend(relation_diagnostics)
             continue
 
-        bool_diagnostic = _bool_predicate_diagnostic(expression, value_type)
+        bool_diagnostic = _bool_predicate_diagnostic(
+            expression, value_type, type_expansions
+        )
         if bool_diagnostic is not None:
             diagnostics.append(bool_diagnostic)
             continue
@@ -369,7 +372,9 @@ def _infer_predicate(
         ):
             value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
-        if _is_bool(left_type) and _is_bool(right_type):
+        if _is_bool(left_type, type_expansions) and _is_bool(
+            right_type, type_expansions
+        ):
             value_types[expression] = _BOOL_VALUE_TYPE
             return _BOOL_VALUE_TYPE
         diagnostics.append(_invalid_operands_diagnostic(expression, "Bool operands"))
@@ -558,11 +563,12 @@ def _builtin_value_type(
     )
 
 
-def _is_bool(value_type: ValueType) -> bool:
-    return (
-        value_type.resolved_type.kind is TypeKind.BUILTIN
-        and value_type.resolved_type.name == "Bool"
-    )
+def _is_bool(
+    value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+) -> bool:
+    # A type alias reads as the builtin type it expands to.
+    return _is_canonical_builtin(value_type, "Bool", type_expansions)
 
 
 def no_group_satisfying_diagnostic(definition: DerivedRelation) -> Diagnostic | None:
@@ -661,8 +667,11 @@ def _form_name(expression: Expression) -> str:
 def _bool_predicate_diagnostic(
     expression: Expression,
     value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> Diagnostic | None:
-    if value_type.kind is ValueTypeKind.UNKNOWN or _is_bool(value_type):
+    if value_type.kind is ValueTypeKind.UNKNOWN or _is_bool(
+        value_type, type_expansions
+    ):
         return None
     return _diagnostic(
         expression,

@@ -15,10 +15,11 @@ from pietto.ast_nodes import (
     NameExpr,
     Nullability,
     ParameterRefExpr,
+    TypeExpr,
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import _canonical_value_type, infer_row_expression
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
     GenericSignature,
@@ -328,8 +329,12 @@ def analyze_navigation_computation_arguments(
     modifiers: ResolvedWindowFunctionModifiers,
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> NavigationWindowComputation | WindowComputationUnsupported:
-    """Analyze occurrence-neutral value, offset, generic, and nullability facts."""
+    """Analyze occurrence-neutral value, offset, generic, and nullability facts.
+
+    A type alias value or default reads as the builtin type it expands to.
+    """
 
     if type(expression) is not WindowExpr:
         raise TypeError("expression must be an exact WindowExpr")
@@ -367,14 +372,17 @@ def analyze_navigation_computation_arguments(
             ),
         )
     value_before = len(diagnostics)
-    value_type = infer_row_expression(
-        value_expression,
-        input_schema,
-        value_types,
-        diagnostics,
-        report_unknown_name=True,
-        field_qualifier=field_qualifier if allow_qualified_fields else "",
-        bare_value_types=bare_value_types,
+    value_type = _canonical_value_type(
+        infer_row_expression(
+            value_expression,
+            input_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=True,
+            field_qualifier=field_qualifier if allow_qualified_fields else "",
+            bare_value_types=bare_value_types,
+        ),
+        type_expansions,
     )
     value_always_null = _is_null_literal(value_expression)
     if not value_always_null and not _is_concrete_value_type(value_type):
@@ -450,14 +458,17 @@ def analyze_navigation_computation_arguments(
                 ),
             )
         default_before = len(diagnostics)
-        default_type = infer_row_expression(
-            default_expression,
-            input_schema,
-            value_types,
-            diagnostics,
-            report_unknown_name=True,
-            field_qualifier=field_qualifier if allow_qualified_fields else "",
-            bare_value_types=bare_value_types,
+        default_type = _canonical_value_type(
+            infer_row_expression(
+                default_expression,
+                input_schema,
+                value_types,
+                diagnostics,
+                report_unknown_name=True,
+                field_qualifier=field_qualifier if allow_qualified_fields else "",
+                bare_value_types=bare_value_types,
+            ),
+            type_expansions,
         )
         default_always_null = _is_null_literal(default_expression)
         if not default_always_null and not _is_concrete_value_type(default_type):
@@ -652,8 +663,12 @@ def analyze_frame_value_computation_arguments(
     modifiers: ResolvedWindowFunctionModifiers,
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> FrameValueWindowComputation | WindowComputationUnsupported:
-    """Analyze occurrence-neutral frame-value input and result semantics."""
+    """Analyze occurrence-neutral frame-value input and result semantics.
+
+    A type alias input reads as the builtin type it expands to.
+    """
 
     if type(expression) is not WindowExpr:
         raise TypeError("expression must be an exact WindowExpr")
@@ -683,14 +698,17 @@ def analyze_frame_value_computation_arguments(
             ),
         )
     value_before = len(diagnostics)
-    value_type = infer_row_expression(
-        value_expression,
-        input_schema,
-        value_types,
-        diagnostics,
-        report_unknown_name=True,
-        field_qualifier=field_qualifier if allow_qualified_fields else "",
-        bare_value_types=bare_value_types,
+    value_type = _canonical_value_type(
+        infer_row_expression(
+            value_expression,
+            input_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=True,
+            field_qualifier=field_qualifier if allow_qualified_fields else "",
+            bare_value_types=bare_value_types,
+        ),
+        type_expansions,
     )
     if _is_null_literal(value_expression) or not _is_concrete_value_type(value_type):
         return _unsupported_after_inference(

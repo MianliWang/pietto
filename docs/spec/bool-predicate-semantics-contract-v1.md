@@ -115,6 +115,11 @@ For result-level `satisfying:` predicates:
 - known non-Bool `satisfying:` predicates report existing `PIE-S2202`;
 - invalid Bool `and` / `or` operands report existing `PIE-S2105`.
 
+A later defect fix reads a type alias, an alias chain included, as the builtin
+type it expands to in these checks: a `where`, shape `check`, index `when` or
+`satisfying:` predicate whose type is an alias of `Bool`, and a `satisfying:`
+`and` / `or` operand of such an alias, count as known `Bool`.
+
 These codes and messages are existing repo behavior. Slice 4 introduces no new
 diagnostic code and does not change diagnostic ordering, spans, severity,
 message text, or fail-closed paths.
