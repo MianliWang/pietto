@@ -250,6 +250,22 @@ DEFINITION_ERRORS = {
             ("PIE-S2103", 7, 48, "Unknown function: d"),
         ],
     ),
+    # A body is checked at the def, where an error in a call's argument is
+    # reported at each use that the expansion makes.
+    "an_error_in_a_call_inside_a_body": (
+        "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
+        "def h(y: Int nullable) -> Bool nullable: return twice(y == null)\n",
+        [
+            (
+                "PIE-S2105",
+                2,
+                55,
+                "Invalid operands for operator ==: comparison with null is "
+                "never true; write `is null` instead",
+            )
+        ]
+        * 2,
+    ),
     "type_argument_call_before_its_def": (
         "def f(x: Int not null) -> Float not null: return cast(x as Float(g(1)))\n"
         "def g(x: Int not null) -> Int not null: return x\n",
@@ -826,24 +842,22 @@ NULLS = {
         ],
     ),
     # A comparison with the null literal is never true (PIE-S2105), in an
-    # argument as by hand: it is reported at each use of the argument, as any
-    # error inside an argument is, and the argument is then not checked
-    # against the parameter, so no PIE-S2395 restates it.
+    # argument as by hand: it is reported once at the argument, however many
+    # times the body uses it, as any error inside an argument is, and the
+    # argument is then not checked against the parameter, so no PIE-S2395
+    # restates it.
     "null_literal_comparison_argument": (
         "def flag(b: Bool not null) -> Bool nullable: return b or b\n"
         "table t:\n    from rows\n    where flag(id == null)\n    select:\n"
         "        id\n        w = up(text != null)\n",
         [
-            *[
-                (
-                    "PIE-S2105",
-                    BODY_LINE + 3,
-                    16,
-                    "Invalid operands for operator ==: comparison with null is "
-                    "never true; write `is null` instead",
-                )
-            ]
-            * 2,
+            (
+                "PIE-S2105",
+                BODY_LINE + 3,
+                16,
+                "Invalid operands for operator ==: comparison with null is "
+                "never true; write `is null` instead",
+            ),
             (
                 "PIE-S2105",
                 BODY_LINE + 6,
@@ -936,16 +950,183 @@ def test_a_satisfying_argument_matches_its_alias_canonical_type() -> None:
     assert _errors(source) == []
 
 
-def test_each_use_of_an_argument_reports_at_the_argument() -> None:
+def test_each_use_of_an_argument_reports_at_the_argument_once() -> None:
     source = (
         SHAPES
         + "def twice(x: Int nullable) -> Int nullable: return x + x\n"
         + "table t:\n    from rows\n    select:\n        id\n"
         + "        d = twice(nope + 1)\n"
     )
-    assert (
-        _errors(source) == [("PIE-S2102", BODY_LINE + 3, 19, "Unknown field: nope")] * 2
+    assert _errors(source) == [("PIE-S2102", BODY_LINE + 3, 19, "Unknown field: nope")]
+
+
+REPEATING_DEFS = (
+    "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
+    "def thrice(b: Bool nullable) -> Bool nullable: return b and b or not b\n"
+    "def either(a: Bool nullable, b: Bool nullable) -> Bool nullable: return a or b or a\n"
+    "def dbl(x: Int nullable) -> Int nullable: return x + x\n"
+    "def sum2(x: Int not null) -> Int nullable: return x + x\n"
+    "def low(x: Int nullable) -> Bool nullable: return x < 3 or x < 4\n"
+    "def one(b: Bool nullable) -> Bool nullable: return b\n"
+    "def listed(x: Int nullable) -> Bool nullable: return x in (1, 2) or x in (7)\n"
+)
+NULL_TEST = "comparison with null is never true"
+IS_NULL = f"Invalid operands for operator ==: {NULL_TEST}; write `is null` instead"
+ONCE = {
+    "where": (
+        "    where twice(id == null)\n    select:\n        id\n",
+        [("PIE-S2105", 2, 17, IS_NULL)],
+    ),
+    "three_uses": (
+        "    select:\n        id\n        a = thrice(n != null)\n",
+        [
+            (
+                "PIE-S2105",
+                4,
+                20,
+                f"Invalid operands for operator !=: {NULL_TEST}; "
+                "write `is not null` instead",
+            )
+        ],
+    ),
+    "let": (
+        "    let: k = twice(nope == 1)\n    select:\n        id\n        a = k\n",
+        [("PIE-S2102", 2, 20, "Unknown field: nope")],
+    ),
+    "order_by": (
+        "    select:\n        id\n    order by:\n        dbl(len(substr(text, 0, 2)))\n",
+        [
+            (
+                "PIE-S2104",
+                5,
+                17,
+                "Invalid arguments for function substr: start must be a positive "
+                "Int literal and count must be a non-negative Int literal",
+            )
+        ],
+    ),
+    "grouped_select": (
+        "    group by: id\n    select:\n        id\n        a = twice(id == null)\n",
+        [
+            (
+                "PIE-S2319",
+                5,
+                13,
+                "Grouped scalar projection expressions are not supported yet",
+            ),
+            ("PIE-S2105", 5, 19, IS_NULL),
+        ],
+    ),
+    "aggregate_argument": (
+        "    group by: id\n    select:\n        id\n        s = dbl(sum(nope))\n",
+        [
+            (
+                "PIE-S2310",
+                5,
+                13,
+                "Aggregate projection must be a direct aggregate call; composition "
+                "around sum() is not supported yet",
+            ),
+            ("PIE-S2102", 5, 21, "Unknown field: nope"),
+        ],
+    ),
+    "unknown_function": (
+        "    select:\n        id\n        a = twice(nope(id) == 1)\n",
+        [("PIE-S2103", 4, 19, "Unknown function: nope")],
+    ),
+    "operand_type": (
+        "    select:\n        id\n        a = dbl(id + 'x')\n",
+        [
+            (
+                "PIE-S2105",
+                4,
+                17,
+                "Invalid operands for operator +: expected numeric operands",
+            )
+        ],
+    ),
+    "nested_call": (
+        "    select:\n        id\n        a = twice(twice(id == null))\n",
+        [("PIE-S2105", 4, 25, IS_NULL)],
+    ),
+    # Every copy's error still keeps the always-null argument of sum2 from
+    # being checked against its not-null parameter: no PIE-S2395.
+    "nested_always_null": (
+        "    select:\n        id\n        a = sum2(dbl(nope + null))\n",
+        [("PIE-S2102", 4, 22, "Unknown field: nope")],
+    ),
+    "same_text_in_two_arguments": (
+        "    select:\n        id\n        a = either(id == null, id == null)\n",
+        [("PIE-S2105", 4, 20, IS_NULL), ("PIE-S2105", 4, 32, IS_NULL)],
+    ),
+    "same_text_in_two_calls": (
+        "    select:\n        id\n        a = twice(id == null)\n"
+        "        c = twice(id == null)\n",
+        [("PIE-S2105", 4, 19, IS_NULL), ("PIE-S2105", 5, 19, IS_NULL)],
+    ),
+    # Two body comparisons that a null argument makes never true are both at
+    # the call, and reported once there, also for a call inside an argument.
+    "body_at_the_call": (
+        "    where low(null) and twice(id == null)\n    select:\n        id\n",
+        [
+            ("PIE-S2105", 2, 11, f"Invalid operands for operator <: {NULL_TEST}"),
+            ("PIE-S2105", 2, 31, IS_NULL),
+        ],
+    ),
+    "body_at_a_call_in_an_argument": (
+        "    where one(low(null)) and low(null)\n    select:\n        id\n",
+        [
+            ("PIE-S2105", 2, 15, f"Invalid operands for operator <: {NULL_TEST}"),
+            ("PIE-S2105", 2, 30, f"Invalid operands for operator <: {NULL_TEST}"),
+        ],
+    ),
+    "body_at_the_call_in_satisfying": (
+        "    group by: id\n    select:\n        id\n        c = count()\n"
+        "    satisfying: listed(c)\n",
+        [
+            (
+                "PIE-S2327",
+                6,
+                17,
+                "Unsupported satisfying expression form: `in` list",
+            )
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize(("relation", "expected"), ONCE.values(), ids=ONCE)
+def test_an_error_in_a_call_is_reported_once_however_often_it_is_typed(
+    relation: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    """The expansion types the body at the call and its argument once per use,
+    each copy at the argument's own text; the call is written once, so each
+    error in it is reported once at its text. Different arguments or calls are
+    different text."""
+    first = BODY_LINE + REPEATING_DEFS.count("\n")
+    source = SHAPES + DEFS + REPEATING_DEFS + "table t:\n    from rows\n" + relation
+    assert _errors(source) == [
+        (code, first + line, column, message)
+        for code, line, column, message in expected
+    ]
+
+
+def test_an_equal_error_outside_a_def_call_is_still_repeated() -> None:
+    """Only a repeat inside the text of a def call is dropped: an index that
+    names an unknown field twice reports it twice, as without a def, and the
+    call in its predicate reports its error once."""
+    source = (
+        "shape S:\n    a: Int nullable\n"
+        "    index i on missing, missing when twice(a == null)\n"
+        "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
     )
+    unknown = ("PIE-S2502", 3, 5, "Unknown target field in shape S: missing")
+    assert _errors(source) == [
+        unknown,
+        unknown,
+        ("PIE-S2503", 3, 5, "Duplicate target field in index i: missing"),
+        ("PIE-S2105", 3, 44, IS_NULL),
+    ]
 
 
 def test_inlined_spans_are_real_locations() -> None:
@@ -1203,10 +1384,9 @@ def test_no_volatile_function_reaches_a_repeated_argument(function: str) -> None
         f"table t:\n    from rows\n    where twice({function}())\n"
         "    select:\n        id\n"
     )
-    assert (
-        _errors(source)
-        == [("PIE-S2103", BODY_LINE + 1, 17, f"Unknown function: {function}")] * 2
-    )
+    assert _errors(source) == [
+        ("PIE-S2103", BODY_LINE + 1, 17, f"Unknown function: {function}")
+    ]
 
 
 def _expression_nodes(expression: Any) -> list[Any]:

@@ -7,8 +7,9 @@ ordinary expressions and the SQL equals that of the call written out by hand.
 
 from __future__ import annotations
 
+import bisect
 import itertools
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import NamedTuple, cast
@@ -197,6 +198,53 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
     if found:
         return script, _ordered(found)
     return replace(script, definitions=definitions, relationships=relationships), ()
+
+
+def drop_repeated_call_diagnostics(
+    script: Script, diagnostics: Sequence[Diagnostic]
+) -> tuple[Diagnostic, ...]:
+    """Keep only the first of equal diagnostics located in a def call.
+
+    ``script`` is the parsed script. Its expansion types the body at the call
+    and each use of an argument at the argument's own text, so one written
+    call can report one error more than once: in an argument the body uses n
+    times, or in body nodes that its arguments make fail alike. That text is
+    written once, so each such error is reported once. Dropping repeats after
+    typing, not during it, keeps every copy's error in view of the rule that
+    does not check an argument with an error of its own against its parameter.
+    A repeat outside a call stays.
+    """
+
+    if len(set(diagnostics)) == len(diagnostics):
+        return tuple(diagnostics)
+    defined = {
+        item.name: item for item in script.definitions if type(item) is FunctionDef
+    }
+    # The text of each outermost call; different calls do not overlap.
+    ranges: dict[str | None, list[tuple[tuple[int, int], tuple[int, int]]]] = {}
+    pending: list[object] = [script]
+    while pending:
+        value = pending.pop()
+        if _def_call_name(value, defined) is None:
+            pending.extend(_children(value) or ())
+            continue
+        span = cast(CallExpr, value).span
+        ranges.setdefault(span.path, []).append(
+            ((span.line, span.column), (span.end_line, span.end_column))
+        )
+    ordered = {path: sorted(spans) for path, spans in ranges.items()}
+    seen: set[Diagnostic] = set()
+    kept: list[Diagnostic] = []
+    for diagnostic in diagnostics:
+        location = diagnostic.location
+        spans = ordered.get(location.path, [])
+        at = (location.line, location.column)
+        index = bisect.bisect_right(spans, at, key=lambda span: span[0]) - 1
+        if diagnostic in seen and index >= 0 and at < spans[index][1]:
+            continue
+        seen.add(diagnostic)
+        kept.append(diagnostic)
+    return tuple(kept)
 
 
 class _Expansion:

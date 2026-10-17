@@ -62,7 +62,10 @@ from pietto.semantic.expressions import (
     type_source_connector_arguments,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
-from pietto.semantic.inline_functions import inline_functions
+from pietto.semantic.inline_functions import (
+    drop_repeated_call_diagnostics,
+    inline_functions,
+)
 from pietto.semantic.let_bindings import (
     analyze_relation_let_bindings,
     let_expansion_diagnostics,
@@ -135,6 +138,7 @@ def analyze(
             return SemanticResult(
                 model=SemanticModel(mode=mode), diagnostics=unadmitted, script=script
             )
+        parsed = script
         script, inline_diagnostics = inline_functions(script)
         if inline_diagnostics:
             return SemanticResult(
@@ -143,7 +147,11 @@ def analyze(
                 script=script,
             )
         if _expression_levels(script) <= _MAX_EXPRESSION_LEVELS:
-            return _analyze(script, mode=mode)
+            result = _analyze(script, mode=mode)
+            return replace(
+                result,
+                diagnostics=drop_repeated_call_diagnostics(parsed, result.diagnostics),
+            )
     except RecursionError:
         pass
     return SemanticResult(

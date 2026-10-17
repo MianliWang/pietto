@@ -1699,14 +1699,23 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   calls are PIE-S2103), and an aggregate argument gives one value per group,
   so the results do not change. Every inlined node keeps a real location:
   the body is at the call, and each use of an argument is at the argument's
-  own text. An error inside an argument that the body uses n times (other
-  than PIE-S2395) is therefore reported n times at the argument in a
-  single-file check, as n identical lines; a project check reports it once,
-  except in a JOIN ON condition, whose errors a project check currently
-  repeats whether they are written by hand or come from a def. With its
-  arguments, one expansion has at most 1000 expression nodes and 64 levels
-  of nesting (PIE-S2399); every expression counts, also those in a window
-  call's arguments and specification and in a cast's type arguments.
+  own text. An error inside an argument (other than a PIE-S2395 mismatch,
+  which is at the call) is therefore reported at the argument, and an error
+  that the body makes with its arguments at the call. A call is written once,
+  so each such error is reported once, however many times the body uses the
+  argument and however many body nodes make it: `low(null)` with
+  `def low(x: Int nullable) -> Bool nullable: return x < 3 or x < 4` is one
+  PIE-S2105 at the call, also when the call is itself an argument. This holds
+  in a single-file check, and in a project check except in a JOIN ON
+  condition, whose errors a project check currently repeats whether they are
+  written by hand or come from a def, and for a query header parameter read
+  in a position that refuses it (PIE-S2355), which a project check currently
+  reports at each use of the argument. A def body is checked at the def
+  before any call, and there an error in a call is reported as often as its
+  expansion makes it, in both checks. With its arguments, one expansion has
+  at most 1000 expression nodes and 64 levels of nesting (PIE-S2399); every
+  expression counts, also those in a window call's arguments and
+  specification and in a cast's type arguments.
 - Reporting: an error in a def itself (PIE-S2001 for a def, PIE-S2396 to
   PIE-S2399, PIE-S2402), a wrong argument count or a relation-read argument
   stops the check of the file before semantic analysis, so other semantic

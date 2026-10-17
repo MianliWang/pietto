@@ -474,6 +474,23 @@ def test_a_def_argument_cannot_read_a_relation(tmp_path: Path) -> None:
     ]
 
 
+def test_a_def_body_reports_an_error_in_a_call_at_each_use(tmp_path: Path) -> None:
+    """A body is checked at the def with the file's pre-admission diagnostics,
+    as in a single file: an error in a call's argument is reported at each use
+    that the expansion makes."""
+    located, messages = _def_project(
+        tmp_path,
+        "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
+        "def h(y: Int nullable) -> Bool nullable: return twice(y == null)\n",
+    )
+    message = (
+        "Invalid operands for operator ==: comparison with null is never true; "
+        "write `is null` instead"
+    )
+    assert located == [("PIE-S2105", DEF_LINE + 1, 55)] * 2
+    assert messages == [message] * 2
+
+
 def test_a_def_cannot_be_an_export_item(tmp_path: Path) -> None:
     located, _ = _def_project(tmp_path, "export:\n    def idi\n")
     assert located == [("PIE-P1000", DEF_LINE + 1, 5)]
