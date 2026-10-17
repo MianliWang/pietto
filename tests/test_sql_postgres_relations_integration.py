@@ -79,6 +79,38 @@ def test_pipeline_casts_sign_to_the_int_its_semantics_declare() -> None:
     ]
 
 
+def test_pipeline_emits_decimal_int_membership_as_written() -> None:
+    # `amount in (1, 2)` checks like `amount == 1 or amount == 2`; neither
+    # side is cast.
+    result = _compile_and_emit(
+        "type Money = Decimal(12, 2) not null\n"
+        "shape Acct:\n"
+        "    amount: Decimal(12, 2) not null\n"
+        "    n: Int not null\n"
+        "    m: Money not null\n"
+        'source accts: Acct is postgres.table("accts")\n'
+        "table q:\n"
+        "    from accts\n"
+        "    let:\n"
+        "        listed = m in (n, null)\n"
+        "    where amount in (1, 2)\n"
+        "    select:\n"
+        "        n\n"
+        "        r = n not in (amount, -3)\n"
+        "        s = listed\n"
+    )
+
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n"
+        '    "n" AS "n",\n'
+        '    "n" NOT IN ("amount", (-3)) AS "r",\n'
+        '    "m" IN ("n", NULL) AS "s"\n'
+        'FROM "accts"\n'
+        'WHERE "amount" IN (1, 2)'
+    ]
+    assert result.diagnostics == ()
+
+
 def test_pipeline_uses_escape_string_for_backslash_quote_payload() -> None:
     result = _compile_and_emit(
         "shape User:\n"

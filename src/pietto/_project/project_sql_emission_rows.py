@@ -1478,9 +1478,11 @@ def resolved_membership_realization(family, tag, nullable, values):
     if not values or tag != "Bool":
         return None, ("PIE-B1003", "membership_realization_not_admitted")
     first = _concrete_values(values)
-    if first is None:
+    if first is None and all(_typed_null(value) for value in values):
         return None, ("PIE-B1004", "membership_typed_null_context_missing")
-    if first.tag not in MEMBERSHIP_TYPES:
+    # Operands of two carriers, such as the Decimal and Int a check accepts,
+    # are a pair emission does not admit, as for `amount == 1`.
+    if first is None or first.tag not in MEMBERSHIP_TYPES:
         return None, ("PIE-B1003", "membership_type_pair_not_admitted")
     if len(values) == 1:
         # The semantic layer has already checked the left operand.  The empty

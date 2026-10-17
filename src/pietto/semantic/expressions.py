@@ -1115,7 +1115,7 @@ def _infer(
             value_type = _UNKNOWN_VALUE_TYPE
         elif (
             column is not None
-            and _shared_canonical_type((left_type, column), type_expansions) is None
+            and _membership_canonical_type((left_type, column), type_expansions) is None
         ):
             diagnostics.append(
                 _invalid_operator_operands_diagnostic(
@@ -1529,12 +1529,13 @@ def _membership_value_type(
         child_types,
         value_types,
         type_expansions,
+        membership=True,
     )
     if contextual is not None:
         child_types = contextual
     if any(value_type.kind is ValueTypeKind.UNKNOWN for value_type in child_types):
         return _UNKNOWN_VALUE_TYPE
-    if _shared_canonical_type(child_types, type_expansions) is None:
+    if _membership_canonical_type(child_types, type_expansions) is None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(
                 expression,
@@ -1837,6 +1838,34 @@ def _shared_canonical_type(
     ):
         return None
     return canonical
+
+
+def _membership_canonical_type(
+    value_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ResolvedType | None:
+    """Return the type an `in` test compares its value and options as.
+
+    `v in (a, b)` tests `v == a` and `v == b`, so besides one shared canonical
+    type it accepts `Decimal` mixed with `Int`, as those comparisons do, and
+    compares them as `Decimal`; every other mix, `Float` included, is refused.
+    """
+
+    shared = _shared_canonical_type(value_types, type_expansions)
+    if shared is not None:
+        return shared
+    names = {
+        None
+        if canonical is None or canonical.kind is not TypeKind.BUILTIN
+        else canonical.name
+        for canonical in (
+            _canonical_resolved_type(value_type, type_expansions)
+            for value_type in value_types
+        )
+    }
+    if names == {"Decimal", "Int"}:
+        return ResolvedType(name="Decimal", kind=TypeKind.BUILTIN)
+    return None
 
 
 def _join_nullability(
@@ -2204,8 +2233,14 @@ def _contextual_null_literal_types(
     value_types: tuple[ValueType, ...],
     recorded: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    membership: bool = False,
 ) -> tuple[ValueType, ...] | None:
-    """Type only literal NULLs from one local approved common-type context."""
+    """Type only literal NULLs from one local approved common-type context.
+
+    With ``membership``, as for an `in` list, the context is the type the test
+    compares as.
+    """
 
     if any(
         value_type.kind is ValueTypeKind.UNKNOWN and not _is_null_literal(expression)
@@ -2219,7 +2254,9 @@ def _contextual_null_literal_types(
     )
     if not known:
         return None
-    canonical = _shared_canonical_type(known, type_expansions)
+    canonical = (_membership_canonical_type if membership else _shared_canonical_type)(
+        known, type_expansions
+    )
     if canonical is None:
         return value_types
     result = []

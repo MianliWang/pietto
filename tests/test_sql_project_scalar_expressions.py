@@ -965,3 +965,66 @@ def test_literal_list_and_relation_membership_stay_distinct(tmp_path, target):
         ("listed", True),
         ("read", True),
     ]
+
+
+DECIMAL_INT_READS = """query ids:
+    from rows
+    select:
+        id
+query monies:
+    from rows
+    select:
+        money
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "table result:\n    from rows\n    where money in (1, 2)\n"
+            "    select:\n        id\n",
+            ("membership_type_pair_not_admitted", 10, 5),
+        ),
+        (
+            "table result:\n    from rows\n    select:\n        id\n"
+            "        f = id not in (money, 3)\n",
+            ("membership_type_pair_not_admitted", 12, 9),
+        ),
+        (
+            "table result:\n    from rows\n    where money in (1, null)\n"
+            "    select:\n        id\n",
+            ("membership_type_pair_not_admitted", 10, 5),
+        ),
+        (
+            DECIMAL_INT_READS + "table result:\n    from rows\n"
+            "    where money in ids\n    select:\n        id\n",
+            ("membership_type_pair_not_admitted", 18, 5),
+        ),
+        (
+            DECIMAL_INT_READS + "table result:\n    from rows\n    select:\n"
+            "        id\n        f = id not in monies\n",
+            ("membership_type_pair_not_admitted", 20, 9),
+        ),
+    ),
+    ids=("list", "list_not_in", "list_null", "read", "read_not_in"),
+)
+def test_decimal_int_membership_checks_and_is_refused_like_its_comparison(
+    tmp_path, target, body, expected
+):
+    # `check --project` accepts a Decimal and an Int as it accepts
+    # `money == 1`, and project SQL refuses the pair as it refuses that
+    # comparison (`comparison_type_pair_not_admitted`).
+    _, outcome = emit(tmp_path, target, body)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "BLOCKED" and document["diagnostics"] == []
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            b["location"]["line"],
+            b["location"]["column"],
+        )
+        for b in document["blockers"]
+    ] == [("PIE-B1003", *expected)]

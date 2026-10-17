@@ -208,6 +208,45 @@ def test_shape_predicate_diagnostics_follow_source_order() -> None:
     ]
 
 
+def test_shape_predicates_mix_decimal_with_int_membership_as_queries_do() -> None:
+    # A shape check and an index condition type `in` as a query does: Decimal
+    # mixes with Int, and Decimal with Float stays PIE-S2105.
+    result = analyze(
+        _parse(
+            "shape Record:\n"
+            "    amount: Decimal(12, 2) not null\n"
+            "    n: Int not null\n"
+            "    check listed:\n"
+            "        amount in (1, 2)\n"
+            "    check fractional:\n"
+            "        amount in (2.5)\n"
+            "    index listed_ix on amount when n not in (amount, 3)\n"
+        )
+    )
+    shape = _shape(result)
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator in: "
+            "expected same canonical membership operands",
+            7,
+            9,
+        )
+    ]
+    for expression in (shape.checks[0].expression, _index_predicate(result)):
+        value = result.model.expression_value_types[expression]
+        assert value.resolved_type.name == "Bool"
+
+
 def test_index_without_predicate_adds_no_expression_type() -> None:
     result = analyze(
         _parse(

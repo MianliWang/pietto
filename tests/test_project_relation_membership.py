@@ -273,6 +273,36 @@ def test_a_left_value_must_pair_with_the_read_column_like_a_literal_list(
     ) == (1, [("PIE-S2105", PAIR.format("in"), 11, 11)])
 
 
+def test_a_decimal_and_an_int_pair_as_in_a_literal_list(tmp_path: Path) -> None:
+    """A Decimal pairs with an Int, as in `m in (1, 2)` and `m == 1`; a Float
+    still pairs with neither."""
+    monies = (
+        "shape Money:\n    m: Decimal(9, 2) not null\n    r: Float not null\n"
+        'source monies_src: Money is postgres.table("monies")\n'
+        "query monies:\n    from monies_src\n    select:\n        m\n"
+    )
+    assert _check(
+        tmp_path / "int_in_decimal",
+        monies + "query result:\n    from lhs\n    where id in monies\n"
+        "    select:\n        id\n",
+    ) == (0, [])
+    assert _check(
+        tmp_path / "decimal_not_in_int",
+        monies + IDS + "query result:\n    from monies_src\n    select:\n"
+        "        m\n        f = m not in ids\n",
+    ) == (0, [])
+    assert _check(
+        tmp_path / "list",
+        monies + "query result:\n    from monies_src\n    where m in (1, 2)\n"
+        "    select:\n        m\n",
+    ) == (0, [])
+    assert _check(
+        tmp_path / "float_in_decimal",
+        monies + "query result:\n    from monies_src\n    where r in monies\n"
+        "    select:\n        m\n",
+    ) == (1, [("PIE-S2105", PAIR.format("in"), 16, 11)])
+
+
 WIDTH = "Invalid operands for operator {}: expected a relation with one output column"
 
 

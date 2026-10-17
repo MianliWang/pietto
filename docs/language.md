@@ -1190,6 +1190,22 @@ operands such as fields, calls and `let` values are not yet checked against
 those types either. Operands typed `Any`, `Bytes`, `Json`, an enum, or a shape
 are not checked.
 
+An `in` or `not in` list tests `value == option` for each option, but its value
+and options must have one type once aliases are expanded, except that `Decimal`
+and `Int` mix as they do in a comparison: with `amount: Decimal(12, 2) not
+null` and `n: Int not null`, `amount in (1, 2)` and `n not in (amount, -3)`
+check and emit as written (`"amount" IN (1, 2)` on PostgreSQL), and a `null`
+option among them takes the `Decimal` type. Every other mix is PIE-S2105
+(`expected same canonical membership operands`) even where the comparison is
+accepted, such as `amount in (2.5)` or a `Float` field in `(1, 2)`. A `null`
+option is typed only when the other operands have such a type, and a list with
+an operand of unknown type, an untyped `null` included, is not refused for its
+types, so `amount in (2.5, null)` is not refused either. An EXPLICIT_MODULES
+project checks lists and `in` reads alike, and `emit-sql --project` and
+`compile_query` then refuse a `Decimal` with an `Int` in a query they otherwise
+emit with PIE-B1003 `membership_type_pair_not_admitted`, as they refuse
+`amount == 1` with `comparison_type_pair_not_admitted`.
+
 A comparison with `null` is never true: SQL evaluates `x = NULL`, `x <> NULL`
 and the ordering comparisons to NULL for every `x`. A comparison (`==`, `!=`,
 `<`, `<=`, `>`, `>=`) whose operand is the null literal, or a `let:` name bound

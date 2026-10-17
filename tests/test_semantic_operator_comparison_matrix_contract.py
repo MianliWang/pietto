@@ -187,6 +187,43 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
     assert diagnostics == ()
 
 
+def test_membership_mixes_decimal_with_int_as_its_comparisons_do() -> None:
+    # `v in (a, b)` tests `v == a` and `v == b`: one canonical type, or Decimal
+    # with Int (a null option then reads as Decimal); every other mix is refused.
+    for expression, nullability in (
+        ("price in (1, 2)", EffectiveNullability.NON_NULL),
+        ("price not in (amount, -2)", EffectiveNullability.NON_NULL),
+        ("amount in (price, discount)", EffectiveNullability.NULLABLE),
+        ("discount in (1)", EffectiveNullability.NULLABLE),
+        ("price in (1, null)", EffectiveNullability.NULLABLE),
+        ("amount not in (null, price)", EffectiveNullability.NULLABLE),
+        ("price in (amount + 1)", EffectiveNullability.UNKNOWN),
+    ):
+        value, diagnostics = expression_facts(expression)
+        assert value.kind is ValueTypeKind.KNOWN, expression
+        assert value.resolved_type.name == "Bool"
+        assert value.nullability is nullability, expression
+        assert diagnostics == (), expression
+
+    for expression, operator in (
+        ("price in (2.5)", "in"),
+        ("score in (price)", "in"),
+        ("amount in (2.5, 1)", "in"),
+        ('price in (1, "x")', "in"),
+        ("score not in (1)", "not in"),
+        ("price in (amount, score)", "in"),
+    ):
+        value, diagnostics = expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == (
+            (
+                "PIE-S2105",
+                f"Invalid operands for operator {operator}: "
+                "expected same canonical membership operands",
+            ),
+        ), expression
+
+
 _ALIAS_TYPES = (
     "type Age = Int not null\n"
     "type Money = Decimal(12, 2) not null\n"
@@ -241,9 +278,9 @@ def _alias_operand_facts(
 
 
 def test_type_alias_operands_read_as_their_base_type() -> None:
-    # Arithmetic, unary +/- and and/or read an alias (alias chains included) as
-    # the builtin type it expands to; the result is that base type, and every
-    # pair the base types refuse stays refused with the same diagnostic.
+    # Arithmetic, unary +/-, and/or and in read an alias (alias chains included)
+    # as the builtin type it expands to; the result is that base type (Bool for
+    # in), and every pair the base types refuse stays refused alike.
     unknown = EffectiveNullability.UNKNOWN
     non_null = EffectiveNullability.NON_NULL
     for expression, expected in (
@@ -263,6 +300,10 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
         ("age + ratio", ("BUILTIN", "Float", unknown)),
         ("flag and flag", ("BUILTIN", "Bool", unknown)),
         ("flag or flag", ("BUILTIN", "Bool", unknown)),
+        ("amount in (age, 1)", ("BUILTIN", "Bool", non_null)),
+        ("cash not in (bonus)", ("BUILTIN", "Bool", non_null)),
+        ("age in (fee, cash)", ("BUILTIN", "Bool", non_null)),
+        ("amount in (age, null)", ("BUILTIN", "Bool", EffectiveNullability.NULLABLE)),
     ):
         facts = _alias_operand_facts(expression, aliased=True)
         assert facts == (expected, ()), expression
@@ -278,6 +319,8 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
         ("flag + 1", "+", "numeric operands"),
         ("age and flag", "and", "Bool operands"),
         ("age % ratio", "%", "Int operands"),
+        ("ratio in (age)", "in", "same canonical membership operands"),
+        ("amount not in (ratio)", "not in", "same canonical membership operands"),
     ):
         facts = _alias_operand_facts(expression, aliased=True)
         assert facts == (
