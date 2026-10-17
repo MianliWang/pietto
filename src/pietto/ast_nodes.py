@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
-from pietto import _window_identity
+from pietto import _inline_argument, _window_identity
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Span:
-    """A 1-based, half-open source range: [line:column, end_line:end_column)."""
+    """A 1-based, half-open source range: [line:column, end_line:end_column).
+
+    ``occurrence`` tells apart the copies of one source range that inlining a
+    ``def`` call writes more than once: the body at each call and an argument
+    the body uses again. Parsed source keeps 0, and locations shown to users
+    are only the range.
+    """
 
     path: str | None
     line: int
     column: int
     end_line: int
     end_column: int
+    occurrence: int = field(default=0, repr=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -36,11 +43,43 @@ class Header(Node):
     encoding: str | None = None
 
 
+class _InlinedArgumentSlot(Node):
+    """Room for the ``def`` parameters an inlined argument must fit.
+
+    It is a slot, not a dataclass field: equality, hashing, ``fields()``
+    walkers, serializers, IR and SQL never see it, and ``replace()`` drops it.
+    """
+
+    __slots__ = ("_inlined_arguments",)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Expression(Node):
+class Expression(_InlinedArgumentSlot):
     """Base class for parsed expressions without semantic typing."""
 
     pass
+
+
+def inlined_arguments(
+    expression: Expression,
+) -> tuple[_inline_argument.InlinedArgument, ...]:
+    """The ``def`` parameters ``expression`` is the inlined argument of; empty
+    for parsed source and for every node that ``replace()`` builds."""
+
+    return getattr(expression, "_inlined_arguments", ())
+
+
+def with_inlined_argument[E: Expression](
+    expression: E, argument: _inline_argument.InlinedArgument
+) -> E:
+    """A new expression equal to ``expression`` that must also fit
+    ``argument``; ``expression`` itself is never changed."""
+
+    result = replace(expression)
+    object.__setattr__(
+        result, "_inlined_arguments", (*inlined_arguments(expression), argument)
+    )
+    return result
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -513,6 +552,19 @@ class DeriveDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FunctionDef(Node):
+    """A pure inline function ``def name(parameters) -> type: return body``.
+
+    Every parameter type and the return type state their nullability.
+    """
+
+    name: str
+    parameters: tuple[Parameter, ...]
+    return_type: TypeExpr
+    body: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SourceDef(Node):
     """A parse-only binding from a Pietto name to a connector expression."""
 
@@ -625,21 +677,33 @@ class JoinOnClause(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JoinTraversalStep(Node):
-    """One exact authored relationship traversal step."""
+    """One exact authored relationship traversal step.
+
+    ``via r`` without ``: source -> target`` leaves both roles absent (None)
+    for semantic inference; the roles are authored together or not at all.
+    """
 
     relationship_name: str
-    source_endpoint_role: str
-    target_endpoint_role: str
+    source_endpoint_role: str | None
+    target_endpoint_role: str | None
+
+    def __post_init__(self) -> None:
+        if (self.source_endpoint_role is None) != (self.target_endpoint_role is None):
+            raise ValueError("join traversal roles are authored together or not")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JoinClause(Node):
-    """One authored JOIN with independently retained VIA and optional ON."""
+    """One authored JOIN with independently retained VIA and optional ON.
+
+    A JOIN written without ``from`` leaves ``source_binding_name`` absent
+    (None) for semantic inference.
+    """
 
     kind: AuthoredJoinKind
     target_relation_name: str
     target_binding_name: str
-    source_binding_name: str
+    source_binding_name: str | None
     traversal_steps: tuple[JoinTraversalStep, ...] = ()
     on_clause: JoinOnClause | None = None
 
@@ -1139,6 +1203,7 @@ Definition = (
     | QueryDef
     | SetRelationDef
     | BlockRelationDef
+    | FunctionDef
 )
 
 

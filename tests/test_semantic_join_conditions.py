@@ -166,6 +166,56 @@ def test_multi_hop_combination_rules(tmp_path: Path, kind, on) -> None:
     assert any(d.code == "PIE-S2336" for d in fact.diagnostics) is not allowed
 
 
+@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti"))
+def test_a_join_without_from_keeps_every_source_candidate(
+    tmp_path: Path, kind: str
+) -> None:
+    """A new JOIN kind reads its source from the same complete lookup."""
+    source = (
+        "shape Row:\n    id: Int not null\n    unique row_key on id\n"
+        'source lhs: Row is postgres.table("lhs")\n'
+        'source rhs: Row is postgres.table("rhs")\n'
+        "relationship link: lhs.id == rhs.id\n"
+        f"query one:\n    from lhs\n    {kind} join rhs as r\n"
+        "    select:\n        id = lhs.id\n"
+        "query two:\n    from lhs\n    inner join lhs as again:\n        from lhs\n"
+        "        on again.id == lhs.id\n"
+        f"    {kind} join rhs as r: via link\n    select:\n        id = lhs.id\n"
+    )
+    one, again, two = _completed(tmp_path, source).roots.join_conditions.entries
+    assert one.ready and again.ready and not two.ready
+    assert one.environment.source_candidates == (one.ledger.bindings[0],)
+    assert two.environment.source_candidates == two.ledger.bindings[:2]
+    assert ("PIE-S2335", "JOIN source binding is ambiguous.") in {
+        (item.code, item.message) for item in two.diagnostics
+    }
+
+
+@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti"))
+def test_a_blocked_join_lookup_is_an_unavailable_input_not_an_unknown_source(
+    tmp_path: Path, kind: str
+) -> None:
+    """A VIA step without roles over a relation joined to itself blocks the
+    lookup of a JOIN without `from`; its source binding is not unknown."""
+    source = (
+        "shape Row:\n    id: Int not null\n    parent: Int nullable\n"
+        "    unique row_key on id\n"
+        'source lhs: Row is postgres.table("lhs")\n'
+        "relationship parent_of:\n    endpoint child: lhs\n    endpoint parent: lhs\n"
+        "    on child.parent == parent.id\n"
+        f"query q:\n    from lhs\n    {kind} join lhs as up: via parent_of\n"
+        "    select:\n        id = lhs.id\n"
+    )
+    (fact,) = _completed(tmp_path, source).roots.join_conditions.entries
+    assert not fact.ready and fact.environment.source_candidates == ()
+    assert [(item.code, item.message) for item in fact.diagnostics] == [
+        (
+            "PIE-S2335",
+            "JOIN pre-match input or relationship authority is unavailable.",
+        )
+    ]
+
+
 @pytest.mark.parametrize(
     "predicate, proofs",
     (

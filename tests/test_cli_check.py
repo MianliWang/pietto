@@ -119,6 +119,7 @@ def test_check_deep_unary_returns_parser_error_without_traceback(
 
     captured = capsys.readouterr()
     assert captured.out == ""
+    # Located at the start of the declaration that ran out of depth.
     assert f"{path}:1:1 PIE-P1000 error:" in captured.err
     assert "recursion limit" in captured.err
     assert "Traceback" not in captured.err

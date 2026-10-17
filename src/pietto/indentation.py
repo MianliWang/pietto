@@ -8,7 +8,13 @@ from pathlib import Path
 
 from antlr4.Token import CommonToken, Token
 
-from pietto.errors import Diagnostic, Severity, SourceLocation, source_path
+from pietto.errors import (
+    UNEXPECTED_INDENTATION,
+    Diagnostic,
+    Severity,
+    SourceLocation,
+    source_path,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +35,8 @@ def find_leading_tab_diagnostics(
     diagnostics: list[Diagnostic] = []
     path_text = source_path(path)
 
+    # Lines are counted as they always were, with ``splitlines``: it also ends
+    # a line at a lone CR, form feed or U+2028 that a comment or string holds.
     for line_number, line in enumerate(source.splitlines(), start=1):
         leading = line[: len(line) - len(line.lstrip(" \t"))]
         tab_column = leading.find("\t")
@@ -50,6 +58,63 @@ def find_leading_tab_diagnostics(
     return tuple(diagnostics)
 
 
+def join_parenthesized_lines(
+    tokens: Sequence[Token],
+    *,
+    newline_type: int,
+    open_type: int,
+    close_type: int,
+    window_type: int,
+    colon_type: int,
+    path: str | Path | None,
+) -> IndentationResult:
+    """Drop the line breaks inside parentheses, like Python implicit joining.
+
+    Continuation lines inside ``(`` ... ``)`` carry no NEWLINE, so their
+    indentation, blank lines and comments never reach the block logic; every
+    token keeps its source position. An unmatched ``)`` is left to the parser.
+
+    A window block (``window:`` or ``window name:`` ending a line) opened
+    inside parentheses keeps its line breaks, as every parenthesized line
+    break did before joining existed: joining resumes once those parentheses
+    close, so such a QUALIFY operand parses exactly as it always did. A ``(``
+    still open at EOF is reported; it makes the parser input meaningless.
+    """
+
+    output: list[Token] = []
+    diagnostics: list[Diagnostic] = []
+    open_parens: list[Token] = []
+    # The depth of the parentheses whose window block keeps line breaks.
+    kept_depth: int | None = None
+    path_text = source_path(path)
+    for token in tokens:
+        if token.type == newline_type and open_parens:
+            # ``window:`` or ``window name:`` ending a line opens a block.
+            recent = [item.type for item in output[-3:]]
+            if kept_depth is None and (
+                recent[-2:] == [window_type, colon_type]
+                or (recent[:1] == [window_type] and recent[-1:] == [colon_type])
+            ):
+                kept_depth = len(open_parens)
+            if kept_depth is not None:
+                output.append(token)
+            continue
+        if token.type == open_type:
+            open_parens.append(token)
+        elif token.type == close_type and open_parens:
+            open_parens.pop()
+            if kept_depth is not None and len(open_parens) < kept_depth:
+                kept_depth = None
+        elif token.type == Token.EOF and open_parens:
+            diagnostics.append(
+                _diagnostic(
+                    "PIE-P1008", "'(' is never closed.", path_text, open_parens[-1]
+                )
+            )
+        output.append(token)
+    return IndentationResult(tokens=tuple(output), diagnostics=tuple(diagnostics))
+
+
 def inject_indentation(
     tokens: Sequence[Token],
     *,
@@ -67,6 +132,18 @@ def inject_indentation(
     # Zero is the permanent baseline; nested block widths are pushed and popped.
     indentation_stack = [0]
     path_text = source_path(path)
+    # An indented first code line is reported here, after any blank or comment
+    # lines.  Its width opens no block: the rest of the file is measured as if
+    # the line started at column 0, so a file indented as a whole can also get
+    # a PIE-P1003 at a later line.
+    code_seen = False
+    first = tokens[0] if tokens else None
+    if first is not None and first.type not in {newline_type, Token.EOF}:
+        code_seen = True
+        if first.column > 0:
+            diagnostics.append(
+                _diagnostic("PIE-P1000", UNEXPECTED_INDENTATION, path_text, first)
+            )
 
     for index, token in enumerate(tokens):
         if token.type == Token.EOF:
@@ -93,6 +170,15 @@ def inject_indentation(
         indentation = _trailing_indentation(token.text or "")
         width = len(indentation.replace("\t", " "))
         previous = indentation_stack[-1]
+        if not code_seen:
+            code_seen = True
+            if width > 0:
+                diagnostics.append(
+                    _diagnostic(
+                        "PIE-P1000", UNEXPECTED_INDENTATION, path_text, next_token
+                    )
+                )
+            continue
 
         if width > previous:
             indentation_stack.append(width)
@@ -123,6 +209,17 @@ def inject_indentation(
     return IndentationResult(
         tokens=tuple(output),
         diagnostics=tuple(diagnostics),
+    )
+
+
+def _diagnostic(code: str, message: str, path: str | None, token: Token) -> Diagnostic:
+    """Build one error diagnostic located at a source token."""
+
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(path=path, line=token.line, column=token.column + 1),
     )
 
 

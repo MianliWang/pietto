@@ -254,6 +254,192 @@ def test_parse_only_project_check_does_not_enter_compiler_pipeline(
     )
 
 
+DEF_HEAD = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    n: Int nullable\n"
+    "    text: Text not null\n"
+    "    unique row_key on id\n"
+    "shape Other:\n"
+    "    id: Int not null\n"
+    "    row_id: Int not null\n"
+    'source rows: Row is postgres.table("rows")\n'
+    'source others: Other is postgres.table("others")\n'
+    "def idi(x: Int not null) -> Int not null: return x\n"
+    "def pos(x: Int nullable) -> Bool nullable: return x > 0\n"
+)
+# The first line written after DEF_HEAD.
+DEF_LINE = 13
+
+
+def _def_project(tmp_path: Path, source: str, schema: int = 2):
+    root = tmp_path / "project"
+    _write(
+        root,
+        "pietto.toml",
+        f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(root, "a.pietto", DEF_HEAD + source)
+    result = check_project_parse_only(root)
+    assert result.errors == ()
+    return [
+        (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
+        for diagnostic in result.diagnostics
+    ], [diagnostic.message for diagnostic in result.diagnostics]
+
+
+def test_a_flat_project_keeps_every_def_gated(tmp_path: Path) -> None:
+    located, messages = _def_project(tmp_path, "", schema=1)
+    assert located == [("PIE-S2379", DEF_LINE - 2, 1), ("PIE-S2379", DEF_LINE - 1, 1)]
+    assert set(messages) == {
+        "Inline `def` functions are available only in single files and "
+        "EXPLICIT_MODULES projects (schema version 2)."
+    }
+
+
+DEF_POSITIONS = {
+    "table_function": (
+        "query q:\n    from generate_series(idi(1), 3, 1) as s\n"
+        "    select:\n        s\n",
+        [(DEF_LINE + 1, 26)],
+        "in a table-function input",
+    ),
+    "table_function_itself": (
+        "query q:\n    from idi(1) as s\n    select:\n        s\n",
+        [(DEF_LINE + 1, 10)],
+        "as a table function",
+    ),
+    "window_argument": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = lag(idi(n)) window:\n            order by: id\n",
+        [(DEF_LINE + 4, 17)],
+        "in a window computation",
+    ),
+    "window_key": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = row_number() window:\n            partition by: idi(id)\n"
+        "            order by: idi(n)\n",
+        [(DEF_LINE + 5, 27), (DEF_LINE + 6, 23)],
+        "in a window computation",
+    ),
+    "window_frame": (
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        r = sum(id) window:\n            order by: id\n"
+        "            rows between idi(1) preceding and current row\n",
+        [(DEF_LINE + 6, 26)],
+        "in a window computation",
+    ),
+    "values_row": (
+        "query q:\n    values(a: Int not null, b: Int not null):\n        idi(1), 2\n",
+        [(DEF_LINE + 2, 9)],
+        "in a VALUES row",
+    ),
+    "values_type_argument": (
+        "query q:\n    values(a: Decimal(idi(9), 2) not null):\n        1\n",
+        [(DEF_LINE + 1, 23)],
+        "in a type argument",
+    ),
+    "type_argument_inside_limit": (
+        "query q:\n    from rows\n    select:\n        id\n    order by: id\n"
+        "    limit cast(3 as Decimal(idi(9), 0))\n",
+        [(DEF_LINE + 5, 29)],
+        "in a type argument",
+    ),
+    "relationship": (
+        "relationship link:\n    endpoint row: rows\n    endpoint other: others\n"
+        "    on idi(other.row_id) == row.id\n",
+        [(DEF_LINE + 3, 8)],
+        "in a relationship condition",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("source", "calls", "position"), DEF_POSITIONS.values(), ids=DEF_POSITIONS
+)
+def test_a_project_refuses_a_def_call_where_the_written_form_has_its_own_rule(
+    tmp_path: Path, source: str, calls: list[tuple[int, int]], position: str
+) -> None:
+    located, messages = _def_project(tmp_path, source)
+    assert located == [("PIE-S2397", line, column) for line, column in calls]
+    assert set(messages) == {f"A def call is not available {position}: idi"}
+
+
+TYPE_ARGUMENT_CALLS = {
+    "called_before_its_def": (
+        "def f(x: Int not null) -> Float not null: return cast(x as Float(g(1)))\n"
+        "def g(x: Int not null) -> Int not null: return x\n",
+        [
+            (
+                "PIE-S2397",
+                DEF_LINE,
+                66,
+                "A def call is not available in a type argument: g",
+            )
+        ],
+    ),
+    "called_after_its_def": (
+        "def g(x: Int not null) -> Int not null: return x\n"
+        "def f(x: Int not null) -> Float not null: return cast(x as Float(g(1)))\n",
+        [
+            (
+                "PIE-S2397",
+                DEF_LINE + 1,
+                66,
+                "A def call is not available in a type argument: g",
+            )
+        ],
+    ),
+    "recursive": (
+        "def f(x: Int not null) -> Float not null: return cast(x as Float(f(1)))\n"
+        "def g(x: Int not null) -> Int not null: return x\n",
+        [
+            ("PIE-S2396", DEF_LINE, 1, "Recursive def calls are not available: f -> f"),
+            (
+                "PIE-S2397",
+                DEF_LINE,
+                66,
+                "A def call is not available in a type argument: f",
+            ),
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("defs", "expected"), TYPE_ARGUMENT_CALLS.values(), ids=TYPE_ARGUMENT_CALLS
+)
+def test_a_def_call_in_a_def_type_argument_is_refused_in_any_order(
+    tmp_path: Path, defs: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    located, messages = _def_project(
+        tmp_path,
+        defs + "query q:\n    from rows\n    select:\n        v = f(g(id))\n",
+    )
+    assert [
+        (*place, message) for place, message in zip(located, messages, strict=True)
+    ] == expected
+
+
+def test_a_def_argument_cannot_read_a_relation(tmp_path: Path) -> None:
+    located, messages = _def_project(
+        tmp_path,
+        "query q:\n    let low:\n        from rows\n        select:\n"
+        "            k = id\n    from rows\n    where pos(scalar low.k) and pos(id)\n"
+        "    select:\n        id\n",
+    )
+    assert located == [("PIE-S2395", DEF_LINE + 6, 11)]
+    assert messages == [
+        "Invalid argument for def pos at position 1 (x): an argument cannot read "
+        "a relation (exists, scalar or in) yet"
+    ]
+
+
+def test_a_def_cannot_be_an_export_item(tmp_path: Path) -> None:
+    located, _ = _def_project(tmp_path, "export:\n    def idi\n")
+    assert located == [("PIE-P1000", DEF_LINE + 1, 5)]
+
+
 def _project_root(
     tmp_path: Path,
     *,

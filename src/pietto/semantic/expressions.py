@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import functools
 from collections import Counter
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, cast
+from collections.abc import Callable, Mapping, Sequence
+from types import MappingProxyType
+from typing import TYPE_CHECKING, ParamSpec, cast
 
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
-    CastExpr,
     CallExpr,
-    ConditionalExpr,
+    CastExpr,
     CheckDef,
     ComparisonExpr,
+    ConditionalExpr,
     ConstraintDef,
     DeriveDef,
     DottedNameExpr,
@@ -38,6 +40,7 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WindowExpr,
     WindowFrameUnit,
+    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -106,6 +109,160 @@ _QUERY_PARAMETER_NULLABILITY = {
     Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
     Nullability.NULLABLE: EffectiveNullability.NULLABLE,
 }
+
+
+_P = ParamSpec("_P")
+
+
+def checks_inlined_arguments(
+    infer: Callable[_P, ValueType],
+) -> Callable[_P, ValueType]:
+    """Check each inlined argument a clause-specific typer types itself; it
+    takes the expression first and ``diagnostics`` by keyword."""
+
+    @functools.wraps(infer)
+    def checked(*args: _P.args, **kwargs: _P.kwargs) -> ValueType:
+        return _check_inlined_argument(
+            cast(Expression, args[0]),
+            infer(*args, **kwargs),
+            cast(list[Diagnostic], kwargs["diagnostics"]),
+            cast(
+                Mapping[TypeExpr, ResolvedType] | None,
+                kwargs.get("type_expansions"),
+            ),
+        )
+
+    return checked
+
+
+def _check_inlined_argument(
+    expression: Expression,
+    value_type: ValueType,
+    diagnostics: list[Diagnostic],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """Check an argument against each ``def`` parameter it is inlined for.
+
+    A known type must be the parameter type after alias expansion, and a
+    ``not null`` parameter takes only a value proven non-null. An argument
+    that is always null fits only a nullable parameter, and only one of its
+    own type when it has one: a comparison with null is still Bool. Any other
+    argument whose type is unknown is not checked: either an error was
+    reported for it or nothing is known about it, as for a field of a source
+    without a shape. A mismatch is one error at the innermost call that does
+    not fit, however many uses of the argument the body has, and every use
+    then stays Unknown so that the expansion reports nothing else.
+    """
+
+    slots = inlined_arguments(expression)
+    if not slots:
+        return value_type
+    is_null = always_null(expression)
+    known = value_type.kind is not ValueTypeKind.UNKNOWN
+    if not known and not is_null:
+        return value_type
+    canonical = _canonical_resolved_type(value_type, type_expansions) if known else None
+    fits = True
+    for slot in slots:
+        type_fits = not known or (
+            canonical is not None
+            and canonical.kind is TypeKind.BUILTIN
+            and canonical.name == slot.type_name
+        )
+        if type_fits and (
+            slot.nullable
+            or (not is_null and value_type.nullability is EffectiveNullability.NON_NULL)
+        ):
+            continue
+        if type_fits and is_null:
+            actual = "null"
+        else:
+            actual = (
+                f"{(canonical or value_type.resolved_type).name} "
+                f"{_NULLABILITY_TEXT[value_type.nullability]}"
+            )
+        fits = False
+        expected = "nullable" if slot.nullable else "not null"
+        diagnostic = Diagnostic(
+            code="PIE-S2395",
+            severity=Severity.ERROR,
+            message=(
+                f"Invalid argument for def {slot.function} at position "
+                f"{slot.position} ({slot.parameter}): expected "
+                f"{slot.type_name} {expected}, got {actual}"
+            ),
+            location=SourceLocation(
+                path=slot.call.path,
+                line=slot.call.line,
+                column=slot.call.column,
+                end_line=slot.call.end_line,
+                end_column=slot.call.end_column,
+            ),
+        )
+        # Every use of a repeated argument is checked; one report is enough.
+        if diagnostic not in diagnostics:
+            diagnostics.append(diagnostic)
+        # An inner call's parameter comes first; once it does not fit, the
+        # value is unknown to every call around it.
+        break
+    return value_type if fits else _UNKNOWN_VALUE_TYPE
+
+
+def always_null(expression: Expression) -> bool:
+    """Whether ``expression`` is NULL on every row: a null literal; a sign or
+    ``not`` of such a value; an arithmetic operator or comparison with such an
+    operand; or a ``coalesce`` or conditional whose every value is. A cast of
+    null is not a supported cast (PIE-S2105), so it is not one of them."""
+
+    results: dict[int, bool] = {}
+    pending: list[tuple[Expression, bool]] = [(expression, False)]
+    while pending:
+        node, ready = pending.pop()
+        children = _null_operands(node)
+        if children and not ready:
+            pending.append((node, True))
+            pending.extend((child, False) for child in children)
+            continue
+        operands = [results[id(child)] for child in children]
+        if type(node) is LiteralExpr:
+            results[id(node)] = cast(LiteralExpr, node).value is None
+        elif type(node) in (CallExpr, ConditionalExpr):
+            results[id(node)] = bool(operands) and all(operands)
+        else:
+            results[id(node)] = any(operands)
+    return results[id(expression)]
+
+
+def _null_operands(node: Expression) -> tuple[Expression, ...]:
+    """The operands whose NULL decides whether ``node`` is always null."""
+
+    kind = type(node)
+    if kind is UnaryExpr:
+        return (cast(UnaryExpr, node).operand,)
+    if kind is ComparisonExpr or (
+        kind is BinaryExpr and cast(BinaryExpr, node).operator not in ("and", "or")
+    ):
+        binary = cast(BinaryExpr | ComparisonExpr, node)
+        return (binary.left, binary.right)
+    if (
+        kind is CallExpr
+        and type(cast(CallExpr, node).callee) is NameExpr
+        and cast(NameExpr, cast(CallExpr, node).callee).name == "coalesce"
+    ):
+        return cast(CallExpr, node).arguments
+    if kind is ConditionalExpr:
+        conditional = cast(ConditionalExpr, node)
+        return (conditional.when_true, conditional.when_false)
+    return ()
+
+
+_NULLABILITY_TEXT = MappingProxyType(
+    {
+        EffectiveNullability.NON_NULL: "not null",
+        EffectiveNullability.NULLABLE: "nullable",
+        EffectiveNullability.UNKNOWN: "of unknown nullability",
+    }
+)
 
 
 def query_parameter_value_type(type_name: str, nullability: Nullability) -> ValueType:
@@ -823,6 +980,7 @@ def infer_row_expression(
     outer input lacks maps to that environment's own diagnostic instead.
     """
 
+    seed = value_types.get(expression)
     refused: list[Diagnostic] = []
     if captured_value_types:
         pending: list[Expression] = [expression]
@@ -863,6 +1021,14 @@ def infer_row_expression(
                 diagnostics.append(refused.pop(0))
             diagnostics.append(diagnostic)
         diagnostics.extend(refused)
+    if seed is not None:
+        # A read the caller seeded that is the whole expression is the
+        # caller's own result.
+        return seed
+    if type(expression) is ast.CapturedFieldExpr:
+        # A whole captured field is typed here, so one that does not fit a
+        # def parameter is recorded as Unknown, as a computed expression is.
+        value_types[expression] = value_type
     return value_type
 
 
@@ -1020,6 +1186,14 @@ def _infer(
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
     existing = value_types.get(expression)
     if existing is not None:
+        if inlined_arguments(expression):
+            # A caller may seed the type of a read it owns (a captured field,
+            # a joined field, a scalar read, a QUALIFY output). The seed stays
+            # the caller's evidence; a use that does not fit is Unknown to the
+            # expression around it, as a computed one is.
+            return _check_inlined_argument(
+                expression, existing, diagnostics, type_expansions
+            )
         return existing
 
     if isinstance(expression, WindowExpr):
@@ -1296,6 +1470,10 @@ def _infer(
         # accidentally checked through their child expressions.
         value_type = _UNKNOWN_VALUE_TYPE
 
+    if inlined_arguments(expression):
+        value_type = _check_inlined_argument(
+            expression, value_type, diagnostics, type_expansions
+        )
     value_types[expression] = value_type
     return value_type
 

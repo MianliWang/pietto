@@ -1127,7 +1127,7 @@ def test_failure_messages_never_echo_roots_or_raw_input(
         (root / "main.pietto").write_text(source.replace("\x1b[31m", control))
         code, out, err = run(argv(root, target, format="text"))
         assert code == 1 and control not in err
-        assert f"input '\\u{ord(control):04x}'" in err
+        assert f"Unexpected '\\u{ord(control):04x}'" in err
 
 
 @pytest.mark.parametrize("target", TARGETS)

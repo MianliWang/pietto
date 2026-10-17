@@ -38,6 +38,7 @@ from pietto._project.trusted_source import (
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic.analyzer import recursion_limit_diagnostic
+from pietto.semantic.inline_functions import inline_functions
 
 _PROJECT_ROOT_PATH = "."
 _PROJECT_CONFIG_PATH = "pietto.toml"
@@ -209,28 +210,25 @@ def _parse_selected_input(
             ),
             diagnostics,
         )
+    script = parse_result.ast
     try:
-        admission = (
+        gate = unadmitted_syntax_diagnostics(script, explicit_modules=explicit_modules)
+        inlined: tuple[Diagnostic, ...] = ()
+        if explicit_modules and not gate:
+            # Every later reader, and the capture and header checks, see each
+            # module-local def call inlined.
+            script, inlined = inline_functions(script)
+        admission = inlined or (
             # Capture refusals are pre-admission diagnostics: one source
             # order with the gate's, then the header checks.
             *sorted(
                 (
-                    *unadmitted_syntax_diagnostics(
-                        parse_result.ast, explicit_modules=explicit_modules
-                    ),
-                    *(
-                        capture_diagnostics(parse_result.ast)
-                        if explicit_modules
-                        else ()
-                    ),
+                    *gate,
+                    *(capture_diagnostics(script) if explicit_modules else ()),
                 ),
                 key=source_order,
             ),
-            *(
-                query_parameter_diagnostics(parse_result.ast)
-                if explicit_modules
-                else ()
-            ),
+            *(query_parameter_diagnostics(script) if explicit_modules else ()),
         )
     except RecursionError:
         admission = (recursion_limit_diagnostic(parse_result.ast),)
@@ -245,7 +243,7 @@ def _parse_selected_input(
         ProjectInput(path=selected_input.identity.path, status=_PARSED_STATUS),
         ProjectParsedInput(
             path=selected_input.identity.path,
-            script=parse_result.ast,
+            script=script,
         ),
         trusted_source,
         (),

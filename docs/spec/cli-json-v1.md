@@ -531,7 +531,9 @@ The implemented outcomes are:
   own C0 escaping. The canonical JSON records in project `emit-sql` text write
   every one of these controls as a JSON escape, such as `\u001b` or `\u202e`,
   so each record still decodes to the same value. SQL text stays verbatim, and
-  JSON fields keep these characters as raw values.
+  JSON fields keep these characters as raw values; a PIE-P1000 message already
+  spells an unexpected control character as an escape, so its JSON text
+  carries that spelling.
 - Decoded JSON values preserve the original structured path, message,
   suggestion, and SQL text.
 - Handled JSON errors must not expose Python tracebacks.

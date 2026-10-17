@@ -276,7 +276,6 @@ def test_table_ast_does_not_expose_antlr_nodes() -> None:
         "table active_users:\n    from\n    select:\n        id\n",
         "table active_users:\n    from users\n",
         "table active_users:\n    from users\n    select:\n",
-        "table active_users:\n    from users\n    select: id\n",
         "table active_users:\n    from users\n    where\n    select:\n        id\n",
         (
             "table active_users:\n"
