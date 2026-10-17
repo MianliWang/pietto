@@ -3785,6 +3785,15 @@ def _select_facts(
     bindings = (
         () if definition.let_clause is None else tuple(definition.let_clause.bindings)
     )
+    # A let read is never an unknown field, typed here or not. A name bound once
+    # is followed to its expression, as emission inlines it; one bound twice is
+    # not, since neither binding is its value.
+    let_names = [binding.name for binding in bindings]
+    followed_lets = {
+        name: expression
+        for name, expression in let_scope.binding_expressions.items()
+        if let_names.count(name) == 1
+    }
     facts: list[ProjectModuleSelectFact] = []
     contexts: list[ProjectModuleSelectExpressionFact] = []
     for ordinal, item in enumerate(definition.select_items):
@@ -3808,7 +3817,8 @@ def _select_facts(
                 report_unknown_name=True,
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_values,
-                bare_value_expressions=let_expressions,
+                bare_value_expressions=followed_lets,
+                suppressed_unknown_names=set(let_names),
                 relation_columns=read_types,
                 captured_value_types=captures,
             )

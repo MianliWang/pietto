@@ -2258,6 +2258,7 @@ def _build_project_relation_row_schemas(
                     upstream_state=upstream_state,
                     fallback_path=definition_paths[definition],
                     let_scope_facts=let_scope_facts,
+                    report_untyped_let_reads=True,
                 )
                 diagnostics.extend(relation_schema_result.diagnostics)
                 state = _project_relation_row_schema_state_from_result(
@@ -2698,8 +2699,14 @@ def _project_direct_relation_row_schema(
     read_types: Mapping[Expression, ValueType] | None = None,
     captured_value_types: Mapping[CapturedFieldExpr, ValueType | Diagnostic]
     | None = None,
+    report_untyped_let_reads: bool = False,
 ) -> _ProjectRelationRowSchemaResult:
-    """Project direct fields and supported computed aliases from one input."""
+    """Project direct fields and supported computed aliases from one input.
+
+    A read of a let it cannot type is PIE-S2102 only with
+    ``report_untyped_let_reads``: a legacy flat project checks no let body, so
+    that report is its only refusal of such a read.
+    """
 
     from pietto._project.let_scope_facts import (
         ProjectLetScopeFactsStatus,
@@ -2859,7 +2866,14 @@ def _project_direct_relation_row_schema(
                 )
                 continue
 
-            diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
+            # A read of a let whose value type is not known here is no unknown
+            # field: the let's own diagnostics, or its completion, report it.
+            if (
+                report_untyped_let_reads
+                or type(item.expression) is not NameExpr
+                or lookup_name not in let_scope_facts.binding_expressions
+            ):
+                diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
             is_unknown = True
             unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
             continue

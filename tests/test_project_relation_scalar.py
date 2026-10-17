@@ -104,7 +104,12 @@ REFUSED = {
         "    select:\n        id\n        w = v\n",
         [
             _position("a row let", 13, 13),
-            ("PIE-S2102", "Unknown field: v", 16, 13),
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: q",
+                6,
+                1,
+            ),
         ],
     ),
     "join_on": (
