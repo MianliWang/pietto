@@ -41,8 +41,9 @@ def is_owned_by_another_user(output: Path) -> bool:
     an output is not replaced. Root may replace any output, since it already
     reads and writes every file, but an owner shown as the overflow id is
     unknown, not root's: root of a user namespace has no power over a file
-    whose owner the namespace does not map. Windows has no POSIX owner to
-    compare. ``OSError`` when the state of output cannot be read.
+    whose owner the namespace does not map. When Linux does not tell which id
+    that is, root replaces only its own outputs. Windows has no POSIX owner
+    to compare. ``OSError`` when the state of output cannot be read.
     """
 
     if sys.platform == "win32":
@@ -51,9 +52,10 @@ def is_owned_by_another_user(output: Path) -> bool:
     if replaced is None:
         return False
     user = os.geteuid()
-    return replaced.st_uid == _overflow_id("uid") or (
-        user != 0 and replaced.st_uid != user
-    )
+    overflow = _overflow_id("uid")
+    if replaced.st_uid == user:
+        return replaced.st_uid == overflow
+    return user != 0 or overflow is None or replaced.st_uid == overflow
 
 
 def open_replacement(output: Path) -> tuple[BinaryIO, Path]:
@@ -123,7 +125,8 @@ def _same_access(replaced: os.stat_result, output: Path, descriptor: int) -> boo
     neither carries an ACL, under which the group bits are a mask and named
     entries can deny what the bits allow. An owner or group shown as the
     overflow id is unknown: a user namespace shows every id it does not map
-    as that one id. Whatever cannot be read, for any reason, counts as
+    as that one id, and when Linux does not tell which id that is, no owner
+    or group is known. Whatever cannot be read, for any reason, counts as
     different.
     """
 
@@ -131,10 +134,14 @@ def _same_access(replaced: os.stat_result, output: Path, descriptor: int) -> boo
         return False
     try:
         created = os.fstat(descriptor)
+        overflow_user = _overflow_id("uid")
+        overflow_group = _overflow_id("gid")
         return (
             (created.st_uid, created.st_gid) == (replaced.st_uid, replaced.st_gid)
-            and replaced.st_uid != _overflow_id("uid")
-            and replaced.st_gid != _overflow_id("gid")
+            and overflow_user is not None
+            and overflow_group is not None
+            and replaced.st_uid != overflow_user
+            and replaced.st_gid != overflow_group
             and not _has_acl(output)
             and not _has_acl(descriptor)
         )
@@ -161,16 +168,19 @@ def _has_acl(target: Path | int) -> bool:
     return True
 
 
-def _overflow_id(kind: str) -> int:
+def _overflow_id(kind: str) -> int | None:
     """The id Linux shows for a user ("uid") or group ("gid") it cannot map.
 
-    The kernel's own setting when it can be read, otherwise its default.
+    The kernel's own setting; None on Linux when it cannot be read, since the
+    setting need not be its default; -1, which no file shows, elsewhere.
     """
 
+    if sys.platform != "linux":
+        return -1
     try:
         return int(Path(f"/proc/sys/kernel/overflow{kind}").read_text("ascii"))
     except (OSError, ValueError):
-        return 65534
+        return None
 
 
 def _replaced(output: Path) -> os.stat_result | None:

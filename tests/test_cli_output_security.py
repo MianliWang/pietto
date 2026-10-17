@@ -451,6 +451,40 @@ def test_root_replaces_another_users_output(
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="needs the Linux overflow ids")
+def test_an_unreadable_overflow_id_leaves_no_owner_or_group_known(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The overflow ids need not be their default, so when Linux does not
+    # tell them no owner or group can be shown to be the same.
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    output.chmod(0o664)
+    owner = output.stat().st_uid
+    real_read_text = Path.read_text
+
+    def unreadable_overflow(self: Path, *args: Any, **kwargs: Any) -> str:
+        if str(self).startswith("/proc/sys/kernel/overflow"):
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", unreadable_overflow)
+    previous = os.umask(0)
+    try:
+        # This user's own output is replaced, keeping only the owner bits.
+        assert _emit(path, output) == 0
+        assert stat.S_IMODE(output.stat().st_mode) == 0o600
+        # Root does not replace an output it cannot show to be its own.
+        output.write_text("original SQL\n", encoding="utf-8")
+        monkeypatch.setattr(os, "geteuid", lambda: 0 if owner else 1)
+        assert _emit(path, output) == 2
+    finally:
+        os.umask(previous)
+    assert output.read_text(encoding="utf-8") == "original SQL\n"
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="needs Linux user namespaces")
 @pytest.mark.parametrize("mapped", [True, False], ids=["owner-mapped", "none-mapped"])
 def test_ids_a_user_namespace_does_not_map_never_count_as_the_same(

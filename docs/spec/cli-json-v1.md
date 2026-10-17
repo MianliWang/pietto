@@ -450,7 +450,8 @@ The implemented outcomes are:
   carry no ACL (no `system.` extended attribute and no CIFS security
   descriptor), and otherwise at most the owner bits. An owner or group shown
   as the kernel's overflow id (`/proc/sys/kernel/overflowuid` and
-  `overflowgid`, `65534` when they cannot be read), which a user namespace
+  `overflowgid`; when either cannot be read, no owner or group counts as the
+  same), which a user namespace
   shows for every id it does not map, never counts as the same. The replaced
   output's owner, group, set-id, and sticky bits and its own ACL are not
   copied: like any new file, the replacement has only the ACL its directory
@@ -474,7 +475,8 @@ The implemented outcomes are:
   one running the command, who is not root, is not replaced either, because
   the replacement would belong to the running user and grant that user access
   the original did not; an owner shown as the overflow id counts as another
-  user, even for root: after compilation the command reports `output_write`
+  user, even for root, and when the overflow id cannot be read root replaces
+  only its own outputs: after compilation the command reports `output_write`
   with the message
   `output file belongs to another user; the output file was not changed`,
   with the same JSON fields, file, and exit code as a read-only output;
