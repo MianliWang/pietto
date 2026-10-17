@@ -154,10 +154,13 @@ at the string, except that an empty `mysql.table("")` keeps its existing
 literal also fails single-file `check`: a bare unquoted name such as `users` with
 `PIE-S2102`, and an unquoted dotted name such as `public.users` or another
 expression with `PIE-S2306` at the argument, unless the connector call already
-has an error of its own. Project mode does not split or
-interpret the name, although its check still rejects an empty `mysql.table`
-string; project SQL emission takes the physical relation from its emission
-contract.
+has an error of its own: an unknown connector, or `postgres.table` or
+`mysql.table` without exactly one argument, fails single-file `check` with
+`PIE-S2306` on the whole call whatever its arguments are, unless an argument
+reports an error of its own such as that `PIE-S2102`. Project mode does not
+split or interpret the name, although its check still rejects an empty
+`mysql.table` string; project SQL emission takes the physical relation from its
+emission contract.
 
 Tables and queries share this ordered clause shape:
 

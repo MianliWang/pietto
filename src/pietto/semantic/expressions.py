@@ -1587,8 +1587,10 @@ def _cast_value_type(
     )
     if value_type.kind is ValueTypeKind.UNKNOWN:
         # A null operand and the target are known without the operand's type;
-        # a silent unknown operand is refused unless the cast is to Float.
-        explained = len(diagnostics) > diagnostic_count or row_schema.is_unknown
+        # a silent unknown operand is refused unless the cast is to Float. Only
+        # the operand's own error explains it: an unknown input row does not,
+        # since no cast but the Float one reads the operand's type.
+        explained = len(diagnostics) > diagnostic_count
         # A `let:` name bound to null is the null literal emission inlines.
         null_operand = _is_null_literal(
             let_value(expression.value, row_schema, bare_value_expressions)
@@ -1940,9 +1942,10 @@ def _call_value_type(
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades.
 
-    An Unknown argument suppresses only the checks that need its type. When an
-    argument reported its own error or the input row is unknown, the call adds
-    nothing more; otherwise the name, arity and window checks still run.
+    An Unknown argument suppresses only the checks that need its type. An
+    argument's own error also suppresses the name and window checks, the
+    `sign`/`year`/`month`/`day` arity check and the `substr` bounds check; an
+    unknown input row suppresses none of them.
     """
 
     function_name = _callee_name(expression)
@@ -1961,9 +1964,10 @@ def _call_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
-    # An unknown input row or an argument's own error explains an Unknown
-    # argument; the call then adds nothing.
-    cascade = (len(diagnostics) > diagnostic_count or row_schema.is_unknown) and any(
+    # An argument's own error explains an Unknown argument; the call then adds
+    # nothing. An unknown input row explains no name, arity or window check,
+    # since none of them reads an argument's type.
+    cascade = len(diagnostics) > diagnostic_count and any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
     )
     if function_name in {"coalesce", "nullif"}:
@@ -2045,6 +2049,14 @@ def _call_value_type(
     if any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
     ):
+        # The `substr` bounds check reads only literals, so a silent Unknown
+        # argument, such as a field of an unknown input row, does not hide it.
+        if (
+            function_name == "substr"
+            and not cascade
+            and not _valid_static_substr_bounds(expression)
+        ):
+            diagnostics.append(_invalid_substr_bounds_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
 
     for position, (argument_type, expected_name) in enumerate(
@@ -2065,16 +2077,7 @@ def _call_value_type(
             return _UNKNOWN_VALUE_TYPE
 
     if function_name == "substr" and not _valid_static_substr_bounds(expression):
-        diagnostics.append(
-            _call_diagnostic(
-                expression,
-                code="PIE-S2104",
-                message=(
-                    "Invalid arguments for function substr: start must be a positive "
-                    "Int literal and count must be a non-negative Int literal"
-                ),
-            )
-        )
+        diagnostics.append(_invalid_substr_bounds_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
 
     if function_name == "matches":
@@ -2313,6 +2316,17 @@ def _civil_date_part_value_type(
         )
         return _UNKNOWN_VALUE_TYPE
     return _builtin_value_type("Int", argument_type.nullability)
+
+
+def _invalid_substr_bounds_diagnostic(expression: CallExpr) -> Diagnostic:
+    return _call_diagnostic(
+        expression,
+        code="PIE-S2104",
+        message=(
+            "Invalid arguments for function substr: start must be a positive "
+            "Int literal and count must be a non-negative Int literal"
+        ),
+    )
 
 
 def _valid_static_substr_bounds(expression: CallExpr) -> bool:

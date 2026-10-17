@@ -576,6 +576,10 @@ def test_invalid_cast_echoes_the_attempted_pair(
 
 _WINDOW_HINT = "in a SELECT item, with an indented `order by:`)"
 _CAST_HINT = "is not supported; expected cast(Int as Float), the only supported cast"
+_SUBSTR_BOUNDS_MESSAGE = (
+    "Invalid arguments for function substr: start must be a positive Int literal "
+    "and count must be a non-negative Int literal"
+)
 
 
 @pytest.mark.parametrize(
@@ -621,8 +625,10 @@ _CAST_HINT = "is not supported; expected cast(Int as Float), the only supported 
             "Window function needs a `window` specification: first_value (write "
             f"`first_value(...) window:` {_WINDOW_HINT}",
         ),
+        ("substr(price / 2, 0, 2)", "PIE-S2104", _SUBSTR_BOUNDS_MESSAGE),
         ("cast(price / 2 as Float)", None, None),
         ("lower(null)", None, None),
+        ("substr(price / 2, 1, 2)", None, None),
     ],
 )
 def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
@@ -661,22 +667,31 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
             "        value = cast(missing as Text)\n",
             [("PIE-S2102", "Unknown field: missing")],
         ),
-        # The input row is unknown because its relation is: only that error.
+        # An unknown input row explains no cast but the Float one, which alone
+        # reads the operand's type.
         (
             "table projected:\n    from nowhere\n    select:\n"
             "        value = cast(x as Text)\n",
-            [("PIE-S2301", "Unknown relation: nowhere")],
+            [
+                ("PIE-S2301", "Unknown relation: nowhere"),
+                ("PIE-S2105", f"Invalid cast: cast(unknown as Text) {_CAST_HINT}"),
+            ],
         ),
-        # The input row is unknown because the source has no shape (gradual).
         (
             'source people is postgres.table("people")\n'
             "table projected:\n    from people\n    select:\n"
             "        value = cast(x as Text)\n",
+            [("PIE-S2105", f"Invalid cast: cast(unknown as Text) {_CAST_HINT}")],
+        ),
+        (
+            'source people is postgres.table("people")\n'
+            "table projected:\n    from people\n    select:\n"
+            "        value = cast(x as Float)\n",
             [],
         ),
     ),
 )
-def test_cast_of_an_explained_unknown_operand_adds_no_s2105(
+def test_only_an_operand_error_explains_an_unknown_cast_operand(
     source: str, expected: list[tuple[str, str]]
 ) -> None:
     result = analyze(_parse(source), mode_override=CheckMode.LOOSE)
@@ -684,6 +699,159 @@ def test_cast_of_an_explained_unknown_operand_adds_no_s2105(
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
     ] == expected
+
+
+@pytest.mark.parametrize(
+    ("relation", "expression", "expected"),
+    [
+        ("people", "foo(amount)", [("PIE-S2103", "Unknown function: foo", 5, 17)]),
+        (
+            "people",
+            "lag(amount)",
+            [
+                (
+                    "PIE-S2103",
+                    "Window function needs a `window` specification: lag (write "
+                    f"`lag(...) window:` {_WINDOW_HINT}",
+                    5,
+                    17,
+                )
+            ],
+        ),
+        (
+            "people",
+            "row_number(amount)",
+            [
+                (
+                    "PIE-S2103",
+                    "Window function needs a `window` specification: row_number "
+                    f"(write `row_number(...) window:` {_WINDOW_HINT}",
+                    5,
+                    17,
+                )
+            ],
+        ),
+        (
+            "people",
+            "sign(amount, amount)",
+            [
+                (
+                    "PIE-S2104",
+                    "Invalid arguments for function sign: expected 1, got 2",
+                    5,
+                    17,
+                )
+            ],
+        ),
+        (
+            "people",
+            "year(amount, amount)",
+            [
+                (
+                    "PIE-S2104",
+                    "Invalid arguments for function year: expected 1, got 2",
+                    5,
+                    17,
+                )
+            ],
+        ),
+        # An argument's own error still explains its caller.
+        ("people", "foo(bar(amount))", [("PIE-S2103", "Unknown function: bar", 5, 21)]),
+        (
+            "nowhere",
+            "foo(amount)",
+            [
+                ("PIE-S2301", "Unknown relation: nowhere", 3, 5),
+                ("PIE-S2103", "Unknown function: foo", 5, 17),
+            ],
+        ),
+        (
+            "people",
+            "substr(amount, 0, -1)",
+            [("PIE-S2104", _SUBSTR_BOUNDS_MESSAGE, 5, 17)],
+        ),
+        (
+            "people",
+            "substr(amount, start, 2)",
+            [("PIE-S2104", _SUBSTR_BOUNDS_MESSAGE, 5, 17)],
+        ),
+        (
+            "people",
+            "cast(amount as Text)",
+            [("PIE-S2105", f"Invalid cast: cast(unknown as Text) {_CAST_HINT}", 5, 17)],
+        ),
+        # Checks that read an argument's type stay gradual.
+        ("people", "upper(amount)", []),
+        ("people", "sign(amount)", []),
+        ("people", "year(amount)", []),
+        ("people", "substr(amount, 1, 2)", []),
+        ("people", "lower(trim(amount))", []),
+        ("people", "cast(amount as Float)", []),
+    ],
+)
+def test_unknown_input_row_hides_no_type_independent_call_check(
+    relation: str, expression: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    result = analyze(
+        _parse(
+            'source people is postgres.table("people")\n'
+            "table projected:\n"
+            f"    from {relation}\n"
+            "    select:\n"
+            f"        value = {expression}\n"
+        ),
+        mode_override=CheckMode.LOOSE,
+    )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == expected
+
+
+def test_unused_let_over_an_unknown_input_row_keeps_its_call_errors() -> None:
+    # As over a shaped source, an unused binding is still checked.
+    result = analyze(
+        _parse(
+            'source people is postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    let:\n"
+            "        x = foo(amount)\n"
+            "        y = lag(amount)\n"
+            "        z = sign(amount, amount)\n"
+            "        s = substr(amount, 0, 2)\n"
+            "    select:\n"
+            "        id\n"
+        ),
+        mode_override=CheckMode.LOOSE,
+    )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [
+        ("PIE-S2103", "Unknown function: foo", 5, 13),
+        (
+            "PIE-S2103",
+            "Window function needs a `window` specification: lag (write "
+            f"`lag(...) window:` {_WINDOW_HINT}",
+            6,
+            13,
+        ),
+        ("PIE-S2104", "Invalid arguments for function sign: expected 1, got 2", 7, 13),
+        ("PIE-S2104", _SUBSTR_BOUNDS_MESSAGE, 8, 13),
+    ]
 
 
 COMPARISON_SOURCE = (

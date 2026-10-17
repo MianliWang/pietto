@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 
 from pietto.ast_nodes import (
@@ -31,23 +32,44 @@ def check_table_names(
     Single-file IR copies the argument as a static string, so an argument that
     is not a string literal is reported at the argument, unless `reported` (the
     connector argument and signature diagnostics) already has one inside the
-    connector call. Project mode takes physical names from its emission
-    contract instead, so only single-file analysis runs this check.
+    connector call. An unknown connector, or a known one without exactly one
+    argument, is reported on the call when `reported` has nothing inside it.
+    Project mode takes physical names from its emission contract instead, so
+    only single-file analysis runs this check.
     """
 
+    # Sorted diagnostic starts per path, so each connector is one lookup.
+    starts: dict[str | None, list[tuple[int, int]]] = {}
+    for reported_diagnostic in reported:
+        location = reported_diagnostic.location
+        starts.setdefault(location.path, []).append((location.line, location.column))
+    for positions in starts.values():
+        positions.sort()
     diagnostics: list[Diagnostic] = []
     for definition in script.definitions:
         if not isinstance(definition, SourceDef):
             continue
         connector = definition.connector
-        if not isinstance(connector, CallExpr) or len(connector.arguments) != 1:
+        if not isinstance(connector, CallExpr):
             continue
         connector_name = _callee_name(connector)
-        argument = connector.arguments[0]
-        if connector_name not in _KNOWN_CONNECTORS:
+        if connector_name not in _KNOWN_CONNECTORS or len(connector.arguments) != 1:
+            # The signature check leaves a call with an Unknown argument to that
+            # argument's error; an argument without one, such as an unquoted
+            # dotted name, leaves the call's own error to this check.
+            if not _has_start_within(starts, connector):
+                diagnostics.append(
+                    _invalid_arguments_diagnostic(connector, connector_name)
+                    if connector_name in _KNOWN_CONNECTORS
+                    else _connector_diagnostic(
+                        connector,
+                        message=f"Unknown source connector: {connector_name}",
+                    )
+                )
             continue
+        argument = connector.arguments[0]
         if not isinstance(argument, LiteralExpr) or not isinstance(argument.value, str):
-            if not any(_starts_within(d.location, connector) for d in reported):
+            if not _has_start_within(starts, connector):
                 diagnostics.append(
                     _connector_diagnostic(
                         argument,
@@ -164,14 +186,16 @@ def _invalid_arguments_diagnostic(
     )
 
 
-def _starts_within(location: SourceLocation, node: Node) -> bool:
-    """Return whether a diagnostic starts inside one node's half-open span."""
+def _has_start_within(
+    starts: Mapping[str | None, Sequence[tuple[int, int]]], node: Node
+) -> bool:
+    """Return whether a sorted diagnostic start lies inside one node's half-open span."""
 
     span = node.span
-    first, end = (span.line, span.column), (span.end_line, span.end_column)
-    return (
-        location.path == span.path and first <= (location.line, location.column) < end
-    )
+    positions = starts.get(span.path, ())
+    index = bisect_left(positions, (span.line, span.column))
+    end = (span.end_line, span.end_column)
+    return index < len(positions) and positions[index] < end
 
 
 def _connector_diagnostic(node: Node, *, message: str) -> Diagnostic:

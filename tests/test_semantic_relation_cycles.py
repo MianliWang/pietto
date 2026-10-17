@@ -161,7 +161,7 @@ def test_unknown_relation_still_reports_only_p2301() -> None:
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2301"]
 
 
-def test_cycle_suppresses_field_and_expression_diagnostics() -> None:
+def test_cycle_suppresses_field_diagnostics_but_not_an_unknown_function() -> None:
     result = analyze(
         _parse(
             "table first:\n"
@@ -176,7 +176,14 @@ def test_cycle_suppresses_field_and_expression_diagnostics() -> None:
         )
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
+    # The cycle explains the unknown fields; a function name reads none of them.
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2103", "Unknown function: unknown_predicate", 3, 11),
+        ("PIE-S2302", "Relation cycle detected: first -> second -> first", 7, 5),
+    ]
 
 
 def test_relation_cycle_analysis_does_not_mutate_input_ast() -> None:

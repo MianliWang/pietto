@@ -419,6 +419,74 @@ def test_unknown_argument_suppresses_connector_cascade(
 
 
 @pytest.mark.parametrize(
+    ("connector", "message"),
+    [
+        ("k(x.y)", "Unknown source connector: k"),
+        ("kafka.topic(x.y)", "Unknown source connector: kafka.topic"),
+        ("kafka.topic(lower(x.y))", "Unknown source connector: kafka.topic"),
+        ("kafka.topic(users.id)", "Unknown source connector: kafka.topic"),
+        ("kafka.topic(null)", "Unknown source connector: kafka.topic"),
+        (
+            'postgres.table(x.y, "a")',
+            "Invalid source connector arguments for postgres.table",
+        ),
+        ('mysql.table(x.y, "a")', "Invalid source connector arguments for mysql.table"),
+        (
+            "postgres.table(null, 1)",
+            "Invalid source connector arguments for postgres.table",
+        ),
+    ],
+)
+def test_argument_of_unknown_type_without_an_error_keeps_the_call_error(
+    connector: str, message: str
+) -> None:
+    diagnostics = analyze(
+        _parse(SHAPE + f"source users: UserRow is {connector}\n", path="main.pietto")
+    ).diagnostics
+
+    assert [
+        (
+            d.code,
+            d.severity,
+            d.message,
+            d.location.line,
+            d.location.column,
+            d.location.end_line,
+            d.location.end_column,
+        )
+        for d in diagnostics
+    ] == [("PIE-S2306", Severity.ERROR, message, 4, 26, 4, 26 + len(connector))]
+
+
+def test_unknown_connector_with_a_dotted_argument_fails_unshaped_check() -> None:
+    diagnostics = analyze(
+        _parse("source r is k(x.y)\n", path="main.pietto")
+    ).diagnostics
+
+    assert [
+        (
+            d.code,
+            d.severity,
+            d.message,
+            d.location.line,
+            d.location.column,
+            d.location.end_column,
+        )
+        for d in diagnostics
+    ] == [
+        (
+            "PIE-S2303",
+            Severity.WARNING,
+            "Source r has no bound shape; row schema is unknown",
+            1,
+            1,
+            19,
+        ),
+        ("PIE-S2306", Severity.ERROR, "Unknown source connector: k", 1, 13, 19),
+    ]
+
+
+@pytest.mark.parametrize(
     ("mode", "expected"),
     [
         (CheckMode.LOOSE, ()),

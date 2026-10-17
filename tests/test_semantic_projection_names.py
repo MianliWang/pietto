@@ -224,7 +224,11 @@ def test_unknown_input_schema_preserves_names_without_field_cascade() -> None:
     )
     schema = result.model.relation_row_schemas[_relation(result, TableDef)]
 
-    assert result.diagnostics == ()
+    # No field cascade; an unknown function name does not depend on the row.
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [("PIE-S2103", "Unknown function: unknown_call", 6, 22)]
     assert schema.is_unknown is True
     assert list(schema.fields) == ["missing", "normalized"]
     assert all(
