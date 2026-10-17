@@ -1161,15 +1161,19 @@ A comparison with `null` is never true: SQL evaluates `x = NULL`, `x <> NULL`
 and the ordering comparisons to NULL for every `x`. A comparison (`==`, `!=`,
 `<`, `<=`, `>`, `>=`) whose operand is the null literal, or a `let:` name bound
 to it, is therefore PIE-S2105; write `x is null` for `x == null` and `x is not
-null` for `x != null`. The same applies to a `between` whose value or both
-bounds are null and to an `in`/`not in` list whose value or every option is
-null. A `between` with one null bound (never true, but false when the other
-bound fails), an `in` list with a null among other options (it can still
-match), a comparison with an operand that may be NULL at run time, and calls
-such as `coalesce(x, null)` stay accepted. In an EXPLICIT_MODULES project a
-relation with a `let:` binding of unknown type, such as `nothing = null`, does
-not check its WHERE yet, so `where x == nothing` there is BLOCKED at emission
-(PIE-B1003) instead.
+null` for `x != null` (with both operands null the message suggests neither).
+The same applies to a `between` whose value or both bounds are null and to an
+`in`/`not in` list whose value or every option is null. A `between` with one
+null bound (never true, but false when the other bound fails), an `in` list
+with a null among other options (it can still match), a comparison with an
+operand that may be NULL at run time, and calls such as `coalesce(x, null)`
+stay accepted. In an EXPLICIT_MODULES project a relation with a `let:` binding
+of unknown type, such as `nothing = null`, does not check its WHERE yet, so
+`where x == nothing` there is BLOCKED at emission (PIE-B1003) instead. In
+`satisfying:` a comparison with the null literal is PIE-S2327 (`Unsupported
+satisfying expression form: null literal`) in single-file checks and a bare
+PIE-S2333 in an EXPLICIT_MODULES project, and single-file `check` accepts any
+authored QUALIFY (see QUALIFY below).
 
 The closed scalar surface has explicit signatures; it has no overload search:
 
@@ -1653,12 +1657,12 @@ one whole file. A single file reports it for that file. A project reports it
 from `check --project` and, BLOCKED, from `emit-sql --project`: for the module
 whose own syntax checks exceed the limit, or, once the modules are analyzed
 together, for the module whose syntax nests deepest, where a relationship `on`
-nests only as deep as its deepest `and` equality. Project emission uses more of
-the limit than project checking, so `emit-sql --project` can report PIE-S2006
-for a project that `check --project` accepts; when planning or emitting the
-selected `table` or `query` exceeds the limit, it reports it for the selected
-module, also when the deep syntax is in a declaration it reads from another
-module.
+adds no depth: a project reads each of its conjuncts one at a time and only at
+its top. Project emission uses more of the limit than project checking, so
+`emit-sql --project` can report PIE-S2006 for a project that `check --project`
+accepts; when planning or emitting the selected `table` or `query` exceeds the
+limit, it reports it for the selected module, also when the deep syntax is in a
+declaration it reads from another module.
 
 IR construction consumes successful semantic facts without reparsing or
 mutating earlier stages. SQL backends consume IR and fail closed on unsupported

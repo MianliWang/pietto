@@ -52,3 +52,8 @@ Mark and wordmark from Pietto Brand Kit v2, created for Pietto branding from
 the owner-selected Bright Humanist 03 reference. The mark is Penrose-inspired,
 not a mathematically strict impossible triangle. The kit imposes no software
 license on this repository.
+
+## License
+
+The Pietto logo artwork in this directory is © Mianli Wang, all rights
+reserved, and is not covered by the MIT License that applies to the code.

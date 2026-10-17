@@ -140,9 +140,9 @@ replaced it with an operand family check:
   calls, and `let` values) against those types, which are not yet checked;
 - an operand that is the null literal, or a `let:` name bound to it, reports
   `PIE-S2105` (`comparison with null is never true`, adding ``write `is null`
-  instead`` for `==` and ``write `is not null` instead`` for `!=`) and records
-  `ValueTypeKind.UNKNOWN`, because SQL evaluates the comparison to NULL for
-  every row;
+  instead`` for `==` and ``write `is not null` instead`` for `!=` unless both
+  operands are null) and records `ValueTypeKind.UNKNOWN`, because SQL evaluates
+  the comparison to NULL for every row;
 - other unknown children and `Any`, `Bytes`, `Json`, Enum, and shape operands
   are not checked and record `Bool UNKNOWN`;
 - the check adds no casts, collation, temporal comparison rules, UUID

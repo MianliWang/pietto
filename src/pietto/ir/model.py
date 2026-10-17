@@ -834,7 +834,8 @@ class WindowCallIR(ExpressionIR):
         if frame_sensitive:
             if self.value_type.nullability is not NullabilityIR.NULLABLE:
                 raise ValueError("frame-value IR requires a nullable result")
-            if type(self.arguments[0]) not in {FieldRefIR, LiteralIR}:
+            # A grouped window reads a selected aggregate output as its call.
+            if type(self.arguments[0]) not in {FieldRefIR, LiteralIR, AggregateCallIR}:
                 raise ValueError("frame-value IR requires one bounded value input")
             value_type = self.arguments[0].value_type
             if type(value_type) is not TypeRefIR:

@@ -14,6 +14,8 @@ import _pietto_execution_jobs_probe as workspace_probe
 import pietto.execution as execution
 from pietto._project import project_job_store as store
 from pietto._project import project_job_workspace as private_workspace
+from pietto._project import project_public_r2_proposal as proposal
+from pietto.execution import _saved as saved
 
 
 @pytest.fixture(scope="module")
@@ -103,6 +105,16 @@ def test_saved_operations_bind_parameters_before_the_workspace(
         raise AssertionError("a refused request opened the workspace")
 
     monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    with pytest.raises(execution.RequestRejected) as refused:
+        getattr(execution, operation)(
+            workspace, since, **_generation_arguments(operation, parameters)
+        )
+    assert (refused.value.code, refused.value.detail) == (code, detail)
+
+
+def _generation_arguments(operation, parameters):
+    """The arguments besides the workspace and query of an entry that starts
+    a generation, refused before it opens the workspace or connects."""
     arguments: dict = dict(
         operation=execution.new_operation(),
         route="postgres_rows",
@@ -121,9 +133,44 @@ def test_saved_operations_bind_parameters_before_the_workspace(
             sink_retention="r",
             sink_budget_bytes=1,
         )
+    return arguments
+
+
+@pytest.mark.parametrize(
+    "operation,owner,step",
+    (
+        ("save", saved, "bind_values"),
+        ("save_recoverable", saved, "bind_values"),
+        ("save_recoverable", proposal, "prepare_live_refinement"),
+        ("relay_live", saved, "bind_values"),
+    ),
+    ids=("save", "save_recoverable", "save_recoverable_refinement", "relay_live"),
+)
+def test_saved_operations_report_a_query_too_deep_to_prepare(
+    query, monkeypatch, operation, owner, step
+):
+    """Exhausting the recursion limit while the binding, request or R2
+    refinement is prepared is PIE-R1004, as in execute(), before the
+    workspace opens."""
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "4" * 32)
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request opened the workspace")
+
+    def exhausted(*arguments, **keywords):
+        raise RecursionError
+
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    monkeypatch.setattr(owner, step, exhausted)
     with pytest.raises(execution.RequestRejected) as refused:
-        getattr(execution, operation)(workspace, since, **arguments)
-    assert (refused.value.code, refused.value.detail) == (code, detail)
+        getattr(execution, operation)(
+            workspace, query, **_generation_arguments(operation, None)
+        )
+    assert refused.value.failure == execution.Failure(
+        "PIE-R1004", "QUERY_NOT_EXECUTABLE", cause="RecursionError"
+    )
 
 
 def test_save_checks_isolation_before_opening_workspace(query, monkeypatch):

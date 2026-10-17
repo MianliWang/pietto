@@ -445,3 +445,5 @@ Third-party material in the wheel, the sdist and the source archive is listed
 in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/v0.1.3/THIRD_PARTY_NOTICES.md),
 with the original license texts in
 [LICENSES/](https://github.com/MianliWang/pietto/tree/v0.1.3/LICENSES).
+The Pietto logo artwork in `docs/assets/brand/` is © Mianli Wang, all rights
+reserved, and is not covered by the MIT License that applies to the code.

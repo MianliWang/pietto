@@ -149,27 +149,19 @@ def recursion_limit_diagnostic(*scripts: Script) -> Diagnostic:
 
 def _nesting_depth(script: Script) -> int:
     deepest = 0
-    # A project checks the `and` equalities of a relationship `on` one at a
-    # time, so each one counts at the depth of the whole chain.
-    pending: list[tuple[object, int, bool]] = [(script, 0, False)]
+    # A project reads each conjunct of a relationship `on` one at a time and
+    # only at its top, so the condition adds no depth.
+    pending: list[tuple[object, int]] = [(script, 0)]
     while pending:
-        value, depth, conjunct = pending.pop()
+        value, depth = pending.pop()
         if type(value) is tuple:
-            pending.extend(
-                (item, depth, False) for item in cast(tuple[object, ...], value)
-            )
-        elif conjunct and type(value) is BinaryExpr and value.operator == "and":
-            pending.extend(((value.left, depth, True), (value.right, depth, True)))
+            pending.extend((item, depth) for item in cast(tuple[object, ...], value))
         elif isinstance(value, Node):
             deepest = max(deepest, depth)
-            pending.extend(
-                (
-                    getattr(value, item.name),
-                    depth + 1,
-                    type(value) is RelationshipMatchClause,
+            if type(value) is not RelationshipMatchClause:
+                pending.extend(
+                    (getattr(value, item.name), depth + 1) for item in fields(value)
                 )
-                for item in fields(value)
-            )
     return deepest
 
 

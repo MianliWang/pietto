@@ -18,17 +18,24 @@ from pietto._project.project_verification_scope import entry
 __all__: tuple[str, ...] = ()
 
 
-def compile_live(project, module, kind, name, dialect, contract, policy):
-    """The shared emission outcome and, for a VERIFIED one, its live template."""
-    from pietto._project.project_execution_template import prepare_live_template
+def emit_live(project, module, kind, name, dialect, contract, policy):
+    """The shared emission outcome."""
     from pietto._project.project_sql_emission_cli import POLICIES, emit_project
 
     outcome, _protected = emit_project(
         project, module, kind, name, dialect, contract, POLICIES[policy]
     )
+    return outcome
+
+
+def live_template(outcome):
+    """The live template of a VERIFIED emission outcome, else None (its own
+    failure stage)."""
+    from pietto._project.project_execution_template import prepare_live_template
+
     if outcome.status != "VERIFIED" or outcome.artifact is None:
-        return outcome, None
-    return outcome, prepare_live_template(outcome.artifact)
+        return None
+    return prepare_live_template(outcome.artifact)
 
 
 def accept_bundle(payload, pin, producer, compatibility):

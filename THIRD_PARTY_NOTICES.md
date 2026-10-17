@@ -49,6 +49,9 @@ listed above, plus the following. GitHub's automatic `v0.1.3` source tar.gz,
 when the tag is published, can have the same file name as that version's sdist;
 its contents include `tools/`, `tests/` and `docs/`. The existing `v0.1.1`
 archive belongs to its published commit and remains its own historical artifact.
+The Pietto logo artwork it contains in `docs/assets/brand/` is © Mianli Wang,
+all rights reserved, and is not covered by the MIT License that applies to the
+code; neither the wheel nor the sdist contains it.
 
 | Material | Location | Upstream | License text |
 | --- | --- | --- | --- |

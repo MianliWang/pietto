@@ -269,7 +269,7 @@ def _checked_request(
                 **deployment,
             )
     except Exception as caught:
-        refusal = request_failure(caught)
+        refusal = request_failure(caught, preparing=True)
     else:
         return (
             binding,

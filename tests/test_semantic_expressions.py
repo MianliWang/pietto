@@ -772,6 +772,11 @@ NULL_LET_SOURCE = (
         ("count >= null", ">=", None, 11),
         ("email == nothing", "==", "is null", 11),
         ("email != alias", "!=", "is not null", 11),
+        # Before: null against null also suggested `is null`/`is not null`,
+        # although `null is null` is TRUE.
+        ("null == null", "==", None, 11),
+        ("nothing != alias", "!=", None, 11),
+        ("alias == null", "==", None, 11),
         ('name == "x" and not (email == null)', "==", "is null", 32),
         ("null between 1 and count", "between", None, 11),
         ("count between nothing and alias", "between", None, 11),
@@ -1076,9 +1081,25 @@ def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
     )
 
 
-def test_deep_binary_expression_returns_semantic_recursion_diagnostic() -> None:
+@pytest.mark.parametrize(
+    "line_one,column",
+    [
+        ("", 1),
+        ("  ", 3),
+        ("\n", 1),
+        ("    \n", 5),
+        ("# head\n", 7),
+        ("   # head\n", 10),
+    ],
+    ids=["plain", "indented", "empty", "spaces", "comment", "spaced_comment"],
+)
+def test_deep_binary_expression_returns_semantic_recursion_diagnostic(
+    line_one: str, column: int
+) -> None:
+    # The whole file: line 1 from its first character other than a space, or
+    # from just after its last one when it holds only spaces and a comment.
     expression = " + ".join(["1"] * 1200)
-    script = _parse(f"derive total() -> Int not null:\n    {expression}\n")
+    script = _parse(f"{line_one}derive total() -> Int not null:\n    {expression}\n")
 
     result = analyze(script)
 
@@ -1089,6 +1110,14 @@ def test_deep_binary_expression_returns_semantic_recursion_diagnostic() -> None:
     assert diagnostic.code == "PIE-S2006"
     assert diagnostic.severity is Severity.ERROR
     assert "recursion limit" in diagnostic.message
+    location = diagnostic.location
+    assert location is not None
+    assert (
+        location.line,
+        location.column,
+        location.end_line,
+        location.end_column,
+    ) == (1, column, 2 + line_one.count("\n"), 4802)
 
 
 def test_expression_value_types_mapping_is_readonly() -> None:

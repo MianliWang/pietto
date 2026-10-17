@@ -59,13 +59,17 @@ regular-file or uninspectable output parent as `output_write` after
 compilation, and report an unreadable input as `file_read`. A closed or
 unwritable stdout exits `2` without a traceback, and text output writes C1,
 separator, and bidi controls as `\uNNNN` escapes; project mode follows both
-rules too. In both modes `--output` refuses an existing regular output file
-the user may not write as `output_write`, creates a new output file with
-`0o666` less the process umask, and keeps a replaced regular file's read,
-write, and execute permission bits only on Linux when both files have the
-same owner and group and are shown to carry no ACL, otherwise at most its
-owner bits; a replacement never takes the replaced file's own ACL, only the
-one its directory gives new files.
+rules too. In both modes `--output` refuses as `output_write` an existing
+regular output file the user may not write, outside Windows an existing output
+that belongs to another user than a non-root caller or whose owner is shown as
+the kernel's overflow id, and an output whose state cannot be read for a reason
+other than being absent; it creates a new output file with the mode
+`open(output, "w")` gives (`0o666` less the umask, or what a default ACL of the
+directory grants), and keeps a replaced regular file's read, write, and
+execute permission bits only on Linux when both files have the same owner and
+group, neither of which is shown as the overflow id, and are shown to carry no
+ACL, otherwise at most its owner bits; a replacement never takes the replaced
+file's own ACL, only the one its directory gives new files.
 
 Phase 8 adds no command or option to this baseline.
 
@@ -459,7 +463,7 @@ The planned v2 project kinds are:
 | `project_resource` | A project discovery, loading, or presentation budget is exceeded, including TOML in `pietto.toml` or a package manifest nested too deeply to load |
 | `source_read` | A selected source cannot be read or decoded |
 | `output_path` | Project output path fails safety validation |
-| `output_write` | Atomic project output write or replacement fails, or the output file is read-only |
+| `output_write` | Atomic project output write or replacement fails, or the output file is read-only or belongs to another user |
 
 The design retains `output_path` and `output_write` rather than introducing a
 less precise `project_output` umbrella kind.

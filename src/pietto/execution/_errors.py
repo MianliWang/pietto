@@ -383,8 +383,11 @@ def sqlstate(error):
     return state if type(state) is str and _SQLSTATE.fullmatch(state) else None
 
 
-def request_failure(error):
-    """Classify a refusal raised while a request is prepared (no I/O)."""
+def request_failure(error, *, preparing=False):
+    """Classify a refusal raised while a request is prepared (no I/O).
+
+    ``preparing``: raised while the verified query's template, binding or
+    request was prepared, where a recursion overflow is the query's own."""
     word = category_word(error)
     if word in _REQUEST:
         code = _REQUEST[word]
@@ -392,7 +395,7 @@ def request_failure(error):
         code = "PIE-R1006"
     elif word is not None and type(error) in _QUERY_ERRORS:
         code = "PIE-R1004"
-    elif type(error) is RecursionError:
+    elif preparing and type(error) is RecursionError:
         # Preparing walks the verified query again, from a deeper stack than
         # its emission did: a query that nests too deeply for that.
         code = "PIE-R1004"

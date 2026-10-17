@@ -14,6 +14,7 @@ from pietto.ast_nodes import (
 )
 from pietto.ir import build_ir
 from pietto.ir.model import (
+    AggregateCallIR,
     LiteralIR,
     NullabilityIR,
     RelationIR,
@@ -474,6 +475,76 @@ def test_inline_frame_value_ir_and_postgresql_sql_are_concrete() -> None:
     )
     assert "RESPECT NULLS" not in result.artifacts[0].sql
     assert "FROM FIRST" not in result.artifacts[0].sql
+
+
+@pytest.mark.parametrize(
+    ("aggregate", "aggregate_sql"),
+    (
+        ("sum(quantity)", "SUM({q}quantity{q})"),
+        ("avg(quantity)", "AVG(CAST({q}quantity{q} AS {double}))"),
+        ("count()", "COUNT(*)"),
+    ),
+)
+@pytest.mark.parametrize("function", ("first_value", "last_value", "nth_value"))
+def test_grouped_frame_value_reads_the_selected_aggregate_call(
+    function: str,
+    aggregate: str,
+    aggregate_sql: str,
+) -> None:
+    position = ", 2" if function == "nth_value" else ""
+    for quantity_type in ("Int not null", "Qty not null"):
+        shapes = f"type Qty = Int not null\n{PREFIX}    quantity: {quantity_type}\n"
+        for connector, emitter, q, double, exclusion in (
+            (
+                "postgres.table",
+                emit_postgres_sql,
+                '"',
+                "double precision",
+                " EXCLUDE NO OTHERS",
+            ),
+            ("mysql.table", emit_mysql_sql, "`", "DOUBLE", ""),
+        ):
+            source = shapes + (
+                f'source rows: Row is {connector}("rows")\n'
+                "query result:\n"
+                "    from rows\n"
+                "    group by:\n"
+                "        category\n"
+                "    select:\n"
+                "        category\n"
+                f"        total = {aggregate}\n"
+                f"        picked = {function}(total{position}) window:\n"
+                "            order by:\n"
+                "                total\n"
+            )
+            parsed = parse_source(source, path="grouped.pietto")
+            assert parsed.diagnostics == () and parsed.ast is not None
+            semantic = analyze(parsed.ast)
+            assert semantic.diagnostics == ()
+            # Before: check passed, then IR lowering raised "frame-value IR
+            # requires one bounded value input" from emit-sql and explain.
+            lowered = build_ir(parsed.ast, semantic.model)
+            assert lowered.diagnostics == () and lowered.ir is not None
+            relation = cast(RelationIR, lowered.ir.definitions[-1])
+            total = relation.projections[1].expression
+            picked = relation.projections[2].expression
+            assert type(total) is AggregateCallIR
+            assert type(picked) is WindowCallIR
+            assert picked.arguments[0] == total
+            emitted = emitter(lowered.ir)
+            value = aggregate_sql.format(q=q, double=double)
+            assert emitted.diagnostics == ()
+            assert [artifact.sql for artifact in emitted.artifacts] == [
+                "SELECT\n"
+                f"    {q}category{q} AS {q}category{q},\n"
+                f"    {value} AS {q}total{q},\n"
+                f"    {function.upper()}({value}{position}) OVER (ORDER BY {value} "
+                "ASC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+                f"{exclusion}) AS {q}picked{q}\n"
+                f"FROM {q}rows{q}\n"
+                "GROUP BY\n"
+                f"    {q}category{q}"
+            ]
 
 
 def test_backend_modifier_and_frame_limits_fail_closed() -> None:

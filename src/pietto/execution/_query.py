@@ -210,13 +210,18 @@ def compile_query(
         },
     )
     try:
-        outcome, template = composition.compile_live(
+        outcome = composition.emit_live(
             project, module, kind, name, dialect, emission_contract, literal_policy
         )
     except Exception as caught:
         refusal = request_failure(caught)
     else:
-        return _compiled(outcome, template)
+        try:
+            template = composition.live_template(outcome)
+        except Exception as caught:
+            refusal = request_failure(caught, preparing=True)
+        else:
+            return _compiled(outcome, template)
     raise RequestRejected(refusal)
 
 
@@ -309,5 +314,5 @@ def load_bundle(
         try:
             return _query(composition.bundle_template(root), "bundle", None)
         except Exception as caught:
-            refusal = request_failure(caught)
+            refusal = request_failure(caught, preparing=True)
     raise RequestRejected(refusal)

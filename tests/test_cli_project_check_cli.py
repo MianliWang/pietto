@@ -374,12 +374,23 @@ def test_project_check_reports_the_recursion_limit_at_the_most_nested_module(
     )
 
 
+@pytest.mark.parametrize(
+    "condition",
+    [
+        " and ".join(["a.id == b.id"] * 3000),
+        " or ".join(["a.id == b.id"] * 3000),
+        "a.id == " + " + ".join(["b.id"] * 3000),
+    ],
+    ids=["and_equalities", "or_chain", "deep_operand"],
+)
 def test_project_check_reports_the_recursion_limit_past_a_long_relationship_on(
+    condition: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # a.pietto alone checks: its 3,000 `on` equalities are checked one at a
-    # time, so the shallower WHERE of b.pietto exceeds the limit.
+    # a.pietto alone checks: each conjunct of its 3,000-term `on` is read one
+    # at a time and only at its top, so the `on` adds no depth and the
+    # shallower WHERE of b.pietto, which exceeds the limit, is reported.
     root = _project_root(
         tmp_path,
         config_text='schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n',
@@ -393,7 +404,7 @@ def test_project_check_reports_the_recursion_limit_past_a_long_relationship_on(
         root,
         "a.pietto",
         header + "relationship r:\n    endpoint a: xs\n    endpoint b: ys\n"
-        f"    on {' and '.join(['a.id == b.id'] * 3000)}\n",
+        f"    on {condition}\n",
     )
     _write(
         root,

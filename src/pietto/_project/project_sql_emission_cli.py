@@ -18,7 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
-from pietto._output_file import is_read_only, open_replacement
+from pietto._output_file import (
+    is_owned_by_another_user,
+    is_read_only,
+    open_replacement,
+)
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.module_carrier import ProjectCompilationMode
@@ -542,11 +546,14 @@ def _publish(
                     " sources and emission contract.",
                 ),
             )
-    if is_read_only(output):
-        return (InputError("output_write", "Output file is read-only."),)
     errors: list[InputError] = []
     temporary: Path | None = None
     try:
+        # A destination whose state cannot be read is a failed write too.
+        if is_read_only(output):
+            return (InputError("output_write", "Output file is read-only."),)
+        if is_owned_by_another_user(output):
+            return (InputError("output_write", "Output file belongs to another user."),)
         handle, temporary = open_replacement(output)
         with handle:
             handle.write(data)

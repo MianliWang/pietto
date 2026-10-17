@@ -1256,7 +1256,17 @@ def _infer(
         elif _reads_null_literal(
             (expression.left, expression.right), row_schema, bare_value_expressions
         ):
-            remedy = {"==": "is null", "!=": "is not null"}.get(expression.operator)
+            # `null is null` is TRUE, so a test of null against null has no remedy.
+            remedy = (
+                None
+                if _reads_null_literal(
+                    (expression.left, expression.right),
+                    row_schema,
+                    bare_value_expressions,
+                    every=True,
+                )
+                else {"==": "is null", "!=": "is not null"}.get(expression.operator)
+            )
             diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
             value_type, expected = _UNKNOWN_VALUE_TYPE, None
         else:

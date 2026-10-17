@@ -31,7 +31,7 @@ def _request(call):
     except RequestRejected:
         raise
     except Exception as caught:
-        refusal = request_failure(caught)
+        refusal = request_failure(caught, preparing=True)
     assert refusal is not None
     raise RequestRejected(refusal)
 

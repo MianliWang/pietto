@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import errno
 import os
+import stat
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import replace
@@ -53,7 +54,11 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from pietto._output_file import is_read_only, open_replacement
+from pietto._output_file import (
+    is_owned_by_another_user,
+    is_read_only,
+    open_replacement,
+)
 from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
@@ -1219,6 +1224,10 @@ def _write_sql_artifacts(
         raise ValueError("no SQL artifacts to write; the output file was not changed")
     if is_read_only(output_path):
         raise ValueError("output file is read-only; the output file was not changed")
+    if is_owned_by_another_user(output_path):
+        raise ValueError(
+            "output file belongs to another user; the output file was not changed"
+        )
     data = f"{_format_sql_artifacts(artifacts)}\n".encode("utf-8")
     temporary_path: Path | None = None
     try:
@@ -1238,10 +1247,11 @@ def _write_sql_artifacts(
 def _validate_output_path(input_path: Path, output_path: Path) -> None:
     """Reject unsafe output destinations before compilation begins.
 
-    Only a provable symbolic link or same file is rejected. A path that cannot
-    be inspected is left to the later steps: the input read reports file_read,
-    and the output write, which cannot reach a path lstat or stat could not,
-    reports output_write.
+    Only a provable symbolic link, an existing object that is neither a
+    regular file nor a directory, or the same file is rejected. A path that
+    cannot be inspected is left to the later steps: the input read reports
+    file_read, and the output write, which cannot reach a path lstat or stat
+    could not, reports output_write.
     """
 
     try:
@@ -1250,6 +1260,12 @@ def _validate_output_path(input_path: Path, output_path: Path) -> None:
         is_symlink = False
     if is_symlink:
         raise ValueError("output path must not be a symbolic link")
+    try:
+        mode = os.stat(output_path).st_mode
+    except OSError:
+        mode = None
+    if mode is not None and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+        raise ValueError("output path must be a regular file")
     if _paths_refer_to_same_file(input_path, output_path):
         raise ValueError("output path must differ from the input file")
 

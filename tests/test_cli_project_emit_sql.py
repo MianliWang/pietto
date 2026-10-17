@@ -1281,6 +1281,86 @@ def test_output_file_mode_follows_the_umask_and_a_replaced_file_keeps_its_bits(
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX owners")
+@pytest.mark.parametrize("presentation", ["json", "text"])
+def test_another_users_destination_is_refused_as_an_output_write_error(
+    tmp_path: Path, presentation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    output = tmp_path / "artifact.json"
+    output.write_bytes(b"stale")
+    before = output.stat()
+    # The command runs as a user who is neither the file's owner nor root.
+    monkeypatch.setattr(os, "geteuid", lambda: before.st_uid + 1)
+    arguments = argv(root, "postgres", output=str(output))
+    if presentation == "text":
+        arguments += ["--format", "text"]
+    code, out, err = run(arguments)
+    if presentation == "json":
+        assert (code, err) == (2, "")
+        assert out == (
+            b'{"artifact":null,"blockers":[],"cli_errors":[{"kind":"output_write",'
+            b'"message":"Output file belongs to another user.","path":null}],'
+            b'"diagnostics":[],"format":"pietto.sql-emission.v1",'
+            b'"status":"INPUT_REJECTED"}\n'
+        )
+    else:
+        assert (code, out, err) == (
+            2,
+            b"",
+            "pietto.sql-emission.v1 INPUT_REJECTED\n"
+            "error output_write: Output file belongs to another user.\n",
+        )
+    assert output.read_bytes() == b"stale"
+    after = output.stat()
+    assert (after.st_mode, after.st_ino) == (before.st_mode, before.st_ino)
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("presentation", ["json", "text"])
+def test_a_destination_whose_state_cannot_be_read_is_never_replaced(
+    tmp_path: Path, presentation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    output = tmp_path / "artifact.json"
+    output.write_bytes(b"stale")
+    before = output.stat()
+    real_stat = os.stat
+
+    def stat_failing_for_output(
+        target: Any, *arguments: Any, **keywords: Any
+    ) -> os.stat_result:
+        # Only a missing entry shows a destination absent; this one is there.
+        if str(target) == str(output):
+            raise OSError(errno.EIO, "state could not be read")
+        return real_stat(target, *arguments, **keywords)
+
+    monkeypatch.setattr(os, "stat", stat_failing_for_output)
+    arguments = argv(root, "postgres", output=str(output))
+    if presentation == "text":
+        arguments += ["--format", "text"]
+    code, out, err = run(arguments)
+    if presentation == "json":
+        assert (code, err) == (2, "")
+        assert out == (
+            b'{"artifact":null,"blockers":[],"cli_errors":[{"kind":"output_write",'
+            b'"message":"Output file could not be written.","path":null}],'
+            b'"diagnostics":[],"format":"pietto.sql-emission.v1",'
+            b'"status":"INPUT_REJECTED"}\n'
+        )
+    else:
+        assert (code, out, err) == (
+            2,
+            b"",
+            "pietto.sql-emission.v1 INPUT_REJECTED\n"
+            "error output_write: Output file could not be written.\n",
+        )
+    assert output.read_bytes() == b"stale"
+    after = real_stat(output)
+    assert (after.st_mode, after.st_ino) == (before.st_mode, before.st_ino)
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
 @pytest.mark.parametrize("presentation", ["json", "text"])
 def test_a_read_only_destination_is_refused_as_an_output_write_error(
     tmp_path: Path, presentation: str

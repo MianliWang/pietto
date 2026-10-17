@@ -544,7 +544,7 @@ def execute(
                 parameters=parameters,
             )
     except Exception as caught:
-        refusal = request_failure(caught)
+        refusal = request_failure(caught, preparing=True)
     else:
         handle = object.__new__(ResultHandle)
         handle._owner = owner

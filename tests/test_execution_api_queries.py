@@ -618,11 +618,12 @@ def test_a_loaded_bundle_that_cannot_become_a_template_has_the_query_codes(
 
 
 def test_a_query_too_deep_to_become_a_template_is_not_executable(
-    example, bundle, monkeypatch
+    example, live, bundle, monkeypatch
 ):
-    """The template stage walks the verified query again, from a deeper stack
-    than its emission: exhausting the recursion limit there is PIE-R1004,
-    never the unclassified PIE-R1999, for a compile and for a load."""
+    """The template and attempt stages walk the verified query again, from a
+    deeper stack than its emission: exhausting the recursion limit there is
+    PIE-R1004, never the unclassified PIE-R1999, for a compile, a load and an
+    execute()."""
 
     def exhausted(*arguments, **keywords):
         raise RecursionError
@@ -634,6 +635,33 @@ def test_a_query_too_deep_to_become_a_template_is_not_executable(
     assert refused(compiled, example) == ("PIE-R1004", None)
     monkeypatch.setattr(composition, "bundle_template", exhausted)
     assert refused(load, bundle) == ("PIE-R1004", None)
+    monkeypatch.setattr(composition, "prepare_attempt", exhausted)
+    assert refused(run, live) == ("PIE-R1004", None)
+
+
+def test_a_recursion_overflow_outside_preparation_is_unclassified(live, monkeypatch):
+    """Only preparing the verified query makes a recursion overflow PIE-R1004:
+    one while the project is read, here through a caller's path object that
+    names itself, or while a compiled query is exported stays the
+    unclassified PIE-R1999."""
+
+    class Itself(os.PathLike[str]):
+        def __fspath__(self) -> str:
+            return os.fspath(self)
+
+    def exhausted(*arguments, **keywords):
+        raise RecursionError
+
+    with pytest.raises(execution.RequestRejected) as compiling:
+        compiled(Itself())
+    monkeypatch.setattr(composition, "export_facts", exhausted)
+    with pytest.raises(execution.RequestRejected) as exporting:
+        execution.export_bundle(live)
+    for error in (compiling, exporting):
+        assert error.value.failure == errors.failure(
+            "PIE-R1999", cause="RecursionError"
+        )
+        assert error.value.__cause__ is None and error.value.__context__ is None
 
 
 def test_compile_query_blocks_a_condition_nested_past_the_recursion_limit(tmp_path):

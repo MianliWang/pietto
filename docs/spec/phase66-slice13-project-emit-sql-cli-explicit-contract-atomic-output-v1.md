@@ -105,18 +105,29 @@ merely shares a name is not. Only VERIFIED publishes: the bytes are written to a
 same-directory temporary file with a short `.pietto-*.tmp` name and installed with
 one `os.replace` after
 compilation, verification and serialization are complete. A new destination
-gets `0o666` less the process umask, like any new file the process creates. The
-file replacing a regular destination, where the file system stores permission
-bits, receives the destination's read, write and execute permission bits only
-on Linux, when both have the same owner and group and are shown to carry no ACL
-(no `system.` extended attribute and no CIFS security descriptor), and
-otherwise at most its owner bits. The destination's owner, group, set-id and
+gets the mode `open(output, "w")` gives (`0o666` less the umask, or what a
+default ACL of the directory grants), like any new file the process creates.
+The file replacing a regular destination, where the file system stores
+permission bits, receives the destination's read, write and execute permission
+bits only on Linux, when both have the same owner and group and are shown to
+carry no ACL (no `system.` extended attribute and no CIFS security descriptor),
+and otherwise at most its owner bits. An owner or group shown as the kernel's
+overflow id (`/proc/sys/kernel/overflowuid` and `overflowgid`, `65534` when they
+cannot be read), which a user namespace shows for every id it does not map,
+never counts as the same. The destination's owner, group, set-id and
 sticky bits and its own ACL are not copied: like any new file, the replacement
 has only the ACL its directory gives new files. Windows keeps only a read-only
 attribute, so there both are ordinary writable files. An existing regular
 destination the user may not write (the `access`
 write check; the read-only attribute on Windows) is refused before a temporary
 file is created, as `output_write` with the message `Output file is read-only.`
+Outside Windows, an existing destination that belongs to another user than the
+one running the command, who is not root, is refused the same way, with the
+message `Output file belongs to another user.`, because the replacement would
+belong to the running user and grant that user access the destination did not;
+an owner shown as the overflow id counts as another user, even for root. A
+destination whose state cannot be read for a reason other than being absent is
+never treated as a new one: it is reported like a creation failure.
 A creation, write,
 close, replacement or cleanup failure leaves an existing destination unchanged
 and an absent destination absent, removes only this invocation's temporary file,

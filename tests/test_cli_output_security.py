@@ -5,11 +5,14 @@ import json
 import os
 import stat
 import struct
+import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import pietto._output_file as output_file
 import pietto.cli as cli
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.sql import SqlResult
@@ -314,19 +317,52 @@ def test_any_refused_access_step_keeps_only_the_owner_bits(
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX FIFOs")
-@pytest.mark.parametrize("mode", [0o600, 0o400, 0o777], ids=oct)
-def test_a_replaced_fifo_is_never_left_more_open(mode: int, tmp_path: Path) -> None:
-    _without_inherited_acl(tmp_path)
+@pytest.mark.parametrize("presentation", ["text", "json"])
+def test_a_fifo_output_is_refused_before_compilation(
+    presentation: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     path = _write(tmp_path, "input.pietto", SOURCE)
     output = tmp_path / "output.sql"
     os.mkfifo(output)
-    # Only a regular file is refused as read-only, so a FIFO the user may not
-    # write is replaced like any other, and the replacement keeps at most the
-    # FIFO owner's read and write bits.
+    arguments = ["emit-sql", str(path), "--dialect", "postgres"]
+    if presentation == "json":
+        arguments += ["--format", "json"]
+
+    assert cli.main([*arguments, "--output", str(output)]) == 2
+
+    message = "output path must be a regular file"
+    captured = capsys.readouterr()
+    if presentation == "json":
+        assert captured.err == ""
+        document = json.loads(captured.out)
+        assert document["cli_errors"] == [
+            {"kind": "output_path", "message": message, "path": str(output)}
+        ]
+        assert document["output"] == {"path": str(output), "written": False}
+    else:
+        assert captured.out == ""
+        assert captured.err == f"{output}: error: {message}\n"
+    assert stat.S_ISFIFO(output.lstat().st_mode)
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX FIFOs")
+@pytest.mark.parametrize("mode", [0o600, 0o400, 0o777], ids=oct)
+def test_a_fifo_appearing_after_validation_bounds_the_replacement(
+    mode: int, tmp_path: Path
+) -> None:
+    # Both callers refuse a FIFO first; should one appear before the write,
+    # the replacement keeps at most its owner's read and write bits.
+    _without_inherited_acl(tmp_path)
+    output = tmp_path / "output.sql"
+    os.mkfifo(output)
     output.chmod(mode)
     previous = os.umask(0o022)
     try:
-        assert _emit(path, output) == 0
+        handle, temporary = output_file.open_replacement(output)
+        with handle:
+            handle.write(b"SQL\n")
+        os.replace(temporary, output)
     finally:
         os.umask(previous)
 
@@ -335,9 +371,7 @@ def test_a_replaced_fifo_is_never_left_more_open(mode: int, tmp_path: Path) -> N
         True,
         mode & 0o600,
     )
-    assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
-    )
+    assert output.read_bytes() == b"SQL\n"
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -364,6 +398,159 @@ def test_an_interruption_after_creation_closes_and_removes_the_temporary_file(
     with pytest.raises(OSError) as closed:
         os.fstat(descriptors[0])
     assert closed.value.errno == errno.EBADF
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX owners")
+@pytest.mark.parametrize("presentation", ["text", "json"])
+def test_another_users_output_is_refused_and_left_unchanged(
+    presentation: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    owner = output.stat().st_uid
+    # The command runs as a user who is neither the file's owner nor root.
+    monkeypatch.setattr(os, "geteuid", lambda: owner + 1)
+    arguments = ["emit-sql", str(path), "--dialect", "postgres"]
+    if presentation == "json":
+        arguments += ["--format", "json"]
+
+    assert cli.main([*arguments, "--output", str(output)]) == 2
+
+    message = "output file belongs to another user; the output file was not changed"
+    captured = capsys.readouterr()
+    if presentation == "json":
+        assert captured.err == ""
+        document = json.loads(captured.out)
+        assert document["cli_errors"] == [
+            {"kind": "output_write", "message": message, "path": str(output)}
+        ]
+        assert document["output"] == {"path": str(output), "written": False}
+    else:
+        assert captured.out == ""
+        assert captured.err == f"{output}: error: {message}\n"
+    assert output.read_text(encoding="utf-8") == "original SQL\n"
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX owners")
+def test_root_replaces_another_users_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+
+    assert _emit(path, output) == 0
+
+    assert output.read_text(encoding="utf-8") == (
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+    )
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs Linux user namespaces")
+@pytest.mark.parametrize("mapped", [True, False], ids=["owner-mapped", "none-mapped"])
+def test_ids_a_user_namespace_does_not_map_never_count_as_the_same(
+    mapped: bool, tmp_path: Path
+) -> None:
+    _without_inherited_acl(tmp_path)
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    output.chmod(0o660)
+    # A fresh user namespace that maps at most this user shows every group,
+    # and without the map every user, as the one overflow id, whichever group
+    # or user owns the file. The group bits then cannot be shown to grant the
+    # same access, and an owner shown so cannot be shown to be this user.
+    child = (
+        "import os, sys\n"
+        "user = os.geteuid()\n"
+        "try:\n"
+        "    os.unshare(os.CLONE_NEWUSER)\n"
+        "    if sys.argv[1] == 'mapped':\n"
+        "        with open('/proc/self/uid_map', 'w') as uid_map:\n"
+        "            uid_map.write(f'0 {user} 1')\n"
+        "except OSError:\n"
+        "    sys.exit(77)\n"
+        "from pietto.cli import main\n"
+        "sys.exit(main(sys.argv[2:]))\n"
+    )
+    arguments = ["mapped" if mapped else "unmapped"]
+    arguments += ["emit-sql", str(path), "--dialect", "postgres"]
+    arguments += ["--output", str(output)]
+    result = subprocess.run(
+        [sys.executable, "-c", child, *arguments],
+        # The child imports exactly what this process imports.
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 77:
+        pytest.skip("unprivileged user namespaces are unavailable here")
+
+    if mapped:
+        assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+        assert output.read_text(encoding="utf-8") == (
+            'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        )
+        assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    else:
+        message = "output file belongs to another user; the output file was not changed"
+        assert (result.returncode, result.stdout, result.stderr) == (
+            2,
+            "",
+            f"{output}: error: {message}\n",
+        )
+        assert output.read_text(encoding="utf-8") == "original SQL\n"
+        assert stat.S_IMODE(output.stat().st_mode) == 0o660
+    assert not tuple(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("presentation", ["text", "json"])
+def test_an_output_whose_state_cannot_be_read_is_never_replaced(
+    presentation: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = _write(tmp_path, "output.sql", "original SQL\n")
+    before = output.stat()
+    real_stat = os.stat
+
+    def stat_failing_for_output(
+        target: Any, *arguments: Any, **keywords: Any
+    ) -> os.stat_result:
+        # Only a missing entry shows an output absent; this one is there.
+        if str(target) == str(output):
+            raise OSError(errno.EIO, "state could not be read")
+        return real_stat(target, *arguments, **keywords)
+
+    monkeypatch.setattr(os, "stat", stat_failing_for_output)
+    arguments = ["emit-sql", str(path), "--dialect", "postgres"]
+    if presentation == "json":
+        arguments += ["--format", "json"]
+
+    assert cli.main([*arguments, "--output", str(output)]) == 2
+
+    message = f"Operating system error (errno {errno.EIO})"
+    captured = capsys.readouterr()
+    if presentation == "json":
+        assert captured.err == ""
+        document = json.loads(captured.out)
+        assert document["cli_errors"] == [
+            {"kind": "output_write", "message": message, "path": str(output)}
+        ]
+        assert document["output"] == {"path": str(output), "written": False}
+    else:
+        assert captured == ("", f"{output}: error: {message}\n")
+    assert output.read_text(encoding="utf-8") == "original SQL\n"
+    after = real_stat(output)
+    assert (after.st_mode, after.st_ino) == (before.st_mode, before.st_ino)
+    assert not tuple(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.parametrize("presentation", ["text", "json"])

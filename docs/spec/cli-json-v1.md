@@ -329,7 +329,7 @@ The stable v1 kinds are:
 |---|---|
 | `file_read` | Input file could not be read or decoded |
 | `output_path` | Requested output path failed safety validation |
-| `output_write` | Atomic output write or replacement failed, or was refused because there were no SQL artifacts to write or the output file is read-only |
+| `output_write` | Atomic output write or replacement failed, or was refused because there were no SQL artifacts to write or the output file is read-only or belongs to another user |
 | `usage` | Recognized JSON command has invalid or missing arguments |
 | `unsupported_dialect` | Supplied SQL dialect is not supported |
 
@@ -441,17 +441,21 @@ The implemented outcomes are:
 
 - successful or warning-only compilation with at least one SQL artifact writes
   atomically, sets `output.written` to `true`, keeps artifacts in JSON, and
-  exits `0`. A new output file gets the permissions of any new file the
-  process creates, `0o666` less the process umask. Where the file system
-  stores permission bits, the file replacing an existing output never gets
-  wider ones: it receives the replaced read, write, and execute permission
-  bits only on Linux, when both have the same owner and group and are shown to
+  exits `0`. A new output file gets the mode `open(output, "w")` gives
+  (`0o666` less the umask, or what a default ACL of the directory grants),
+  like any new file the process creates. Where the file system stores
+  permission bits, the file replacing an existing output never gets wider
+  ones: it receives the replaced read, write, and execute permission bits
+  only on Linux, when both have the same owner and group and are shown to
   carry no ACL (no `system.` extended attribute and no CIFS security
-  descriptor), and otherwise at most the owner bits. The replaced output's
-  owner, group, set-id, and sticky bits and its own ACL are not copied: like
-  any new file, the replacement has only the ACL its directory gives new
-  files. Windows keeps only a read-only attribute, so there both are ordinary
-  writable files;
+  descriptor), and otherwise at most the owner bits. An owner or group shown
+  as the kernel's overflow id (`/proc/sys/kernel/overflowuid` and
+  `overflowgid`, `65534` when they cannot be read), which a user namespace
+  shows for every id it does not map, never counts as the same. The replaced
+  output's owner, group, set-id, and sticky bits and its own ACL are not
+  copied: like any new file, the replacement has only the ACL its directory
+  gives new files. Windows keeps only a read-only attribute, so there both are
+  ordinary writable files;
 - successful or warning-only compilation without SQL artifacts does not write
   or create the output file, reports `output_write` with the message
   `no SQL artifacts to write; the output file was not changed`, sets
@@ -466,18 +470,30 @@ The implemented outcomes are:
   `output.written` to `false`, keeps generated artifacts in JSON, leaves the
   file unchanged, and exits `2`; text mode prints the same message after
   `<output path>: error: ` on stderr;
+- outside Windows, an existing output that belongs to another user than the
+  one running the command, who is not root, is not replaced either, because
+  the replacement would belong to the running user and grant that user access
+  the original did not; an owner shown as the overflow id counts as another
+  user, even for root: after compilation the command reports `output_write`
+  with the message
+  `output file belongs to another user; the output file was not changed`,
+  with the same JSON fields, file, and exit code as a read-only output;
 - parser, semantic, or IR errors do not write, set `output.written` to `false`,
   leave `cli_errors` empty, contain no SQL artifacts, and exit `1`;
 - backend errors do not write, set `output.written` to `false`, leave
   `cli_errors` empty, preserve any artifacts returned by the backend, and exit
   `1`;
-- an output path that is a symbolic link, the input file, or a hard link to
-  the input reports `output_path`, sets `output.written` to `false`, stops
-  before the input is read or compiled, and exits `2`;
+- an output path that is a symbolic link, the input file, a hard link to the
+  input, or an existing FIFO, socket, or device reports `output_path` (the
+  last with the message `output path must be a regular file`), sets
+  `output.written` to `false`, stops before the input is read or compiled,
+  leaves that object unchanged, and exits `2`;
 - write or replacement failure, including a missing, unsearchable, or
   unwritable parent directory, a parent path that is a regular file or a
-  symbolic-link loop, a directory at the output path, or a name the file
-  system rejects, reports `output_write`, sets `output.written` to `false`,
+  symbolic-link loop, a directory at the output path, an existing output
+  whose state cannot be read for a reason other than being absent (it is
+  never treated as a new file), or a name the file system rejects, reports
+  `output_write`, sets `output.written` to `false`,
   preserves generated artifacts and the old output file, tries to remove its
   temporary file (a failed removal is not reported), and exits `2`. The
   temporary file is a short hidden `.pietto-*.tmp` name in the output
