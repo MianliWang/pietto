@@ -1370,7 +1370,7 @@ def test_an_expression_nested_past_450_levels_is_s2006_wherever_it_is(
     assert refused.model.expression_value_types == {}
 
 
-def test_the_expression_nesting_bound_does_not_depend_on_the_callers_stack() -> None:
+def test_refusal_past_the_nesting_bound_does_not_depend_on_the_callers_stack() -> None:
     def analyze_below(frames: int, script: Script) -> SemanticResult:
         return analyze(script) if frames == 0 else analyze_below(frames - 1, script)
 
@@ -1380,6 +1380,7 @@ def test_the_expression_nesting_bound_does_not_depend_on_the_callers_stack() -> 
     # Before, 451 levels passed here and failed 200 frames further down.
     assert [d.code for d in analyze_below(0, deeper).diagnostics] == ["PIE-S2006"]
     assert [d.code for d in analyze_below(200, deeper).diagnostics] == ["PIE-S2006"]
+    # Accepting 450 levels still needs stack headroom, which a shallow caller has.
     assert analyze_below(0, deepest_accepted).diagnostics == ()
     assert analyze_below(10, deepest_accepted).diagnostics == ()
 

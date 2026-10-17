@@ -109,10 +109,13 @@ if TYPE_CHECKING:
     )
 
 _DECIMAL_PRECISION_MAX = 65
-# Analysis spends up to two Python frames per nested expression level, so this
-# bound keeps it well inside the interpreter's recursion limit: a deeper
-# expression is PIE-S2006 for every command and caller alike. RecursionError
-# stays the guard for other deep chains, such as type aliases.
+# Analysis spends up to two Python frames per nested expression level, so an
+# expression at this bound takes about 910 of the interpreter's default 1000
+# frames. Only the refusal is independent of the caller: a deeper expression is
+# PIE-S2006 for every command and caller alike, while one at the bound is
+# accepted only when the caller is at most about 85 frames deeper than a
+# top-level call, and each level less leaves the caller about two more frames.
+# RecursionError stays the guard for other deep chains, such as type aliases.
 _MAX_EXPRESSION_LEVELS = 450
 
 

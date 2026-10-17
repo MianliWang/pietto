@@ -293,30 +293,45 @@ rejection boundaries; a successful project check is not SQL capability.
 Current JOIN roots are retained in private combined query-block IR and its
 VERIFIED-only inspection. Project Explain keeps its separate schema boundary.
 
-A JOIN of any kind above may read a source, table or query with fields typed
-by an enum or a shape, or by an alias of either, with or without `nullable` or
-`not null`, and `check --project` completes it. After the JOIN, scalar typing
-reads such a field as of unknown type, so a `where` test, a SELECT output, a
-`let:` value or an ORDER BY key may read it only inside an expression whose own
-type stays known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), `is null`,
+A JOIN of any kind above may read a source with fields typed by an enum or a
+shape, or by an alias of either, with or without `nullable` or `not null`, and
+`check --project` completes it. A table, query or relation `let` that outputs
+such a field and completes on its own can be the target of a SEMI or ANTI JOIN
+with an `on` and no `via`. Other JOINs may read it when it has a GROUP BY but
+no ORDER BY, LIMIT or window function, when it is a set operation, or when it
+is a table or query that only selects, renames, filters, orders or limits the
+fields of such a source, directly or through other tables or queries that do
+only that. In other cases, for example a relation `let` with no GROUP BY or set
+operation, or a table or query with a `let:` clause or a computed SELECT output
+such as `v = id + 1`, those JOINs may report PIE-S2333 at the table or query,
+even when the field is never read. After the JOIN, scalar typing reads such a
+field as of unknown type, so a `where` test, a SELECT output, a `let:` value or
+an ORDER BY key may read it only inside an expression whose own type stays
+known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), `is null`,
 `is not null`, and `and`, `or` and `not` over such tests, for example
 `c.status == "active"`, `coalesce(c.status, "x") == "active"` or
 `c.status is null or c.id > 0`. Any other read there is not supported yet and
 reports PIE-S2333 at the table or query: the field itself (selected, bound in
 `let:` or used as an ORDER BY key), a call such as `lower(c.status)`, and every
 `in`, `not in`, `between`, `like` or `not like` test of it, in `where` too.
-GROUP BY may name the field, but selecting it from the groups reports
-PIE-S2333 as well. An aggregate of it, such as `count(c.status)`, reports
-PIE-S2315 at the call, and a window partitioned or ordered by it reports
-PIE-S2103 (`window partition field type must be concrete` or `window order
-field type must be concrete`); a JOIN `on` that reads such a field reports
-PIE-S2334 and PIE-S2335. A relation `let` with such a field cannot be a JOIN
-input yet: a JOIN that reads the `let`, as its FROM input or as the JOIN
-target, reports PIE-S2333 at the table or query even when the field is never
-read. Project SQL emission has no representation for enum or shape
-fields: with or without a JOIN, `emit-sql --project` reports a table or query
-that passes `check --project` and reads a source declaring one BLOCKED with
-PIE-B1003 (for example `representation_not_in_initial_domain` at the field).
+GROUP BY may name the field, but selecting it from the groups reports PIE-S2333
+as well. An aggregate of it, such as `count(c.status)`, reports PIE-S2315 at the
+call, and a window partitioned or ordered by it reports PIE-S2103
+(`window partition field type must be concrete` or
+`window order field type must be concrete`); a JOIN `on` that reads such a field
+reports PIE-S2334 and PIE-S2335. A relationship whose `on` compares fields typed
+by a shape, or by an alias of one, cannot be used by a JOIN yet: an INNER or
+LEFT JOIN that uses it, with or without `via`, reports PIE-S2333 at the table or
+query, and a RIGHT, FULL, SEMI or ANTI JOIN that uses it, or a JOIN that adds an
+`on` to its `via`, reports PIE-S2334 and PIE-S2335; over enum fields such a
+relationship completes. Project SQL emission has no representation for enum or
+shape fields: with or without a JOIN, `emit-sql --project` reports a table or
+query that passes `check --project` and reads a source declaring one BLOCKED
+with PIE-B1003 (for example `representation_not_in_initial_domain` at the
+field). An ORDER BY key that reads such a field inside an expression, such as
+`c.status is null` or `status == "active"`, may instead make
+`emit-sql --project` report the table or query INPUT_REJECTED (exit status 2),
+with the `emission_selector` error `Invalid current planning roots.`
 
 An alternate complete table/query body retains named set operands:
 
@@ -1125,11 +1140,13 @@ when_false`. The conditional binds loosest and nests to the right, so
 `"a" if n > 1 else "b" if n > 0 else "c"` reads as `"a" if n > 1 else ("b" if
 n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
-(PIE-S2105). An expression nests at most 450 levels: each operator, operand,
-call, cast or conditional on its deepest path counts one, so a chain such as
-`a and b and c` or `x + y + z` nests one level per operand. A single file with
-a deeper expression anywhere, a window frame offset included, fails `check`,
-`emit-sql` and `explain` alike with PIE-S2006.
+(PIE-S2105). A single-file expression nests at most 450 levels: each operator,
+operand, call, cast or conditional on its deepest path counts one, so a chain
+such as `a and b and c` or `x + y + z` nests one level per operand. A single
+file with a deeper expression anywhere, a relationship `on` condition, a type
+`ensure` condition and a window frame offset included, fails `check`,
+`emit-sql` and `explain` alike with PIE-S2006. A project is not held to that
+bound (see Diagnostics, IR, SQL, and output).
 
 Arithmetic (`+ - * / %` and unary `+`/`-`), `not`, `and`, `or`, comparisons,
 `like`/`not like`, `between`, `in`, the arguments of the scalar functions
@@ -1700,18 +1717,20 @@ Parser, semantic, IR, backend, and runtime diagnostic families remain
 separate. Diagnostic codes, ordering, and source locations are stable public
 behavior as described in [diagnostics](spec/diagnostics.md).
 
-An expression nested deeper than the compiler's recursion limit allows, such as
-a WHERE of several hundred `and` conditions, fails closed with PIE-S2006 over
-one whole file. A single file reports it for that file. A project reports it
-from `check --project` and, BLOCKED, from `emit-sql --project`: for the module
-whose own syntax checks exceed the limit, or, once the modules are analyzed
-together, for the module whose syntax nests deepest, where a relationship `on`
-adds no depth: a project reads each of its conjuncts one at a time and only at
-its top. Project emission uses more of the limit than project checking, so
-`emit-sql --project` can report PIE-S2006 for a project that `check --project`
-accepts; when planning or emitting the selected `table` or `query` exceeds the
-limit, it reports it for the selected module, also when the deep syntax is in a
-declaration it reads from another module.
+A single-file expression that nests more than 450 levels (see Expressions), in
+a relationship `on` or a type `ensure` condition too, fails closed with
+PIE-S2006 over that whole file. In a project, an expression nested deeper than
+the compiler's recursion limit allows, such as a WHERE of several hundred `and`
+conditions, fails closed with PIE-S2006 over one whole file. A project reports
+it from `check --project` and, BLOCKED, from `emit-sql --project`: for the
+module whose own syntax checks exceed the limit, or, once the modules are
+analyzed together, for the module whose syntax nests deepest, where a
+relationship `on` adds no depth: a project reads each of its conjuncts one at a
+time and only at its top. Project emission uses more of the limit than project
+checking, so `emit-sql --project` can report PIE-S2006 for a project that
+`check --project` accepts; when planning or emitting the selected `table` or
+`query` exceeds the limit, it reports it for the selected module, also when the
+deep syntax is in a declaration it reads from another module.
 
 IR construction consumes successful semantic facts without reparsing or
 mutating earlier stages. SQL backends consume IR and fail closed on unsupported
