@@ -602,6 +602,101 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
     ]
 
 
+def test_a_project_def_reads_a_let_bound_to_null_as_null(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A `let:` name bound to null, also through other lets, is a null
+    argument as in a single file: PIE-S2395 alone, also where the body casts
+    it, and the relation then needs no PIE-S2333."""
+    source = DEF_HEAD + (
+        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
+        "query q:\n    from rows\n    let:\n        k = null\n        k2 = k\n"
+        "        k3 = k2\n    select:\n        id\n        a = idi(k)\n"
+        "        b = idt(k2)\n        c = idi(k3)\n        d = fl(k)\n"
+    )
+    line = DEF_LINE + 9
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _mismatch("idi", line, 13, "Int not null", "null"),
+        _mismatch("idt", line + 1, 13, "Text not null", "null"),
+        _mismatch("idi", line + 2, 13, "Int not null", "null"),
+        _mismatch("fl", line + 3, 13, "Int not null", "null"),
+    ]
+
+
+def test_a_project_def_reads_a_let_that_stands_for_null_as_written(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An argument reading a `let:` name bound to null is checked as written
+    out, the literal taking its type from where it stands; a name bound to
+    another always-null value is null, as in a single file."""
+    source = DEF_HEAD + (
+        "query q:\n    from rows\n    let:\n        k = null\n        m = id + null\n"
+        "    select:\n        id\n        a = idt(lower(k))\n"
+        "        b = idi(coalesce(k, n))\n        c = idi(m)\n        d = idi(m + 1)\n"
+    )
+    line = DEF_LINE + 7
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _mismatch("idt", line, 13, "Text not null", "Text nullable"),
+        _mismatch("idi", line + 1, 13, "Int not null", "Int nullable"),
+        _mismatch("idi", line + 2, 13, "Int not null", "null"),
+        _mismatch("idi", line + 3, 13, "Int not null", "null"),
+    ]
+
+
+def test_a_project_def_checks_an_argument_with_its_let_values_written_in(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An argument is checked as emission writes it, with each `let:` value in
+    place of its name, in a WHERE as in a select: a known Bool that is always
+    null is null, and a value that reads a let bound to null is typed as the
+    null literal written there would make it."""
+    source = DEF_HEAD + (
+        "def bb(x: Bool not null) -> Bool not null: return x is null\n"
+        "query w:\n    from rows\n    let:\n        b2 = id + null > 1\n"
+        "    where bb(b2)\n    select:\n        id\n"
+        "query s:\n    from rows\n    let:\n        nill = null\n"
+        "        j = coalesce(nill, n)\n    select:\n        id\n        a = idi(j)\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _mismatch("bb", DEF_LINE + 5, 11, "Bool not null", "null"),
+        _mismatch("idi", DEF_LINE + 15, 13, "Int not null", "Int nullable"),
+    ]
+
+
+def test_a_project_def_checks_a_let_that_an_aggregate_reads(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A `let:` name passed to a def and read directly by an aggregate, also
+    in `satisfying`, must fit the parameter as the value written out must:
+    PIE-S2333 at the relation, as for `count(idi(n))`, grouped or not, and
+    PIE-S2395 at the call in a JOIN relation, which reports its own errors."""
+    source = DEF_HEAD + (
+        "query g:\n    from rows\n    let:\n        f = n\n    group by: id\n"
+        "    select:\n        id\n        c = count(idi(f))\n"
+        "query a:\n    from rows\n    let:\n        f = n\n    select:\n"
+        "        s = sum(idi(f))\n"
+        "query m:\n    from rows\n    let:\n        g = id\n    group by: id\n"
+        "    select:\n        id\n        x = max(idt(g))\n"
+        "query s:\n    from rows\n    let:\n        f = n\n    group by: id\n"
+        "    select:\n        id\n        c = count(f)\n"
+        "    satisfying: count(idi(f)) > 0\n"
+        "query j:\n    from rows\n    inner join others as o:\n        from rows\n"
+        "        on o.row_id == rows.id\n    let:\n        f = o.label\n"
+        "    group by: rows.id\n    select:\n        k = rows.id\n        c = count(f)\n"
+        "    satisfying: count(idt(f)) > 0\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        (
+            "PIE-S2333",
+            "a.pietto",
+            DEF_LINE + line,
+            1,
+            f"Project relation semantic completion is unavailable: {name}",
+        )
+        for name, line in (("g", 0), ("a", 8), ("m", 14), ("s", 22))
+    ] + [_mismatch("idt", DEF_LINE + 42, 23, "Text not null", "Text nullable")]
+
+
 def test_a_project_def_refuses_an_imported_alias(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

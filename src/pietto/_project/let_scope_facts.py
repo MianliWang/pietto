@@ -26,6 +26,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
 )
+from pietto.semantic.expressions import LetValues, _let_names_with_diagnostics
 from pietto.semantic.let_bindings import analyze_relation_let_bindings
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
 from pietto.errors import Diagnostic
@@ -277,6 +278,27 @@ def build_project_relation_let_scope_facts(
         upstream_definition=upstream_definition,
         input_state=upstream_state,
         expression_value_types=expression_value_types,
+    )
+
+
+def checked_let_values(
+    let_scope: ProjectRelationLetScopeFacts,
+    values: Mapping[str, Expression],
+) -> Mapping[str, Expression]:
+    """``values``, `let:` values of ``let_scope``, as `LetValues` once its let
+    analysis ran, so that a ``def`` argument is checked with them written in
+    as emission writes them; before, no binding is known to be free of an
+    error of its own, so none is written in."""
+
+    if let_scope.reason not in {
+        ProjectLetScopeFactsReason.UPSTREAM_CONCRETE,
+        ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED,
+        ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE,
+    }:
+        return values
+    assert let_scope.definition is not None
+    return LetValues(
+        values, _let_names_with_diagnostics(let_scope.definition, let_scope.diagnostics)
     )
 
 

@@ -70,9 +70,9 @@ remains an alpha; the CLI does not execute database queries.
 - Bundles and saved jobs made by 0.1.3 or earlier are rejected by the 0.1.4
   code identity. Pietto neither migrates nor rewrites those bytes; use their
   matching old environment, then compile again for 0.1.4. Format markers are
-  unchanged. The VS Code extension 0.1.0 accepts only the 0.1.2 wheel or the
-  `9e74aa68` baseline fingerprint and refuses 0.1.4. This release adds no
-  stable editor API.
+  unchanged. The VS Code extension 0.1.0 accepts only the 0.1.2 wheel or its
+  baseline fingerprint and refuses 0.1.4. This release adds no stable editor
+  API.
 - Programs that 0.1.3 accepted and 0.1.4 refuses:
   - a file whose first code line is indented (PIE-P1000);
   - a comparison with the null literal, or with a `let:` name bound to it,
@@ -240,6 +240,11 @@ CLI:
 - A function argument of known type is not checked when another argument has
   an unknown type: over a source without a shape, `matches(a, 1)` passes
   `check` and PostgreSQL emission writes `"a" ~ 1`.
+- A `def` argument of unknown type is not checked against its parameter, and
+  inside a built-in call, `coalesce`, conditional or `in` list only `null`
+  itself takes a type from where it stands, so an argument
+  `coalesce(-null, n)` passes a `not null` parameter unchecked, written by
+  hand or through a `let:` name.
 - Division with a `Decimal` operand is not specified yet: it has no result
   type and emits a bare `/`. Division by zero follows the target (PostgreSQL
   raises an error, MySQL returns NULL), and dividing the smallest `Int` by -1

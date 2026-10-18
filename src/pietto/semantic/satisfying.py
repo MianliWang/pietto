@@ -34,6 +34,7 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import (
+    _check_inlined_argument,
     _is_canonical_builtin,
     checks_inlined_arguments,
     query_parameter_value_type,
@@ -85,6 +86,8 @@ def check_satisfying_clauses(
         Mapping[str, Expression],
     ]
     | None = None,
+    relation_let_value_types: Mapping[DerivedRelation, Mapping[str, ValueType]]
+    | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     record_unknown: bool = False,
 ) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
@@ -114,6 +117,11 @@ def check_satisfying_clauses(
             if relation_let_expressions is None
             else relation_let_expressions.get(definition, {})
         )
+        let_value_types = (
+            {}
+            if relation_let_value_types is None
+            else relation_let_value_types.get(definition, {})
+        )
         input_schema = _input_schema(
             definition,
             from_resolutions=from_resolutions,
@@ -132,6 +140,7 @@ def check_satisfying_clauses(
             output_scope,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            let_value_types=let_value_types,
             diagnostics=relation_diagnostics,
             value_types=expression_value_types,
             type_expansions=type_expansions,
@@ -293,6 +302,7 @@ def _infer_predicate(
     *,
     input_schema: RowSchema,
     let_expansions: Mapping[str, Expression],
+    let_value_types: Mapping[str, ValueType],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
@@ -303,6 +313,7 @@ def _infer_predicate(
             output_scope,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            let_value_types=let_value_types,
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
@@ -325,6 +336,7 @@ def _infer_predicate(
             output_scope,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            let_value_types=let_value_types,
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
@@ -334,6 +346,7 @@ def _infer_predicate(
             output_scope,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            let_value_types=let_value_types,
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
@@ -358,6 +371,7 @@ def _infer_predicate(
             output_scope,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            let_value_types=let_value_types,
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
@@ -367,6 +381,7 @@ def _infer_predicate(
             output_scope,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            let_value_types=let_value_types,
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
@@ -398,6 +413,7 @@ def _infer_value(
     *,
     input_schema: RowSchema,
     let_expansions: Mapping[str, Expression],
+    let_value_types: Mapping[str, ValueType],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
@@ -427,7 +443,9 @@ def _infer_value(
                 expression,
                 output_scope,
                 let_expansions=let_expansions,
+                let_value_types=let_value_types,
                 diagnostics=diagnostics,
+                type_expansions=type_expansions,
             )
             value_types[expression] = value_type
             return value_type
@@ -453,7 +471,9 @@ def _aggregate_let_call_value_type(
     output_scope: Mapping[str, _SatisfyingOutput],
     *,
     let_expansions: Mapping[str, Expression],
+    let_value_types: Mapping[str, ValueType],
     diagnostics: list[Diagnostic],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
     output = _matching_aggregate_let_output(
         expression,
@@ -468,6 +488,16 @@ def _aggregate_let_call_value_type(
             )
         )
         return _UNKNOWN_VALUE_TYPE
+    # The `let:` name must fit each `def` parameter it is the argument of, as
+    # wherever it is typed.
+    argument = expression.arguments[0]
+    if isinstance(argument, NameExpr):
+        _check_inlined_argument(
+            argument,
+            let_value_types.get(argument.name, _UNKNOWN_VALUE_TYPE),
+            diagnostics,
+            type_expansions,
+        )
     field = output.field
     if field is None or field.resolved_type.kind is TypeKind.UNKNOWN:
         return _UNKNOWN_VALUE_TYPE

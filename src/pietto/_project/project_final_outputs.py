@@ -21,6 +21,7 @@ from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsStatus,
     ProjectRelationLetScopeFacts,
     build_project_relation_let_scope_facts,
+    checked_let_values,
 )
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,
@@ -3379,6 +3380,7 @@ def _analyze_no_join_scalar(
     owner: ProjectDeclarationOccurrence,
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
+    let_values: Mapping[str, Expression],
     expression: Expression,
     read_types: Mapping[Expression, ValueType] | None = None,
     captures: Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None = None,
@@ -3394,7 +3396,7 @@ def _analyze_no_join_scalar(
         report_unknown_name=True,
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
-        bare_value_expressions=let_scope.binding_expressions,
+        bare_value_expressions=let_values,
         relation_columns=read_types,
         captured_value_types=captures,
     )
@@ -3436,6 +3438,7 @@ def _no_join_where(
         owner=owner,
         input_schema=input_schema,
         let_scope=let_scope,
+        let_values=checked_let_values(let_scope, let_scope.binding_expressions),
         expression=clause.expression,
         read_types=read_types,
         captures=captures,
@@ -4248,6 +4251,7 @@ def _no_join_final_fields(
     select_facts = _select_facts(completion, owner)
     windows_by_ordinal = {item.selected_output_ordinal: item for item in window_outputs}
     type_symbols = _project_type_symbols(tuple(input_schema.fields.values()))
+    let_values = checked_let_values(let_scope, let_scope.binding_expressions)
     completed: list[ProjectCompletedOutputField] = []
     for ordinal, (item, name, select_fact) in enumerate(
         zip(definition.select_items, names, select_facts, strict=True)
@@ -4269,6 +4273,7 @@ def _no_join_final_fields(
                 owner=owner,
                 input_schema=input_schema,
                 let_scope=let_scope,
+                let_values=let_values,
                 expression=item.expression,
                 read_types=_semantic_facts(completion, owner).scalar_read_types,
                 captures=_semantic_facts(completion, owner).captured_value_types,
@@ -4336,6 +4341,7 @@ def _no_join_relation_ordering(
             blocker=clause,
         )
     ordered: list[ProjectRelationOrderItem] = []
+    let_values = checked_let_values(let_scope, let_scope.binding_expressions)
     for ordinal, item in enumerate(clause.items):
         expression = item.expression
         source: ProjectRelationOrderSource
@@ -4401,6 +4407,7 @@ def _no_join_relation_ordering(
                 owner=owner,
                 input_schema=input_schema,
                 let_scope=let_scope,
+                let_values=let_values,
                 expression=expression,
             )
             if analysis.status is ProjectNoJoinScalarStatus.CONCRETE:

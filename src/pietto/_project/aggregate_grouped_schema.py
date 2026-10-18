@@ -60,6 +60,7 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
 )
+from pietto.semantic.expressions import _check_inlined_argument
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -1885,6 +1886,10 @@ def _project_aggregate_argument_type_attempt(
                 ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
             )
         argument_type = let_scope_facts.value_types.get(argument.name)
+        if argument_type is not None:
+            # The name must fit each `def` parameter it is the argument of, as
+            # its value written out must; one that does not is unknown here.
+            argument_type = _check_inlined_argument(argument, argument_type, [], None)
         effective_value_types = (
             {} if argument_type is None else {argument: argument_type}
         )

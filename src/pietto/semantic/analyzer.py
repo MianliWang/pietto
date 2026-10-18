@@ -383,6 +383,9 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         relation_let_expressions=_relation_let_expressions_for_satisfying(
             let_scopes,
         ),
+        relation_let_value_types={
+            definition: scope.value_types for definition, scope in let_scopes.items()
+        },
         type_expansions=type_expansions,
         record_unknown=True,
     )
@@ -769,14 +772,16 @@ def _analyze_relation_schema_expressions(
         for definition in retyped:
             for expression in typed.pop(definition, ()):
                 del temporary_value_types[expression]
-            temporary_let_scopes, temporary_let_value_types, _ = (
-                analyze_relation_let_bindings(
-                    (definition,),
-                    from_resolutions=from_resolutions,
-                    source_row_schemas=source_row_schemas,
-                    relation_row_schemas=relation_row_schemas,
-                    type_expansions=type_expansions,
-                )
+            (
+                temporary_let_scopes,
+                temporary_let_value_types,
+                temporary_let_diagnostics,
+            ) = analyze_relation_let_bindings(
+                (definition,),
+                from_resolutions=from_resolutions,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+                type_expansions=type_expansions,
             )
             relation_value_types, _, _, _ = type_relation_expressions(
                 replace(script, definitions=(definition,)),
@@ -788,6 +793,7 @@ def _analyze_relation_schema_expressions(
                     for relation, scope in temporary_let_scopes.items()
                 },
                 type_expansions=type_expansions,
+                let_diagnostics=temporary_let_diagnostics,
             )
             relation_value_types.update(temporary_let_value_types)
             typed[definition] = tuple(relation_value_types)

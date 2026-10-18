@@ -7,7 +7,6 @@ ordinary expressions and the SQL equals that of the call written out by hand.
 
 from __future__ import annotations
 
-import bisect
 import itertools
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import fields, is_dataclass, replace
@@ -213,6 +212,9 @@ def drop_repeated_call_diagnostics(
     typing, not during it, keeps every copy's error in view of the rule that
     does not check an argument with an error of its own against its parameter.
     A repeat outside a call stays.
+
+    ``diagnostics`` are in source order within each file, as analysis returns
+    them, so one pass over each file's calls in source order places them all.
     """
 
     if len(set(diagnostics)) == len(diagnostics):
@@ -220,31 +222,66 @@ def drop_repeated_call_diagnostics(
     defined = {
         item.name: item for item in script.definitions if type(item) is FunctionDef
     }
-    # The text of each outermost call; different calls do not overlap.
+    # The text of each outermost call, in source order; calls do not overlap.
     ranges: dict[str | None, list[tuple[tuple[int, int], tuple[int, int]]]] = {}
     pending: list[object] = [script]
     while pending:
         value = pending.pop()
         if _def_call_name(value, defined) is None:
-            pending.extend(_children(value) or ())
+            pending.extend(reversed(_in_text_order(value)))
             continue
         span = cast(CallExpr, value).span
         ranges.setdefault(span.path, []).append(
             ((span.line, span.column), (span.end_line, span.end_column))
         )
-    ordered = {path: sorted(spans) for path, spans in ranges.items()}
+    # Per file, the first call that does not end before the last diagnostic.
+    passed: dict[str | None, int] = {}
     seen: set[Diagnostic] = set()
     kept: list[Diagnostic] = []
     for diagnostic in diagnostics:
         location = diagnostic.location
-        spans = ordered.get(location.path, [])
+        spans = ranges.get(location.path, [])
         at = (location.line, location.column)
-        index = bisect.bisect_right(spans, at, key=lambda span: span[0]) - 1
-        if diagnostic in seen and index >= 0 and at < spans[index][1]:
+        index = passed.get(location.path, 0)
+        while index < len(spans) and spans[index][1] <= at:
+            index += 1
+        passed[location.path] = index
+        if diagnostic in seen and index < len(spans) and spans[index][0] <= at:
             continue
         seen.add(diagnostic)
         kept.append(diagnostic)
     return tuple(kept)
+
+
+def _in_text_order(value: object) -> tuple[object, ...]:
+    """The AST values below ``value`` in the order of their text: a tuple's
+    items as written, and a node's fields by where their text starts. A field
+    without text holds no call and is left out. Only a script's fields
+    interleave, and of them only its definitions hold calls once analysis
+    runs: a call in a relationship is PIE-S2397 before it."""
+
+    children = _children(value) or ()
+    if type(value) is tuple:
+        return children
+    starts = [
+        (start, child)
+        for child in children
+        if (start := _text_start(child)) is not None
+    ]
+    # A node has a fixed number of fields, so sorting them is constant work.
+    return tuple(child for _, child in sorted(starts, key=lambda item: item[0]))
+
+
+def _text_start(value: object) -> tuple[int, int] | None:
+    """Where the first node in ``value`` starts, if it holds one."""
+
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, Node):
+            return (item.span.line, item.span.column)
+        pending.extend(reversed(_children(item) or ()))
+    return None
 
 
 class _Expansion:

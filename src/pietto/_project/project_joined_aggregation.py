@@ -74,6 +74,7 @@ from pietto.semantic import group_by as semantic_group_by
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic import aggregates as semantic_aggregates
 from pietto.semantic.expressions import (
+    _check_inlined_argument,
     checks_inlined_arguments,
     query_parameter_value_type,
     resolved_comparison_value_type,
@@ -2252,6 +2253,14 @@ def _infer_satisfying_value(
                     )
                 )
                 value_type = aggregate.result_value_type
+                # The `let:` name must fit each `def` parameter it is the
+                # argument of, as wherever it is typed.
+                argument = cast(NameExpr, expression.arguments[0])
+                for value in input_filter.namespace.let_values:
+                    if value.occurrence.binding.name == argument.name:
+                        _check_inlined_argument(
+                            argument, value.value_type, diagnostics, None
+                        )
             else:
                 diagnostics.append(
                     semantic_aggregates.invalid_context_diagnostic(

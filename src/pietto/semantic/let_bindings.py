@@ -41,7 +41,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import LetValues, infer_row_expression
 from pietto.semantic.model import (
     LetScopeSemanticInfo,
     ResolvedType,
@@ -318,7 +318,7 @@ def _analyze_relation_let_clause(
     value_types: dict[Expression, ValueType] = {}
     scope_values: dict[str, ValueType] = {}
     # Earlier admitted bindings, which `let_value` follows as emission inlines.
-    scope_expressions: dict[str, Expression] = {}
+    scope_expressions = LetValues()
     seen_names: set[str] = set()
     all_names = tuple(binding.name for binding in definition.let_clause.bindings)
     all_name_set = set(all_names)
@@ -330,6 +330,7 @@ def _analyze_relation_let_clause(
     )
 
     for binding in definition.let_clause.bindings:
+        reported = len(diagnostics)
         if contains_semantic_aggregate(binding.expression):
             diagnostics.append(
                 invalid_context_diagnostic(binding.expression, context="let binding")
@@ -355,6 +356,8 @@ def _analyze_relation_let_clause(
         if binding.name not in invalid_binding_names and binding.name not in seen_names:
             scope_values[binding.name] = value_type
             scope_expressions[binding.name] = binding.expression
+            if any(item.severity is Severity.ERROR for item in diagnostics[reported:]):
+                scope_expressions.erroneous.add(binding.name)
         seen_names.add(binding.name)
 
     return (

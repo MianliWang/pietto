@@ -1657,20 +1657,31 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   comparison with an always-null operand, such as `id + null`; or a
   `coalesce` or conditional of such values) fits only a `nullable`
   parameter, and its type is still checked when it has one: a comparison
-  such as `text == (id + null)` is `Bool`. These are PIE-S2395 at the call,
-  also when the call is in a def body, reported once however many times the
-  body uses the argument and, when the argument is itself a def call, only
-  for the innermost call that does not fit. An argument with an error of its
-  own, such as a comparison with the null literal (`text == null`,
+  such as `text == (id + null)` is `Bool`. A def argument is checked as it is
+  written into SQL, with each `let:` name replaced by its value: with
+  `k = null`, `j = coalesce(k, n)` and `m = id + null`, the arguments `k`,
+  `k + 1` and `m` are null, and `lower(k)` and `j` are `Text nullable` and
+  `Int nullable`, as `lower(null)` and `coalesce(null, n)` are. A `let:` name
+  whose binding has an error of its own is not replaced, so that its error
+  stands alone. These are PIE-S2395 at the call, also when the call is in a
+  def body, reported once however many times the body uses the argument and
+  only for the innermost call that does not fit: an argument that does not
+  fit is unknown to every expression around it, also through a built-in
+  call such as `len`. An argument with an error of its own that leaves its
+  type unknown, such as a comparison with the null literal (`text == null`,
   PIE-S2105), is not checked against its parameter, and an argument whose
-  type is unknown for another reason, such as a field of a source without a
-  shape, is not checked either, as the same expression written by hand is
-  not. A comparison with null is never true wherever the expansion puts it:
+  type is unknown for another reason is not checked either, as the same
+  expression written by hand is not: a field of a source without a shape; a
+  column that an earlier relation computes from a `let:` name bound to
+  `null`, such as `z = coalesce(k, n)`; or an always-null value other than
+  `null` inside a built-in call, `coalesce`, conditional or `in` list, such
+  as `coalesce(-null, n)`. A comparison with null is never true wherever the expansion puts it:
   `low(null)` with `def low(x: Int nullable) -> Bool nullable: return x < 3`
   is PIE-S2105 at the call, as `null < 3` is by hand, unless the null
-  argument does not fit its parameter, which is then the one error. An argument cannot read a relation (`exists`, `scalar` or
-  `in`) yet (PIE-S2395), because a body that repeats or reorders its
-  parameters would change the SQL names of those reads.
+  argument (also a `let:` name bound to `null`) does not fit its parameter,
+  which is then the one error. An argument cannot read a relation (`exists`,
+  `scalar` or `in`) yet (PIE-S2395), because a body that repeats or reorders
+  its parameters would change the SQL names of those reads.
 - Positions: a call is refused (PIE-S2397), in a def body as anywhere else,
   where the written form must be a literal, a field or a window call that
   Pietto checks by a rule of its own: inside a window computation (a window
@@ -1686,14 +1697,17 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   argument count, relation-read and position rules above still apply): a type
   or field `ensure`; in a project, a `constraint` or `derive` body and a shape
   `check`, `index` predicate or field `derive` (a single file checks them); a
-  single-file `qualify:` (which `explain` and `emit-sql` refuse); and an
+  single-file `qualify:` (which `explain` and `emit-sql` refuse); an
   ungrouped `order by` in a project check (`emit-sql --project` blocks a
-  mismatched argument there without naming it). In a project, a mismatch is
-  reported where the same error written by hand would be: where a project
-  reports the errors of a position as PIE-S2333 at the relation, such as a
-  grouped `satisfying`, an aggregate argument, a select over a VALUES let or
-  the ORDER BY of a global-aggregate query, the mismatch is PIE-S2333 there
-  too.
+  mismatched argument there without naming it); and, in a project check, the
+  WHERE of a relation with a `let:` binding of unknown type, such as
+  `k = null` (`emit-sql --project` blocks it with PIE-B1003). In a project, a
+  mismatch is reported where the same error written by hand would be: where a
+  project reports the errors of a position as PIE-S2333 at the relation, such
+  as a grouped `satisfying` or an aggregate argument without JOIN inputs, a
+  select over a VALUES let or the ORDER BY of a global-aggregate query, the
+  mismatch is PIE-S2333 there too, also for a `let:` name that an aggregate
+  reads, which is checked with its binding's type.
 - Expansion: each call becomes one parenthesized expression. An argument that
   the body uses n times is written n times in the SQL, as it would be by hand:
   with `def twice(x: Int nullable) -> Int nullable: return x + x`, the item
@@ -2201,5 +2215,5 @@ with no version restriction. The selected source mapping is PostgreSQL
 Qualified project SQL admits carrying and projecting these values, `==`/`!=`,
 `count`, `count_distinct`, `DISTINCT`, `GROUP BY`, and direct inner/left/right
 equality joins. Ordering and inequality comparison, `min`/`max`, full joins,
-windows, range/as-of behavior, timezone conversion, parsing, and other casts
-remain unavailable.
+a `Timestamp` or `UUID` window partition or order key, range/as-of behavior,
+timezone conversion, parsing, and other casts remain unavailable.

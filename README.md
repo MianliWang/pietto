@@ -44,7 +44,8 @@ the explicit Python API, never from a Pietto CLI command.
   VALUES bodies and `generate_series` need an explicit-module project.
 - Explicit-project `emit-sql` for one selected table or query, one selected
   dialect and an explicit emission contract, producing the versioned
-  `pietto.sql-emission.v1` artifact.
+  `pietto.sql-emission.v1` artifact (`pietto.sql-emission.v2` for a VERIFIED
+  query with header parameters).
 - Deterministic project checking from an explicit `pietto.toml` root, including
   legacy-flat projects and the current explicit-module foundation.
 - Compile-time validation and fail-closed lowering for unsupported syntax,
@@ -95,7 +96,7 @@ pietto`.
 Version 0.1.4 rejects bundles and saved jobs produced by 0.1.3 or earlier by
 code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment. The VS Code extension 0.1.0 accepts
-only the 0.1.2 wheel or its `9e74aa68` baseline fingerprint and refuses 0.1.4.
+only the 0.1.2 wheel or its baseline fingerprint and refuses 0.1.4.
 Some programs that 0.1.3 accepted are refused, and some emit different SQL; see
 [Compatibility and retained data](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/release-notes.md#compatibility-and-retained-data).
 
@@ -256,9 +257,17 @@ separately, so `"public.users"` emits `FROM "public"."users"`, and more than
 one dot or an empty part fails `check` with `PIE-S2306`. Project SQL emission
 takes physical schema and relation names from its emission contract.
 
-Project-mode SQL generation refuses any shape containing a `Timestamp` or
-`UUID` field with `PIE-B1004`, even when the query does not select that field.
-This alpha does not provide public timestamp or UUID meaning.
+Project SQL emission carries `Timestamp` and `UUID` fields only as the
+contract-qualified physical values of its emission contract: Timestamp
+requires PostgreSQL `timestamp without time zone(6)` or MySQL `DATETIME(6)` and
+the fixed civil law, and UUID requires PostgreSQL `uuid` or MySQL `BINARY(16)`
+and standard big-endian bytes. On those carriers it admits carrying and
+projecting the values, `==`/`!=`, `count`, `count_distinct`, `DISTINCT`,
+`GROUP BY`, and direct inner/left/right equality joins; ordering and
+inequality comparison, `min`/`max`, full joins, a `Timestamp` or `UUID`
+window partition or order key, range/as-of behavior, timezone conversion,
+parsing and other casts remain unavailable. See
+[Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/language.md#timestamp-and-uuid-source-meaning).
 
 ## Projects
 
@@ -293,6 +302,8 @@ not SQL generation; project SQL emission is a separate explicit command.
 
 `emit-sql --project` compiles one explicitly selected `table` or `query` of an
 explicit-module project into the versioned `pietto.sql-emission.v1` artifact
+(`pietto.sql-emission.v2` for a VERIFIED query with header parameters, see
+[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/project-cli-json-v2.md#emit-sql-result))
 for one explicitly selected dialect. The physical relation and column names,
 storage types and value premises come from an emission contract you write for
 your database; the compiler never connects to it.

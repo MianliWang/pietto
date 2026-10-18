@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import bisect
+import dataclasses
 import functools
+import itertools
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence, Set
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ParamSpec, cast
 
@@ -41,6 +44,7 @@ from pietto.ast_nodes import (
     WindowExpr,
     WindowFrameUnit,
     inlined_arguments,
+    with_inlined_argument,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -145,6 +149,7 @@ def _check_inlined_argument(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     *,
     reported: int | None = None,
+    written: tuple[ValueType, bool] | None = None,
 ) -> ValueType:
     """Check an argument against each ``def`` parameter it is inlined for.
 
@@ -156,7 +161,9 @@ def _check_inlined_argument(
     either an error was reported for it (``diagnostics`` grew past
     ``reported`` while it was typed, as for a comparison with the null
     literal) or nothing is known about it, as for a field of a source without
-    a shape. A mismatch is one error at the innermost call that does not fit,
+    a shape. ``written``, the type of the argument as emission writes it and
+    whether that is always null (`_written_argument`), is checked in place of
+    its own. A mismatch is one error at the innermost call that does not fit,
     however many uses of the argument the body has, and every use then stays
     Unknown so that the expansion reports nothing else.
     """
@@ -164,17 +171,16 @@ def _check_inlined_argument(
     slots = inlined_arguments(expression)
     if not slots:
         return value_type
-    known = value_type.kind is not ValueTypeKind.UNKNOWN
-    if not known and (
-        (
-            reported is not None
-            and any(item.severity is Severity.ERROR for item in diagnostics[reported:])
-        )
-        or not always_null(expression)
-    ):
+    errored = (
+        written is None
+        and reported is not None
+        and any(item.severity is Severity.ERROR for item in diagnostics[reported:])
+    )
+    form_type, is_null = written or (value_type, always_null(expression))
+    known = form_type.kind is not ValueTypeKind.UNKNOWN
+    if not known and (errored or not is_null):
         return value_type
-    is_null = always_null(expression)
-    canonical = _canonical_resolved_type(value_type, type_expansions) if known else None
+    canonical = _canonical_resolved_type(form_type, type_expansions) if known else None
     fits = True
     for slot in slots:
         type_fits = not known or (
@@ -184,15 +190,15 @@ def _check_inlined_argument(
         )
         if type_fits and (
             slot.nullable
-            or (not is_null and value_type.nullability is EffectiveNullability.NON_NULL)
+            or (not is_null and form_type.nullability is EffectiveNullability.NON_NULL)
         ):
             continue
         if type_fits and is_null:
             actual = "null"
         else:
             actual = (
-                f"{(canonical or value_type.resolved_type).name} "
-                f"{_NULLABILITY_TEXT[value_type.nullability]}"
+                f"{(canonical or form_type.resolved_type).name} "
+                f"{_NULLABILITY_TEXT[form_type.nullability]}"
             )
         fits = False
         expected = "nullable" if slot.nullable else "not null"
@@ -221,11 +227,264 @@ def _check_inlined_argument(
     return value_type if fits else _UNKNOWN_VALUE_TYPE
 
 
-def always_null(expression: Expression) -> bool:
-    """Whether ``expression`` is NULL on every row: a null literal; a sign or
-    ``not`` of such a value; an arithmetic operator or comparison with such an
-    operand; or a ``coalesce`` or conditional whose every value is. A cast of
-    null is not a supported cast (PIE-S2105), so it is not one of them."""
+class LetValues(dict[str, Expression]):
+    """The admitted `let:` values of one relation by name, which emission
+    writes in place of each read of the name, and ``erroneous``, the names
+    among them whose binding has an error of its own.
+
+    A ``def`` argument whose type or nullability is unknown where it stands
+    is checked as emission writes it, with each such value written in
+    (`_written_argument`); a binding with an error of its own is not written
+    in, so that its error stands alone. ``written`` holds each binding as
+    written (`_Written`), or None for one that is not, in binding order.
+    """
+
+    __slots__ = ("erroneous", "written")
+
+    def __init__(
+        self,
+        values: Mapping[str, Expression] | None = None,
+        erroneous: set[str] | None = None,
+    ) -> None:
+        super().__init__(values or {})
+        self.erroneous: set[str] = set() if erroneous is None else erroneous
+        self.written: dict[str, _Written | None] = {}
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _Written:
+    """A `let:` value as emission writes it: ``literal``, the null literal it
+    is, with the ``def`` parameters on its way there, or else a value of
+    ``value_type`` that is ``always_null`` or not; ``size`` nodes nested
+    ``levels`` deep once inlined, as PIE-S2328 counts them."""
+
+    literal: LiteralExpr | None
+    value_type: ValueType
+    always_null: bool
+    size: int
+    levels: int
+
+
+def _written_form(
+    expression: Expression,
+    lets: LetValues,
+    row_schema: RowSchema,
+    value_types: Mapping[Expression, ValueType],
+    *,
+    root: bool,
+) -> tuple[Expression, dict[Expression, ValueType], set[str], int, int] | None:
+    """``expression`` as emission writes it, with each read of a binding that
+    ``lets`` has written: the types to type it with, the names it reads that
+    are always null, and its size and levels once inlined (PIE-S2328).
+
+    A binding written as the null literal is that literal, which takes its
+    type from where it stands, and any other is a read of its written type;
+    the parts that read no such binding keep their types in ``value_types``.
+    At the ``root`` the expression's own ``def`` parameters are left out, for
+    its caller to check them. ``None`` when it reads a captured field whose
+    type is not known here; the result is ``expression`` itself, at the
+    ``root``, when it reads no such binding.
+    """
+
+    from pietto.semantic.let_bindings import _level_weight
+
+    seeds: dict[Expression, ValueType] = {}
+    nulls: set[str] = set()
+
+    def walk(node: Expression, root: bool) -> tuple[Expression, bool, int, int] | None:
+        written = (
+            lets.written.get(node.name)
+            if type(node) is NameExpr and node.name not in row_schema.fields
+            else None
+        )
+        if written is not None:
+            own = () if root else inlined_arguments(node)
+            if written.literal is not None:
+                result: Expression = LiteralExpr(value=None, span=node.span)
+                for slot in (*inlined_arguments(written.literal), *own):
+                    result = with_inlined_argument(result, slot)
+            else:
+                result = dataclasses.replace(node) if root else node
+                seeds[result] = written.value_type
+                if written.always_null:
+                    nulls.add(cast(NameExpr, node).name)
+            return result, True, written.size, written.levels
+        if type(node) is ast.CapturedFieldExpr and node not in value_types:
+            return None
+        size, levels = 1, 0
+        walked: list[tuple[Expression, Expression, bool]] = []
+        for child in _captured_field_children(node):
+            item = walk(child, False)
+            if item is None:
+                return None
+            form, changed, child_size, child_levels = item
+            size += child_size
+            levels = max(levels, child_levels)
+            walked.append((child, form, changed))
+        levels += _level_weight(node)
+        if not any(changed for _, _, changed in walked):
+            return node, False, size, levels
+        for child, _, changed in walked:
+            if not changed and child in value_types:
+                seeds[child] = value_types[child]
+        result = _with_children(node, {id(child): form for child, form, _ in walked})
+        if not root:
+            for slot in inlined_arguments(node):
+                result = with_inlined_argument(result, slot)
+        return result, True, size, levels
+
+    item = walk(expression, root)
+    if item is None:
+        return None
+    form, changed, size, levels = item
+    if not changed and expression in value_types:
+        seeds[form] = value_types[form]
+    return form, seeds, nulls, size, levels
+
+
+def _with_children(node: Expression, forms: Mapping[int, Expression]) -> Expression:
+    """``node`` without its ``def`` parameters, each child in ``forms`` (by
+    identity) replaced by its form."""
+
+    changes: dict[str, object] = {}
+    for item in dataclasses.fields(node):
+        value = getattr(node, item.name)
+        if isinstance(value, Expression) and id(value) in forms:
+            changes[item.name] = forms[id(value)]
+        elif type(value) is tuple:
+            changes[item.name] = tuple(
+                forms.get(id(child), child) for child in cast(tuple[object, ...], value)
+            )
+    return dataclasses.replace(node, **changes)
+
+
+def _write_lets(
+    lets: LetValues,
+    row_schema: RowSchema,
+    value_types: Mapping[Expression, ValueType],
+    *,
+    field_qualifier: str | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
+) -> None:
+    """Write each binding of ``lets`` not yet written, in binding order, once:
+    a binding reads only earlier ones, so each is typed with those written
+    in, and one that reads a later one has an error of its own. A binding
+    with such an error is not written, nor one whose written form has an
+    error or reads a binding that is not written; a read of one is typed as
+    itself.
+
+    It runs where typing starts, before an expression that holds a ``def``
+    argument is typed (`_holds_def_argument`), as typing a value where the
+    argument stands would nest it that much deeper.
+    """
+
+    pending = list(
+        itertools.takewhile(lambda name: name not in lets.written, reversed(lets))
+    )
+    for name in reversed(pending):
+        lets.written[name] = None
+        if name in lets.erroneous:
+            continue
+        item = _written_form(lets[name], lets, row_schema, value_types, root=False)
+        if item is None:
+            continue
+        form, seeds, nulls, size, levels = item
+        if _is_null_literal(form):
+            lets.written[name] = _Written(
+                cast(LiteralExpr, form), _UNKNOWN_VALUE_TYPE, True, size, levels + 1
+            )
+            continue
+        found: list[Diagnostic] = []
+        value_type = _infer(
+            form,
+            row_schema,
+            seeds,
+            found,
+            report_unknown_name=True,
+            field_qualifier=field_qualifier,
+            bare_value_expressions=MappingProxyType(lets),
+            suppressed_unknown_names=lets.erroneous,
+            type_expansions=type_expansions,
+            relation_columns=relation_columns,
+        )
+        if not any(item.severity is Severity.ERROR for item in found):
+            lets.written[name] = _Written(
+                None, value_type, always_null(form, nulls), size, levels + 1
+            )
+
+
+def _holds_def_argument(expressions: Sequence[Expression]) -> bool:
+    """Whether any of ``expressions`` holds an inlined ``def`` argument."""
+
+    pending = list(expressions)
+    while pending:
+        node = pending.pop()
+        if inlined_arguments(node):
+            return True
+        pending.extend(_captured_field_children(node))
+    return False
+
+
+def _written_argument(
+    expression: Expression,
+    lets: LetValues,
+    row_schema: RowSchema,
+    value_types: Mapping[Expression, ValueType],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+    allow_aggregate_projection: bool,
+    bare_value_types: Mapping[str, ValueType] | None,
+    suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    relation_columns: Mapping[Expression, ValueType] | None,
+) -> tuple[ValueType, bool] | None:
+    """The type of a ``def`` argument as emission writes it, with the `let:`
+    values ``lets`` has written in, and whether it is then always null. None
+    when it reads none of them, when writing them in passes the PIE-S2328
+    limit, or when the written form has an error of its own or a type
+    unknown for another reason: the argument is then checked as it stands.
+    """
+
+    from pietto.semantic.let_bindings import _exceeds
+
+    item = _written_form(expression, lets, row_schema, value_types, root=True)
+    if item is None:
+        return None
+    form, seeds, nulls, size, levels = item
+    if form is expression or _exceeds(size, levels):
+        return None
+    found: list[Diagnostic] = []
+    form_type = _infer(
+        form,
+        row_schema,
+        seeds,
+        found,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+        allow_aggregate_projection=allow_aggregate_projection,
+        bare_value_types=bare_value_types,
+        bare_value_expressions=MappingProxyType(lets),
+        suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
+        relation_columns=relation_columns,
+    )
+    is_null = always_null(form, nulls)
+    if any(item.severity is Severity.ERROR for item in found) or (
+        form_type.kind is ValueTypeKind.UNKNOWN and not is_null
+    ):
+        return None
+    return form_type, is_null
+
+
+def always_null(expression: Expression, null_lets: Set[str] = frozenset()) -> bool:
+    """Whether ``expression`` is NULL on every row: a null literal; a `let:`
+    name in ``null_lets``, read where its always-null value is written; a
+    sign or ``not`` of such a value; an arithmetic operator or comparison with
+    such an operand; or a ``coalesce`` or conditional whose every value is. A
+    cast of null is not a supported cast (PIE-S2105), so it is not one of
+    them."""
 
     results: dict[int, bool] = {}
     pending: list[tuple[Expression, bool]] = [(expression, False)]
@@ -239,6 +498,8 @@ def always_null(expression: Expression) -> bool:
         operands = [results[id(child)] for child in children]
         if type(node) is LiteralExpr:
             results[id(node)] = cast(LiteralExpr, node).value is None
+        elif type(node) is NameExpr:
+            results[id(node)] = cast(NameExpr, node).name in null_lets
         elif type(node) in (CallExpr, ConditionalExpr):
             results[id(node)] = bool(operands) and all(operands)
         else:
@@ -495,6 +756,19 @@ def type_relation_expressions(
         erroneous_lets = rejected_lets | _let_names_with_diagnostics(
             definition, let_diagnostics
         )
+        if let_expressions is not None:
+            let_expressions = LetValues(let_expressions, erroneous_lets)
+            from pietto.semantic.let_bindings import _relation_expressions
+
+            if _holds_def_argument(_relation_expressions(definition)):
+                _write_lets(
+                    let_expressions,
+                    input_schema,
+                    value_types,
+                    field_qualifier=definition.from_clause.source_name,
+                    type_expansions=type_expansions,
+                    relation_columns=None,
+                )
         named_window_namespace_failed = False
         named_window_namespace = None
         if definition.named_windows:
@@ -825,20 +1099,28 @@ def _let_names_with_diagnostics(
     definition: TableDef | QueryDef,
     diagnostics: Sequence[Diagnostic],
 ) -> set[str]:
-    """Return the relation's let names whose binding has a diagnostic."""
+    """Return the relation's let names whose binding has a diagnostic.
+
+    Bindings are written one after another, so a diagnostic can only be in
+    the last binding that starts at or before it.
+    """
 
     if definition.let_clause is None:
         return set()
-    return {
-        binding.name
-        for binding in definition.let_clause.bindings
-        for diagnostic in diagnostics
-        if (location := diagnostic.location) is not None
-        and location.path == binding.span.path
-        and (binding.span.line, binding.span.column)
-        <= (location.line, location.column)
-        < (binding.span.end_line, binding.span.end_column)
-    }
+    bindings = definition.let_clause.bindings
+    starts = [(binding.span.line, binding.span.column) for binding in bindings]
+    names: set[str] = set()
+    for diagnostic in diagnostics:
+        if (location := diagnostic.location) is None:
+            continue
+        at = (location.line, location.column)
+        index = bisect.bisect_right(starts, at) - 1
+        if index < 0:
+            continue
+        span = bindings[index].span
+        if location.path == span.path and at < (span.end_line, span.end_column):
+            names.add(bindings[index].name)
+    return names
 
 
 def let_value(
@@ -848,6 +1130,18 @@ def let_value(
 ) -> Expression:
     """Follow bare `let:` names, never input fields, to the inlined expression."""
 
+    return _let_chain(expression, row_schema, let_expressions)[-1]
+
+
+def _let_chain(
+    expression: Expression,
+    row_schema: RowSchema,
+    let_expressions: Mapping[str, Expression] | None,
+) -> list[Expression]:
+    """``expression`` and each `let:` value its bare name, never an input
+    field, leads to in turn."""
+
+    chain = [expression]
     expanded: set[str] = set()
     while (
         type(expression) is NameExpr
@@ -858,7 +1152,8 @@ def let_value(
     ):
         expanded.add(expression.name)
         expression = let_expressions[expression.name]
-    return expression
+        chain.append(expression)
+    return chain
 
 
 def _order_key_problem(
@@ -1010,6 +1305,15 @@ def infer_row_expression(
                     refused.append(captured)
                 captured = _UNKNOWN_VALUE_TYPE
             value_types[node] = cast(ValueType, captured)
+    if type(bare_value_expressions) is LetValues and _holds_def_argument((expression,)):
+        _write_lets(
+            bare_value_expressions,
+            row_schema,
+            value_types,
+            field_qualifier=field_qualifier,
+            type_expansions=type_expansions,
+            relation_columns=relation_columns,
+        )
     start = len(diagnostics)
     value_type = _infer(
         expression,
@@ -1289,7 +1593,7 @@ def _infer(
             relation_columns=relation_columns,
         )
         column = None if relation_columns is None else relation_columns.get(expression)
-        if column is not None and _is_null_literal(expression.value):
+        if column is not None and _is_contextual_null(expression.value):
             # A bare NULL takes the known column's type, as in the literal list.
             contextual = _contextual_null_literal_types(
                 (expression.value, expression),
@@ -1485,8 +1789,36 @@ def _infer(
         value_type = _UNKNOWN_VALUE_TYPE
 
     if inlined_arguments(expression):
+        written = None
+        if (
+            type(bare_value_expressions) is LetValues
+            and bare_value_expressions
+            and value_type.nullability is EffectiveNullability.UNKNOWN
+            and not any(
+                item.severity is Severity.ERROR for item in diagnostics[reported:]
+            )
+        ):
+            # Checked as emission writes it, with each `let:` value in place.
+            written = _written_argument(
+                expression,
+                bare_value_expressions,
+                row_schema,
+                value_types,
+                report_unknown_name=report_unknown_name,
+                field_qualifier=field_qualifier,
+                allow_aggregate_projection=allow_aggregate_projection,
+                bare_value_types=bare_value_types,
+                suppressed_unknown_names=suppressed_unknown_names,
+                type_expansions=type_expansions,
+                relation_columns=relation_columns,
+            )
         value_type = _check_inlined_argument(
-            expression, value_type, diagnostics, type_expansions, reported=reported
+            expression,
+            value_type,
+            diagnostics,
+            type_expansions,
+            reported=reported,
+            written=written,
         )
     value_types[expression] = value_type
     return value_type
@@ -1628,7 +1960,7 @@ def _conditional_value_type(
     if branch_types is not None:
         when_true_type, when_false_type = branch_types
     if (
-        _is_null_literal(expression.condition)
+        _is_contextual_null(expression.condition)
         and condition_type.kind is ValueTypeKind.UNKNOWN
     ):
         condition_type = _contextual_null_literal_type("Bool")
@@ -2394,6 +2726,16 @@ def _is_null_literal(expression: Expression) -> bool:
     return isinstance(expression, LiteralExpr) and expression.value is None
 
 
+def _is_contextual_null(expression: Expression) -> bool:
+    """A null literal that takes its type from where it stands: not a ``def``
+    argument that does not fit its parameter, which stays Unknown to the
+    expression around it."""
+
+    return _is_null_literal(expression) and all(
+        slot.nullable for slot in inlined_arguments(expression)
+    )
+
+
 def _reads_null_literal(
     expressions: Sequence[Expression],
     row_schema: RowSchema,
@@ -2403,15 +2745,16 @@ def _reads_null_literal(
 ) -> bool:
     """Whether any (or every) operand is, after `let:` inlining, the null literal.
 
-    A null ``def`` argument that does not fit its parameter is not: that is
-    PIE-S2395, and its use is Unknown to the expression around it.
+    A null ``def`` argument that does not fit its parameter is not, also when
+    it is a `let:` name bound to null: that is PIE-S2395, and its use is
+    Unknown to the expression around it.
     """
 
     reads = (
-        _is_null_literal(value)
-        and all(slot.nullable for slot in inlined_arguments(value))
-        for value in (
-            let_value(expression, row_schema, let_expressions)
+        _is_null_literal(chain[-1])
+        and all(slot.nullable for value in chain for slot in inlined_arguments(value))
+        for chain in (
+            _let_chain(expression, row_schema, let_expressions)
             for expression in expressions
         )
     )
@@ -2437,14 +2780,15 @@ def _contextual_null_literal_types(
     *,
     membership: bool = False,
 ) -> tuple[ValueType, ...] | None:
-    """Type only literal NULLs from one local approved common-type context.
+    """Type only literal NULLs from one local approved common-type context;
+    a null ``def`` argument that does not fit its parameter is not one.
 
     With ``membership``, as for an `in` list, the context is the type the test
     compares as.
     """
 
     if any(
-        value_type.kind is ValueTypeKind.UNKNOWN and not _is_null_literal(expression)
+        value_type.kind is ValueTypeKind.UNKNOWN and not _is_contextual_null(expression)
         for expression, value_type in zip(expressions, value_types, strict=True)
     ):
         return None
@@ -2462,7 +2806,7 @@ def _contextual_null_literal_types(
         return value_types
     result = []
     for expression, value_type in zip(expressions, value_types, strict=True):
-        if value_type.kind is ValueTypeKind.UNKNOWN and _is_null_literal(expression):
+        if value_type.kind is ValueTypeKind.UNKNOWN and _is_contextual_null(expression):
             value_type = _contextual_null_literal_type(canonical)
             recorded[expression] = value_type
         result.append(value_type)
@@ -2475,13 +2819,14 @@ def _contextual_fixed_null_literal_types(
     parameter_types: tuple[str, ...],
     recorded: dict[Expression, ValueType],
 ) -> tuple[ValueType, ...]:
-    """Type literal NULLs only where one closed built-in parameter type selects it."""
+    """Type literal NULLs only where one closed built-in parameter type selects
+    it; a null ``def`` argument that does not fit its parameter is not one."""
 
     result = []
     for expression, value_type, parameter_type in zip(
         expressions, value_types, parameter_types, strict=True
     ):
-        if value_type.kind is ValueTypeKind.UNKNOWN and _is_null_literal(expression):
+        if value_type.kind is ValueTypeKind.UNKNOWN and _is_contextual_null(expression):
             value_type = _contextual_null_literal_type(parameter_type)
             recorded[expression] = value_type
         result.append(value_type)

@@ -21,6 +21,7 @@ from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsStatus,
     ProjectRelationLetScopeFacts,
     build_project_relation_let_scope_facts,
+    checked_let_values,
 )
 from pietto._project.model import (
     ProjectAggregateResultFact,
@@ -777,6 +778,11 @@ def _satisfying_facts(
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
         relation_let_expressions={definition: let_expressions},
+        relation_let_value_types=(
+            None
+            if let_scope_facts is None
+            else {definition: let_scope_facts.value_types}
+        ),
     )
     if diagnostics:
         codes = {diagnostic.code for diagnostic in diagnostics}
@@ -1043,6 +1049,7 @@ def _no_group_order_reason(
     unavailable = False
     invalid = False
     value_types: dict[Expression, ValueType] = {}
+    let_values = checked_let_values(let_facts, let_facts.binding_expressions)
     for item in definition.order_by_clause.items:
         if contains_semantic_aggregate(item.expression):
             invalid = True
@@ -1056,7 +1063,7 @@ def _no_group_order_reason(
             report_unknown_name=True,
             field_qualifier=definition.from_clause.source_name,
             bare_value_types=let_facts.value_types,
-            bare_value_expressions=let_facts.binding_expressions,
+            bare_value_expressions=let_values,
         )
         if any(diagnostic.code == "PIE-S2102" for diagnostic in diagnostics):
             unavailable = True

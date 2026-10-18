@@ -39,6 +39,7 @@ from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsStatus,
     ProjectRelationLetScopeFacts,
     build_project_relation_let_scope_facts,
+    checked_let_values,
 )
 from pietto._project.model import (
     ProjectAggregateResultFact,
@@ -3794,11 +3795,14 @@ def _select_facts(
     # is followed to its expression, as emission inlines it; one bound twice is
     # not, since neither binding is its value.
     let_names = [binding.name for binding in bindings]
-    followed_lets = {
-        name: expression
-        for name, expression in let_scope.binding_expressions.items()
-        if let_names.count(name) == 1
-    }
+    followed_lets = checked_let_values(
+        let_scope,
+        {
+            name: expression
+            for name, expression in let_scope.binding_expressions.items()
+            if let_names.count(name) == 1
+        },
+    )
     facts: list[ProjectModuleSelectFact] = []
     contexts: list[ProjectModuleSelectExpressionFact] = []
     for ordinal, item in enumerate(definition.select_items):
@@ -3938,7 +3942,9 @@ def _where_fact(
         report_unknown_name=True,
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
-        bare_value_expressions=let_scope.binding_expressions,
+        bare_value_expressions=checked_let_values(
+            let_scope, let_scope.binding_expressions
+        ),
         relation_columns=read_types,
         captured_value_types=captures,
     )

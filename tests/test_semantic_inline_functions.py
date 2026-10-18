@@ -7,6 +7,7 @@ owners; project checks live with the project owners.
 
 from __future__ import annotations
 
+import functools
 import sys
 import threading
 from collections.abc import Callable
@@ -22,13 +23,16 @@ from pietto.ast_nodes import (
     CallExpr,
     FunctionDef,
     NameExpr,
+    Script,
     SelectItem,
     Span,
     TableDef,
     inlined_arguments,
 )
+from pietto.errors import Diagnostic
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
+from pietto.semantic import analyzer as analyzer_module
 from pietto.semantic import inline_functions as inline_module
 from pietto.semantic.inline_functions import inline_functions
 
@@ -422,6 +426,21 @@ CALL_ERRORS = {
             )
         ],
     ),
+    "satisfying_aggregate_let": (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "table t:\n    from rows\n    let:\n        f = n\n    group by: text\n"
+        "    select:\n        text\n        c = count(f)\n"
+        "    satisfying: count(nn(f)) > 0\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 9,
+                23,
+                "Invalid argument for def nn at "
+                "position 1 (x): expected Int not null, got Int nullable",
+            )
+        ],
+    ),
     "shape_check_and_field_derive": (
         "shape S:\n    a: Int nullable\n    b: Text nullable\n"
         "    c: Text not null derive up(b)\n    check k: pos(a)\n",
@@ -756,6 +775,37 @@ def test_a_def_call_is_refused_where_the_written_form_has_its_own_rule(
     ]
 
 
+# Def arguments that read ARG in a compound expression; a `let:` name four
+# characters long, as `null` is, keeps every column when the literal is
+# written in its place.
+NULL_LET_ARGUMENTS = (
+    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
+    "table t:\n    from rows\n    let:\n        nill = null\n"
+    "    where pos(coalesce(ARG, n))\n    select:\n        id\n"
+    "        a = up(lower(ARG))\n        b = pos(ARG if id > 0 else 1)\n"
+    "        c = bb(id in (ARG, 2))\n        d = pos(len(up(ARG)))\n"
+)
+# Def arguments that read `let:` names whose values read one bound to null;
+# each placeholder is the name, or its value written in its place.
+WRITTEN_LETS = (
+    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
+    "def same(x: Int nullable) -> Int nullable: return x\n"
+    "table t:\n    from rows\n    let:\n        nill = null\n"
+    "        j1 = coalesce(nill, n)\n        j2 = j1 + 1\n"
+    "        j3 = nill if id > 0 else 1\n        j4 = lower(nill)\n"
+    "        j5 = id in (nill, 2)\n        j6 = same(nill)\n"
+    "    where pos({J1})\n    select:\n        id\n        a = pos({J2})\n"
+    "        b = pos({J3})\n        c = up({J4})\n        d = bb({J5})\n"
+    "        e = pos({J6})\n"
+)
+WRITTEN = {
+    "J1": "coalesce(null, n)",
+    "J2": "coalesce(null, n) + 1",
+    "J3": "null if id > 0 else 1",
+    "J4": "lower(null)",
+    "J5": "id in (null, 2)",
+    "J6": "same(null)",
+}
 NULLS = {
     "null_argument": (
         'table t:\n    from rows\n    where pos(null) and up(null) == "A"\n'
@@ -905,6 +955,183 @@ NULLS = {
             ),
         ],
     ),
+    # A `let:` name bound to null, also through other lets, is the null
+    # literal wherever the expansion reads it, as emission inlines it.
+    "null_let_argument": (
+        "table t:\n    from rows\n    let:\n        k = null\n        k2 = k\n"
+        "        k3 = k2\n    where pos(k) and pos(k3)\n    select:\n        id\n"
+        "        a = up(k2)\n        b = pos(k + 1)\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + line,
+                column,
+                f"Invalid argument for def {name} at position 1 ({parameter}): "
+                f"expected {expected} not null, got null",
+            )
+            for line, column, name, parameter, expected in (
+                (6, 11, "pos", "x", "Int"),
+                (6, 22, "pos", "x", "Int"),
+                (9, 13, "up", "t", "Text"),
+                (10, 13, "pos", "x", "Int"),
+            )
+        ],
+    ),
+    # Such a let that does not fit its `not null` parameter is PIE-S2395
+    # alone, also where the body compares or casts it; for a nullable
+    # parameter the cast is a cast of null, as with the literal.
+    "null_let_argument_in_a_body_cast_or_comparison": (
+        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
+        "def fn(x: Int nullable) -> Float nullable: return cast(x as Float)\n"
+        "table t:\n    from rows\n    let:\n        k = null\n        k2 = k\n"
+        "    where pos(k2)\n    select:\n        id\n        a = fl(k)\n"
+        "        b = fn(k2)\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 7,
+                11,
+                "Invalid argument for def pos at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            (
+                "PIE-S2395",
+                BODY_LINE + 10,
+                13,
+                "Invalid argument for def fl at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            (
+                "PIE-S2105",
+                BODY_LINE + 11,
+                13,
+                "Invalid cast: cast(null as Float) is not supported; "
+                "expected cast(Int as Float), the only supported cast",
+            ),
+        ],
+    ),
+    # An argument that reads such a let is checked as emission writes it: the
+    # null literal in the let's place takes its type from where it stands, and
+    # a call inside the argument that it does not fit is the one error.
+    "null_let_inside_an_argument": (
+        NULL_LET_ARGUMENTS.replace("ARG", "nill"),
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + line,
+                column,
+                f"Invalid argument for def {name} at position 1 ({parameter}): "
+                f"expected {expected} not null, got {actual}",
+            )
+            for line, column, name, parameter, expected, actual in (
+                (5, 11, "pos", "x", "Int", "Int nullable"),
+                (8, 13, "up", "t", "Text", "Text nullable"),
+                (9, 13, "pos", "x", "Int", "Int nullable"),
+                (10, 13, "bb", "p", "Bool", "Bool nullable"),
+                (11, 21, "up", "t", "Text", "null"),
+            )
+        ],
+    ),
+    # A let bound to another always-null value is null too; one whose binding
+    # has an error of its own, also through an alias, is not checked, as an
+    # argument with an error of its own is not.
+    "always_null_let_argument": (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def plusn(x: Int nullable) -> Int nullable: return x + 1\n"
+        "table t:\n    from rows\n    let:\n"
+        "        m = id + null\n        m2 = -null\n        m3 = coalesce(null, null)\n"
+        "        m4 = plusn(null)\n        m5 = m + 1\n"
+        "        e = id == null\n        f = nn(null)\n        g = f\n"
+        "        h = zz + null\n    select:\n        id\n"
+        "        a = pos(m)\n        b = pos(m2)\n        c = pos(m3)\n"
+        "        d = pos(m4)\n        q = pos(m5)\n        w = pos(e)\n"
+        "        x = pos(f)\n        y = pos(g)\n        z = pos(h)\n",
+        [
+            (
+                "PIE-S2105",
+                BODY_LINE + 10,
+                13,
+                "Invalid operands for operator ==: comparison with null is "
+                "never true; write `is null` instead",
+            ),
+            (
+                "PIE-S2395",
+                BODY_LINE + 11,
+                13,
+                "Invalid argument for def nn at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            ("PIE-S2102", BODY_LINE + 13, 13, "Unknown field: zz"),
+            *(
+                (
+                    "PIE-S2395",
+                    BODY_LINE + line,
+                    13,
+                    "Invalid argument for def pos at position 1 (x): "
+                    "expected Int not null, got null",
+                )
+                for line in range(16, 21)
+            ),
+        ],
+    ),
+    # An aggregate that reads `let:` names reports the argument's own errors
+    # beside its own, so the let is checked there, unlike `sum(nn(null))`.
+    # `min` and `max` read no `let:` name, so the name is an unknown field
+    # there, with or without a def.
+    "null_let_in_an_aggregate_argument": (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "table t:\n    from rows\n    let:\n        nill = null\n"
+        "    where pos(nill)\n    group by: id\n    select:\n        id\n"
+        "        c = sum(nn(nill))\n        m = max(nn(nill))\n"
+        "        l = min(nill)\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 5,
+                11,
+                "Invalid argument for def pos at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            (
+                "PIE-S2315",
+                BODY_LINE + 9,
+                13,
+                "Aggregate function sum requires a direct field argument; "
+                "expression arguments are not supported yet",
+            ),
+            (
+                "PIE-S2395",
+                BODY_LINE + 9,
+                17,
+                "Invalid argument for def nn at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            ("PIE-S2102", BODY_LINE + 10, 20, "Unknown field: nill"),
+            ("PIE-S2102", BODY_LINE + 11, 17, "Unknown field: nill"),
+        ],
+    ),
+    # Each argument reads a `let:` name whose value reads one bound to null;
+    # it is checked with every value written in, as emission writes it.
+    "let_reading_a_null_let": (
+        WRITTEN_LETS.format(**{key: key.lower() for key in WRITTEN}),
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + line,
+                column,
+                f"Invalid argument for def {name} at position 1 ({parameter}): "
+                f"expected {expected} not null, got {actual}",
+            )
+            for line, column, name, parameter, expected, actual in (
+                (12, 11, "pos", "x", "Int", "Int nullable"),
+                (15, 13, "pos", "x", "Int", "Int of unknown nullability"),
+                (16, 13, "pos", "x", "Int", "Int nullable"),
+                (17, 13, "up", "t", "Text", "Text nullable"),
+                (18, 13, "bb", "p", "Bool", "Bool nullable"),
+                (19, 13, "pos", "x", "Int", "null"),
+            )
+        ],
+    ),
     "null_comparison_body": (
         "def f(x: Int nullable) -> Bool nullable: return x == null\n",
         [
@@ -952,6 +1179,46 @@ def test_null_is_nullable_and_an_unknown_body_fits_no_result(
     assert _errors(SHAPES + DEFS + source) == expected
 
 
+def test_an_argument_reads_a_null_let_as_the_literal_written_in_its_place() -> None:
+    """The literal itself, written where the let is read, gives the same
+    errors: one at the innermost call it does not fit, after which it is
+    Unknown to every call around it."""
+    assert (
+        _errors(SHAPES + DEFS + NULL_LET_ARGUMENTS.replace("ARG", "null"))
+        == NULLS["null_let_inside_an_argument"][1]
+    )
+
+
+def test_an_argument_reads_each_let_as_its_value_written_in_its_place() -> None:
+    """The values themselves, written where their names are read, give the
+    same errors at the same calls."""
+    assert (
+        _errors(SHAPES + DEFS + WRITTEN_LETS.format(**WRITTEN))
+        == NULLS["let_reading_a_null_let"][1]
+    )
+
+
+def test_a_deep_let_value_read_deep_in_an_expression_is_written_in() -> None:
+    """A `let:` value is written in where typing starts, not where the
+    argument stands deep in its expression, so its depth adds to none."""
+    chain = " + 1" * 300
+    source = (
+        SHAPES + "def nn(x: Int not null) -> Int not null: return x\n"
+        "table t:\n    from rows\n    let:\n        nill = null\n"
+        f"        jj = coalesce(nill, n){chain}\n    select:\n        id\n"
+        f"        a = nn(jj){chain}\n"
+    )
+    assert _errors(source) == [
+        (
+            "PIE-S2395",
+            16,
+            13,
+            "Invalid argument for def nn at position 1 (x): "
+            "expected Int not null, got Int of unknown nullability",
+        )
+    ]
+
+
 def test_an_unknown_type_without_an_error_stays_unchecked() -> None:
     """Gradual typing: nothing is known about a field of a shapeless source,
     so its argument is not checked, as the same expression by hand is not."""
@@ -961,6 +1228,28 @@ def test_an_unknown_type_without_an_error_stays_unchecked() -> None:
         + "table t:\n    from raw\n    where pos(zz)\n    select:\n        zz\n"
     )
     assert [code for code, *_ in _errors(source)] == ["PIE-S2303"]
+
+
+def test_a_let_bound_to_null_is_null_over_an_unknown_row() -> None:
+    """A `let:` name is its value over a shapeless source too, as emission
+    inlines it: one bound to null is null, and one bound to a field of
+    unknown type stays unchecked."""
+    source = (
+        'source raw is postgres.table("raw")\n'
+        + DEFS
+        + "table t:\n    from raw\n    let:\n        k = null\n        z = zz\n"
+        "    where pos(z) and pos(k)\n    select:\n        zz\n"
+    )
+    assert _errors(source) == [
+        ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
+        (
+            "PIE-S2395",
+            9,
+            22,
+            "Invalid argument for def pos at position 1 (x): "
+            "expected Int not null, got null",
+        ),
+    ]
 
 
 def test_a_satisfying_argument_matches_its_alias_canonical_type() -> None:
@@ -1410,11 +1699,15 @@ class _OverBudget(Exception):
 
 
 def _inlining_lines(source: str, budget: int) -> int:
-    """Lines run in the inlining module, an operation count that does not
-    depend on the machine; past ``budget`` the run stops."""
-
     parsed = parse_source(source, path="m.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
+    return _module_lines(functools.partial(inline_functions, parsed.ast), budget)
+
+
+def _module_lines(run: Callable[[], object], budget: int) -> int:
+    """Lines ``run`` runs in the inlining module, an operation count that
+    does not depend on the machine; past ``budget`` the run stops."""
+
     lines = 0
 
     def count(frame: Any, event: str, arg: object) -> Any:
@@ -1431,7 +1724,7 @@ def _inlining_lines(source: str, budget: int) -> int:
     previous = sys.gettrace()
     sys.settrace(enter)
     try:
-        inline_functions(parsed.ast)
+        run()
     except _OverBudget:
         pass
     finally:
@@ -1452,6 +1745,46 @@ def test_inlining_work_grows_linearly(build: Callable[[int], str], size: int) ->
     work = _inlining_lines(build(size), sys.maxsize)
     budget = work * 21 // 10
     assert _inlining_lines(build(2 * size), budget) <= budget
+
+
+def _repeated_errors(count: int) -> str:
+    """``count`` calls, each with an unknown field the body reads 32 times."""
+
+    return (
+        SHAPES
+        + "def many(x: Int nullable) -> Int nullable: return "
+        + " + ".join(["x"] * 32)
+        + "\ntable t:\n    from rows\n    select:\n        id\n"
+        + "".join(f"        v{i} = many(nope{i})\n" for i in range(count))
+    )
+
+
+def test_dropping_repeated_call_errors_grows_linearly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Analysis returns its diagnostics in source order, so one pass over the
+    calls in source order places them all: each further call adds the same
+    work, however many calls come before it."""
+    analyzed: list[tuple[Script, tuple[Diagnostic, ...]]] = []
+    monkeypatch.setattr(
+        analyzer_module,
+        "drop_repeated_call_diagnostics",
+        lambda script, diagnostics: (
+            analyzed.append((script, diagnostics)) or diagnostics
+        ),
+    )
+    work: list[int] = []
+    for count in (20, 40, 80):
+        parsed = parse_source(_repeated_errors(count), path="m.pietto")
+        assert parsed.ast is not None
+        analyze(parsed.ast)
+        script, diagnostics = analyzed.pop()
+        drop = functools.partial(
+            inline_module.drop_repeated_call_diagnostics, script, diagnostics
+        )
+        assert (len(diagnostics), len(drop())) == (32 * count, count)
+        work.append(_module_lines(drop, sys.maxsize))
+    assert work[2] - work[1] <= 2 * (work[1] - work[0])
 
 
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:
