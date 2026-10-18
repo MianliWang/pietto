@@ -596,8 +596,9 @@ def analyze_project_joined_namespace_expression(
             value.occurrence.binding.name: value.value_type
             for value in namespace.let_values
         },
-        # Typing follows no `let:` name here; a def argument is still checked
-        # with the values written in, as emission writes it.
+        # A `let:` name is typed as its value; a def argument is checked with
+        # the values written in, as emission writes it, and a check that reads
+        # a value through its name (a LIKE pattern) follows it.
         bare_value_expressions=namespace.written_lets,
         relation_columns=read_types,
     )
@@ -770,6 +771,20 @@ class ProjectNonConcreteJoinedLetNamespaces:
     blocking_resolutions: tuple[ProjectScalarReferenceResolution, ...] = ()
     unknown_type_occurrences: tuple[ProjectJoinedLetOccurrence, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
+    # The values admitted anyway, their written forms and the type of each
+    # binding without an error of its own that is not admitted (`k = null`,
+    # unknown, and each binding that reads one), with which a later clause is
+    # still typed for its own errors
+    # (`project_final_outputs.joined_let_unreached_diagnostics`).
+    admitted_values: tuple[ProjectJoinedLetValue, ...] = field(
+        default=(), repr=False, compare=False, hash=False
+    )
+    written_lets: LetValues | None = field(
+        default=None, repr=False, compare=False, hash=False
+    )
+    unadmitted_value_types: Mapping[str, ValueType] = field(
+        default_factory=dict, repr=False, compare=False, hash=False
+    )
     post_let: None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -831,8 +846,18 @@ def build_project_joined_let_namespaces(
     unknown_types: list[ProjectJoinedLetOccurrence] = []
     all_names = {binding.name for binding in bindings}
     prior_names: set[str] = set()
-    # The admitted values, which a def argument is checked with written in.
-    let_values = LetValues(followed=False)
+    # The admitted values, which a def argument is checked with written in and
+    # a check that reads a value through its name (a LIKE pattern) follows.
+    let_values = LetValues()
+    # Bindings without an error of their own whose type is unknown, such as
+    # `k = null`, and those that read one, with the type each has as written:
+    # written in as above and read with that type, a name bound to `null`
+    # taking its type from where it stands, as in a relation without JOIN
+    # inputs, so that a later binding is typed and its errors are reported.
+    # They are no admitted values, so the namespace stays non-concrete.
+    unadmitted: dict[str, ValueType] = {}
+    # The type of each field read so far, for a binding written in.
+    field_types: dict[Expression, ValueType] = {}
 
     for occurrence in occurrences:
         namespace = ProjectJoinedScalarNamespace(
@@ -866,11 +891,17 @@ def build_project_joined_let_namespaces(
             if type(leaf) is NameExpr and leaf.name in suppressed_names
         )
         blocked_dependencies.extend(blocked)
-        value_types: dict[Expression, ValueType] = {}
+        value_types: dict[Expression, ValueType] = (
+            dict(field_types) if unadmitted else {}
+        )
         resolutions: list[ProjectJoinedNamespaceReferenceResolution] = []
         local_blockers: list[ProjectScalarReferenceResolution] = []
+        reads_unknown = False
         for leaf in leaves:
             if any(leaf is item for item in blocked):
+                continue
+            if type(leaf) is NameExpr and leaf.name in unadmitted:
+                reads_unknown = True
                 continue
             resolution = resolve_project_joined_namespace_reference(
                 namespace,
@@ -885,6 +916,7 @@ def build_project_joined_let_namespaces(
                     local_blockers.append(resolution)
                 else:
                     value_types[leaf] = resolution.target.value_type
+                    field_types[leaf] = resolution.target.value_type
         blocking_resolutions.extend(local_blockers)
 
         root_type: ValueType | None = None
@@ -896,7 +928,11 @@ def build_project_joined_let_namespaces(
                 local_diagnostics,
                 report_unknown_name=True,
                 bare_value_types={
-                    value.occurrence.binding.name: value.value_type for value in values
+                    **{
+                        value.occurrence.binding.name: value.value_type
+                        for value in values
+                    },
+                    **unadmitted,
                 },
                 bare_value_expressions=let_values,
             )
@@ -911,20 +947,22 @@ def build_project_joined_let_namespaces(
             and not blocked
             and not local_blockers
             and root_type is not None
-            and root_type.kind is ValueTypeKind.KNOWN
             and not has_error
         ):
-            values.append(
-                ProjectJoinedLetValue(
-                    occurrence=occurrence,
-                    namespace=namespace,
-                    value_type=root_type,
-                    value_types=value_types,
-                    resolutions=tuple(resolutions),
-                    diagnostics=tuple(local_diagnostics),
+            if reads_unknown or root_type.kind is ValueTypeKind.UNKNOWN:
+                unadmitted[occurrence.binding.name] = root_type
+            else:
+                values.append(
+                    ProjectJoinedLetValue(
+                        occurrence=occurrence,
+                        namespace=namespace,
+                        value_type=root_type,
+                        value_types=value_types,
+                        resolutions=tuple(resolutions),
+                        diagnostics=tuple(local_diagnostics),
+                    )
                 )
-            )
-            let_values.bindings[occurrence.binding.name] = occurrence.expression
+            let_values[occurrence.binding.name] = occurrence.expression
         if occurrence.binding.name not in invalid_names:
             prior_names.add(occurrence.binding.name)
 
@@ -952,6 +990,9 @@ def build_project_joined_let_namespaces(
             blocking_resolutions=tuple(blocking_resolutions),
             unknown_type_occurrences=tuple(unknown_types),
             diagnostics=tuple(diagnostics),
+            admitted_values=tuple(values),
+            written_lets=let_values,
+            unadmitted_value_types=MappingProxyType(unadmitted),
         )
     value_tuple = tuple(values)
     post_let = ProjectJoinedScalarNamespace(

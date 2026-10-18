@@ -384,6 +384,36 @@ def validate_resolved_premise(key, scope_kind, value, path, errors):
         _error(errors, path + "/value")
 
 
+def _structure_limit_blocker(plan, premises):
+    """PIE-B1007 for a plan whose stages carry more columns than realizing it
+    may generate: each stage column is at least two generated nodes, so
+    realization would refuse it (`emission_blockers`). The plan is refused
+    before it is assessed and realized, which `let:` chains make quadratic,
+    so that cost stays bounded."""
+
+    from pietto._project.project_sql_emission_ast import (
+        admitted_row_shape,
+        projection_chain_shape,
+    )
+    from pietto._project.project_sql_emission_joins import admitted_join_shape
+    from pietto._project.project_sql_plan_expressions import ProjectSQLStagePortKind
+
+    limit = MAX_NODES
+    for premise in premises:
+        if premise.scope == "statement" and premise.key == "resource_limits":
+            limit = min(limit, json.loads(premise.value).get("nodes", limit))
+    columns = sum(
+        port.kind is ProjectSQLStagePortKind.EXPORT for port in plan.stage_ports
+    )
+    if (
+        2 * columns <= limit
+        or projection_chain_shape(plan)
+        or not (admitted_row_shape(plan) or admitted_join_shape(plan))
+    ):
+        return None
+    return Blocker("PIE-B1007", "generated_structure_limit", plan.scope)
+
+
 def prepare_project_sql_emission(
     verification, data, *, target_request=None, scalar_meaning=None
 ):
@@ -734,6 +764,11 @@ def prepare_project_sql_emission(
         )
     assert view is not None
     assert target is not None
+    structure = _structure_limit_blocker(verification.plan, premises)
+    if structure is not None:
+        return PreparationFailure(
+            blockers=(*conflicts, structure), diagnostics=diagnostics
+        )
     family, release = target["family"], target["release"]
     try:
         if target_request is None:

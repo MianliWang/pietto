@@ -41,7 +41,7 @@ from pietto.semantic.aggregates import (
 from pietto.semantic.expressions import (
     _canonical_value_type,
     rejected_let_names,
-    unfit_let_argument,
+    unfit_argument,
 )
 from pietto.semantic.group_by import project_grouped_schema
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
@@ -349,8 +349,12 @@ def _aggregate_projection_diagnostics(
             has_unknown_reference = has_unknown_field_reference(
                 effective_argument,
                 expression_value_types,
-            ) or unfit_let_argument(
-                argument, effective_argument, expression_value_types, type_expansions
+            ) or unfit_argument(
+                function_name,
+                argument,
+                let_expansions,
+                expression_value_types,
+                type_expansions,
             )
             authored_type = (
                 None

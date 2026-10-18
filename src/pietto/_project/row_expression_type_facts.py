@@ -222,6 +222,17 @@ def _semantic_resolved_type(resolved_type: ProjectResolvedType) -> ResolvedType:
         and resolved_type.name in _PROJECT_BUILTIN_TYPE_NAMES
     ):
         return ResolvedType(name=resolved_type.name, kind=TypeKind.BUILTIN)
+    if (
+        resolved_type.kind is ProjectResolvedTypeKind.ENUM
+        and resolved_type.symbol is not None
+    ):
+        # An enum, also through an alias of it, is that enum, as in a single
+        # file.
+        return ResolvedType(
+            name=resolved_type.name,
+            kind=TypeKind.ENUM,
+            definition=resolved_type.symbol.definition,
+        )
     return ResolvedType(name=resolved_type.name, kind=TypeKind.UNKNOWN)
 
 

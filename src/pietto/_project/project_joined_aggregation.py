@@ -1054,6 +1054,9 @@ class ProjectJoinedSelectedOutputIssueKind(StrEnum):
     MIXED_GLOBAL_ROW_PROJECTION = "mixed_global_row_projection"
     PURE_GROUPING = "pure_grouping"
     DEF_ARGUMENT_MISMATCH = "def_argument_mismatch"
+    # A `let:` name selecting no group key: no unknown field (PIE-S2102), so
+    # the relation fails closed with PIE-S2333.
+    LET_READ_PROJECTION = "let_read_projection"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1073,7 +1076,9 @@ class ProjectJoinedSelectedOutputIssue:
     def __post_init__(self) -> None:
         definition = _definition(self.input_filter)
         if type(self.kind) is not ProjectJoinedSelectedOutputIssueKind or (
-            not self.diagnostics
+            # Only a `let:` read leaves its PIE-S2333 to the relation.
+            (not self.diagnostics)
+            != (self.kind is ProjectJoinedSelectedOutputIssueKind.LET_READ_PROJECTION)
             or any(type(item) is not Diagnostic for item in self.diagnostics)
         ):
             raise ValueError("Selected-output issue requires an exact diagnostic.")
@@ -1114,7 +1119,17 @@ def _group_key_projection(
             if type(key) is ProjectJoinedComputedGroupKeyOccurrence
             and key.let_value is target
         )
-        return computed[0] if len(computed) == 1 else None
+        if computed:
+            return computed[0] if len(computed) == 1 else None
+        # A `let:` name that only renames a field selects that field's key, as
+        # the field does.
+        _, field_semantics, _ = _direct_field_resolution(
+            input_filter,
+            cast(NameExpr | DottedNameExpr, item.expression),
+            expand_let=True,
+        )
+        if field_semantics is None:
+            return None
     matches = tuple(
         key
         for key in group_keys
@@ -1216,13 +1231,17 @@ def _build_stage_outputs(
                 )
             )
             continue
+        diagnostic: Diagnostic | None
         if type(item.expression) in {NameExpr, DottedNameExpr}:
-            _, field_semantics, _ = _direct_field_resolution(
+            _, field_semantics, reads_let = _direct_field_resolution(
                 input_filter,
                 cast(NameExpr | DottedNameExpr, item.expression),
                 expand_let=False,
             )
-            if field_semantics is None:
+            if reads_let:
+                issue_kind = ProjectJoinedSelectedOutputIssueKind.LET_READ_PROJECTION
+                diagnostic = None
+            elif field_semantics is None:
                 issue_kind = (
                     ProjectJoinedSelectedOutputIssueKind.UNKNOWN_GROUP_KEY_PROJECTION
                 )
@@ -1247,7 +1266,7 @@ def _build_stage_outputs(
                 selected_output_ordinal=ordinal,
                 item=item,
                 kind=issue_kind,
-                diagnostics=(diagnostic,),
+                diagnostics=() if diagnostic is None else (diagnostic,),
             )
         )
 
@@ -2149,7 +2168,12 @@ class ProjectJoinedSatisfyingAnalysis:
                 or self.retention_effects != _SATISFYING_RETENTION_EFFECTS
             ):
                 raise ValueError("Concrete satisfying requires one known Bool result.")
-        elif not (self.diagnostics or self.unfit_outputs) or self.retention_effects:
+        elif (
+            not (self.diagnostics or self.unfit_outputs)
+            and self.predicate_value_type.kind is not ValueTypeKind.UNKNOWN
+        ) or self.retention_effects:
+            # A predicate of unknown type with no error of its own blocks
+            # alone; the relation then fails closed with PIE-S2333.
             raise ValueError("Non-concrete satisfying requires exact blockers only.")
         object.__setattr__(
             self, "value_types", MappingProxyType(dict(self.value_types))
@@ -2500,6 +2524,17 @@ def _build_satisfying_analysis(
         )
         if bool_diagnostic is not None:
             diagnostics.append(bool_diagnostic)
+        elif value_type.kind is ValueTypeKind.UNKNOWN:
+            # As in a single file, a null literal compared or combined in the
+            # predicate is PIE-S2327; any other predicate of unknown type
+            # leaves the relation to its completion's PIE-S2333.
+            null_literal = semantic_satisfying._null_literal_leaf(clause.expression)
+            if null_literal is not None:
+                diagnostics.append(
+                    semantic_satisfying._unsupported_expression_diagnostic(
+                        null_literal, form="null literal"
+                    )
+                )
     status = (
         ProjectJoinedSatisfyingStatus.CONCRETE
         if not diagnostics

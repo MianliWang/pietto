@@ -14,7 +14,8 @@ from pietto._project.project_table_function import table_function_diagnostics
 from pietto._project.project_values import ProjectValuesRelation, values_diagnostics
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
+from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from enum import StrEnum
 from types import MappingProxyType
@@ -36,6 +37,7 @@ from pietto._project.aggregate_grouped_schema import (
     _effective_group_key_expression,
 )
 from pietto._project.let_scope_facts import (
+    ProjectLetScopeFactsReason,
     ProjectLetScopeFactsStatus,
     ProjectRelationLetScopeFacts,
     build_project_relation_let_scope_facts,
@@ -135,6 +137,7 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WhereClause,
     WindowExpr,
+    WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -931,13 +934,38 @@ def _window_diagnostic_location_is_owned(
     )
 
 
+# A window computation that reads a `let:` binding while another binding has
+# an unknown type or an error (`_window_let_facts`): the binding's own error or
+# the relation's PIE-S2333 reports it.
+_LET_READING_WINDOW_REASON = "window reads a let binding of a non-concrete scope"
+
+
 def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
     return reason.startswith(
         (
             "no-group aggregate context does not admit ",
             "grouped context does not admit ",
+            _LET_READING_WINDOW_REASON,
         )
     )
+
+
+def _quiet_let_reading_window(
+    analysis: WindowExpressionAnalysis | WindowExpressionUnsupported,
+    diagnostics: list[Diagnostic],
+) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
+    """A window computation analyzed without `let:` facts because it reads a
+    binding of a non-concrete scope: its refusal for the missing facts is no
+    diagnostic of its own (`_window_let_facts`)."""
+
+    if (
+        type(analysis) is WindowExpressionUnsupported
+        and analysis.reason
+        == "relation context requires canonical window input scope facts"
+    ):
+        diagnostics.clear()
+        return replace(analysis, reason=_LET_READING_WINDOW_REASON)
+    return analysis
 
 
 def _validate_supported_window_analysis_family(
@@ -3757,14 +3785,18 @@ def _select_facts(
 ) -> tuple[
     tuple[ProjectModuleSelectFact, ...], tuple[ProjectModuleSelectExpressionFact, ...]
 ]:
+    # As the relation's row schema types them (`_project_relation_row_schema`):
+    # in a non-concrete scope, the bindings without an error of their own.
     let_values = (
         let_scope.value_types
         if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
-        else None
+        else let_scope.binding_value_types or None
     )
     let_expressions = (
         let_scope.binding_expressions
         if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
+        else {name: let_scope.binding_expressions[name] for name in let_values}
+        if let_values
         else None
     )
     expression_types: Mapping[Expression, ValueType] = MappingProxyType({})
@@ -3939,11 +3971,25 @@ def _where_fact(
 ) -> ProjectModuleWhereFact | None:
     definition = cast(_DerivedRelation, owner.definition)
     clause = definition.where_clause
-    if clause is None or let_scope.status not in {
-        ProjectLetScopeFactsStatus.ABSENT,
-        ProjectLetScopeFactsStatus.CONCRETE,
-    }:
+    if clause is None or (
+        let_scope.status
+        not in {
+            ProjectLetScopeFactsStatus.ABSENT,
+            ProjectLetScopeFactsStatus.CONCRETE,
+        }
+        and let_scope.reason
+        not in {
+            ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED,
+            ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE,
+        }
+    ):
         return None
+    # Beside a binding of unknown type (such as `k = null`) or with an error of
+    # its own, the WHERE is still typed, as in a single file, so that it
+    # reports its own errors: a read of a binding with an error is unknown.
+    unknown_names = {binding.name for binding in let_scope.bindings} - set(
+        let_scope.binding_value_types
+    )
     value_types = scalar_read_types_within(clause.expression, read_types)
     diagnostics: list[Diagnostic] = []
     if contains_semantic_aggregate(clause.expression):
@@ -3957,10 +4003,11 @@ def _where_fact(
         diagnostics,
         report_unknown_name=True,
         field_qualifier=definition.from_clause.source_name,
-        bare_value_types=let_scope.value_types,
+        bare_value_types=let_scope.binding_value_types,
         bare_value_expressions=checked_let_values(
             let_scope, let_scope.binding_expressions
         ),
+        suppressed_unknown_names=unknown_names or None,
         relation_columns=read_types,
         captured_value_types=captures,
     )
@@ -4708,15 +4755,6 @@ def _window_output_facts(
     if base_schema is None or base_schema.is_unknown:
         raise ValueError("Concrete window base state requires a concrete schema.")
 
-    if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE:
-        let_values: Mapping[str, ValueType] | None = let_scope.value_types
-        let_expressions: Mapping[str, Expression] | None = let_scope.binding_expressions
-    elif let_scope.status is ProjectLetScopeFactsStatus.ABSENT:
-        let_values = MappingProxyType({})
-        let_expressions = MappingProxyType({})
-    else:
-        let_values = None
-        let_expressions = None
     semantic_input = project_row_schema_to_semantic_row_schema(input_schema)
     outputs: list[ProjectModuleWindowOutputFact] = []
     for ordinal, item in window_items:
@@ -4724,6 +4762,9 @@ def _window_output_facts(
         source_id = expression.span.path or owner.identity.module_path
         diagnostics: list[Diagnostic] = []
         value_types: dict[Expression, ValueType] = {}
+        let_values, let_expressions, quiet = _window_let_facts(
+            let_scope, definition, expression
+        )
         analysis = analyze_window_expression(
             definition=definition,
             item=item,
@@ -4737,6 +4778,8 @@ def _window_output_facts(
             let_expressions=let_expressions,
             named_window_namespace=named_window_namespace,
         )
+        if quiet:
+            analysis = _quiet_let_reading_window(analysis, diagnostics)
         analysis = _project_window_analysis_boundary(item, analysis)
         signature = _find_window_signature(capabilities, expression.identity)
         project_fact: WindowResultProjectFact | None = None
@@ -4827,6 +4870,55 @@ def _window_output_facts(
     )
 
 
+def _window_let_facts(
+    let_scope: ProjectRelationLetScopeFacts,
+    definition: _DerivedRelation,
+    expression: WindowExpr,
+) -> tuple[Mapping[str, ValueType] | None, Mapping[str, Expression] | None, bool]:
+    """The `let:` types and values a window computation reads, and whether its
+    diagnostics are left out. A concrete scope gives every binding. In one
+    whose let analysis ran but that has a binding of unknown type (such as
+    `k = null`) or with an error of its own, a computation that reads no
+    binding is analyzed as in a concrete one; one that reads a binding is not
+    analyzed, and the relation fails closed with the binding's own error or
+    PIE-S2333. Elsewhere no binding was analyzed."""
+
+    if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE:
+        return let_scope.value_types, let_scope.binding_expressions, False
+    if let_scope.status is ProjectLetScopeFactsStatus.ABSENT:
+        return MappingProxyType({}), MappingProxyType({}), False
+    if let_scope.reason not in {
+        ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED,
+        ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE,
+    }:
+        return None, None, False
+    names = {binding.name for binding in let_scope.bindings}
+    pending: list[object] = [
+        expression.call.arguments,
+        expression.spec,
+        *(
+            definition.named_windows
+            if expression.use_kind is not WindowUseKind.INLINE
+            else ()
+        ),
+    ]
+    while pending:
+        node = pending.pop()
+        if type(node) is NameExpr:
+            if node.name in names:
+                return None, None, True
+        elif type(node) is tuple:
+            pending.extend(node)
+        elif is_dataclass(node) and not isinstance(node, type):
+            pending.extend(
+                getattr(node, item.name)
+                for item in dataclass_fields(node)
+                if item.name != "span"
+                and not (type(node) is CallExpr and item.name == "callee")
+            )
+    return MappingProxyType({}), MappingProxyType({}), False
+
+
 def _unavailable_window_outputs(
     *,
     owner: ProjectDeclarationOccurrence,
@@ -4856,20 +4948,14 @@ def _unavailable_window_outputs(
         if input_schema is None
         else project_row_schema_to_semantic_row_schema(input_schema)
     )
-    if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE:
-        let_values: Mapping[str, ValueType] | None = let_scope.value_types
-        let_expressions: Mapping[str, Expression] | None = let_scope.binding_expressions
-    elif let_scope.status is ProjectLetScopeFactsStatus.ABSENT:
-        let_values = MappingProxyType({})
-        let_expressions = MappingProxyType({})
-    else:
-        let_values = None
-        let_expressions = None
     outputs: list[ProjectModuleWindowOutputFact] = []
     for ordinal, item in enumerate(definition.select_items):
         if type(item.expression) is not WindowExpr:
             continue
         diagnostics: list[Diagnostic] = []
+        let_values, let_expressions, quiet = _window_let_facts(
+            let_scope, definition, item.expression
+        )
         analysis = analyze_window_expression(
             definition=definition,
             item=item,
@@ -4883,6 +4969,8 @@ def _unavailable_window_outputs(
             let_expressions=let_expressions,
             named_window_namespace=named_window_namespace,
         )
+        if quiet:
+            analysis = _quiet_let_reading_window(analysis, diagnostics)
         analysis = _project_window_analysis_boundary(item, analysis)
         outputs.append(
             ProjectModuleWindowOutputFact(

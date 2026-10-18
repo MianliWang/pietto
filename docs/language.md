@@ -362,6 +362,24 @@ substitution, a plain alias `b = a` included, one more; a `def` call counts as
 its expansion, and a binding that nothing reads is not counted. An expression
 written inline is bounded only by PIE-S2006 (450 nested levels, see
 Expressions), and moving it into one binding read as `y = v` keeps it accepted.
+A `let:` name has the type of its value written where it is read, as
+emission inlines it: a name whose value is `null`, directly or through other
+names, takes its type from where it is read, as `null` does, and over a
+source without a shape a name has its binding's type. A binding is typed the
+same way with the earlier names it reads, so its errors are reported in the
+binding, at their own positions, whether or not anything reads it: with
+`k = null` and `j = coalesce(k, 1)`, `j` is `Int not null` as
+`coalesce(null, 1)` is, `d = len(j)` is PIE-S2104 in the binding and
+`v = lower(j)` is PIE-S2104 at `lower`; over a source without a shape, with
+`w = n is null`, `-w` is PIE-S2105. A cast of a name whose binding has an
+error of its own reports only that error, as the cast of the value written
+by hand does. An EXPLICIT_MODULES project types `let:` names the same way,
+with or without JOIN inputs, but a relation there with a binding of unknown
+type, such as `k = null`, still fails closed: `check --project` may report
+PIE-S2333 at the table or query even when nothing in it is ill-typed, as it
+does with JOIN inputs, a GROUP BY or `select distinct`, and
+`emit-sql --project` blocks one that passes `check --project` with
+PIE-B1003.
 Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
@@ -541,43 +559,52 @@ VERIFIED-only inspection. Project Explain keeps its separate schema boundary.
 
 A JOIN of any kind above may read a source with fields typed by an enum or a
 shape, or by an alias of either, with or without `nullable` or `not null`, and
-`check --project` completes it. A table, query or relation `let` that outputs
-such a field and completes on its own can be the target of a SEMI or ANTI JOIN
-with an `on` and no `via`. Other JOINs may read it when it has a GROUP BY but
-no ORDER BY, LIMIT or window function, when it is a set operation, or when it
-is a table or query that only selects, renames, filters, orders or limits the
-fields of such a source, directly or through other tables or queries that do
-only that. In other cases, for example a relation `let` with no GROUP BY or set
-operation, or a table or query with a `let:` clause or a computed SELECT output
-such as `v = id + 1`, those JOINs may report PIE-S2333 at the table or query,
-even when the field is never read. After the JOIN, scalar typing reads such a
-field as of unknown type, so a `where` test, a SELECT output, a `let:` value or
-an ORDER BY key may read it only inside an expression whose own type stays
-known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), `is null`,
+`check --project` completes it. A project types a field of an enum, or of an
+alias of one, as that enum, as a single file does, with or without a JOIN and
+whatever the JOIN makes of its nullability: it may be selected, bound in
+`let:`, compared, tested with `is null` or `between`, grouped, ordered,
+partitioned or ordered in a window, or matched in a JOIN `on`, and every read is
+checked as a single file checks it, so `lower(c.status)` and
+`coalesce(c.status, "x")` report PIE-S2104, `c.status in ("active")` and
+`c.status not like "a%"` report PIE-S2105, `count(c.status)` reports PIE-S2314,
+`where c.status` reports PIE-S2202 and a `def` parameter it does not fit reports
+PIE-S2395. Selecting a JOIN's enum group key from the groups reports PIE-S2333
+at the table or query.
+
+A table, query or relation `let` that outputs a field typed by a shape, or by
+an alias of one, and completes on its own can be the target of a SEMI or ANTI
+JOIN with an `on` and no `via`. Other JOINs may read it when it has a GROUP BY
+but no ORDER BY, LIMIT or window function, when it is a set operation, or when
+it is a table or query that only selects, renames, filters, orders or limits
+the fields of such a source, directly or through other tables or queries that
+do only that. In other cases, for example a relation `let` with no GROUP BY or
+set operation, or a table or query with a `let:` clause or a computed SELECT
+output such as `v = id + 1`, those JOINs may report PIE-S2333 at the table or
+query, even when the field is never read. After the JOIN, scalar typing reads
+such a field as of unknown type, so a `where` test, a SELECT output, a `let:`
+value or an ORDER BY key may read it only inside an expression whose own type
+stays known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), `is null`,
 `is not null`, and `and`, `or` and `not` over such tests, for example
-`c.status == "active"`, `coalesce(c.status, "x") == "active"` or
-`c.status is null or c.id > 0`. Any other read there is not supported yet and
+`c.home is null or c.id > 0`. Any other read there is not supported yet and
 reports PIE-S2333 at the table or query: the field itself (selected, bound in
-`let:` or used as an ORDER BY key), a call such as `lower(c.status)`, and every
-`in`, `not in`, `between`, `like` or `not like` test of it, in `where` too.
-GROUP BY may name the field, but selecting it from the groups reports PIE-S2333
-as well. An aggregate of it, such as `count(c.status)`, reports PIE-S2315 at the
-call, and a window partitioned or ordered by it reports PIE-S2103
-(`window partition field type must be concrete` or
-`window order field type must be concrete`); a JOIN `on` that reads such a field
-reports PIE-S2334 and PIE-S2335. A relationship whose `on` compares fields typed
-by a shape, or by an alias of one, cannot be used by a JOIN yet: an INNER or
-LEFT JOIN that uses it, with or without `via`, reports PIE-S2333 at the table or
-query, and a RIGHT, FULL, SEMI or ANTI JOIN that uses it, or a JOIN that adds an
-`on` to its `via`, reports PIE-S2334 and PIE-S2335; over enum fields such a
-relationship completes. Project SQL emission has no representation for enum or
-shape fields: with or without a JOIN, `emit-sql --project` reports a table or
-query that passes `check --project` and reads a source declaring one BLOCKED
-with PIE-B1003 (for example `representation_not_in_initial_domain` at the
-field). An ORDER BY key that reads such a field inside an expression, such as
-`c.status is null` or `status == "active"`, may instead make
-`emit-sql --project` report the table or query INPUT_REJECTED (exit status 2),
-with the `emission_selector` error `Invalid current planning roots.`
+`let:` or used as an ORDER BY key), a call, and every `in`, `not in`,
+`between`, `like` or `not like` test of it, in `where` too. GROUP BY may name
+the field, but selecting it from the groups reports PIE-S2333 as well. An
+aggregate of it reports PIE-S2315 at the call, and a window partitioned or
+ordered by it reports PIE-S2103 (`window partition field type must be
+concrete` or `window order field type must be concrete`); a JOIN `on` that
+reads such a field reports PIE-S2334 and PIE-S2335. A relationship whose `on`
+compares fields typed by a shape, or by an alias of one, cannot be used by a
+JOIN yet: an INNER or LEFT JOIN that uses it, with or without `via`, reports
+PIE-S2333 at the table or query, and a RIGHT, FULL, SEMI or ANTI JOIN that uses
+it, or a JOIN that adds an `on` to its `via`, reports PIE-S2334 and PIE-S2335;
+over enum fields such a relationship completes. Project SQL emission has no
+representation for enum or shape fields: with or without a JOIN,
+`emit-sql --project` reports a table or query that passes `check --project` and
+reads a source declaring one BLOCKED with PIE-B1003 (for example
+`representation_not_in_initial_domain` at the field), or with PIE-B1003 `order`
+for an ORDER BY key that reads a shape-typed field inside an expression, such
+as `home is null`.
 
 An alternate complete table/query body retains named set operands:
 
@@ -1481,13 +1508,18 @@ The same applies to a `between` whose value or both bounds are null and to an
 null bound (never true, but false when the other bound fails), an `in` list
 with a null among other options (it can still match), a comparison with an
 operand that may be NULL at run time, and calls such as `coalesce(x, null)`
-stay accepted. In an EXPLICIT_MODULES project a relation with a `let:` binding
-of unknown type, such as `nothing = null`, does not check its WHERE yet, so
-`where x == nothing` there is BLOCKED at emission (PIE-B1003) instead. In
-`satisfying:` a comparison with the null literal is PIE-S2327 (`Unsupported
-satisfying expression form: null literal`) in single-file checks and a bare
-PIE-S2333 in an EXPLICIT_MODULES project, and single-file `check` accepts any
-authored QUALIFY (see QUALIFY below).
+stay accepted. In an EXPLICIT_MODULES project the WHERE of a relation with a
+`let:` binding of unknown type, such as `nothing = null`, or with an error in
+a binding is checked as well, as in a single file (a read of a binding with
+an error of its own is of unknown type), so `where x == nothing` is PIE-S2105
+there too. In `satisfying:` a comparison
+with the null literal is PIE-S2327 (`Unsupported satisfying expression form:
+null literal`) in single-file checks and in an EXPLICIT_MODULES relation with
+JOIN inputs, at the literal, and a bare PIE-S2333 in an EXPLICIT_MODULES
+relation without JOIN inputs; any other `satisfying:` predicate of unknown
+type in a project relation with JOIN inputs makes the relation fail closed
+with PIE-S2333. Single-file `check` accepts any authored QUALIFY (see QUALIFY
+below).
 
 The closed scalar surface has explicit signatures; it has no overload search:
 
@@ -1523,7 +1555,9 @@ MySQL `SIGN` already returns an integer; single-file MySQL SQL renders
 
 `coalesce` requires at least two same-canonical-type arguments. `nullif`
 requires exactly two. `substr` is one-based and requires a statically admitted
-positive start and nonnegative count. PostgreSQL additionally requires each
+positive start and nonnegative count, each an `Int` literal written in the
+call (a `let:` name bound to one is PIE-S2104 too, also in a `def` argument).
+PostgreSQL additionally requires each
 static `substr` index to fit its signed `int32` argument range. `cast(value as
 Float)` is the only scalar cast: it accepts `Int` and may lose binary64
 precision. Its target is the bare name `Float`, with no nullability marker or
@@ -1674,33 +1708,32 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   body, reported once however many times the body uses the argument and
   only for the innermost call that does not fit: an argument that does not
   fit is unknown to every expression around it, also through a built-in call
-  such as `len`. In a project, a relation whose select output is a field or
+  such as `len`, and to an aggregate whose argument it is, which adds no
+  PIE-S2315 beside it, as for a field of unknown type: `count(nn(n + 1))` is
+  PIE-S2395 alone, also through a `let:` name the aggregate reads, with
+  `w = n + 1` or `j = n` and `w = j + 1`. In a project, a relation whose
+  select output is a field or
   `let:` name passed to a def it does not fit has no known columns, as when
   a computed output has an error, so a relation that reads it reports what
   it reports then, such as PIE-S2333. An argument with an
   error of its own that leaves its type unknown, such as a comparison with
   the null literal (`text == null`, PIE-S2105) or `k + zz` with an unknown
-  field `zz`, is not checked against its parameter. One that is ill-typed
-  once the values are written in reports the errors of the values written by
-  hand, in place of those the names would give, once however many times the
-  body uses it, and is checked against its parameter when it still has a
-  type. An error inside a `let:` value is reported at the start of the name
-  that reads it, once for each code and message: with `i = upper(k) + 1`,
-  the argument `i` is PIE-S2105 at `i`, as `upper(null) + 1` written there
-  is, and with `d = len(j) + len(j)`, the argument `d` is one PIE-S2104 at
-  `d` where the value written by hand has two. The argument `lower(j)` is
+  field `zz`, is not checked against its parameter. A `let:` value is typed
+  as it is written wherever it is read (see Relations), so a value that is
+  ill-typed once the null it reads takes its type reports its errors in its
+  binding, at their own positions, whether a def argument, another
+  expression or nothing reads it, and an argument that reads it is checked
+  against its parameter when the value still has a type: with
+  `i = upper(k) + 1`, the binding `i` is PIE-S2105, as `upper(null) + 1`
+  is, and with `d = len(j) + len(j)`, the binding `d` is two PIE-S2104, one
+  at each `len`, as the value written by hand is. The argument `lower(j)` is
   PIE-S2104 at `lower`; `lower(j) == "a"` passed to a `Bool not null`
   parameter is that PIE-S2104 and PIE-S2395, as the comparison is still
-  `Bool` of unknown nullability; and with `w = lower(j) is null`, `w` passed
-  to an `Int not null` parameter is PIE-S2104 at `w` and PIE-S2395, as `w` is
-  `Bool not null`. Outside a def argument a `let:` name bound to `null` has
-  no type where it is read, so a value
-  ill-typed only once `null` is written in, such as `v = i` or
-  `v = lower(j)`, is not reported, and single-file emission writes it. An
-  argument whose type is unknown for another reason is not checked either,
-  as the same expression written by hand is not: a field of a source without
-  a shape; a column that an earlier relation computes from a `let:` name
-  bound to `null`, such as `z = coalesce(k, n)`; `null` inside `and` or
+  `Bool` of unknown nullability; and with `w = lower(j) is null`, the
+  binding `w` is PIE-S2104 and `w` passed to an `Int not null` parameter is
+  PIE-S2395, as `w` is `Bool not null`. An argument whose type is unknown
+  for another reason is not checked either, as the same expression written
+  by hand is not: a field of a source without a shape; `null` inside `and` or
   `or`, as a `between` bound or as the argument of a built-in that admits
   more than one type (`year`, `month`, `day`, `sign`), such as
   `null and true` or `year(null)`; or an always-null value other than `null`
@@ -1731,9 +1764,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   single-file `qualify:` (which `explain` and `emit-sql` refuse); in a
   project check, the ungrouped `order by` of a relation without JOIN inputs
   (`emit-sql --project` blocks a mismatched argument there with PIE-B1003
-  without naming it; with JOIN inputs the argument is checked); and, in a
-  project check, the WHERE of a relation with a `let:` binding of unknown
-  type, such as `k = null` (`emit-sql --project` blocks it with PIE-B1003).
+  without naming it; with JOIN inputs the argument is checked).
   In a project, a mismatch is reported where the same error written by hand
   would be: where a project reports the errors of a position as PIE-S2333 at
   the relation, such as a grouped `satisfying` or an aggregate argument
@@ -1945,9 +1976,14 @@ proves that a side is unique per group, so it never removes a fan-out refusal;
 only direct field keys that form a strict unique key, as described above, can
 do that. There, `satisfying` and grouped
 result ordering may name the key's selected output, while a window or QUALIFY
-reference to it keeps the unknown-name rejection (`PIE-S2102`, `PIE-S2332`). A
-`let` alias of a computed binding, window references to the key, single-file
-checks, and LEGACY_FLAT projects keep their existing rejection.
+reference to it keeps the unknown-name rejection (`PIE-S2102`, `PIE-S2332`).
+With JOIN inputs a `let` binding that only renames a field, such as
+`g = r.n` with `group by: g`, groups by that field, and selecting the name
+selects that field's key, as selecting the field does. A `let` alias of a
+computed binding, window references to the key, single-file checks, and
+LEGACY_FLAT projects keep their existing rejection; with JOIN inputs a
+selected `let` name that names no group key, such an alias included, is
+PIE-S2333 at the table or query rather than an unknown field.
 
 ## Windows
 

@@ -518,6 +518,88 @@ def test_non_row_level_consumers_do_not_see_let_names(
     assert expected_code in codes
 
 
+def test_a_let_name_bound_through_null_is_typed_as_its_value_written_there() -> None:
+    """A `let:` name whose value is `null` takes its type from where it is
+    read, as `null` does, so each binding and read has the type and errors
+    of its value written by hand, at their own positions (before: `j`, `c`
+    and every read of them were unknown and none of these was reported)."""
+    relation, semantic = _analyze_relation(
+        "table t:\n    from orders\n    let:\n        k = null\n"
+        "        j = coalesce(k, 1)\n        d = len(j) + len(j)\n"
+        '        c = status if k else "x"\n    select:\n        v = lower(j)\n'
+        "        w = c == 1\n        q = j / 2\n"
+    )
+    len_of_int = (
+        "Invalid argument type for function len at position 1: expected Text, got Int"
+    )
+    assert _errors(semantic) == [
+        ("PIE-S2104", 12, 13, len_of_int),
+        ("PIE-S2104", 12, 22, len_of_int),
+        (
+            "PIE-S2104",
+            15,
+            13,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+        ),
+        (
+            "PIE-S2105",
+            16,
+            13,
+            "Invalid operands for operator ==: expected comparable operands",
+        ),
+    ]
+    assert _value_type_name(semantic, relation.select_items[2].expression) == "Int"
+
+
+def test_a_let_name_over_an_unknown_row_is_typed_as_its_binding() -> None:
+    """Over a source without a shape, a `let:` name is read as its value, as
+    emission inlines it, with the binding's type (before: unknown, so `-w`
+    and `coalesce(w, 0)` passed and emission wrote them)."""
+    relation, semantic = _analyze_relation(
+        'source raw is postgres.table("raw")\n'
+        "table c:\n    from raw\n    let:\n        w = n is null\n        u = 7\n"
+        "    select:\n        id\n        o = -w\n        p = coalesce(w, 0)\n"
+        "        q = u / 2\n"
+    )
+    assert _errors(semantic) == [
+        ("PIE-S2303", 7, 1, "Source raw has no bound shape; row schema is unknown"),
+        (
+            "PIE-S2105",
+            15,
+            13,
+            "Invalid operands for operator -: expected numeric operand",
+        ),
+        (
+            "PIE-S2104",
+            16,
+            13,
+            "Invalid argument types for function coalesce: "
+            "expected same canonical type",
+        ),
+    ]
+    assert _value_type_name(semantic, relation.select_items[3].expression) == "Int"
+
+
+def test_a_cast_of_a_let_with_an_error_of_its_own_adds_nothing() -> None:
+    """A cast whose operand reads a `let:` binding with an error of its own is
+    explained by that error, as the value written by hand in its place is
+    (before: also PIE-S2105 `cast(unknown as ...)` at each cast)."""
+    _, semantic = _analyze_relation(
+        "table t:\n    from orders\n    let:\n        w = status like tax\n"
+        "        w2 = cast(w as Text)\n    select:\n        o = cast(w as Int)\n"
+        "        f = cast(w as Float)\n"
+    )
+    assert _errors(semantic) == [
+        (
+            "PIE-S2105",
+            10,
+            13,
+            "Invalid operands for operator like: expected Text operands",
+        ),
+    ]
+
+
 def test_cli_check_succeeds_for_supported_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -580,6 +662,13 @@ def _analyze_relation(source: str) -> tuple[TableDef | QueryDef, SemanticResult]
     assert result.ast is not None
     relation = cast(TableDef | QueryDef, result.ast.definitions[-1])
     return relation, analyze(result.ast)
+
+
+def _errors(semantic: SemanticResult) -> list[tuple[str, int, int, str]]:
+    return [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in semantic.diagnostics
+    ]
 
 
 def _error_codes(semantic: SemanticResult) -> list[str]:

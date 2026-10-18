@@ -429,11 +429,16 @@ def _window_dependency_matches_base(
             and target.source_name == upstream_symbol.name
         )
     if target.kind is ProjectRowDependencyNodeKind.LET_BINDING:
+        # A binding whose type is known, also beside one that is not.
+        value_type = (
+            None
+            if target.binding_name is None
+            else let_scope_facts.binding_value_types.get(target.binding_name)
+        )
         return (
             occurrence.target_result_role is None
-            and let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
-            and target.binding_name is not None
-            and target.binding_name in let_scope_facts.value_types
+            and value_type is not None
+            and value_type.kind is ValueTypeKind.KNOWN
             and target.name == target.binding_name
             and target.relation_name == definition.name
         )

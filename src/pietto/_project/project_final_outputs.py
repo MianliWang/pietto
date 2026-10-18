@@ -175,6 +175,7 @@ from pietto._project.project_joined_qualify import (
 )
 from pietto._project.project_joined_row_filter import (
     ProjectJoinedRowFilterSet,
+    ProjectNonConcreteJoinedRowFilter,
     build_project_joined_row_filter,
     ProjectJoinedRowRetentionEffect,
     _SQL_ROW_RETENTION_EFFECTS,
@@ -183,13 +184,18 @@ from pietto._project.project_joined_windows import (
     ProjectJoinedWindowInputBinding,
     ProjectSelectedWindowResultBinding,
 )
+from pietto._project.project_scalar_bindings import (
+    resolve_project_joined_scalar_reference,
+)
 from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
     ProjectJoinedLetReferenceResolution,
+    ProjectNonConcreteJoinedLetNamespaces,
     ProjectNonConcreteJoinedNamespaceExpression,
     analyze_project_joined_namespace_expression,
 )
 from pietto._project.project_scalar_references import (
+    ProjectScalarReferenceOccurrence,
     ProjectScalarReferenceResolution,
     ProjectScalarEnvironmentField,
 )
@@ -220,6 +226,9 @@ from pietto.ast_nodes import (
     OrderItem,
     QualifyClause,
     QueryDef,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
     Script,
     SelectItem,
     SourceDef,
@@ -230,13 +239,14 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic import predicate_checks as semantic_predicates
 from pietto.semantic.aggregates import (
+    child_expressions,
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
 from pietto.semantic.expressions import infer_row_expression
 from pietto._project.row_expression_type_facts import scalar_read_types_within
 from pietto.semantic.group_by import _grouped_order_by_unsupported_diagnostic
-from pietto.semantic.model import CheckMode, ValueType, ValueTypeKind
+from pietto.semantic.model import CheckMode, RowSchema, ValueType, ValueTypeKind
 from pietto.semantic.relation_schemas import (
     _duplicate_projection_diagnostic,
     _projection_output_name,
@@ -3580,13 +3590,21 @@ def _joined_final_fields(
     }
     type_symbols = _joined_type_symbols(aggregation)
     completed: list[ProjectCompletedOutputField] = []
+    # Every SELECT item reports its own errors, as in a single file; the
+    # first one that is not concrete blocks the outputs.
+    blocker: object | None = None
+    blocked: list[Diagnostic] = []
     for ordinal, (item, name, select_fact) in enumerate(
         zip(definition.select_items, names, select_facts, strict=True)
     ):
         if type(item.expression) is WindowExpr:
             source = selected_windows.get(ordinal)
             if source is None:
-                return None, stage, stage.diagnostics
+                return (
+                    None,
+                    stage if blocker is None else blocker,
+                    (*blocked, *stage.diagnostics),
+                )
             row_field = _field_from_value_type(
                 name=name,
                 value_type=source.value_type,
@@ -3602,7 +3620,9 @@ def _joined_final_fields(
                 read_types=_semantic_facts(completion, owner).scalar_read_types,
             )
             if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
-                return None, analysis, analysis.diagnostics
+                blocker = analysis if blocker is None else blocker
+                blocked.extend(analysis.diagnostics)
+                continue
             if type(analysis) is not ProjectConcreteJoinedNamespaceExpression:
                 raise AssertionError(
                     "Joined projection lost its scalar result variant."
@@ -3627,7 +3647,11 @@ def _joined_final_fields(
         else:
             source = stage_outputs.get(ordinal)
             if source is None:
-                return None, aggregation, aggregation.diagnostics
+                return (
+                    None,
+                    aggregation if blocker is None else blocker,
+                    (*blocked, *aggregation.diagnostics),
+                )
             role = (
                 ProjectRowResultRole.GROUP_KEY
                 if source.role is ProjectJoinedStageOutputRole.GROUP_KEY
@@ -3646,7 +3670,7 @@ def _joined_final_fields(
                 location=_source_location(item.expression),
             )
         if row_field is None:
-            return None, source, ()
+            return None, source if blocker is None else blocker, tuple(blocked)
         completed.append(
             _completed_field(
                 owner=owner,
@@ -3656,7 +3680,153 @@ def _joined_final_fields(
                 source=source,
             )
         )
+    if blocker is not None:
+        return None, blocker, tuple(blocked)
     return tuple(completed), None, ()
+
+
+def joined_let_unreached_diagnostics(entry: object) -> tuple[Diagnostic, ...]:
+    """`_joined_let_unreached_diagnostics` of a historical joined terminal."""
+
+    if type(entry) is not ProjectEffectiveOutputTerminal or (
+        type(entry.joined_completion) is not ProjectNonConcreteJoinedRowSemantics
+    ):
+        return ()
+    return _joined_let_unreached_diagnostics(entry.joined_completion, entry.owner)
+
+
+def _joined_let_unreached_diagnostics(
+    semantics: ProjectNonConcreteJoinedRowSemantics,
+    owner: ProjectDeclarationOccurrence,
+) -> tuple[Diagnostic, ...]:
+    """The diagnostics of the WHERE and, in a relation without GROUP BY or
+    aggregates, of each SELECT item outside a window, of a joined relation
+    whose `let:` clause is not concrete and leaves them untyped, as a single
+    file reports them: each is typed with the values the clause admits and the
+    type every other binding without an error of its own has as written, one
+    bound to `null` (such as `k = null`) taking its type from where it stands.
+    One that reads a binding with an error of its own, a field that does not
+    resolve, or a relation, whose read types are not known here, is left to
+    those."""
+
+    namespaces = semantics.namespaces
+    if type(namespaces) is not ProjectNonConcreteJoinedLetNamespaces:
+        return ()
+    environment = namespaces.binding_environment
+    definition = _derived_definition(owner)
+    known = {
+        **{
+            value.occurrence.binding.name: value.value_type
+            for value in namespaces.admitted_values
+        },
+        **namespaces.unadmitted_value_types,
+    }
+    names = {occurrence.binding.name for occurrence in namespaces.occurrences}
+    clauses: list[tuple[Expression, bool]] = []
+    if definition.where_clause is not None:
+        clauses.append((definition.where_clause.expression, True))
+    items = tuple(
+        item.expression
+        for item in definition.select_items
+        if type(item.expression) is not WindowExpr
+    )
+    if _mode(definition) is ProjectJoinedAggregationMode.ABSENT:
+        clauses.extend((item, False) for item in items)
+    found: list[Diagnostic] = []
+    for expression, where in clauses:
+        if where and contains_semantic_aggregate(expression):
+            found.append(invalid_context_diagnostic(expression, context="where clause"))
+        pending = [expression]
+        reads_relation = False
+        while pending and not reads_relation:
+            node = pending.pop()
+            reads_relation = type(node) in _RELATION_READS
+            pending.extend(child_expressions(node))
+        if reads_relation:
+            continue
+        value_types: dict[Expression, ValueType] = {}
+        for leaf in scalar_field_reference_leaves(expression):
+            if type(leaf) is NameExpr and leaf.name in names:
+                if leaf.name in known:
+                    continue
+                break
+            resolution = resolve_project_joined_scalar_reference(
+                environment,
+                ProjectScalarReferenceOccurrence(
+                    environment=environment.scalar_environment, expression=leaf
+                ),
+            )
+            if resolution.target is None:
+                break
+            value_types[leaf] = resolution.target.value_type
+        else:
+            local: list[Diagnostic] = []
+            value_type = infer_row_expression(
+                expression,
+                RowSchema(),
+                value_types,
+                local,
+                report_unknown_name=True,
+                bare_value_types=known,
+                bare_value_expressions=namespaces.written_lets,
+            )
+            found.extend(local)
+            if (
+                where
+                and value_type.kind is ValueTypeKind.KNOWN
+                and not any(item.severity is Severity.ERROR for item in local)
+                and (
+                    bool_diagnostic := semantic_predicates._check_bool_expression(
+                        expression,
+                        context="where clause",
+                        expression_value_types=value_types,
+                    )
+                )
+                is not None
+            ):
+                found.append(bool_diagnostic)
+    return tuple(found)
+
+
+_RELATION_READS = frozenset(
+    {
+        RelationScalarExpr,
+        RelationExistsExpr,
+        RelationMembershipExpr,
+        CapturedFieldExpr,
+    }
+)
+
+
+def _unreached_joined_select_diagnostics(
+    completion: ProjectCompletion,
+    result: ProjectNonConcreteJoinedQualify,
+) -> tuple[Diagnostic, ...]:
+    """The errors of a joined relation's WHERE that is not concrete, then those
+    of each of its SELECT items, which that WHERE leaves untyped, typed as the
+    outputs would be; in a relation with GROUP BY or aggregates the items are
+    the aggregation's. Every other stage keeps its own diagnostics."""
+
+    aggregation = result.window_stage.input_aggregation
+    row_filter = aggregation.input_filter
+    if type(row_filter) is not ProjectNonConcreteJoinedRowFilter:
+        return ()
+    owner = row_filter.entry.owner
+    definition = _derived_definition(owner)
+    if _mode(definition) is not ProjectJoinedAggregationMode.ABSENT:
+        return ()
+    read_types = _semantic_facts(completion, owner).scalar_read_types
+    return (
+        *row_filter.diagnostics,
+        *(
+            diagnostic
+            for item in definition.select_items
+            if type(item.expression) is not WindowExpr
+            for diagnostic in analyze_project_joined_namespace_expression(
+                row_filter.namespace, item.expression, read_types=read_types
+            ).diagnostics
+        ),
+    )
 
 
 def _order_direction(item: OrderItem) -> ProjectRelationOrderDirection:
@@ -5194,7 +5364,10 @@ def _complete_joined_output(
                 ProjectEffectiveOutputCompletionTerminalReason.JOINED_QUALIFY_NON_CONCRETE
             ),
             blocker=result,
-            diagnostics=result.diagnostics,
+            diagnostics=(
+                *result.diagnostics,
+                *_unreached_joined_select_diagnostics(completion, result),
+            ),
             joined_qualify=result,
         )
     if type(result) is not ProjectConcreteJoinedQualify:
@@ -6309,10 +6482,15 @@ class _CurrentJoinBuild:
             raise TypeError("Current row source lost its exact semantic result.")
         self.readiness.append(readiness)
         if isinstance(readiness, ProjectNonConcreteJoinedRowSemantics):
+            unreached = _joined_let_unreached_diagnostics(readiness, base_entry.owner)
             return _terminal(
                 base_entry=base_entry,
                 reason=ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_TAIL_NON_CONCRETE,
                 blocker=readiness,
+                # The `let:` clause's own diagnostics come first.
+                diagnostics=(
+                    (*readiness.namespaces.diagnostics, *unreached) if unreached else ()
+                ),
                 current_region=region,
             )
         row_filter = build_project_joined_row_filter(

@@ -693,13 +693,14 @@ def test_a_project_def_checks_an_argument_with_its_let_values_written_in(
     ],
     ids=["let_names", "values_written_in"],
 )
-def test_a_project_def_argument_ill_typed_once_its_lets_are_written_in_is_an_error(
+def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], spelling: dict[str, str]
 ) -> None:
-    """As in a single file, an argument whose `let:` values are ill-typed once
-    the null they read is written in reports the error the values written by
-    hand report, where they start, in a let and in a select, also as the
-    whole argument, and its parameter adds nothing."""
+    """As in a single file, a `let:` value ill-typed once the null it reads
+    takes its type reports its error in its binding, and a def argument that
+    reads it, in a let or in a select, adds nothing; the value written by
+    hand reports it where it is written, also as the whole argument, and its
+    parameter adds nothing."""
     source = DEF_HEAD + (
         "query q:\n    from rows\n    let:\n        nill = null\n"
         "        i1 = coalesce(nill, 1)\n        i2 = upper(nill) + 1\n"
@@ -710,11 +711,24 @@ def test_a_project_def_argument_ill_typed_once_its_lets_are_written_in_is_an_err
         "Invalid argument type for function lower at position 1: expected Text, got Int"
     )
     not_numeric = "Invalid operands for operator +: expected numeric operands"
+    written_in = spelling["I1"] != "i1"
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        ("PIE-S2105", "a.pietto", DEF_LINE + 7, 17, not_numeric),
+        ("PIE-S2105", "a.pietto", DEF_LINE + 5, 14, not_numeric),
+        ("PIE-S2104", "a.pietto", DEF_LINE + 6, 14, lower_of_int),
+        *(
+            [("PIE-S2105", "a.pietto", DEF_LINE + 7, 17, not_numeric)]
+            if written_in
+            else []
+        ),
         ("PIE-S2104", "a.pietto", DEF_LINE + 10, 17, lower_of_int),
-        ("PIE-S2105", "a.pietto", DEF_LINE + 11, 17, not_numeric),
-        ("PIE-S2104", "a.pietto", DEF_LINE + 12, 17, lower_of_int),
+        *(
+            [
+                ("PIE-S2105", "a.pietto", DEF_LINE + 11, 17, not_numeric),
+                ("PIE-S2104", "a.pietto", DEF_LINE + 12, 17, lower_of_int),
+            ]
+            if written_in
+            else []
+        ),
     ]
 
 
@@ -734,12 +748,13 @@ def test_a_project_def_argument_ill_typed_once_its_lets_are_written_in_is_an_err
 def test_a_project_def_argument_reports_what_its_written_form_reports(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], spelling: dict[str, str]
 ) -> None:
-    """As in a single file, an argument is checked with its `let:` values
-    written in and reports what they written by hand report, in the same
-    order: a `let:` name the values read is never an unknown field, also when
-    the relation's `let:` types are not all known (`nill`); a value
-    ill-typed once written in keeps the type it still has (`w`); and an
-    argument with an error of its own is not checked against its parameter."""
+    """As in a single file, an argument is checked with the types its `let:`
+    values have written in, as the values written by hand are: a `let:` name
+    the values read is never an unknown field, also when the relation's
+    `let:` types are not all known (`nill`); a value ill-typed once the null
+    it reads takes its type reports that in its binding (`e`) and keeps the
+    type it still has (`w`); and an argument with an error of its own is not
+    checked against its parameter."""
     source = DEF_HEAD + (
         "query q:\n    from rows\n    let:\n        nill = null\n        f = id\n"
         "        h = coalesce(nill, f)\n        tt = true\n"
@@ -749,7 +764,11 @@ def test_a_project_def_argument_reports_what_its_written_form_reports(
         "        d = idi({NILL} + zz)\n"
     ).format(**spelling)
     line = DEF_LINE + 13
+    lower_of_int = (
+        "Invalid argument type for function lower at position 1: expected Text, got Int"
+    )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        ("PIE-S2104", "a.pietto", line - 4, 13, lower_of_int),
         (
             "PIE-S2104",
             "a.pietto",
@@ -759,13 +778,10 @@ def test_a_project_def_argument_reports_what_its_written_form_reports(
             "expected Text, got Int",
         ),
         _mismatch("pos", line + 1, 13, "Int not null", "Int nullable"),
-        (
-            "PIE-S2104",
-            "a.pietto",
-            line + 2,
-            17,
-            "Invalid argument type for function lower at position 1: "
-            "expected Text, got Int",
+        *(
+            [("PIE-S2104", "a.pietto", line + 2, 17, lower_of_int)]
+            if spelling["W"] != "w"
+            else []
         ),
         _mismatch("idi", line + 2, 13, "Int not null", "Bool not null"),
         ("PIE-S2102", "a.pietto", line + 3, 24, "Unknown field: zz"),

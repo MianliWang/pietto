@@ -838,6 +838,60 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
     )
 
 
+def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
+    tmp_path: Path,
+) -> None:
+    """A field of an enum, also imported under another name or through a type
+    alias of it, is read as that enum, as in a single file: a WHERE needs a
+    Bool, an `in` list the same canonical type, `lower` a Text and a def its
+    parameter's type, while a comparison stays Bool. Before, the field was of
+    unknown type, so these passed or left the relation to PIE-S2333."""
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    enum Status as BStatus\n'
+                "type St = BStatus\n"
+                "shape U:\n    id: Int not null\n    st: BStatus not null\n"
+                "    sa: St nullable\n"
+                'source us: U is postgres.table("us")\n'
+                "def tn(x: Text not null) -> Text not null: return x\n"
+                "query q:\n    from us\n    where st\n    select:\n        id\n"
+                '        a = st in ("active")\n        b = tn(sa)\n'
+                '        c = lower(st)\n        d = st == "active"\n        e = sa\n'
+            ),
+            "b.pietto": "enum Status:\n    active\n    held\nexport:\n    enum Status\n",
+        },
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        ("PIE-S2202", "Expected Bool expression in where clause", 12, 11),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator in: expected same canonical membership "
+            "operands",
+            15,
+            13,
+        ),
+        (
+            "PIE-S2395",
+            "Invalid argument for def tn at position 1 (x): expected Text not null, "
+            "got Status nullable",
+            16,
+            13,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected Text, "
+            "got Status",
+            17,
+            13,
+        ),
+    ]
+
+
 def test_local_alias_cycle_emits_one_exact_pie_s2003(tmp_path: Path) -> None:
     _, semantic = _semantic_project(
         tmp_path,

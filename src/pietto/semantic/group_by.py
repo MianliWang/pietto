@@ -39,7 +39,7 @@ from pietto.semantic.aggregates import (
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
-from pietto.semantic.expressions import _canonical_value_type, unfit_let_argument
+from pietto.semantic.expressions import _canonical_value_type, unfit_argument
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -397,8 +397,12 @@ def _aggregate_output_field(
         has_unknown_reference = has_unknown_field_reference(
             effective_argument,
             expression_value_types,
-        ) or unfit_let_argument(
-            argument, effective_argument, expression_value_types, type_expansions
+        ) or unfit_argument(
+            function_name,
+            argument,
+            let_expansions,
+            expression_value_types,
+            type_expansions,
         )
 
         authored_type = (

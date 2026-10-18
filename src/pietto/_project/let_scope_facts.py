@@ -87,6 +87,14 @@ class ProjectRelationLetScopeFacts:
     value_types: Mapping[str, ValueType] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    # The type of each binding without an error of its own, as a single file
+    # reads it: `value_types` itself in a CONCRETE scope; in an UNKNOWN one
+    # whose let analysis ran, also beside a binding with an error, and of
+    # unknown type for one such as `k = null`, whose read takes its type from
+    # where it stands, as `null` does.
+    binding_value_types: Mapping[str, ValueType] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
     definition: _DerivedRelation | None = None
     input_schema: ProjectRowSchema | None = None
     upstream_definition: _RelationDefinition | None = None
@@ -110,6 +118,25 @@ class ProjectRelationLetScopeFacts:
         object.__setattr__(self, "bindings", bindings)
         object.__setattr__(self, "binding_expressions", binding_expressions)
         object.__setattr__(self, "value_types", value_types)
+        binding_value_types = (
+            value_types
+            if self.status is ProjectLetScopeFactsStatus.CONCRETE
+            else _readonly_mapping(self.binding_value_types)
+        )
+        object.__setattr__(self, "binding_value_types", binding_value_types)
+        if (
+            binding_value_types
+            and self.status is not ProjectLetScopeFactsStatus.CONCRETE
+            and (
+                self.status is not ProjectLetScopeFactsStatus.UNKNOWN
+                or any(
+                    type(value) is not ValueType
+                    for value in binding_value_types.values()
+                )
+                or not set(binding_value_types) <= set(_binding_names(bindings))
+            )
+        ):
+            raise ValueError("LET binding value types require analyzed bindings")
         object.__setattr__(
             self,
             "expression_value_types",
@@ -215,49 +242,32 @@ def build_project_relation_let_scope_facts(
         relation_row_schemas=_relation_row_schemas(upstream_definition, row_schema),
         allow_unaliased_selected_let_outputs=True,
     )
-    if diagnostics:
-        return ProjectRelationLetScopeFacts(
-            status=ProjectLetScopeFactsStatus.UNKNOWN,
-            reason=ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED,
-            clause=definition.let_clause,
-            bindings=bindings,
-            binding_expressions=binding_expressions,
-            definition=definition,
-            input_schema=effective_input_schema,
-            upstream_definition=upstream_definition,
-            input_state=upstream_state,
-            expression_value_types=expression_value_types,
-            diagnostics=tuple(diagnostics),
-        )
-
     scope = scopes.get(definition)
-    if scope is None:
-        return ProjectRelationLetScopeFacts(
-            status=ProjectLetScopeFactsStatus.UNKNOWN,
-            reason=ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE,
-            clause=definition.let_clause,
-            bindings=bindings,
-            binding_expressions=binding_expressions,
-            definition=definition,
-            input_schema=effective_input_schema,
-            upstream_definition=upstream_definition,
-            input_state=upstream_state,
-            expression_value_types=expression_value_types,
-            diagnostics=tuple(diagnostics),
-        )
-
-    known_values = {
+    erroneous = _let_names_with_diagnostics(definition, diagnostics)
+    binding_values = {
         name: value_type
-        for name, value_type in scope.value_types.items()
-        if value_type.kind is ValueTypeKind.KNOWN
+        for name, value_type in ({} if scope is None else scope.value_types).items()
+        if name not in erroneous
     }
-    if tuple(known_values) != _binding_names(bindings):
+    if (
+        diagnostics
+        or tuple(binding_values) != _binding_names(bindings)
+        or any(
+            value_type.kind is not ValueTypeKind.KNOWN
+            for value_type in binding_values.values()
+        )
+    ):
         return ProjectRelationLetScopeFacts(
             status=ProjectLetScopeFactsStatus.UNKNOWN,
-            reason=ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE,
+            reason=(
+                ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED
+                if diagnostics
+                else ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE
+            ),
             clause=definition.let_clause,
             bindings=bindings,
             binding_expressions=binding_expressions,
+            binding_value_types=binding_values,
             definition=definition,
             input_schema=effective_input_schema,
             upstream_definition=upstream_definition,
@@ -272,7 +282,7 @@ def build_project_relation_let_scope_facts(
         clause=definition.let_clause,
         bindings=bindings,
         binding_expressions=binding_expressions,
-        value_types=known_values,
+        value_types=binding_values,
         definition=definition,
         input_schema=effective_input_schema,
         upstream_definition=upstream_definition,

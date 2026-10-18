@@ -1096,9 +1096,7 @@ _UNAVAILABLE = (
         (
             "    let:\n        n = null\n        n = 1\n    select:\n        id\n"
             "        a = cast(n as Text)\n",
-            "main.pietto:9:9 PIE-S2329 error: Duplicate let binding name: n\n"
-            "main.pietto:12:13 PIE-S2105 error: Invalid cast: cast(unknown as Text) is "
-            "not supported; expected cast(Int as Float), the only supported cast\n",
+            "main.pietto:9:9 PIE-S2329 error: Duplicate let binding name: n\n",
         ),
         (
             "    let:\n        f = zz\n    select:\n        id\n        g = f\n",

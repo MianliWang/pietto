@@ -562,6 +562,52 @@ def test_resource_hard_limits_cannot_be_raised(built):
     )
 
 
+def test_a_let_chain_past_the_structure_limit_is_refused_before_realization(
+    tmp_path,
+):
+    """Each `let:` binding is a stage that carries every earlier column, so a
+    long chain grows the plan quadratically; preparation refuses a plan whose
+    stage columns already pass the generated-node limit (two nodes each) with
+    PIE-B1007 `generated_structure_limit`, the limit realization applies,
+    before the plan is assessed and realized. Before, it was refused only
+    after both, at a cost growing with the square of the chain."""
+    lets = "".join(f"        l{i} = coalesce(l{i - 1}, 1)\n" for i in range(1, 45))
+    item = probe.join_witness(
+        "postgres",
+        "query result:\n    from lhs\n    let:\n        l0 = id\n"
+        f"{lets}    select:\n        id\n        w = l44\n",
+    )
+    document = json.loads(item["contract"])
+    document["environment"].append(
+        {"key": "resource_limits", "scope": "statement", "value": {"nodes": 2000}}
+    )
+    checked, outcome = probe.build_case(
+        tmp_path, item["source"], probe.encoded(document).decode(), item["policy"]
+    )
+    prepared = prepare_project_sql_emission(checked, probe.encoded(document))
+    assert [(b.code, b.detail) for b in prepared.blockers] == [
+        ("PIE-B1007", "generated_structure_limit")
+    ]
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert public["status"] == "BLOCKED"
+    assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == [
+        ("PIE-B1007", "generated_structure_limit")
+    ]
+    lets = "".join(f"        l{i} = coalesce(l{i - 1}, 1)\n" for i in range(1, 30))
+    item = probe.join_witness(
+        "postgres",
+        "query result:\n    from lhs\n    let:\n        l0 = id\n"
+        f"{lets}    select:\n        id\n        w = l29\n",
+    )
+    _, shorter = probe.build_case(
+        tmp_path / "shorter",
+        item["source"],
+        probe.encoded(document).decode(),
+        item["policy"],
+    )
+    assert shorter.status == "VERIFIED"
+
+
 @pytest.mark.parametrize("mode", ("cross_source", "unused_conflict"))
 def test_all_premise_scopes_are_bound_and_coherent(tmp_path, mode):
     item = probe.fixture("postgres")

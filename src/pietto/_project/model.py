@@ -2740,10 +2740,15 @@ def _project_direct_relation_row_schema(
             upstream_definition=upstream_definition,
             upstream_state=upstream_state,
         )
+    # A binding of unknown type (such as `k = null`) or with an error of its
+    # own leaves the scope non-concrete; reads of the other bindings are
+    # still typed, and a read of one bound to `null` takes its type from where
+    # it stands, as the value written there does.
+    concrete_lets = let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
     let_value_types = (
         let_scope_facts.value_types
-        if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
-        else None
+        if concrete_lets
+        else let_scope_facts.binding_value_types or None
     )
     expression_value_types = build_project_row_expression_value_types(
         expressions=(
@@ -2754,6 +2759,14 @@ def _project_direct_relation_row_schema(
         input_schema=source_schema,
         relation_qualifier=definition.from_clause.source_name,
         bare_value_types=let_value_types,
+        bare_value_expressions=(
+            None
+            if concrete_lets or let_value_types is None
+            else {
+                name: let_scope_facts.binding_expressions[name]
+                for name in let_value_types
+            }
+        ),
         read_types=read_types,
         captured_value_types=captured_value_types,
     )

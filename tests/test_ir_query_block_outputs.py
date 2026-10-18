@@ -15,9 +15,14 @@ from pietto._project import project_joined_aggregation as aggregation
 from pietto._project import project_joined_qualify as qualify
 from pietto._project import project_joined_row_filter as row_filter
 from pietto._project import project_joined_windows as windows
+from pietto._project.check import check_project_parse_only
+from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.module_attribution import ProjectModuleRowFieldKind
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+)
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
 )
 from pietto._project.project_completion import (
     ProjectEffectiveOutputTerminalReason,
@@ -622,6 +627,100 @@ def test_projection_failures_publish_no_partial_output(
     assert result.output is None
     if code is not None:
         assert tuple(item.code for item in result.diagnostics) == (code,)
+
+
+_STAGE_ERRORS_SOURCE = """shape T:
+    id: Int not null
+    n: Int nullable
+    t: Text nullable
+    unique t_key on id
+shape O:
+    oid: Int not null
+    tid: Int not null
+    unique o_key on oid
+source src: T is postgres.table("src")
+source oth: O is postgres.table("oth")
+relationship owned:
+    endpoint row: src
+    endpoint other: oth
+    on row.id == other.tid
+def tw(x: Text not null) -> Text not null: return x
+"""
+
+
+@pytest.mark.parametrize(
+    "join",
+    (
+        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
+        "    inner join oth as r\n",
+        "",
+    ),
+    ids=("on", "relationship", "none"),
+)
+def test_every_clause_of_a_relation_reports_its_own_errors(
+    tmp_path: Path, join: str
+) -> None:
+    """Each `let:` binding, the WHERE and every SELECT item report their own
+    errors in source order, as in a single file, with or without JOIN inputs,
+    whichever of them stops the relation; a read of a binding with an error
+    of its own is left to that error. Before, an error in a JOIN relation's
+    `let:` hid its WHERE and SELECT errors, the first SELECT item that failed
+    hid the others, and an error in any relation's `let:` hid its WHERE."""
+    queries = (
+        "    let:\n        l1 = lower(1)\n    where lower(3) is not null\n"
+        "    select:\n        id\n        o = lower(2)\n        p = tw(t)\n"
+        "        q = l1\n",
+        "    where lower(3) is not null\n    select:\n        id\n"
+        "        o = lower(2)\n        p = tw(t)\n",
+        "    select:\n        id\n        o = lower(2)\n        p = tw(t)\n",
+    )
+    text = _STAGE_ERRORS_SOURCE + "".join(
+        f"query q{ordinal}:\n    from src\n{join}{body}"
+        for ordinal, body in enumerate(queries)
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(text, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    lines = text.splitlines()
+
+    def at(query: int, fragment: str) -> int:
+        start = lines.index(f"query q{query}:")
+        return (
+            start
+            + 1
+            + next(
+                index for index, line in enumerate(lines[start:]) if fragment in line
+            )
+        )
+
+    lower = (
+        "PIE-S2104",
+        "Invalid argument type for function lower at position 1: expected Text, "
+        "got Int",
+    )
+    unfit = (
+        "PIE-S2395",
+        "Invalid argument for def tw at position 1 (x): expected Text not null, "
+        "got Text nullable",
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        (*lower, at(0, "l1 = lower(1)"), 14),
+        (*lower, at(0, "where lower(3)"), 11),
+        (*lower, at(0, "o = lower(2)"), 13),
+        (*unfit, at(0, "p = tw(t)"), 13),
+        (*lower, at(1, "where lower(3)"), 11),
+        (*lower, at(1, "o = lower(2)"), 13),
+        (*unfit, at(1, "p = tw(t)"), 13),
+        (*lower, at(2, "o = lower(2)"), 13),
+        (*unfit, at(2, "p = tw(t)"), 13),
+    ]
 
 
 def test_hidden_qualify_window_never_becomes_an_automatic_final_field(

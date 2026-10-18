@@ -334,16 +334,7 @@ def test_saved_bytes_survive_live_damage_but_bound_consumer_does_not(contracts):
     runtime.verify_bound_export(exported, checked)
 
 
-def test_parameterized_descriptor_and_existing_enum_boundary(tmp_path):
-    from _pietto_plan_selected import (
-        _roots,
-    )
-    from pietto._project.project_sql_plan import (
-        build_project_sql_plan,
-        ProjectSQLPlanUnavailable,
-    )
-    from pietto._project.project_sql_plan_verification import verify_project_sql_plan
-
+def test_parameterized_descriptor_and_enum_field_descriptor(tmp_path):
     source = probe.source("postgres").replace(
         "id: Int not null", "id: Decimal(18, 4) not null"
     )
@@ -354,20 +345,21 @@ def test_parameterized_descriptor_and_existing_enum_boundary(tmp_path):
     assert [
         a["value"]["value"] for a in exported.view.fields[0]["declared"]["arguments"]
     ] == ["18", "4"]
-    # This specific Enum program lacks a verified neutral plan; this is not an enum-wide claim.
+    # A project field of an enum is typed as that enum, so this program's plan
+    # verifies and its contract names the enum as the field's type.
     enum_source = "enum Status:\n    active\n    inactive\n" + probe.source(
         "postgres"
     ).replace("id: Int not null", "id: Status nullable")
-    directory = tmp_path / "enum"
-    directory.mkdir()
-    args = _roots(directory, enum_source)
-    plan = build_project_sql_plan(*args)
-    assert isinstance(plan, ProjectSQLPlanUnavailable)
-    assert [b.kind.value for b in plan.blockers] == ["expression_evidence_unavailable"]
-    checked = verify_project_sql_plan(plan, *args)
-    assert not checked.verified
-    with pytest.raises(c.ResultError, match="ROOT"):
-        c.build_result_contract(checked)
+    checked = probe.build_neutral(tmp_path / "enum", {"main.pietto": enum_source})
+    exported = writer.export_result_contract(c.build_result_contract(checked), checked)
+    runtime.verify_bound_export(exported, checked)
+    field = exported.view.fields[0]
+    assert (field["canonical"]["kind"], field["canonical"]["name"]) == (
+        "enum",
+        "Status",
+    )
+    assert (field["declared"]["name"], field["nullability"]) == ("Status", "nullable")
+    assert field["type_resolution"]["canonical_kind"] == "enum"
 
 
 def test_equivalent_file_construction_order_and_reference_limit(contracts, tmp_path):

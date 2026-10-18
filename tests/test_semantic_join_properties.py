@@ -415,9 +415,9 @@ def _completed_diagnostics(root: Path, source: str) -> list[tuple[str, str, int,
 def test_an_enum_field_joins_whatever_its_declared_nullability(
     tmp_path: Path, form: str
 ) -> None:
-    # Scalar typing reads an enum field as wholly unknown, nullability included,
-    # whatever the JOIN makes of the field: the JOIN completes, and a read of
-    # the field after it stays PIE-S2333 for every modifier.
+    # Scalar typing reads an enum field as its enum, as a single file does,
+    # whatever the JOIN makes of the field: the JOIN completes, and so does a
+    # read of the field after it, for every modifier.
     kind, condition = ENUM_JOIN_FORMS[form]
     reads = ("orders.status",) + (() if kind in {"semi", "anti"} else ("c.status",))
     for position, modifier in enumerate(("", " nullable", " not null")):
@@ -431,9 +431,12 @@ def test_an_enum_field_joins_whatever_its_declared_nullability(
         )
         assert _completed_diagnostics(tmp_path / f"{position}", source) == []
         for ordinal, read in enumerate(reads):
-            assert _completed_diagnostics(
-                tmp_path / f"{position}-{ordinal}", f"{source}        s = {read}\n"
-            ) == [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)]
+            assert (
+                _completed_diagnostics(
+                    tmp_path / f"{position}-{ordinal}", f"{source}        s = {read}\n"
+                )
+                == []
+            )
 
 
 @pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
@@ -448,7 +451,7 @@ def test_an_enum_field_joins_whatever_its_declared_nullability(
 def test_an_enum_field_joins_through_an_inferred_relationship_join_as_written(
     tmp_path: Path, kind: str, join: str
 ) -> None:
-    # The JOIN that infers its source or its VIA roles completes, and fails a
+    # The JOIN that infers its source or its VIA roles completes, and so does a
     # read of the field after it, exactly as the JOIN written with `from`.
     for position, modifier in enumerate(("", " nullable", " not null")):
         written = ENUM_JOIN_SOURCE.format(
@@ -466,10 +469,7 @@ def test_an_enum_field_joins_through_an_inferred_relationship_join_as_written(
         assert inferred != written
         for suffix, expected in (
             ("", []),
-            (
-                "        s = orders.status\n",
-                [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)],
-            ),
+            ("        s = orders.status\n", []),
         ):
             for name, source in (("written", written), ("inferred", inferred)):
                 directory = tmp_path / f"{position}-{bool(suffix)}-{name}"
@@ -478,19 +478,16 @@ def test_an_enum_field_joins_through_an_inferred_relationship_join_as_written(
 
 @pytest.mark.parametrize("kind", ("inner", "left", "full", "cross"))
 @pytest.mark.parametrize(
-    ("relation", "line"),
+    "relation",
     [
-        ("table b:\n    from orders\n    select:\n        id\n        status\n", 22),
-        (
-            "table b:\n    from orders\n    group by:\n        id\n        status\n"
-            "    select:\n        id\n        status\n        n = count()\n",
-            26,
-        ),
+        "table b:\n    from orders\n    select:\n        id\n        status\n",
+        "table b:\n    from orders\n    group by:\n        id\n        status\n"
+        "    select:\n        id\n        status\n        n = count()\n",
     ],
     ids=("selected", "grouped"),
 )
 def test_a_relation_output_with_an_enum_field_joins_whatever_its_nullability(
-    tmp_path: Path, kind: str, relation: str, line: int
+    tmp_path: Path, kind: str, relation: str
 ) -> None:
     condition = "" if kind == "cross" else "        on b.id == c.id\n"
     for position, modifier in enumerate(("", " nullable", " not null")):
@@ -503,9 +500,12 @@ def test_a_relation_output_with_an_enum_field_joins_whatever_its_nullability(
             condition=condition,
         )
         assert _completed_diagnostics(tmp_path / f"{position}", source) == []
-        assert _completed_diagnostics(
-            tmp_path / f"{position}-read", f"{source}        s = c.status\n"
-        ) == [("PIE-S2333", ENUM_READ_UNAVAILABLE, line, 1)]
+        assert (
+            _completed_diagnostics(
+                tmp_path / f"{position}-read", f"{source}        s = c.status\n"
+            )
+            == []
+        )
 
 
 ENUM_UNAVAILABLE_AT_QUERY = [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)]
@@ -514,40 +514,77 @@ ENUM_WINDOW = (
     "        rn = row_number() window:\n            partition by:\n"
     "                {}\n            order by:\n                {}\n"
 )
-ENUM_WINDOW_REFUSED = (
-    "Unsupported window computation for function row_number: "
-    "window {} field type must be concrete"
-)
 ENUM_LET = (
     "query q:\n    let x:\n        from orders\n        select:\n"
     "            id\n            customer_id\n            status\n"
 )
 # (before SELECT, after its first output, expected diagnostics) per read of
-# c.status after a LEFT JOIN, as docs/language.md states them.
+# c.status after a LEFT JOIN, as docs/language.md states them: each is checked
+# as a single file checks a read of an enum field.
 ENUM_JOINED_READS = {
     "where_is_null": ("    where c.status is null\n", "", []),
     "where_comparisons": (
-        '    where coalesce(c.status, "x") == "active" or c.id > 0\n',
+        '    where c.status == "active" or c.id > 0\n',
         "",
         [],
+    ),
+    "where_coalesce": (
+        '    where coalesce(c.status, "x") == "active"\n',
+        "",
+        [
+            (
+                "PIE-S2104",
+                "Invalid argument types for function coalesce: expected same "
+                "canonical type",
+                22,
+                11,
+            )
+        ],
     ),
     "select_comparison": ("", '        v = c.status != "active"\n', []),
     "let_test": ("    let:\n        v = c.status is not null\n", "", []),
     "order_comparison": ("", '    order by:\n        c.status >= "b"\n', []),
     "group_key": (ENUM_GROUPED, "        n = count()\n", []),
-    "where_in": ('    where c.status in ("active")\n', "", ENUM_UNAVAILABLE_AT_QUERY),
-    "where_between": (
-        '    where c.status between "a" and "z"\n',
+    "where_in": (
+        '    where c.status in ("active")\n',
         "",
-        ENUM_UNAVAILABLE_AT_QUERY,
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator in: expected same canonical "
+                "membership operands",
+                22,
+                11,
+            )
+        ],
     ),
+    "where_between": ('    where c.status between "a" and "z"\n', "", []),
     "where_not_like": (
         '    where c.status not like "a%"\n',
         "",
-        ENUM_UNAVAILABLE_AT_QUERY,
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator not like: expected Text operands",
+                22,
+                11,
+            )
+        ],
     ),
-    "select_call": ("", "        v = lower(c.status)\n", ENUM_UNAVAILABLE_AT_QUERY),
-    "order_field": ("", "    order by:\n        c.status\n", ENUM_UNAVAILABLE_AT_QUERY),
+    "select_call": (
+        "",
+        "        v = lower(c.status)\n",
+        [
+            (
+                "PIE-S2104",
+                "Invalid argument type for function lower at position 1: "
+                "expected Text, got Status",
+                24,
+                13,
+            )
+        ],
+    ),
+    "order_field": ("", "    order by:\n        c.status\n", []),
     "group_key_selected": (
         ENUM_GROUPED,
         "        v = c.status\n        n = count()\n",
@@ -558,29 +595,21 @@ ENUM_JOINED_READS = {
         "        n = count(c.status)\n",
         [
             (
-                "PIE-S2315",
-                "Aggregate function count requires a direct field argument; "
-                "expression arguments are not supported yet",
+                "PIE-S2314",
+                "Aggregate function count expects concrete non-Any field "
+                "argument, got Status",
                 26,
                 13,
             )
         ],
     ),
-    "window_partition": (
-        "",
-        ENUM_WINDOW.format("c.status", "orders.id"),
-        [("PIE-S2103", ENUM_WINDOW_REFUSED.format("partition"), 24, 14)],
-    ),
-    "window_order": (
-        "",
-        ENUM_WINDOW.format("orders.id", "c.status"),
-        [("PIE-S2103", ENUM_WINDOW_REFUSED.format("order"), 24, 14)],
-    ),
+    "window_partition": ("", ENUM_WINDOW.format("c.status", "orders.id"), []),
+    "window_order": ("", ENUM_WINDOW.format("orders.id", "c.status"), []),
 }
 
 
 @pytest.mark.parametrize("read", ENUM_JOINED_READS)
-def test_after_a_join_an_enum_field_reads_only_inside_a_known_type(
+def test_after_a_join_an_enum_field_reads_as_its_enum(
     tmp_path: Path, read: str
 ) -> None:
     before, after, expected = ENUM_JOINED_READS[read]
@@ -606,9 +635,11 @@ def test_after_a_join_an_enum_field_reads_only_inside_a_known_type(
     ],
     ids=("from", "target"),
 )
-def test_a_relation_let_with_an_enum_field_is_not_a_join_input_yet(
+def test_a_relation_let_with_an_enum_field_is_a_join_input(
     tmp_path: Path, left: str, right: str, condition: str
 ) -> None:
+    # Its enum field is typed, so its rows complete as a JOIN input, with the
+    # field or without it.
     for position, modifier in enumerate(("", " nullable", " not null")):
         source = ENUM_JOIN_SOURCE.format(
             modifier=modifier,
@@ -618,10 +649,7 @@ def test_a_relation_let_with_an_enum_field_is_not_a_join_input_yet(
             right=right,
             condition=condition,
         ).replace("query q:\n", ENUM_LET)
-        assert (
-            _completed_diagnostics(tmp_path / f"{position}", source)
-            == ENUM_UNAVAILABLE_AT_QUERY
-        )
+        assert _completed_diagnostics(tmp_path / f"{position}", source) == []
         without_field = source.replace("            status\n", "")
         assert _completed_diagnostics(tmp_path / f"{position}-", without_field) == []
 

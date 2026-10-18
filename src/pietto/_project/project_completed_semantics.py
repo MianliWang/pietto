@@ -1701,6 +1701,7 @@ def _final_diagnostics(
             for diagnostic in (
                 *(() if completed else _entry_error_diagnostics(entry)),
                 *reads,
+                *project_final_outputs.joined_let_unreached_diagnostics(entry),
             )
             if id(diagnostic) not in retired_ids
         )

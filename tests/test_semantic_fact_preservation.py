@@ -24,6 +24,9 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto._project.window_semantics import (
     WindowDependencyRole,
     deduplicate_window_dependency_edges,
@@ -3234,6 +3237,139 @@ def test_named_window_resolution_diagnostics_remain_project_failures(
     assert tuple(item.code for item in output.diagnostics) == (code,)
     assert output.project_fact is None
     assert output.retained_project_fact is None
+
+
+def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
+    tmp_path: Path,
+) -> None:
+    """Beside a binding of unknown type (`k = null`) or with an error of its
+    own, a window that reads no binding is analyzed, the WHERE is typed and a
+    selected read of a binding of known type is typed, so each reports only
+    its own errors, as in a single file; a window that reads a binding then
+    leaves the relation to PIE-S2333. Before, every window there was
+    PIE-S2103 `relation context requires canonical window input scope
+    facts`, the WHERE was not checked and `v = h` was PIE-S2333."""
+    window = (
+        "        rn = row_number() window:\n            order by:\n                id\n"
+    )
+    queries = {
+        "erroneous": "    let:\n        w = lower(amount)\n    select:\n        id\n"
+        + window,
+        "unread": "    let:\n        k = null\n    select:\n        id\n" + window,
+        "known": "    let:\n        k = null\n        f = id\n        h = f\n"
+        "    select:\n        id\n        v = h\n" + window,
+        "reading": "    let:\n        k = null\n        f = id\n    select:\n"
+        "        id\n        rn = row_number() window:\n"
+        "            partition by:\n                f\n            order by:\n"
+        "                id\n",
+        "never": "    let:\n        k = null\n    where amount == k\n    select:\n"
+        "        id\n",
+        "filtered": "    let:\n        w = lower(amount)\n"
+        '    where w == "a" and lower(id) == "b"\n    select:\n        id\n',
+    }
+    text = _prefix() + "".join(
+        f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+    lines = text.splitlines()
+
+    def at(fragment: str, after: str) -> int:
+        start = lines.index(f"query {after}:")
+        return (
+            start
+            + 1
+            + next(
+                index for index, line in enumerate(lines[start:]) if fragment in line
+            )
+        )
+
+    lower = (
+        "PIE-S2104",
+        "Invalid argument type for function lower at position 1: expected Text, "
+        "got Int",
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (*lower, at("w = lower", "erroneous"), 13),
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: reading",
+            at("query reading", "reading"),
+            1,
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: comparison with null is never "
+            "true; write `is null` instead",
+            at("where amount", "never"),
+            11,
+        ),
+        (*lower, at("w = lower", "filtered"), 13),
+        (*lower, at("where w", "filtered"), 24),
+    ]
+
+
+def test_a_selected_read_of_a_binding_bound_to_null_is_typed_where_it_stands(
+    tmp_path: Path,
+) -> None:
+    """A selected read of a binding bound to `null`, such as `k` in
+    `coalesce(k, 1)` or as the condition of `1 if k else 2`, takes its type
+    from where it stands, as `null` written there does, so the output is
+    typed and a def argument or function that reads it is checked as written,
+    as in a single file. Before, such a relation was a bare PIE-S2333."""
+    text = (
+        _prefix()
+        + "def ni(x: Int not null) -> Int not null: return x\n"
+        + "".join(
+            f"query {name}:\n    from rows\n    let:\n        k = null\n"
+            f"    select:\n{items}"
+            for name, items in (
+                (
+                    "reads",
+                    "        v = coalesce(k, 1)\n        w = 1 if k else 2\n"
+                    "        d = ni(coalesce(k, amount))\n",
+                ),
+                ("unfit", "        d = ni(coalesce(k, category))\n"),
+                ("wrong", "        e = lower(coalesce(k, amount))\n"),
+            )
+        )
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2395",
+            "Invalid argument for def ni at position 1 (x): expected Int not null, "
+            "got Text nullable",
+            20,
+            13,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected "
+            "Text, got Int",
+            26,
+            13,
+        ),
+    ]
+    assert [
+        (
+            selected.output_name,
+            selected.field.resolved_type.name,
+            selected.field.nullability,
+        )
+        for selected in _relation(semantic, "main.pietto", "reads").select_facts
+        if selected.field is not None
+    ] == [
+        ("v", "Int", ProjectRowFieldNullability.NON_NULL),
+        ("w", "Int", ProjectRowFieldNullability.NON_NULL),
+        ("d", "Int", ProjectRowFieldNullability.NON_NULL),
+    ]
 
 
 def test_navigation_offset_default_generic_and_nullability_formula_evidence_is_exact(

@@ -2093,6 +2093,122 @@ def test_an_aggregate_reports_its_unfit_def_argument_alone(tmp_path: Path) -> No
     ]
 
 
+_JOINED_STAGE_SOURCE = """shape Point:
+    code: Text not null
+shape T:
+    id: Int not null
+    n: Int nullable
+    home: Point not null
+    unique t_key on id
+shape O:
+    oid: Int not null
+    tid: Int not null
+    unique o_key on oid
+source src: T is postgres.table("src")
+source oth: O is postgres.table("oth")
+def bl(x: Bool nullable) -> Bool nullable: return x
+def ni(x: Int nullable) -> Int nullable: return x
+def nn(x: Int not null) -> Int not null: return x
+"""
+_JOINED_STAGE_INPUT = (
+    "    from oth\n    inner join src as r:\n        from oth\n"
+    "        on r.id == oth.tid\n"
+)
+
+
+def _joined_stage_diagnostics(
+    root: Path, queries: str
+) -> list[tuple[str, str, int, int]]:
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (root / "main.pietto").write_text(_JOINED_STAGE_SOURCE + queries, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(root))
+    )
+    offset = _JOINED_STAGE_SOURCE.count("\n")
+    return [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ]
+
+
+def test_satisfying_null_literal_is_pie_s2327_and_an_unknown_predicate_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """A null literal compared or combined in a joined `satisfying:` predicate,
+    also the argument of a nullable def, is PIE-S2327 at the literal, as in a
+    single file; any other predicate of unknown type, here a comparison of a
+    shape-typed output, leaves the relation to PIE-S2333. Before, both raised
+    ValueError."""
+    predicates = (
+        "a > 0",
+        "null",
+        "a == null",
+        "null and a > 0",
+        "bl(null)",
+        "bl(a == null)",
+        "ni(null) > 0",
+    )
+    queries = "".join(
+        f"query q{ordinal}:\n{_JOINED_STAGE_INPUT}    group by:\n        oth.oid\n"
+        "    select:\n        key = oth.oid\n        a = count(r.n)\n"
+        f"    satisfying:\n        {predicate}\n"
+        for ordinal, predicate in enumerate(predicates)
+    )
+    shape_line = len(predicates) * 12 + 1
+    queries += (
+        f"query shaped:\n{_JOINED_STAGE_INPUT}    group by:\n        oth.oid\n"
+        "        r.home\n    select:\n        key = oth.oid\n        h = r.home\n"
+        "        a = count(r.n)\n    satisfying:\n        h == h\n"
+    )
+    assert _joined_stage_diagnostics(tmp_path, queries) == [
+        *(
+            (
+                "PIE-S2327",
+                "Unsupported satisfying expression form: null literal",
+                ordinal * 12 + 12,
+                column,
+            )
+            for ordinal, column in ((1, 9), (2, 14), (3, 9), (4, 12), (5, 17), (6, 12))
+        ),
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: shaped",
+            shape_line,
+            1,
+        ),
+    ]
+
+
+def test_a_let_renaming_a_field_selects_that_field_group_key(tmp_path: Path) -> None:
+    """A `let:` name that renames a field is that field's group key where it is
+    selected, as a computed one is, and a def it is passed to must fit it
+    (PIE-S2395); a `let:` name that selects no group key is no unknown field
+    (PIE-S2102), and the relation fails closed with PIE-S2333."""
+    queries = "".join(
+        f"query {name}:\n{_JOINED_STAGE_INPUT}    let:\n        g1 = r.n\n"
+        f"        g2 = r.id\n    group by:\n        g1\n    select:\n"
+        f"        k = {item}\n        c = count()\n"
+        for name, item in (("alias", "g1"), ("unfit", "nn(g1)"), ("other", "g2"))
+    )
+    assert _joined_stage_diagnostics(tmp_path, queries) == [
+        (
+            "PIE-S2395",
+            "Invalid argument for def nn at position 1 (x): "
+            "expected Int not null, got Int nullable",
+            25,
+            13,
+        ),
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: other",
+            27,
+            1,
+        ),
+    ]
+
+
 def test_collection_preserves_exact_slice8_order_membership_and_slice7_ledger(
     built: _Built,
 ) -> None:

@@ -382,6 +382,58 @@ def test_one_deep_let_binding_emits_the_sql_of_its_inline_form() -> None:
     assert _mysql_sql(through_let + "\n") == _mysql_sql(inline + "\n")
 
 
+def test_a_let_name_bound_through_null_emits_the_sql_of_its_inline_form() -> None:
+    through_let = (
+        "query q:\n    from orders\n    let:\n        k = null\n"
+        "        j = coalesce(k, amount)\n    select:\n        o = j / 2\n"
+        "        f = cast(j as Float)\n"
+    )
+    inline = (
+        "query q:\n    from orders\n    select:\n        o = coalesce(null, amount) / 2\n"
+        "        f = cast(coalesce(null, amount) as Float)\n"
+    )
+
+    # Before: `j` was untyped, so MySQL divided with `/` (a DECIMAL result)
+    # and PostgreSQL refused the cast with PIE-B1000.
+    assert (
+        _mysql_sql(through_let)
+        == _mysql_sql(inline)
+        == (
+            "SELECT\n    COALESCE(NULL, `amount`) DIV 2 AS `o`,\n"
+            "    CAST(COALESCE(NULL, `amount`) AS DOUBLE) AS `f`\nFROM `orders`"
+        )
+    )
+    assert (
+        _postgres_sql(through_let)
+        == _postgres_sql(inline)
+        == (
+            'SELECT\n    COALESCE(NULL, "amount") / 2 AS "o",\n'
+            '    CAST(COALESCE(NULL, "amount") AS double precision) AS "f"\nFROM "orders"'
+        )
+    )
+
+
+def test_a_let_name_over_an_unknown_row_emits_the_mysql_of_its_inline_form() -> None:
+    # Before: `u` was untyped over the shapeless source, so MySQL divided it
+    # with `/`, a DECIMAL result, where `7 / 2` written inline is `7 DIV 2`.
+    result = parse_source(
+        'source raw is mysql.table("raw")\n'
+        "query q:\n    from raw\n    let:\n        u = 7\n    select:\n"
+        "        o = u / 2\n        p = 7 / 2\n",
+        path="let_ir_sql.pietto",
+    )
+    assert result.ast is not None
+    semantic = analyze(result.ast)
+    assert [diagnostic.code for diagnostic in semantic.diagnostics] == ["PIE-S2303"]
+    ir_result = build_ir(result.ast, semantic.model)
+    assert ir_result.ir is not None
+    emitted = emit_mysql_sql(ir_result.ir)
+    assert emitted.diagnostics == ()
+    assert [artifact.sql for artifact in emitted.artifacts] == [
+        "SELECT\n    7 DIV 2 AS `o`,\n    7 DIV 2 AS `p`\nFROM `raw`"
+    ]
+
+
 @pytest.mark.parametrize(
     ("count", "step"),
     [

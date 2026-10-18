@@ -256,18 +256,58 @@ def _fits_parameters(
     return True
 
 
-def unfit_let_argument(
+# Expressions whose type follows from their operands' types alone.
+_RETYPED_FROM_OPERANDS = (
+    LiteralExpr,
+    UnaryExpr,
+    BinaryExpr,
+    ComparisonExpr,
+    BetweenExpr,
+    IsNullExpr,
+    ConditionalExpr,
+    MembershipExpr,
+    CastExpr,
+    CallExpr,
+)
+
+
+def unfit_argument(
+    function_name: str,
     argument: Expression,
-    let_value: Expression,
+    let_expansions: Mapping[str, Expression] | None,
     value_types: Mapping[Expression, ValueType] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> bool:
-    """Whether ``argument``, an aggregate argument passed to a ``def`` and
-    read as its `let:` value ``let_value``, does not fit its parameter as
-    the value's type in ``value_types``: its PIE-S2395 is then its error, as
-    for a field passed in its place, which is unknown to the aggregate."""
+    """Whether ``argument`` of the aggregate ``function_name``, passed to a
+    ``def``, does not fit its parameter as the type it has where it stands:
+    its PIE-S2395 is then its error, as for a field passed in its place,
+    which is unknown to the aggregate. ``value_types`` records such an
+    argument as Unknown, so a `let:` name that the aggregate reads as its
+    value has the type its binding is recorded with where it is bound, and
+    an operator, literal or call is typed again from its operands' recorded
+    types; a field passed in its place is itself unknown."""
 
-    value_type = None if value_types is None else value_types.get(let_value)
+    if value_types is None or not inlined_arguments(argument):
+        return False
+    if aggregate_argument_can_use_let_scope(function_name, argument, let_expansions):
+        bindings = cast(Mapping[str, Expression], let_expansions)
+        value_type = value_types.get(bindings[cast(NameExpr, argument).name])
+    elif type(argument) in _RETYPED_FROM_OPERANDS:
+        operands = {
+            child: value_types[child]
+            for child in _captured_field_children(argument)
+            if child in value_types
+        }
+        value_type = _infer(
+            dataclasses.replace(argument),
+            RowSchema(),
+            operands,
+            [],
+            report_unknown_name=False,
+            type_expansions=type_expansions,
+        )
+    else:
+        return False
     return (
         value_type is not None
         and value_type.kind is not ValueTypeKind.UNKNOWN
@@ -277,33 +317,29 @@ def unfit_let_argument(
 
 class LetValues(dict[str, Expression]):
     """The `let:` values of one relation that typing follows by name, as
-    emission inlines them, and what checks a ``def`` argument as emission
-    writes it, each `let:` name replaced by its value (`_written_argument`).
+    emission inlines them, in binding order, and what checks a ``def``
+    argument as emission writes it, each `let:` name replaced by its value
+    (`_written_argument`).
 
-    ``bindings`` are the values written in, in binding order: the mapping
-    itself, or, where typing follows no name (a relation with JOIN inputs),
-    its own. A name in ``erroneous`` has an error of its own and is not
-    written in, so that its error stands alone. ``written`` holds each
-    binding as written (`_Written`), or None for one that is not, and
-    ``differs`` whether a read of one is not typed as it is written; until
-    one is, every argument is its own written form. Then ``typed`` holds, for
-    each expression typed here by identity, the diagnostics list it was
-    typed into and where in it its diagnostics are, and ``checked`` each
-    ``def`` argument as the argument around it reads it (`_Written`), or None
-    for one checked as it stands that reads a binding.
+    A name in ``erroneous`` has an error of its own and is not written in, so
+    that its error stands alone. ``written`` holds each binding as written
+    (`_Written`), or None for one that is not, and ``differs`` whether a read
+    of one is not typed as it is written; until one is, every argument is its
+    own written form. Then ``typed`` holds, for each expression typed here by
+    identity, the diagnostics list it was typed into and where in it its
+    diagnostics are, and ``checked`` each ``def`` argument as the argument
+    around it reads it (`_Written`), or None for one checked as it stands
+    that reads a binding.
     """
 
-    __slots__ = ("bindings", "checked", "differs", "erroneous", "typed", "written")
+    __slots__ = ("checked", "differs", "erroneous", "typed", "written")
 
     def __init__(
         self,
         values: Mapping[str, Expression] | None = None,
         erroneous: set[str] | None = None,
-        *,
-        followed: bool = True,
     ) -> None:
         super().__init__(values or {})
-        self.bindings: dict[str, Expression] = self if followed else {}
         self.erroneous: set[str] = set() if erroneous is None else erroneous
         self.written: dict[str, _Written | None] = {}
         self.differs = False
@@ -532,9 +568,11 @@ def _write_lets(
     in, and one that reads a later one has an error of its own. A binding
     with an error of its own is not written, and a read of one is typed as
     itself. A binding that reads no written one has the type it has where it
-    is bound, also over a source without a shape, where a read of it is
-    otherwise unknown; any other is typed as written, and keeps that type
-    and the errors writing it in finds, once each.
+    is bound; any other is typed as written, and keeps that type and the
+    errors writing it in finds, once each. A binding is typed where it is
+    bound as it is written (`_null_reads`), so writing it in is expected to
+    find no error the binding did not report itself; one it finds is still
+    kept, and reported at each read (`_written_form`).
 
     It runs where typing starts, once a ``def`` argument reads a binding
     (`_reads_let_in_argument`), as writing a value where the argument stands
@@ -545,16 +583,14 @@ def _write_lets(
     """
 
     pending = list(
-        itertools.takewhile(
-            lambda name: name not in lets.written, reversed(lets.bindings)
-        )
+        itertools.takewhile(lambda name: name not in lets.written, reversed(lets))
     )
     for name in reversed(pending):
         lets.written[name] = None
         if name in lets.erroneous:
             continue
         item = _written_form(
-            lets.bindings[name], lets, row_schema, value_types, None, root=False
+            lets[name], lets, row_schema, value_types, None, root=False
         )
         if item is None:
             continue
@@ -579,7 +615,7 @@ def _write_lets(
             )
         # Each error moves to the read that writes the value in, so the
         # binding keeps one of each.
-        at = _span_location(lets.bindings[name].span)
+        at = _span_location(lets[name].span)
         written = lets.written[name] = _Written(
             form,
             value_type,
@@ -595,11 +631,7 @@ def _write_lets(
             ),
         )
         # A read is typed as its binding is where that is known, else unknown.
-        read_type = (
-            None
-            if row_schema.is_unknown or bare_value_types is None
-            else bare_value_types.get(name)
-        )
+        read_type = None if bare_value_types is None else bare_value_types.get(name)
         lets.differs = lets.differs or bool(
             null or written.errors or value_type != (read_type or _UNKNOWN_VALUE_TYPE)
         )
@@ -620,7 +652,7 @@ def _reads_let_in_argument(
         if (
             argument
             and type(node) is NameExpr
-            and node.name in lets.bindings
+            and node.name in lets
             and node.name not in row_schema.fields
         ):
             return True
@@ -1528,7 +1560,7 @@ def infer_row_expression(
             value_types[node] = cast(ValueType, captured)
     if (
         type(bare_value_expressions) is LetValues
-        and len(bare_value_expressions.written) < len(bare_value_expressions.bindings)
+        and len(bare_value_expressions.written) < len(bare_value_expressions)
         and _reads_let_in_argument((expression,), bare_value_expressions, row_schema)
     ):
         _write_lets(
@@ -1825,13 +1857,17 @@ def _infer(
             relation_columns=relation_columns,
         )
         column = None if relation_columns is None else relation_columns.get(expression)
-        if column is not None and _is_contextual_null(expression.value):
+        null = _null_reads(
+            (expression.value,), row_schema, bare_value_types, bare_value_expressions
+        )
+        if column is not None and null[0]:
             # A bare NULL takes the known column's type, as in the literal list.
             contextual = _contextual_null_literal_types(
                 (expression.value, expression),
                 (left_type, column),
                 value_types,
                 type_expansions,
+                (*null, False),
             )
             if contextual is not None:
                 left_type = contextual[0]
@@ -2062,7 +2098,10 @@ def _infer(
                 erroneous=_has_error(found),
                 null=null,
             )
-            if not fits:
+            if fits:
+                # Typed as written, also for the expression around it.
+                value_type = form_type
+            else:
                 checked = cast(LetValues, lets).checked
                 checked[id(expression)] = dataclasses.replace(
                     cast(_Written, checked[id(expression)]),
@@ -2203,18 +2242,22 @@ def _conditional_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    when_true_null, condition_null, when_false_null = _null_reads(
+        (expression.when_true, expression.condition, expression.when_false),
+        row_schema,
+        bare_value_types,
+        bare_value_expressions,
+    )
     branch_types = _contextual_null_literal_types(
         (expression.when_true, expression.when_false),
         (when_true_type, when_false_type),
         value_types,
         type_expansions,
+        (when_true_null, when_false_null),
     )
     if branch_types is not None:
         when_true_type, when_false_type = branch_types
-    if (
-        _is_contextual_null(expression.condition)
-        and condition_type.kind is ValueTypeKind.UNKNOWN
-    ):
+    if condition_null and condition_type.kind is ValueTypeKind.UNKNOWN:
         condition_type = _contextual_null_literal_type("Bool")
         value_types[expression.condition] = condition_type
     if any(
@@ -2305,6 +2348,12 @@ def _membership_value_type(
         child_types,
         value_types,
         type_expansions,
+        _null_reads(
+            (expression.value, *expression.options),
+            row_schema,
+            bare_value_types,
+            bare_value_expressions,
+        ),
         membership=True,
     )
     if contextual is not None:
@@ -2365,9 +2414,18 @@ def _cast_value_type(
     if value_type.kind is ValueTypeKind.UNKNOWN:
         # A null operand and the target are known without the operand's type;
         # a silent unknown operand is refused unless the cast is to Float. Only
-        # the operand's own error explains it: an unknown input row does not,
-        # since no cast but the Float one reads the operand's type.
-        explained = len(diagnostics) > diagnostic_count
+        # the operand's own error explains it, also one in a `let:` value it
+        # reads, as written there it would be its own: an unknown input row
+        # does not, since no cast but the Float one reads the operand's type.
+        explained = len(diagnostics) > diagnostic_count or (
+            type(bare_value_expressions) is LetValues
+            and _reads_erroneous_let(
+                expression.value,
+                row_schema,
+                bare_value_expressions,
+                bare_value_expressions.erroneous,
+            )
+        )
         # A `let:` name bound to null is the null literal emission inlines; a
         # null def argument that does not fit its parameter is PIE-S2395 alone.
         null_operand = _reads_null_literal(
@@ -2776,12 +2834,16 @@ def _call_value_type(
     cascade = len(diagnostics) > diagnostic_count and any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
     )
+    nulls = _null_reads(
+        expression.arguments, row_schema, bare_value_types, bare_value_expressions
+    )
     if function_name in {"coalesce", "nullif"}:
         contextual = _contextual_null_literal_types(
             expression.arguments,
             argument_types,
             value_types,
             type_expansions,
+            nulls,
         )
         if contextual is None:
             return _UNKNOWN_VALUE_TYPE
@@ -2851,6 +2913,7 @@ def _call_value_type(
         argument_types,
         signature.parameter_types,
         value_types,
+        nulls,
     )
     if any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
@@ -2978,13 +3041,29 @@ def _is_null_literal(expression: Expression) -> bool:
     return isinstance(expression, LiteralExpr) and expression.value is None
 
 
-def _is_contextual_null(expression: Expression) -> bool:
-    """A null literal that takes its type from where it stands: not a ``def``
-    argument that does not fit its parameter, which stays Unknown to the
-    expression around it."""
+def _null_reads(
+    expressions: Sequence[Expression],
+    row_schema: RowSchema,
+    bare_value_types: Mapping[str, ValueType] | None,
+    let_expressions: Mapping[str, Expression] | None,
+) -> tuple[bool, ...]:
+    """Whether each of ``expressions`` is a null that takes its type from where
+    it stands: the null literal, or a `let:` name read as its binding (in
+    ``bare_value_types``) whose value, inlined as emission inlines it, is the
+    null literal; never a ``def`` argument that does not fit its parameter,
+    which stays Unknown to the expression around it."""
 
-    return _is_null_literal(expression) and all(
-        slot.nullable for slot in inlined_arguments(expression)
+    return tuple(
+        _reads_null_literal(
+            (expression,),
+            row_schema,
+            let_expressions
+            if type(expression) is NameExpr
+            and bare_value_types is not None
+            and expression.name in bare_value_types
+            else None,
+        )
+        for expression in expressions
     )
 
 
@@ -3029,19 +3108,20 @@ def _contextual_null_literal_types(
     value_types: tuple[ValueType, ...],
     recorded: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    nulls: tuple[bool, ...],
     *,
     membership: bool = False,
 ) -> tuple[ValueType, ...] | None:
-    """Type only literal NULLs from one local approved common-type context;
-    a null ``def`` argument that does not fit its parameter is not one.
+    """Type only NULLs (``nulls``, `_null_reads`) from one local approved
+    common-type context.
 
     With ``membership``, as for an `in` list, the context is the type the test
     compares as.
     """
 
     if any(
-        value_type.kind is ValueTypeKind.UNKNOWN and not _is_contextual_null(expression)
-        for expression, value_type in zip(expressions, value_types, strict=True)
+        value_type.kind is ValueTypeKind.UNKNOWN and not null
+        for value_type, null in zip(value_types, nulls, strict=True)
     ):
         return None
     known = tuple(
@@ -3057,8 +3137,10 @@ def _contextual_null_literal_types(
     if canonical is None:
         return value_types
     result = []
-    for expression, value_type in zip(expressions, value_types, strict=True):
-        if value_type.kind is ValueTypeKind.UNKNOWN and _is_contextual_null(expression):
+    for expression, value_type, null in zip(
+        expressions, value_types, nulls, strict=True
+    ):
+        if value_type.kind is ValueTypeKind.UNKNOWN and null:
             value_type = _contextual_null_literal_type(canonical)
             recorded[expression] = value_type
         result.append(value_type)
@@ -3070,15 +3152,16 @@ def _contextual_fixed_null_literal_types(
     value_types: tuple[ValueType, ...],
     parameter_types: tuple[str, ...],
     recorded: dict[Expression, ValueType],
+    nulls: tuple[bool, ...],
 ) -> tuple[ValueType, ...]:
-    """Type literal NULLs only where one closed built-in parameter type selects
-    it; a null ``def`` argument that does not fit its parameter is not one."""
+    """Type NULLs (``nulls``, `_null_reads`) only where one closed built-in
+    parameter type selects it."""
 
     result = []
-    for expression, value_type, parameter_type in zip(
-        expressions, value_types, parameter_types, strict=True
+    for expression, value_type, parameter_type, null in zip(
+        expressions, value_types, parameter_types, nulls, strict=True
     ):
-        if value_type.kind is ValueTypeKind.UNKNOWN and _is_contextual_null(expression):
+        if value_type.kind is ValueTypeKind.UNKNOWN and null:
             value_type = _contextual_null_literal_type(parameter_type)
             recorded[expression] = value_type
         result.append(value_type)
@@ -3233,12 +3316,20 @@ def _call_argument_types(
             type_expansions,
             enum=True,
         )
-        if is_supported_semantic_aggregate_argument_expression(
-            function_name,
-            argument,
-            argument_type,
-            let_expansions=bare_value_expressions,
-        ) or has_unknown_field_reference(argument, value_types):
+        if (
+            is_supported_semantic_aggregate_argument_expression(
+                function_name,
+                argument,
+                argument_type,
+                let_expansions=bare_value_expressions,
+            )
+            or has_unknown_field_reference(argument, value_types)
+            # A def argument that does not fit is unknown to the aggregate,
+            # as such a field is, and its PIE-S2395 is its error.
+            or unfit_argument(
+                function_name, argument, None, value_types, type_expansions
+            )
+        ):
             diagnostics.extend(temporary_diagnostics)
         return (argument_type,)
 
@@ -3340,10 +3431,16 @@ def _name_value_type(
     bare_value_types: Mapping[str, ValueType] | None,
     suppressed_unknown_names: set[str] | None,
 ) -> ValueType:
-    """Resolve a bare field name against a known row schema."""
+    """Resolve a bare field name against a known row schema; a name in
+    ``bare_value_types`` that is no field, such as a `let:` name, has its
+    type there, also over a row whose fields are unknown, as emission inlines
+    a `let:` name wherever it is read."""
 
     if row_schema.is_unknown:
-        return _UNKNOWN_VALUE_TYPE
+        value_type = (
+            None if bare_value_types is None else bare_value_types.get(expression.name)
+        )
+        return _UNKNOWN_VALUE_TYPE if value_type is None else value_type
     field = row_schema.fields.get(expression.name)
     if field is not None:
         if field.resolved_type.kind is TypeKind.UNKNOWN:

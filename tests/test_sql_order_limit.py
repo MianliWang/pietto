@@ -375,6 +375,28 @@ def test_an_ordinary_named_use_reads_the_post_limit_terminal(target):
     assert labels(outcome) == ["a"]
 
 
+@pytest.mark.parametrize("target", TARGETS)
+def test_an_order_key_with_a_part_of_unknown_type_is_blocked(target):
+    """A part of unknown type, such as the null literal in `null is null`, has
+    no comparison a target can write: the key is BLOCKED with PIE-B1003 at
+    the plan, like `key > 0 and null`. Before, the first two were
+    INPUT_REJECTED with `Invalid current planning roots.`."""
+    for key in (
+        "(null is null)",
+        "(null is null) == (key is null)",
+        "key > 0 and null",
+    ):
+        outcome = emit_join(
+            target,
+            f"query result:\n    from lhs\n    select:\n        id\n"
+            f"    order by:\n        {key}\n",
+        )
+        assert document(outcome)["status"] == "BLOCKED"
+        assert [(item.code, item.detail) for item in outcome.blockers] == [
+            ("PIE-B1003", "order")
+        ]
+
+
 def test_unknown_order_expression_builder_comparison_fails_closed() -> None:
     from pietto import ast_nodes as ast
 

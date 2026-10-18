@@ -208,6 +208,46 @@ def test_invalid_let_facts_do_not_make_selected_let_outputs_concrete(
         assert _diagnostics(semantic_result) == [("PIE-S2102", "Unknown field: total")]
 
 
+def test_a_binding_of_unknown_type_leaves_the_others_typed(tmp_path: Path) -> None:
+    """Beside a binding of unknown type, here `k = null`, every binding keeps
+    its type, so a selected read of one whose type is known is a typed
+    let-derived output; the scope stays non-concrete and a read of `k` is
+    still the only refusal. Before, the whole scope lost its types and
+    `v = h` was PIE-S2102."""
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query projected:\n"
+            "    from users\n"
+            "    let:\n"
+            "        k = null\n"
+            "        f = score\n"
+            "        h = f\n"
+            "    select:\n"
+            "        v = h\n"
+            "query unread:\n"
+            "    from users\n"
+            "    let:\n"
+            "        k = null\n"
+            "    select:\n"
+            "        w = k\n",
+        )
+    )
+
+    assert semantic_result.model is not None
+    projected = _derived_definition(parse_result, "projected")
+    facts = semantic_result.model.relation_let_scope_facts[projected]
+    assert facts.status is ProjectLetScopeFactsStatus.UNKNOWN
+    assert facts.reason is ProjectLetScopeFactsReason.MISSING_OR_UNKNOWN_VALUE_TYPE
+    assert facts.value_types == {}
+    assert tuple(facts.binding_value_types) == ("k", "f", "h")
+    field = semantic_result.model.relation_row_schemas[projected].fields["v"]
+    assert field.resolved_type.name == "Int"
+    assert field.nullability is ProjectRowFieldNullability.NON_NULL
+    _assert_let_derived_field(field, expected_symbol_name="users")
+    assert _diagnostics(semantic_result) == [("PIE-S2102", "Unknown field: k")]
+
+
 def test_alias_conflict_remains_non_concrete_let_fact(tmp_path: Path) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(

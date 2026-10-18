@@ -23,7 +23,7 @@ from pietto.ast_nodes import (
     CastExpr,
     LimitClause,
 )
-from pietto.semantic.model import ValueType
+from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT
 from pietto._project.model import ProjectRowField
 from pietto._project.project_final_outputs import (
@@ -492,8 +492,13 @@ def ready(entry, indexed):
                 item.expression, tuple(use.expression for use in uses)
             )
             types = {id(node): value for node, value in order_types(item).items()}
+            # A part of unknown type, such as the null literal in
+            # `null is null`, has no target comparison to write (PIE-B1003).
             if any(
-                type(node) not in supported or id(node) not in types for node in nodes
+                type(node) not in supported
+                or id(node) not in types
+                or types[id(node)].kind is not ValueTypeKind.KNOWN
+                for node in nodes
             ):
                 return False
             if any(use.target is None for use in uses):

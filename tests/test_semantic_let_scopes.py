@@ -13,9 +13,14 @@ from pietto._project import project_query_block as query_blocks
 from pietto._project import project_scalar_bindings as scalar_bindings
 from pietto._project import project_scalar_namespaces as scalar_namespaces
 from pietto._project import project_scalar_references as scalar_references
+from pietto._project.check import check_project_parse_only
+from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+)
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
 )
 from pietto._project.project_ir_joins import ProjectIRConcreteJoinRegion
 from pietto._project.project_multifact import ProjectMultiFactAnalysis
@@ -674,6 +679,183 @@ def test_prior_unknown_type_is_not_misclassified_as_forward_dependency(
     expression = definition.let_clause.bindings[1].expression
     assert type(expression) is BinaryExpr
     assert result.blocking_resolutions[0].reference.expression is expression.left
+
+
+_JOINED_LET_SOURCE = """shape T:
+    id: Int not null
+    t: Text not null
+    unique t_key on id
+shape O:
+    oid: Int not null
+    tid: Int not null
+    unique o_key on oid
+source src: T is postgres.table("src")
+source oth: O is postgres.table("oth")
+def lk(x: Text not null, p: Text not null) -> Bool nullable: return x like p
+def tnn(x: Text not null) -> Text not null: return x
+"""
+
+
+def _joined_let_diagnostics(
+    root: Path, queries: tuple[tuple[str, str], ...]
+) -> list[tuple[str, str, int, int]]:
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (root / "main.pietto").write_text(
+        _JOINED_LET_SOURCE
+        + "".join(
+            f"query {name}:\n    from src\n    inner join oth as o:\n"
+            f"        from src\n        on o.tid == src.id\n{body}"
+            for name, body in queries
+        ),
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(root))
+    )
+    offset = _JOINED_LET_SOURCE.count("\n")
+    return [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ]
+
+
+_ESCAPE = (
+    "Invalid operands for operator like: expected a pattern that does not end "
+    "in the escape character ! (write !! for a literal !)"
+)
+
+
+def test_a_joined_let_name_bound_to_a_pattern_is_checked_as_the_pattern(
+    tmp_path: Path,
+) -> None:
+    """A LIKE pattern read through a `let:` name of a relation with JOIN inputs
+    is checked as the literal it is bound to, as without JOIN inputs, in a
+    later binding, the WHERE, a SELECT item and a def argument: a pattern
+    ending in an unpaired `!` is PIE-S2105 at the test. Before, it passed and
+    emission wrote a pattern PostgreSQL rejects."""
+    assert _joined_let_diagnostics(
+        tmp_path,
+        (
+            (
+                "in_let",
+                '    let:\n        pp = "a!"\n        m = src.t like pp\n'
+                "    select:\n        id = src.id\n",
+            ),
+            (
+                "in_where",
+                '    let:\n        pp = "a!"\n    where src.t like pp\n'
+                "    select:\n        id = src.id\n",
+            ),
+            (
+                "in_select",
+                '    let:\n        pp = "a!"\n    select:\n'
+                "        id = src.id\n        m = src.t like pp\n",
+            ),
+            (
+                "in_def",
+                '    let:\n        pp = "a!"\n    where lk(src.t, pp)\n'
+                "    select:\n        id = src.id\n",
+            ),
+            (
+                "paired",
+                '    let:\n        pp = "a!!"\n    where src.t like pp\n'
+                "    select:\n        id = src.id\n",
+            ),
+        ),
+    ) == [
+        ("PIE-S2105", _ESCAPE, 8, 13),
+        ("PIE-S2105", _ESCAPE, 18, 11),
+        ("PIE-S2105", _ESCAPE, 30, 13),
+        ("PIE-S2105", _ESCAPE, 38, 11),
+    ]
+
+
+def test_a_joined_null_binding_is_written_into_later_bindings(
+    tmp_path: Path,
+) -> None:
+    """A `let:` binding of unknown type without an error of its own, such as
+    `k = null`, and one that reads it, are written into a later binding's def
+    argument and null test, as without JOIN inputs, so their errors are
+    reported; the relation stays non-concrete, so it fails closed with
+    PIE-S2333 when no binding has an error. Before, every relation here was
+    PIE-S2333."""
+    lets = "    let:\n        k = null\n        w = coalesce(k, o.oid)\n"
+    assert _joined_let_diagnostics(
+        tmp_path,
+        (
+            ("unfit", f"{lets}        v = tnn(w)\n    select:\n        x = v\n"),
+            ("never", f"{lets}        v = o.oid == k\n    select:\n        x = v\n"),
+            ("closed", f"{lets}    select:\n        x = w\n"),
+        ),
+    ) == [
+        (
+            "PIE-S2395",
+            "Invalid argument for def tnn at position 1 (x): "
+            "expected Text not null, got Int not null",
+            9,
+            13,
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: comparison with null is never "
+            "true; write `is null` instead",
+            20,
+            13,
+        ),
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: closed",
+            23,
+            1,
+        ),
+    ]
+
+
+def test_a_joined_read_of_a_null_binding_is_typed_where_it_stands(
+    tmp_path: Path,
+) -> None:
+    """With JOIN inputs, a read of a binding bound to `null` takes its type
+    from where it stands and a binding that reads one has the type of its
+    value as written, as without JOIN inputs, so a later binding, SELECT item
+    or WHERE that is ill-typed with those types reports its error: with
+    `k = null` and `j = coalesce(k, 1)`, `d = len(j)` and `x = lower(j)` are
+    PIE-S2104. Before, each relation here was a bare PIE-S2333."""
+    lets = "    let:\n        k = null\n        j = coalesce(k, 1)\n"
+    assert _joined_let_diagnostics(
+        tmp_path,
+        (
+            ("binding", f"{lets}        d = len(j)\n    select:\n        x = o.oid\n"),
+            ("selected", f"{lets}    select:\n        x = lower(j)\n"),
+            (
+                "filtered",
+                "    let:\n        k = null\n"
+                '    where coalesce(k, o.oid) == "a"\n    select:\n        x = o.oid\n',
+            ),
+        ),
+    ) == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function len at position 1: expected Text, "
+            "got Int",
+            9,
+            13,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected "
+            "Text, got Int",
+            21,
+            13,
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: expected comparable operands",
+            29,
+            11,
+        ),
+    ]
 
 
 def _single_input_decision(body: str) -> tuple[bool, tuple[str, ...]]:

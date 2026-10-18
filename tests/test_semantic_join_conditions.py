@@ -493,7 +493,7 @@ def test_window_and_current_window_alias_are_unavailable(
 
 
 def test_unknown_project_field_type_is_unavailable(tmp_path: Path) -> None:
-    source = "enum Identifier:\n    first\n    second\n" + _source(
+    source = "shape Identifier:\n    code: Text not null\n" + _source(
         "lhs.key == r.key"
     ).replace("key: Int nullable", "key: Identifier nullable")
     fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
@@ -502,6 +502,23 @@ def test_unknown_project_field_type_is_unavailable(tmp_path: Path) -> None:
     assert all(
         len(ref.candidates) == 1 and ref.target is None for ref in fact.references
     )
+
+
+def test_an_enum_project_field_type_is_available(tmp_path: Path) -> None:
+    """A field of an enum is typed as that enum, as in a single file, so an
+    `on` that compares two such fields is ready. Before, the enum was of
+    unknown type and the condition unavailable."""
+    source = "enum Identifier:\n    first\n    second\n" + _source(
+        "lhs.key == r.key"
+    ).replace("key: Int nullable", "key: Identifier nullable")
+    result = _completed(tmp_path, source)
+    fact = result.roots.join_conditions.entries[0]
+    assert fact.ready
+    assert all(
+        ref.state.value == "resolved" and ref.target is not None
+        for ref in fact.references
+    )
+    assert result.diagnostics == ()
 
 
 def test_set_input_and_independent_valid_branches_survive(tmp_path: Path) -> None:
