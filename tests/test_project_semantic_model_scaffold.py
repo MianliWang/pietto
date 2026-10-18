@@ -649,17 +649,72 @@ def test_a_project_def_checks_an_argument_with_its_let_values_written_in(
     """An argument is checked as emission writes it, with each `let:` value in
     place of its name, in a WHERE as in a select: a known Bool that is always
     null is null, and a value that reads a let bound to null is typed as the
-    null literal written there would make it."""
+    null literal written there would make it. A relation with JOIN inputs
+    checks it so too, in its lets, WHERE, select and ORDER BY, as it checks
+    the value written by hand."""
+    joined = (
+        "    from rows\n    inner join others as p:\n        from rows\n"
+        "        on p.row_id == rows.id\n    let:\n        m = p.id + null > 1\n"
+        "        m2 = m\n"
+    )
     source = DEF_HEAD + (
         "def bb(x: Bool not null) -> Bool not null: return x is null\n"
         "query w:\n    from rows\n    let:\n        b2 = id + null > 1\n"
         "    where bb(b2)\n    select:\n        id\n"
         "query s:\n    from rows\n    let:\n        nill = null\n"
         "        j = coalesce(nill, n)\n    select:\n        id\n        a = idi(j)\n"
+        f"query jl:\n{joined}        c = bb(m2)\n    select:\n        k = rows.id\n"
+        f"query jw:\n{joined}    where bb(m)\n    select:\n        k = rows.id\n"
+        f"query js:\n{joined}    select:\n        k = rows.id\n        a = bb(m2)\n"
+        f"query jo:\n{joined}    select:\n        k = rows.id\n    order by: bb(not m)\n"
+        f"query jt:\n{joined}    select:\n        k = rows.id\n"
+        "        a = bb(p.id + null > 1)\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
         _mismatch("bb", DEF_LINE + 5, 11, "Bool not null", "null"),
         _mismatch("idi", DEF_LINE + 15, 13, "Int not null", "Int nullable"),
+        _mismatch("bb", DEF_LINE + 24, 13, "Bool not null", "null"),
+        _mismatch("bb", DEF_LINE + 35, 11, "Bool not null", "null"),
+        _mismatch("bb", DEF_LINE + 48, 13, "Bool not null", "null"),
+        _mismatch("bb", DEF_LINE + 59, 15, "Bool not null", "null"),
+        _mismatch("bb", DEF_LINE + 70, 13, "Bool not null", "null"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        {"I1": "i1", "I2": "i2", "I8": "i8"},
+        {
+            "I1": "coalesce(null, 1)",
+            "I2": "upper(null) + 1",
+            "I8": "lower(coalesce(null, 1))",
+        },
+    ],
+    ids=["let_names", "values_written_in"],
+)
+def test_a_project_def_argument_ill_typed_once_its_lets_are_written_in_is_an_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], spelling: dict[str, str]
+) -> None:
+    """As in a single file, an argument whose `let:` values are ill-typed once
+    the null they read is written in reports the error the values written by
+    hand report, where they start, in a let and in a select, also as the
+    whole argument, and its parameter adds nothing."""
+    source = DEF_HEAD + (
+        "query q:\n    from rows\n    let:\n        nill = null\n"
+        "        i1 = coalesce(nill, 1)\n        i2 = upper(nill) + 1\n"
+        "        i8 = lower(i1)\n        z = pos({I2})\n    select:\n        id\n"
+        "        a = idt(lower({I1}))\n        b = pos({I2})\n        c = idt({I8})\n"
+    ).format(**spelling)
+    lower_of_int = (
+        "Invalid argument type for function lower at position 1: expected Text, got Int"
+    )
+    not_numeric = "Invalid operands for operator +: expected numeric operands"
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        ("PIE-S2105", "a.pietto", DEF_LINE + 7, 17, not_numeric),
+        ("PIE-S2104", "a.pietto", DEF_LINE + 10, 17, lower_of_int),
+        ("PIE-S2105", "a.pietto", DEF_LINE + 11, 17, not_numeric),
+        ("PIE-S2104", "a.pietto", DEF_LINE + 12, 17, lower_of_int),
     ]
 
 

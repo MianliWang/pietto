@@ -36,7 +36,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import LetValues, infer_row_expression
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
@@ -127,6 +127,11 @@ class ProjectJoinedScalarNamespace:
     stage: ProjectScalarNamespaceStage
     binding_ordinal: int | None = None
     let_values: tuple[ProjectJoinedLetValue, ...] = ()
+    # POST_LET's values as a def argument is checked with them written in,
+    # shared by every expression typed here so that each is written once.
+    written_lets: LetValues | None = field(
+        default=None, repr=False, compare=False, hash=False
+    )
     projection_aliases: tuple[object, ...] = field(init=False, default=())
 
     def __post_init__(self) -> None:
@@ -591,6 +596,9 @@ def analyze_project_joined_namespace_expression(
             value.occurrence.binding.name: value.value_type
             for value in namespace.let_values
         },
+        # Typing follows no `let:` name here; a def argument is still checked
+        # with the values written in, as emission writes it.
+        bare_value_expressions=namespace.written_lets,
         relation_columns=read_types,
     )
     retained_diagnostics = tuple(diagnostics)
@@ -823,6 +831,8 @@ def build_project_joined_let_namespaces(
     unknown_types: list[ProjectJoinedLetOccurrence] = []
     all_names = {binding.name for binding in bindings}
     prior_names: set[str] = set()
+    # The admitted values, which a def argument is checked with written in.
+    let_values = LetValues(followed=False)
 
     for occurrence in occurrences:
         namespace = ProjectJoinedScalarNamespace(
@@ -888,6 +898,7 @@ def build_project_joined_let_namespaces(
                 bare_value_types={
                     value.occurrence.binding.name: value.value_type for value in values
                 },
+                bare_value_expressions=let_values,
             )
         diagnostics.extend(local_diagnostics)
         has_error = any(
@@ -913,6 +924,7 @@ def build_project_joined_let_namespaces(
                     diagnostics=tuple(local_diagnostics),
                 )
             )
+            let_values.bindings[occurrence.binding.name] = occurrence.expression
         if occurrence.binding.name not in invalid_names:
             prior_names.add(occurrence.binding.name)
 
@@ -947,6 +959,7 @@ def build_project_joined_let_namespaces(
         occurrences=occurrences,
         stage=ProjectScalarNamespaceStage.POST_LET,
         let_values=value_tuple,
+        written_lets=let_values,
     )
     return ProjectConcreteJoinedLetNamespaces(
         binding_environment=binding_environment,

@@ -3837,12 +3837,12 @@ def _select_facts(
                 captured_value_types=captures,
             )
             if type(item.expression) in {NameExpr, DottedNameExpr}:
-                # Other readers report the name itself; this one adds only
-                # the argument check.
+                # Other readers report the name itself (PIE-S2102); this one
+                # adds only the argument check, with its written form's errors.
                 expression_diagnostics[:] = [
                     diagnostic
                     for diagnostic in expression_diagnostics
-                    if diagnostic.code == "PIE-S2395"
+                    if diagnostic.code != "PIE-S2102"
                 ]
             retained_types = failed_types
         output_name = _projection_output_name(item)

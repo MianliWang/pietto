@@ -1663,19 +1663,31 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   `k + 1` and `m` are null, and `lower(k)` and `j` are `Text nullable` and
   `Int nullable`, as `lower(null)` and `coalesce(null, n)` are. A `let:` name
   whose binding has an error of its own is not replaced, so that its error
-  stands alone. These are PIE-S2395 at the call, also when the call is in a
+  stands alone, and one that an aggregate argument reads is checked with its
+  binding's type. These are PIE-S2395 at the call, also when the call is in a
   def body, reported once however many times the body uses the argument and
   only for the innermost call that does not fit: an argument that does not
-  fit is unknown to every expression around it, also through a built-in
-  call such as `len`. An argument with an error of its own that leaves its
-  type unknown, such as a comparison with the null literal (`text == null`,
-  PIE-S2105), is not checked against its parameter, and an argument whose
-  type is unknown for another reason is not checked either, as the same
-  expression written by hand is not: a field of a source without a shape; a
-  column that an earlier relation computes from a `let:` name bound to
-  `null`, such as `z = coalesce(k, n)`; or an always-null value other than
-  `null` inside a built-in call, `coalesce`, conditional or `in` list, such
-  as `coalesce(-null, n)`. A comparison with null is never true wherever the expansion puts it:
+  fit is unknown to every expression around it, also through a built-in call
+  such as `len`. An argument with an error of its own that leaves its type
+  unknown, such as a comparison with the null literal (`text == null`,
+  PIE-S2105), is not checked against its parameter, and neither is one that
+  is ill-typed once the values are written in: it reports the error that the
+  values written by hand report, where they start, once however many times
+  the body uses it. With `i = upper(k) + 1`, the argument `i` is PIE-S2105 at
+  `i`, as `upper(null) + 1` written there is, and the argument `lower(j)` is
+  PIE-S2104 at `lower`. Outside a def argument a `let:` name bound to `null`
+  has no type where it is read, so a value ill-typed only once `null` is
+  written in, such as `v = i` or `v = lower(j)`, is not reported, and
+  single-file emission writes it. An argument whose type is unknown for
+  another reason is not checked either, as the same expression written by
+  hand is not: a field of a source without a shape; a column that an earlier
+  relation computes from a `let:` name bound to `null`, such as
+  `z = coalesce(k, n)`; `null` inside `and` or `or`, as a `between` bound or
+  as the argument of a built-in that admits more than one type (`year`,
+  `month`, `day`, `sign`), such as `null and true` or `year(null)`; or an
+  always-null value other than `null` inside a built-in call, `coalesce`,
+  conditional or `in` list, such as `coalesce(-null, n)`. A
+  comparison with null is never true wherever the expansion puts it:
   `low(null)` with `def low(x: Int nullable) -> Bool nullable: return x < 3`
   is PIE-S2105 at the call, as `null < 3` is by hand, unless the null
   argument (also a `let:` name bound to `null`) does not fit its parameter,

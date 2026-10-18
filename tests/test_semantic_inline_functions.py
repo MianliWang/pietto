@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields, is_dataclass
+from types import ModuleType
 from typing import Any, cast
 
 import pytest
@@ -33,6 +34,7 @@ from pietto.errors import Diagnostic
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic import analyzer as analyzer_module
+from pietto.semantic import expressions as expressions_module
 from pietto.semantic import inline_functions as inline_module
 from pietto.semantic.inline_functions import inline_functions
 
@@ -806,6 +808,67 @@ WRITTEN = {
     "J5": "id in (null, 2)",
     "J6": "same(null)",
 }
+# Def arguments that read `let:` names whose values are ill-typed once the
+# null they read is written in; each placeholder is the name, or its value
+# written in its place, which starts where the name does. `m` reads one
+# outside a def argument.
+ILL_TYPED_LETS = (
+    "def nt(x: Text not null) -> Text not null: return x\n"
+    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
+    "def tw(x: Text not null) -> Bool nullable: return x == x\n"
+    "table t:\n    from rows\n    let:\n        nill = null\n"
+    "        i1 = coalesce(nill, 1)\n        i2 = upper(nill) + 1\n"
+    "        i3 = lower(nill) * 2\n        i4 = not lower(nill)\n"
+    "        i5 = coalesce(nill, text, 1)\n        i6 = text if nill else 1\n"
+    "        i7 = len(nill) + text\n        i8 = lower(i1)\n"
+    "    where pos({I2})\n    select:\n        id\n"
+    "        a = nt(lower({I1}))\n        b = pos({I3})\n        c = bb({I4})\n"
+    "        d = pos({I5})\n        e = pos({I6})\n        f = pos({I7})\n"
+    "        g = nt({I8})\n        h = tw(lower({I1}))\n"
+    "        k = nt(nt(lower({I1})))\n        m = i2\n"
+)
+ILL_TYPED = {
+    "I1": "coalesce(null, 1)",
+    "I2": "upper(null) + 1",
+    "I3": "lower(null) * 2",
+    "I4": "not lower(null)",
+    "I5": "coalesce(null, text, 1)",
+    "I6": "text if null else 1",
+    "I7": "len(null) + text",
+    "I8": "lower(coalesce(null, 1))",
+}
+NOT_NUMERIC = "Invalid operands for operator {}: expected numeric operands"
+LOWER_OF_INT = (
+    "Invalid argument type for function lower at position 1: expected Text, got Int"
+)
+ILL_TYPED_ERRORS = [
+    ("PIE-S2105", BODY_LINE + 15, 15, NOT_NUMERIC.format("+")),
+    ("PIE-S2104", BODY_LINE + 18, 16, LOWER_OF_INT),
+    ("PIE-S2105", BODY_LINE + 19, 17, NOT_NUMERIC.format("*")),
+    (
+        "PIE-S2105",
+        BODY_LINE + 20,
+        16,
+        "Invalid operands for operator not: expected Bool operand",
+    ),
+    (
+        "PIE-S2104",
+        BODY_LINE + 21,
+        17,
+        "Invalid argument types for function coalesce: expected same canonical type",
+    ),
+    (
+        "PIE-S2105",
+        BODY_LINE + 22,
+        17,
+        "Invalid operands for operator conditional: "
+        "expected same canonical branch types",
+    ),
+    ("PIE-S2105", BODY_LINE + 23, 17, NOT_NUMERIC.format("+")),
+    ("PIE-S2104", BODY_LINE + 24, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 25, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 26, 19, LOWER_OF_INT),
+]
 NULLS = {
     "null_argument": (
         'table t:\n    from rows\n    where pos(null) and up(null) == "A"\n'
@@ -1074,10 +1137,10 @@ NULLS = {
             ),
         ],
     ),
-    # An aggregate that reads `let:` names reports the argument's own errors
-    # beside its own, so the let is checked there, unlike `sum(nn(null))`.
-    # `min` and `max` read no `let:` name, so the name is an unknown field
-    # there, with or without a def.
+    # A `let:` name that an aggregate reads is checked with its binding's type,
+    # so `sum(nn(nill))` is PIE-S2315 alone, as `sum(nn(null))` is. `min` and
+    # `max` read no `let:` name, so the name is an unknown field there, with
+    # or without a def.
     "null_let_in_an_aggregate_argument": (
         "def nn(x: Int not null) -> Int not null: return x\n"
         "table t:\n    from rows\n    let:\n        nill = null\n"
@@ -1098,13 +1161,6 @@ NULLS = {
                 13,
                 "Aggregate function sum requires a direct field argument; "
                 "expression arguments are not supported yet",
-            ),
-            (
-                "PIE-S2395",
-                BODY_LINE + 9,
-                17,
-                "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got null",
             ),
             ("PIE-S2102", BODY_LINE + 10, 20, "Unknown field: nill"),
             ("PIE-S2102", BODY_LINE + 11, 17, "Unknown field: nill"),
@@ -1195,6 +1251,24 @@ def test_an_argument_reads_each_let_as_its_value_written_in_its_place() -> None:
     assert (
         _errors(SHAPES + DEFS + WRITTEN_LETS.format(**WRITTEN))
         == NULLS["let_reading_a_null_let"][1]
+    )
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [{key: key.lower() for key in ILL_TYPED}, ILL_TYPED],
+    ids=["let_names", "values_written_in"],
+)
+def test_an_argument_ill_typed_once_its_lets_are_written_in_is_an_error(
+    spelling: dict[str, str],
+) -> None:
+    """An argument whose `let:` values are ill-typed once the null they read
+    is written in reports the error the values written by hand report, where
+    they start, once however many times the body uses it, and is then
+    unknown, so its parameter adds nothing. A read outside a def argument
+    (`m = i2`) is not checked so."""
+    assert _errors(SHAPES + DEFS + ILL_TYPED_LETS.format(**spelling)) == (
+        ILL_TYPED_ERRORS
     )
 
 
@@ -1704,9 +1778,12 @@ def _inlining_lines(source: str, budget: int) -> int:
     return _module_lines(functools.partial(inline_functions, parsed.ast), budget)
 
 
-def _module_lines(run: Callable[[], object], budget: int) -> int:
-    """Lines ``run`` runs in the inlining module, an operation count that
-    does not depend on the machine; past ``budget`` the run stops."""
+def _module_lines(
+    run: Callable[[], object], budget: int, module: ModuleType = inline_module
+) -> int:
+    """Lines ``run`` runs in ``module``, the inlining module by default, an
+    operation count that does not depend on the machine; past ``budget`` the
+    run stops."""
 
     lines = 0
 
@@ -1719,7 +1796,7 @@ def _module_lines(run: Callable[[], object], budget: int) -> int:
         return count
 
     def enter(frame: Any, event: str, arg: object) -> Any:
-        return count if frame.f_code.co_filename == inline_module.__file__ else None
+        return count if frame.f_code.co_filename == module.__file__ else None
 
     previous = sys.gettrace()
     sys.settrace(enter)
@@ -1785,6 +1862,93 @@ def test_dropping_repeated_call_errors_grows_linearly(
         assert (len(diagnostics), len(drop())) == (32 * count, count)
         work.append(_module_lines(drop, sys.maxsize))
     assert work[2] - work[1] <= 2 * (work[1] - work[0])
+
+
+def _typing_lines(depth: int, lets: str, value: str) -> int:
+    """Typing work for one item that passes ``value`` through ``depth`` nested
+    calls, ``lets`` being the relation's `let:` bindings."""
+
+    source = (
+        SHAPES
+        + "def nl1(x: Int nullable) -> Int nullable: return x + 0\n"
+        + "table t:\n    from rows\n"
+        + (f"    let:\n{lets}" if lets else "")
+        + "    select:\n        id\n        v = "
+        + "nl1(" * depth
+        + value
+        + ")" * depth
+        + "\n"
+    )
+    parsed = parse_source(source, path="m.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert analyze(parsed.ast).diagnostics == ()
+    return _module_lines(
+        functools.partial(analyze, parsed.ast), sys.maxsize, expressions_module
+    )
+
+
+@pytest.mark.parametrize(
+    ("lets", "value", "factor"),
+    [
+        ("", "n", 1),
+        ("        j = n\n", "j", 3 / 2),
+        ("        k = null\n        j = coalesce(k, n)\n", "j", 4),
+    ],
+    ids=["field", "let_of_known_type", "let_reading_null"],
+)
+def test_checking_nested_arguments_grows_linearly(
+    lets: str, value: str, factor: float
+) -> None:
+    """Each nested argument is checked once, as emission writes it, so twice
+    the depth costs at most about twice the typing work; around a `let:` name
+    of known type it costs about what the field it names does, and around one
+    that reads a `let:` name bound to null a few times that."""
+    work = _typing_lines(20, lets, value)
+    assert _typing_lines(40, lets, value) <= work * 21 // 10
+    assert work <= _typing_lines(20, "", "n") * factor
+
+
+def _null_chain(length: int) -> tuple[int, list[tuple[str, int, int, str]]]:
+    """Typing work and errors for `k0 = null`, each further `let:` name the
+    one before passed through a nullable def, and the last read by a call
+    whose parameter is `not null`."""
+
+    source = (
+        SHAPES
+        + DEFS
+        + "def same(x: Int nullable) -> Int nullable: return x\n"
+        + "table t:\n    from rows\n    let:\n        k0 = null\n"
+        + "".join(f"        k{i} = same(k{i - 1})\n" for i in range(1, length))
+        + f"    select:\n        id\n        v = pos(same(k{length - 1}))\n"
+    )
+    parsed = parse_source(source, path="m.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    work = _module_lines(
+        functools.partial(analyze, parsed.ast), sys.maxsize, expressions_module
+    )
+    return work, _errors(source)
+
+
+def test_writing_a_chain_of_null_lets_grows_linearly() -> None:
+    """Null fits every nullable parameter on its way, so the literal written
+    for each name carries at most its first `not null` one, not every
+    parameter before it: twice the chain costs at most about twice the
+    typing work, and the error is still at the first call it does not fit."""
+    work, errors = _null_chain(100)
+    longer, longer_errors = _null_chain(200)
+    assert longer <= work * 21 // 10
+    assert [errors, longer_errors] == [
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + 6 + length,
+                13,
+                "Invalid argument for def pos at position 1 (x): "
+                "expected Int not null, got null",
+            )
+        ]
+        for length in (100, 200)
+    ]
 
 
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:

@@ -240,11 +240,17 @@ CLI:
 - A function argument of known type is not checked when another argument has
   an unknown type: over a source without a shape, `matches(a, 1)` passes
   `check` and PostgreSQL emission writes `"a" ~ 1`.
-- A `def` argument of unknown type is not checked against its parameter, and
-  inside a built-in call, `coalesce`, conditional or `in` list only `null`
-  itself takes a type from where it stands, so an argument
-  `coalesce(-null, n)` passes a `not null` parameter unchecked, written by
-  hand or through a `let:` name.
+- A `def` argument of unknown type is not checked against its parameter.
+  Inside a built-in call, `coalesce`, conditional or `in` list only `null`
+  itself takes a type from where it stands, and `null` takes none inside
+  `and`/`or`, as a `between` bound or in a built-in whose parameter admits
+  more than one type (`year`, `month`, `day`, `sign`), so the arguments
+  `null and true`, `year(null)` and `coalesce(-null, n)` pass a `not null`
+  parameter unchecked, written by hand or through a `let:` name.
+- A `let:` name bound to `null` has no type where it is read, so outside a
+  `def` argument a value that is ill-typed only once `null` is written in is
+  not reported: with `k = null` and `j = coalesce(k, 1)`, `v = lower(j)`
+  passes `check`, and single-file emission writes `lower(COALESCE(NULL, 1))`.
 - Division with a `Decimal` operand is not specified yet: it has no result
   type and emits a bare `/`. Division by zero follows the target (PostgreSQL
   raises an error, MySQL returns NULL), and dividing the smallest `Int` by -1
