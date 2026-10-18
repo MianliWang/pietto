@@ -718,6 +718,60 @@ def test_a_project_def_argument_ill_typed_once_its_lets_are_written_in_is_an_err
     ]
 
 
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        {"H": "h", "G": "g", "W": "w", "NILL": "nill"},
+        {
+            "H": "coalesce(null, id)",
+            "G": "text if true else null",
+            "W": "lower(coalesce(null, 1)) is null",
+            "NILL": "null",
+        },
+    ],
+    ids=["let_names", "values_written_in"],
+)
+def test_a_project_def_argument_reports_what_its_written_form_reports(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], spelling: dict[str, str]
+) -> None:
+    """As in a single file, an argument is checked with its `let:` values
+    written in and reports what they written by hand report, in the same
+    order: a `let:` name the values read is never an unknown field, also when
+    the relation's `let:` types are not all known (`nill`); a value
+    ill-typed once written in keeps the type it still has (`w`); and an
+    argument with an error of its own is not checked against its parameter."""
+    source = DEF_HEAD + (
+        "query q:\n    from rows\n    let:\n        nill = null\n        f = id\n"
+        "        h = coalesce(nill, f)\n        tt = true\n"
+        "        g = text if tt else nill\n        j = coalesce(nill, 1)\n"
+        "        e = lower(j)\n        w = e is null\n    select:\n        id\n"
+        "        a = idi(len({H}))\n        b = pos(len({G}))\n        c = idi({W})\n"
+        "        d = idi({NILL} + zz)\n"
+    ).format(**spelling)
+    line = DEF_LINE + 13
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        (
+            "PIE-S2104",
+            "a.pietto",
+            line,
+            17,
+            "Invalid argument type for function len at position 1: "
+            "expected Text, got Int",
+        ),
+        _mismatch("pos", line + 1, 13, "Int not null", "Int nullable"),
+        (
+            "PIE-S2104",
+            "a.pietto",
+            line + 2,
+            17,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+        ),
+        _mismatch("idi", line + 2, 13, "Int not null", "Bool not null"),
+        ("PIE-S2102", "a.pietto", line + 3, 24, "Unknown field: zz"),
+    ]
+
+
 def test_a_project_def_checks_a_let_that_an_aggregate_reads(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1941,6 +1941,85 @@ def test_satisfying_failures_keep_existing_diagnostics_and_no_namespace(
         ]
 
 
+def test_satisfying_reports_a_def_argument_that_does_not_fit_once(
+    tmp_path: Path,
+) -> None:
+    """A `satisfying:` predicate that is a not-null def call whose argument
+    does not fit is PIE-S2395 at the call; an output whose def argument does
+    not fit is PIE-S2395 alone, also where the predicate reads it, as without
+    JOIN inputs."""
+    header = PROJECT_SOURCE.split("query absent_stage:")[0]
+    queries = "".join(
+        f"query {name}:\n    from accounts\n    inner join events as event:\n"
+        "        from accounts\n        on event.account_id == accounts.id\n"
+        f"    group by:\n        {key}\n    select:\n        key = {item}\n"
+        f"        top = {top}\n        total = count(event.id)\n"
+        f"    satisfying:\n        {predicate}\n"
+        for name, key, item, top, predicate in (
+            (
+                "null_predicate",
+                "accounts.id",
+                "accounts.id",
+                "max(event.metric)",
+                "nb(null)",
+            ),
+            (
+                "comparison_predicate",
+                "accounts.id",
+                "accounts.id",
+                "max(event.metric)",
+                "nb(total > 0)",
+            ),
+            (
+                "unfit_aggregate",
+                "accounts.id",
+                "accounts.id",
+                "nn(max(event.metric))",
+                "total > 0 and top > 0",
+            ),
+            (
+                "unfit_key",
+                "event.metric",
+                "nn(event.metric)",
+                "max(event.id)",
+                "total > 0 and key > 0",
+            ),
+        )
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        header
+        + "def nb(x: Bool not null) -> Bool not null: return x\n"
+        + "def nn(x: Int not null) -> Int not null: return x\n"
+        + queries,
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    offset = header.count("\n")
+    assert [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        (
+            "PIE-S2395",
+            f"Invalid argument for def {name} at position 1 (x): "
+            f"expected {expected} not null, got {actual}",
+            line,
+            column,
+        )
+        for name, expected, actual, line, column in (
+            ("nb", "Bool", "null", 15, 9),
+            ("nb", "Bool", "Bool of unknown nullability", 28, 9),
+            ("nn", "Int", "Int nullable", 38, 15),
+            ("nn", "Int", "Int nullable", 50, 15),
+        )
+    ]
+
+
 def test_collection_preserves_exact_slice8_order_membership_and_slice7_ledger(
     built: _Built,
 ) -> None:

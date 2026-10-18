@@ -1298,6 +1298,82 @@ def test_an_argument_ill_typed_once_its_lets_are_written_in_is_an_error(
     )
 
 
+# Def arguments that read `let:` names whose values are ill-typed once the
+# null they read is written in but still have a type (`w`, `c`), or that meet
+# an error of another message at the same call (`substr`), or that have an
+# error of their own (`zz`, `lower(1)`); each placeholder is the name, or its
+# value written in its place, which starts where the name does.
+KEPT_TYPE_LETS = (
+    "def nn(x: Int not null) -> Int not null: return x\n"
+    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
+    "table t:\n    from rows\n    let:\n        nill = null\n"
+    "        j = coalesce(nill, 1)\n        e = lower(j)\n        w = e is null\n"
+    "        c = e == 'a'\n"
+    "    select:\n        id\n        a = nn({W})\n        b = bb({C})\n"
+    "        d = bb(len({C}) > 0)\n        f = bb(substr({J}, 0, 1) is null)\n"
+    "        g = nn({NILL} + zz)\n        h = nn({NILL} + lower(1))\n"
+)
+KEPT_TYPE = {
+    "W": "lower(coalesce(null, 1)) is null",
+    "C": "lower(coalesce(null, 1)) == 'a'",
+    "J": "coalesce(null, 1)",
+    "NILL": "null",
+}
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [{key: key.lower() for key in KEPT_TYPE}, KEPT_TYPE],
+    ids=["let_names", "values_written_in"],
+)
+def test_an_argument_is_checked_with_the_type_and_errors_of_its_written_form(
+    spelling: dict[str, str],
+) -> None:
+    """A `let:` value ill-typed once written in keeps the type it still has,
+    so its argument is checked against its parameter as the value written by
+    hand is; the errors of the written form stand in place of those typing
+    the name reports, also where both are at one call (`substr`); and an
+    argument with an error of its own is not checked against its parameter,
+    as the literal spelling is not."""
+    lower_of_int = (
+        "Invalid argument type for function lower at position 1: expected Text, got Int"
+    )
+    unknown_nullability = (
+        "Invalid argument for def bb at position 1 (p): "
+        "expected Bool not null, got Bool of unknown nullability"
+    )
+    assert _errors(SHAPES + KEPT_TYPE_LETS.format(**spelling)) == [
+        (
+            "PIE-S2395",
+            BODY_LINE + 10,
+            13,
+            "Invalid argument for def nn at position 1 (x): "
+            "expected Int not null, got Bool not null",
+        ),
+        ("PIE-S2104", BODY_LINE + 10, 16, lower_of_int),
+        ("PIE-S2395", BODY_LINE + 11, 13, unknown_nullability),
+        ("PIE-S2104", BODY_LINE + 11, 16, lower_of_int),
+        ("PIE-S2395", BODY_LINE + 12, 13, unknown_nullability),
+        (
+            "PIE-S2104",
+            BODY_LINE + 12,
+            16,
+            "Invalid argument type for function len at position 1: "
+            "expected Text, got Bool",
+        ),
+        ("PIE-S2104", BODY_LINE + 12, 20, lower_of_int),
+        (
+            "PIE-S2104",
+            BODY_LINE + 13,
+            16,
+            "Invalid argument type for function substr at position 1: "
+            "expected Text, got Int",
+        ),
+        ("PIE-S2102", BODY_LINE + 14, 23, "Unknown field: zz"),
+        ("PIE-S2104", BODY_LINE + 15, 23, lower_of_int),
+    ]
+
+
 def test_a_deep_let_value_read_deep_in_an_expression_is_written_in() -> None:
     """A `let:` value is written in where typing starts, not where the
     argument stands deep in its expression, so its depth adds to none."""
@@ -1348,6 +1424,61 @@ def test_a_let_bound_to_null_is_null_over_an_unknown_row() -> None:
             22,
             "Invalid argument for def pos at position 1 (x): "
             "expected Int not null, got null",
+        ),
+    ]
+
+
+def test_a_let_name_that_is_an_unknown_field_where_it_is_read_stays_one() -> None:
+    """A grouped select item reads no `let:` value, so a `let:` name there is
+    an unknown field, also in a def argument: it is not written in as its
+    value, and the argument adds nothing to that error."""
+    source = (
+        SHAPES + "def nn(x: Int not null) -> Int not null: return x\n"
+        "table t:\n    from rows\n    let:\n        k = null\n    group by:\n"
+        "        id\n    select:\n        id\n        a = nn(k)\n"
+        "        b = nn(k + 1)\n        c = count(n)\n"
+    )
+    assert _errors(source) == [
+        ("PIE-S2102", BODY_LINE + 7, 16, "Unknown field: k"),
+        ("PIE-S2102", BODY_LINE + 8, 16, "Unknown field: k"),
+        (
+            "PIE-S2319",
+            BODY_LINE + 8,
+            16,
+            "Grouped scalar projection expressions are not supported yet",
+        ),
+    ]
+
+
+def test_a_let_value_that_reads_no_field_is_known_over_an_unknown_row() -> None:
+    """Over a shapeless source a `let:` value that does not depend on the row,
+    or whose type does not (`a is null`), has its type in a def argument, as
+    the value written by hand has; one derived from a field of unknown type
+    stays unchecked, and a read outside a def argument is not checked so."""
+    source = (
+        'source raw is postgres.table("raw")\n'
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def tn(x: Text not null) -> Text not null: return x\n"
+        "table t:\n    from raw\n    let:\n        u3 = a is null\n"
+        "        u8 = coalesce(a, 1)\n        u9 = 1 > 2\n        u0 = true\n"
+        "    select:\n        id\n        x = nn(u0)\n        y = tn(u9)\n"
+        "        z = nn(u3)\n        w = nn(u8)\n        m = len(u3)\n"
+    )
+    assert _errors(source) == [
+        ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
+        *(
+            (
+                "PIE-S2395",
+                line,
+                13,
+                f"Invalid argument for def {name} at position 1 (x): "
+                f"expected {expected} not null, got {actual}",
+            )
+            for line, name, expected, actual in (
+                (13, "nn", "Int", "Bool not null"),
+                (14, "tn", "Text", "Bool of unknown nullability"),
+                (15, "nn", "Int", "Bool not null"),
+            )
         ),
     ]
 
@@ -2006,21 +2137,45 @@ def test_writing_lets_keeps_one_copy_of_each_error_they_read() -> None:
     assert _doubling(12) <= _doubling(6) * 21 // 10
 
 
-def test_an_argument_used_twice_finds_its_reported_errors_by_lookup(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("head", "item", "code", "column"),
+    [
+        (
+            "def tw(x: Int nullable) -> Int nullable: return x + x\n",
+            "tw(i)",
+            "PIE-S2105",
+            16,
+        ),
+        (
+            "def nn(x: Int not null) -> Int not null: return x\n",
+            "nn(k)",
+            "PIE-S2395",
+            13,
+        ),
+        (
+            "def nn(x: Int not null) -> Int not null: return x\n",
+            "nn(null)",
+            "PIE-S2395",
+            13,
+        ),
+    ],
+    ids=["written_error_used_twice", "let_argument_mismatch", "null_argument_mismatch"],
+)
+def test_each_item_reports_its_argument_errors_without_comparing_earlier_ones(
+    monkeypatch: pytest.MonkeyPatch, head: str, item: str, code: str, column: int
 ) -> None:
-    """Each item reports its argument's error as written once, although the
-    body uses the argument twice, and finds the copy already reported by
-    lookup, not by comparing it with every error reported before it: twice
-    the items make at most about twice the comparisons."""
+    """Each item reports its argument's error once, although a body may use
+    the argument twice, and finds a copy already reported by lookup, not by
+    comparing it with every error reported before it: twice the items make
+    at most about twice the comparisons."""
 
     def comparisons(items: int) -> int:
         source = (
             SHAPES
-            + "def tw(x: Int nullable) -> Int nullable: return x + x\n"
+            + head
             + "table t:\n    from rows\n    let:\n        k = null\n"
             + "        i = upper(k) + 1\n    select:\n        id\n"
-            + "".join(f"        v{item} = tw(i)\n" for item in range(items))
+            + "".join(f"        v{number} = {item}\n" for number in range(items))
         )
         parsed = parse_source(source, path="m.pietto")
         assert parsed.diagnostics == () and parsed.ast is not None
@@ -2036,11 +2191,11 @@ def test_an_argument_used_twice_finds_its_reported_errors_by_lookup(
             patch.setattr(Diagnostic, "__eq__", counted)
             diagnostics = analyze(parsed.ast).diagnostics
         assert [
-            (item.code, item.location.line, item.location.column)
-            for item in diagnostics
+            (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
+            for diagnostic in diagnostics
         ] == [
-            ("PIE-S2105", BODY_LINE + 6 + item, 16 + len(str(item)))
-            for item in range(items)
+            (code, BODY_LINE + 6 + number, column + len(str(number)))
+            for number in range(items)
         ]
         return count
 

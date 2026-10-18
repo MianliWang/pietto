@@ -1658,28 +1658,40 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   `coalesce` or conditional of such values) fits only a `nullable`
   parameter, and its type is still checked when it has one: a comparison
   such as `text == (id + null)` is `Bool`. A def argument is checked as it is
-  written into SQL, with each `let:` name replaced by its value: with
-  `k = null`, `j = coalesce(k, n)` and `m = id + null`, the arguments `k`,
-  `k + 1` and `m` are null, and `lower(k)` and `j` are `Text nullable` and
-  `Int nullable`, as `lower(null)` and `coalesce(null, n)` are. A `let:` name
-  whose binding has an error of its own is not replaced, so that its error
-  stands alone, and one that an aggregate argument reads is checked with its
-  binding's type. These are PIE-S2395 at the call, also when the call is in a
-  def body, reported once however many times the body uses the argument and
+  written into SQL, with each `let:` name replaced by its value: the type,
+  nullability and errors of the value written there by hand decide whether
+  it fits. With `k = null`, `j = coalesce(k, n)` and `m = id + null`, the
+  arguments `k`, `k + 1` and `m` are null, and `lower(k)` and `j` are
+  `Text nullable` and `Int nullable`, as `lower(null)` and
+  `coalesce(null, n)` are. Over a source without a shape a `let:` value has
+  the type it has written there: with `u = true` or `u = a is null`, the
+  argument `u` is `Bool not null`, while `u = coalesce(a, 1)` stays unknown,
+  as the field `a` is. A `let:` name whose binding has an error of its own is
+  not replaced, so that its error stands alone; nor is one that is an
+  unknown field where it is read, as in a grouped select item (PIE-S2102);
+  and one that an aggregate argument reads is checked with its binding's
+  type. These are PIE-S2395 at the call, also when the call is in a def
+  body, reported once however many times the body uses the argument and
   only for the innermost call that does not fit: an argument that does not
   fit is unknown to every expression around it, also through a built-in call
-  such as `len`. An argument with an error of its own that leaves its type
-  unknown, such as a comparison with the null literal (`text == null`,
-  PIE-S2105), is not checked against its parameter. One that is ill-typed
-  once the values are written in reports the errors that the values written
-  by hand report, where they start, once however many times the body uses
-  it, and is checked against its parameter when it still has a type, as the
-  values written by hand are. With `i = upper(k) + 1`, the argument `i` is
-  PIE-S2105 at `i`, as `upper(null) + 1` written there is; the argument
-  `lower(j)` is PIE-S2104 at `lower`; and `lower(j) == "a"` passed to a
-  `Bool not null` parameter is that PIE-S2104 and PIE-S2395, as the
-  comparison is still `Bool` of unknown nullability. Outside a def argument
-  a `let:` name bound to `null` has no type where it is read, so a value
+  such as `len`. An argument with an
+  error of its own that leaves its type unknown, such as a comparison with
+  the null literal (`text == null`, PIE-S2105) or `k + zz` with an unknown
+  field `zz`, is not checked against its parameter. One that is ill-typed
+  once the values are written in reports the errors of the values written by
+  hand, in place of those the names would give, once however many times the
+  body uses it, and is checked against its parameter when it still has a
+  type. An error inside a `let:` value is reported at the start of the name
+  that reads it, once for each code and message: with `i = upper(k) + 1`,
+  the argument `i` is PIE-S2105 at `i`, as `upper(null) + 1` written there
+  is, and with `d = len(j) + len(j)`, the argument `d` is one PIE-S2104 at
+  `d` where the value written by hand has two. The argument `lower(j)` is
+  PIE-S2104 at `lower`; `lower(j) == "a"` passed to a `Bool not null`
+  parameter is that PIE-S2104 and PIE-S2395, as the comparison is still
+  `Bool` of unknown nullability; and with `w = lower(j) is null`, `w` passed
+  to an `Int not null` parameter is PIE-S2104 at `w` and PIE-S2395, as `w` is
+  `Bool not null`. Outside a def argument a `let:` name bound to `null` has
+  no type where it is read, so a value
   ill-typed only once `null` is written in, such as `v = i` or
   `v = lower(j)`, is not reported, and single-file emission writes it. An
   argument whose type is unknown for another reason is not checked either,

@@ -123,14 +123,16 @@ def checks_inlined_arguments(
     infer: Callable[_P, ValueType],
 ) -> Callable[_P, ValueType]:
     """Check each inlined argument a clause-specific typer types itself; it
-    takes the expression first and ``diagnostics`` by keyword."""
+    takes the expression first and ``diagnostics`` and ``value_types`` by
+    keyword. The type it records for the expression is the checked one."""
 
     @functools.wraps(infer)
     def checked(*args: _P.args, **kwargs: _P.kwargs) -> ValueType:
+        expression = cast(Expression, args[0])
         diagnostics = cast(list[Diagnostic], kwargs["diagnostics"])
         reported = len(diagnostics)
-        return _check_inlined_argument(
-            cast(Expression, args[0]),
+        value_type = _check_inlined_argument(
+            expression,
             infer(*args, **kwargs),
             diagnostics,
             cast(
@@ -139,6 +141,10 @@ def checks_inlined_arguments(
             ),
             reported=reported,
         )
+        cast(dict[Expression, ValueType], kwargs["value_types"])[expression] = (
+            value_type
+        )
+        return value_type
 
     return checked
 
@@ -152,13 +158,22 @@ def _check_inlined_argument(
     reported: int | None = None,
 ) -> ValueType:
     """``value_type``, or Unknown when ``expression`` does not fit each ``def``
-    parameter it is inlined for (`_fits_parameters`)."""
+    parameter it is inlined for (`_fits_parameters`); ``diagnostics`` past
+    ``reported`` are those typing it reported."""
 
     if _fits_parameters(
-        expression, value_type, diagnostics, type_expansions, reported=reported
+        expression,
+        value_type,
+        diagnostics,
+        type_expansions,
+        erroneous=reported is not None and _has_error(diagnostics[reported:]),
     ):
         return value_type
     return _UNKNOWN_VALUE_TYPE
+
+
+def _has_error(diagnostics: Sequence[Diagnostic]) -> bool:
+    return any(item.severity is Severity.ERROR for item in diagnostics)
 
 
 def _fits_parameters(
@@ -167,30 +182,29 @@ def _fits_parameters(
     diagnostics: list[Diagnostic],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     *,
-    reported: int | None = None,
-    written: tuple[ValueType, bool] | None = None,
+    erroneous: bool = False,
+    null: bool | None = None,
 ) -> bool:
-    """Check an argument against each ``def`` parameter it is inlined for.
+    """Check an argument of ``value_type`` against each ``def`` parameter it
+    is inlined for.
 
     A known type must be the parameter type after alias expansion, and a
     ``not null`` parameter takes only a value proven non-null. An argument
-    that is always null fits only a nullable parameter, and only one of its
-    own type when it has one: a comparison with an always-null operand is
-    still Bool. Any other argument whose type is unknown is not checked:
-    either an error was reported for it (``diagnostics`` grew past
-    ``reported`` while it was typed, as for a comparison with the null
-    literal) or nothing is known about it, as for a field of a source without
-    a shape. ``written``, the type of the argument as emission writes it and
-    whether that is always null (`_written_argument`), is checked in place of
-    its own. A mismatch is one error at the innermost call that does not fit,
-    however many uses of the argument the body has, and every use then stays
-    Unknown so that the expansion reports nothing else.
+    that is always null (``null``, by default `always_null` of
+    ``expression``) fits only a nullable parameter, and only one of its own
+    type when it has one: a comparison with an always-null operand is still
+    Bool. Any other argument whose type is unknown is not checked: either it
+    is ``erroneous``, an error was reported for it (as for a comparison with
+    the null literal), or nothing is known about it, as for a field of a
+    source without a shape. A mismatch is one error at the innermost call
+    that does not fit, and every use then stays Unknown so that the expansion
+    reports nothing else; a use that the body repeats reports it again, and
+    the result reports each error once.
     """
 
     slots = inlined_arguments(expression)
     if not slots:
         return True
-    form_type, null = written or (value_type, None)
 
     def is_null() -> bool:
         nonlocal null
@@ -198,17 +212,10 @@ def _fits_parameters(
             null = always_null(expression)
         return null
 
-    known = form_type.kind is not ValueTypeKind.UNKNOWN
-    if not known and (
-        (
-            written is None
-            and reported is not None
-            and any(item.severity is Severity.ERROR for item in diagnostics[reported:])
-        )
-        or not is_null()
-    ):
+    known = value_type.kind is not ValueTypeKind.UNKNOWN
+    if not known and (erroneous or not is_null()):
         return True
-    canonical = _canonical_resolved_type(form_type, type_expansions) if known else None
+    canonical = _canonical_resolved_type(value_type, type_expansions) if known else None
     for slot in slots:
         type_fits = not known or (
             canonical is not None
@@ -218,7 +225,8 @@ def _fits_parameters(
         if type_fits and (
             slot.nullable
             or (
-                form_type.nullability is EffectiveNullability.NON_NULL and not is_null()
+                value_type.nullability is EffectiveNullability.NON_NULL
+                and not is_null()
             )
         ):
             continue
@@ -226,29 +234,22 @@ def _fits_parameters(
             actual = "null"
         else:
             actual = (
-                f"{(canonical or form_type.resolved_type).name} "
-                f"{_NULLABILITY_TEXT[form_type.nullability]}"
+                f"{(canonical or value_type.resolved_type).name} "
+                f"{_NULLABILITY_TEXT[value_type.nullability]}"
             )
         expected = "nullable" if slot.nullable else "not null"
-        diagnostic = Diagnostic(
-            code="PIE-S2395",
-            severity=Severity.ERROR,
-            message=(
-                f"Invalid argument for def {slot.function} at position "
-                f"{slot.position} ({slot.parameter}): expected "
-                f"{slot.type_name} {expected}, got {actual}"
-            ),
-            location=SourceLocation(
-                path=slot.call.path,
-                line=slot.call.line,
-                column=slot.call.column,
-                end_line=slot.call.end_line,
-                end_column=slot.call.end_column,
-            ),
+        diagnostics.append(
+            Diagnostic(
+                code="PIE-S2395",
+                severity=Severity.ERROR,
+                message=(
+                    f"Invalid argument for def {slot.function} at position "
+                    f"{slot.position} ({slot.parameter}): expected "
+                    f"{slot.type_name} {expected}, got {actual}"
+                ),
+                location=_span_location(slot.call),
+            )
         )
-        # Every use of a repeated argument is checked; one report is enough.
-        if diagnostic not in diagnostics:
-            diagnostics.append(diagnostic)
         # An inner call's parameter comes first; once it does not fit, the
         # value is unknown to every call around it.
         return False
@@ -264,23 +265,16 @@ class LetValues(dict[str, Expression]):
     itself, or, where typing follows no name (a relation with JOIN inputs),
     its own. A name in ``erroneous`` has an error of its own and is not
     written in, so that its error stands alone. ``written`` holds each
-    binding as written (`_Written`), or None for one that is not;
-    ``differs`` whether any is written other than as it is typed where it
-    is read; ``arguments`` each argument checked as written, by identity,
-    as the argument around it reads it; and ``reported`` the errors of
-    arguments as written reported so far to each diagnostics list, by
-    identity, with the list it holds, which only a copy of the same argument
-    repeats.
+    binding as written (`_Written`), or None for one that is not, and
+    ``differs`` whether a read of one is not typed as it is written; until
+    one is, every argument is its own written form. Then ``typed`` holds, for
+    each expression typed here by identity, the diagnostics list it was
+    typed into and where in it its diagnostics are, and ``checked`` each
+    ``def`` argument as the argument around it reads it (`_Written`), or None
+    for one checked as it stands that reads a binding.
     """
 
-    __slots__ = (
-        "arguments",
-        "bindings",
-        "differs",
-        "erroneous",
-        "reported",
-        "written",
-    )
+    __slots__ = ("bindings", "checked", "differs", "erroneous", "typed", "written")
 
     def __init__(
         self,
@@ -294,17 +288,17 @@ class LetValues(dict[str, Expression]):
         self.erroneous: set[str] = set() if erroneous is None else erroneous
         self.written: dict[str, _Written | None] = {}
         self.differs = False
-        self.arguments: dict[int, tuple[Expression, _Written | None]] = {}
-        self.reported: dict[int, tuple[list[Diagnostic], set[Diagnostic]]] = {}
+        self.typed: dict[int, tuple[list[Diagnostic], int, int]] = {}
+        self.checked: dict[int, _Written | None] = {}
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class _Written:
     """A binding or ``def`` argument as emission writes it: ``form``, of
-    ``value_type`` where that is not the type it has where it is read (None
-    where it is), ``always_null`` or not, ``size`` nodes nested ``levels``
-    deep once inlined, as PIE-S2328 counts them, and the ``errors`` typing it
-    found, a binding's value then being unknown."""
+    ``value_type`` (None for an argument that is its own written form),
+    ``always_null`` or not, ``size`` nodes nested ``levels`` deep once
+    inlined, as PIE-S2328 counts them, and, for a binding, the ``errors``
+    writing it finds, which move to each read of it."""
 
     form: Expression
     value_type: ValueType | None
@@ -314,77 +308,89 @@ class _Written:
     errors: tuple[Diagnostic, ...] = ()
 
 
+class _WrittenTypes(dict[Expression, ValueType]):
+    """The types a written form (`_written_form`) is typed with, by part,
+    and the diagnostics of each part it keeps whole, by identity, which
+    typing reports where it reaches that part, as it would the part itself
+    written there."""
+
+    __slots__ = ("diagnostics",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.diagnostics: dict[int, list[Diagnostic]] = {}
+
+
 def _written_form(
     expression: Expression,
     lets: LetValues,
     row_schema: RowSchema,
     value_types: Mapping[Expression, ValueType],
+    diagnostics: list[Diagnostic] | None,
     *,
     root: bool,
-) -> (
-    tuple[
-        Expression,
-        dict[Expression, ValueType],
-        bool,
-        bool,
-        int,
-        int,
-        list[Diagnostic],
-    ]
-    | None
-):
-    """``expression`` as emission writes it, the types to type it with,
-    whether it differs from ``expression``, whether it is always null
-    (`always_null`), its size and levels once inlined (PIE-S2328), and the
-    errors of the values it reads.
+    root_type: ValueType | None = None,
+    reads_let: Callable[[str], bool] = lambda name: True,
+) -> tuple[Expression, _WrittenTypes, bool, bool, int, int] | None:
+    """``expression`` as emission writes it, the types and diagnostics to
+    type it with (`_WrittenTypes`), whether it differs from ``expression``,
+    whether it is always null (`always_null`), and its size and levels once
+    inlined (PIE-S2328).
 
-    A read of a binding written as the null literal is that literal, which
-    takes its type from where it stands, and one of a binding whose written
-    type is not its own is a read of the written type; any other read, and
-    each part that has none of them, keeps its type in ``value_types``. A
-    read of a binding whose written value has errors is unknown, and those
-    errors are at the read, where the value is written. An argument already
-    checked as written is the form it was checked as, still the argument of
-    its own calls. At the ``root`` the
-    expression's own ``def`` parameters are left out, for its caller to
-    check them. None when it reads a captured field whose type is not known
-    here, or an argument whose form was not used.
+    A read of a written binding, where typing reads the name as its `let:`
+    value (``reads_let``), is its value: the null literal itself, which
+    takes its type from where it stands, or the read with the binding's type
+    and errors, which move to the start of the read; a read whose type where
+    it stands (``root_type`` at the ``root``) is the written one stays as it
+    is. A ``def`` argument inside, already checked (`LetValues.checked`), is
+    its form of the type it has around it, still the argument of its own
+    calls; an aggregate call is kept whole, as its arguments read a binding
+    as its name. Each part kept whole keeps its type in ``value_types`` and
+    the diagnostics typing it into ``diagnostics`` reported
+    (`LetValues.typed`), and only the parts rebuilt around them are typed
+    again. At the ``root`` the expression's own ``def`` parameters are left
+    out, for its caller to check them. None when it reads a captured field
+    whose type is not known here, or an argument whose form was not used.
     """
 
     from pietto.semantic.let_bindings import _level_weight
 
-    seeds: dict[Expression, ValueType] = {}
-    errors: list[Diagnostic] = []
+    seeds = _WrittenTypes()
+
+    def keep(part: Expression, value_type: ValueType, node: Expression) -> None:
+        seeds[part] = value_type
+        typed = lets.typed.get(id(node))
+        if typed is not None and typed[0] is diagnostics:
+            seeds.diagnostics[id(part)] = typed[0][typed[1] : typed[2]]
 
     def walk(
         node: Expression, root: bool
     ) -> tuple[Expression, bool, bool, int, int] | None:
-        if not root and (checked := lets.arguments.get(id(node))) is not None:
-            argument = checked[1]
+        if not root and id(node) in lets.checked:
+            argument = lets.checked[id(node)]
             if argument is None:
                 return None
-            form = argument.form
-            if argument.value_type is not None:
-                # Still the argument of its calls: one that does not fit
-                # stays unknown, and is no null literal, around it.
-                form = (
-                    _null_fitting(
-                        form.span, (*inlined_arguments(form), *inlined_arguments(node))
-                    )
-                    if _is_null_literal(form)
-                    else functools.reduce(
-                        with_inlined_argument, inlined_arguments(node), form
-                    )
+            if argument.value_type is None:
+                return node, False, argument.always_null, argument.size, argument.levels
+            # Still the argument of its calls: one that does not fit stays
+            # unknown, and is no null literal, around it.
+            form = (
+                _null_fitting(
+                    argument.form.span,
+                    (*inlined_arguments(argument.form), *inlined_arguments(node)),
                 )
-                seeds[form] = argument.value_type
-            return (
-                form,
-                argument.value_type is not None,
-                argument.always_null,
-                argument.size,
-                argument.levels,
+                if _is_null_literal(argument.form)
+                else functools.reduce(
+                    with_inlined_argument, inlined_arguments(node), argument.form
+                )
             )
-        if type(node) is NameExpr and node.name not in row_schema.fields:
+            keep(form, argument.value_type, node)
+            return form, True, argument.always_null, argument.size, argument.levels
+        if (
+            type(node) is NameExpr
+            and node.name not in row_schema.fields
+            and reads_let(node.name)
+        ):
             written = lets.written.get(node.name)
             if written is not None:
                 if _is_null_literal(written.form):
@@ -398,22 +404,20 @@ def _written_form(
                         written.size,
                         written.levels,
                     )
-                if written.value_type is None:
-                    return (
-                        node,
-                        False,
-                        written.always_null,
-                        written.size,
-                        written.levels,
-                    )
+                if not (
+                    written.errors
+                    or written.always_null
+                    or (root_type if root else value_types.get(node))
+                    != written.value_type
+                ):
+                    # Typed where it stands as it is written.
+                    return node, False, False, written.size, written.levels
                 result = dataclasses.replace(node) if root else node
-                seeds[result] = written.value_type
-                if written.errors:
-                    at = _span_location(node.span)
-                    errors.extend(
-                        dataclasses.replace(error, location=at)
-                        for error in written.errors
-                    )
+                seeds[result] = cast(ValueType, written.value_type)
+                at = _span_location(node.span)
+                seeds.diagnostics[id(result)] = [
+                    dataclasses.replace(error, location=at) for error in written.errors
+                ]
                 return result, True, written.always_null, written.size, written.levels
         if type(node) is ast.CapturedFieldExpr and node not in value_types:
             return None
@@ -436,11 +440,13 @@ def _written_form(
             null = bool(operands) and all(operands)
         else:
             null = any(operands)
-        if not any(changed for _, _, changed in walked):
+        if not any(changed for _, _, changed in walked) or (
+            type(node) is CallExpr and is_semantic_aggregate_call(node)
+        ):
             return node, False, null, size, levels
         for child, _, changed in walked:
             if not changed and child in value_types:
-                seeds[child] = value_types[child]
+                keep(child, value_types[child], child)
         result = _with_children(node, {id(child): form for child, form, _ in walked})
         if not root:
             for slot in inlined_arguments(node):
@@ -451,7 +457,7 @@ def _written_form(
     if item is None:
         return None
     form, changed, null, size, levels = item
-    return form, seeds, changed, null, size, levels, errors
+    return form, seeds, changed, null, size, levels
 
 
 def _null_fitting(span: ast.Span, slots: tuple[InlinedArgument, ...]) -> LiteralExpr:
@@ -504,17 +510,19 @@ def _write_lets(
 ) -> None:
     """Write each binding of ``lets`` not yet written, in binding order, once:
     a binding reads only earlier ones, so each is written with those written
-    in, and one that reads a later one has an error of its own. Only a form
-    that differs from the binding is typed. A binding with an error of its
-    own is not written, and a read of one is typed as itself; one whose
-    written form has errors, or reads a binding whose written form has, is
-    written as an unknown value with those errors.
+    in, and one that reads a later one has an error of its own. A binding
+    with an error of its own is not written, and a read of one is typed as
+    itself. A binding that reads no written one has the type it has where it
+    is bound, also over a source without a shape, where a read of it is
+    otherwise unknown; any other is typed as written, and keeps that type
+    and the errors writing it in finds, once each.
 
     It runs where typing starts, once a ``def`` argument reads a binding
     (`_reads_let_in_argument`), as writing a value where the argument stands
     would nest it that much deeper. A binding is typed as it is where it is
     bound, without the relation reads of the expression typed (a row `let:`
-    reads no relation), so the same values serve every expression.
+    reads no relation), so the same values serve every expression; a name
+    in it is never an unknown field, as it is not where it is bound.
     """
 
     pending = list(
@@ -527,33 +535,33 @@ def _write_lets(
         if name in lets.erroneous:
             continue
         item = _written_form(
-            lets.bindings[name], lets, row_schema, value_types, root=False
+            lets.bindings[name], lets, row_schema, value_types, None, root=False
         )
         if item is None:
             continue
-        form, seeds, changed, null, size, levels, errors = item
-        value_type = None
-        if changed and not _is_null_literal(form):
-            found: list[Diagnostic] = []
+        form, seeds, changed, null, size, levels = item
+        found: list[Diagnostic] = []
+        if _is_null_literal(form):
+            # A read writes the literal itself (`_written_form`).
+            value_type = _UNKNOWN_VALUE_TYPE
+        elif not changed and bare_value_types is not None and name in bare_value_types:
+            value_type = bare_value_types[name]
+        else:
             value_type = _infer(
                 form,
                 row_schema,
                 seeds,
                 found,
-                report_unknown_name=True,
+                report_unknown_name=False,
                 field_qualifier=field_qualifier,
                 bare_value_types=bare_value_types,
                 bare_value_expressions=MappingProxyType(lets),
-                suppressed_unknown_names=lets.erroneous,
                 type_expansions=type_expansions,
             )
-            errors.extend(item for item in found if item.severity is Severity.ERROR)
-            if errors:
-                value_type = _UNKNOWN_VALUE_TYPE
         # Each error moves to the read that writes the value in, so the
         # binding keeps one of each.
         at = _span_location(lets.bindings[name].span)
-        lets.written[name] = _Written(
+        written = lets.written[name] = _Written(
             form,
             value_type,
             null,
@@ -561,11 +569,21 @@ def _write_lets(
             levels + 1,
             tuple(
                 dict.fromkeys(
-                    dataclasses.replace(error, location=at) for error in errors
+                    dataclasses.replace(error, location=at)
+                    for error in found
+                    if error.severity is Severity.ERROR
                 )
             ),
         )
-        lets.differs = lets.differs or null or value_type is not None
+        # A read is typed as its binding is where that is known, else unknown.
+        read_type = (
+            None
+            if row_schema.is_unknown or bare_value_types is None
+            else bare_value_types.get(name)
+        )
+        lets.differs = lets.differs or bool(
+            null or written.errors or value_type != (read_type or _UNKNOWN_VALUE_TYPE)
+        )
 
 
 def _reads_let_in_argument(
@@ -597,6 +615,7 @@ def _written_argument(
     lets: LetValues,
     row_schema: RowSchema,
     value_types: Mapping[Expression, ValueType],
+    diagnostics: list[Diagnostic],
     *,
     report_unknown_name: bool,
     field_qualifier: str | None,
@@ -605,36 +624,44 @@ def _written_argument(
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     relation_columns: Mapping[Expression, ValueType] | None,
-) -> _Written | None:
-    """A ``def`` argument of ``value_type`` where it stands as emission writes
-    it, with the `let:` values ``lets`` has written in: its form, type and
-    whether it is always null there, and the errors typing it finds, each
-    where the literal spelling has it, a value written in at its read. None
-    when it is checked as it stands: it reads no binding written other than
-    as typed where it is read, writing them in passes the PIE-S2328 limit,
-    or its form has no type information without an error, as for a field of
-    a source without a shape. Each argument is recorded as the argument
-    around it reads it; the caller records one it checks as written.
+) -> tuple[ValueType, bool, list[Diagnostic]] | None:
+    """A ``def`` argument, typed where it stands as ``value_type`` into
+    ``diagnostics``, as emission writes it, with the `let:` values ``lets``
+    has written in: its type and whether it is always null there, and the
+    diagnostics the literal spelling reports, a value's errors at the start
+    of its read (`_written_form`). None when it is its own written form, or
+    when writing the values in passes the PIE-S2328 limit or reads a captured
+    field whose type is not known here; it is then checked as it stands. It
+    is recorded as the argument around it reads it (`LetValues.checked`).
     """
 
     from pietto.semantic.let_bindings import _exceeds
 
-    item = _written_form(expression, lets, row_schema, value_types, root=True)
+    item = _written_form(
+        expression,
+        lets,
+        row_schema,
+        value_types,
+        diagnostics,
+        root=True,
+        root_type=value_type,
+        # As `_name_value_type` reads a name that is no field: where it reads
+        # no `let:` value, as in a grouped select, the name is unknown.
+        reads_let=lambda name: (
+            row_schema.is_unknown
+            or (bare_value_types is not None and name in bare_value_types)
+            or name in (suppressed_unknown_names or ())
+        ),
+    )
     if item is None:
-        lets.arguments[id(expression)] = (expression, None)
+        lets.checked[id(expression)] = None
         return None
-    form, seeds, changed, null, size, levels, errors = item
+    form, seeds, changed, null, size, levels = item
     if not changed:
-        lets.arguments[id(expression)] = (
-            expression,
-            _Written(expression, None, null, size, levels),
-        )
-        if not null or _exceeds(size, levels):
-            return None
-        # Only its null-ness is written differently.
-        return _Written(dataclasses.replace(expression), value_type, True, size, levels)
+        lets.checked[id(expression)] = _Written(expression, None, null, size, levels)
+        return None
     if _exceeds(size, levels):
-        lets.arguments[id(expression)] = (expression, None)
+        lets.checked[id(expression)] = None
         return None
     found: list[Diagnostic] = []
     form_type = _infer(
@@ -651,18 +678,8 @@ def _written_argument(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
-    errors.extend(item for item in found if item.severity is Severity.ERROR)
-    if errors:
-        lets.arguments[id(expression)] = (expression, None)
-        errors.sort(key=lambda item: (item.location.line, item.location.column))
-        return _Written(
-            form, form_type, null, size, levels, tuple(dict.fromkeys(errors))
-        )
-    written = _Written(form, form_type, null, size, levels)
-    if form_type.kind is ValueTypeKind.UNKNOWN and not null:
-        lets.arguments[id(expression)] = (expression, written)
-        return None
-    return written
+    lets.checked[id(expression)] = _Written(form, form_type, null, size, levels)
+    return form_type, null, found
 
 
 def always_null(expression: Expression) -> bool:
@@ -1693,14 +1710,21 @@ def _infer(
     reported = len(diagnostics)
     existing = value_types.get(expression)
     if existing is not None:
+        if type(value_types) is _WrittenTypes:
+            # A part of a written form kept whole reports what typing it
+            # reported, as the part itself written here would.
+            diagnostics.extend(value_types.diagnostics.pop(id(expression), ()))
         if inlined_arguments(expression):
             # A caller may seed the type of a read it owns (a captured field,
             # a joined field, a scalar read, a QUALIFY output). The seed stays
             # the caller's evidence; a use that does not fit is Unknown to the
             # expression around it, as a computed one is.
-            return _check_inlined_argument(
-                expression, existing, diagnostics, type_expansions
+            existing = _check_inlined_argument(
+                expression, existing, diagnostics, type_expansions, reported=reported
             )
+        lets = bare_value_expressions
+        if type(lets) is LetValues and lets.differs:
+            lets.typed[id(expression)] = (diagnostics, reported, len(diagnostics))
         return existing
 
     if isinstance(expression, WindowExpr):
@@ -1977,8 +2001,8 @@ def _infer(
         # accidentally checked through their child expressions.
         value_type = _UNKNOWN_VALUE_TYPE
 
+    lets = bare_value_expressions
     if inlined_arguments(expression):
-        lets = bare_value_expressions
         written = None
         if type(lets) is LetValues and lets.differs:
             # Checked as emission writes it, with each `let:` value in place.
@@ -1988,6 +2012,7 @@ def _infer(
                 lets,
                 row_schema,
                 value_types,
+                diagnostics,
                 report_unknown_name=report_unknown_name,
                 field_qualifier=field_qualifier,
                 allow_aggregate_projection=allow_aggregate_projection,
@@ -1996,49 +2021,39 @@ def _infer(
                 type_expansions=type_expansions,
                 relation_columns=relation_columns,
             )
-        if written is not None and written.errors:
-            # Its errors as written, as the literal spelling reports them, at
-            # each place where typing it as it stands reported no error of
-            # the same code, once however many times the body uses it. A type
-            # it keeps is checked against its parameter, as the literal
-            # spelling's is; the argument is then unknown.
-            own = {(item.code, item.location) for item in diagnostics[reported:]}
-            seen = cast(LetValues, lets).reported.setdefault(
-                id(diagnostics), (diagnostics, set())
-            )[1]
-            for error in written.errors:
-                if (error.code, error.location) not in own and error not in seen:
-                    seen.add(error)
-                    diagnostics.append(error)
-            form_type = cast(ValueType, written.value_type)
-            if form_type.kind is not ValueTypeKind.UNKNOWN:
-                _fits_parameters(
-                    expression,
-                    value_type,
-                    diagnostics,
-                    type_expansions,
-                    written=(form_type, written.always_null),
+        if written is None:
+            fits = _fits_parameters(
+                expression,
+                value_type,
+                diagnostics,
+                type_expansions,
+                erroneous=_has_error(diagnostics[reported:]),
+            )
+        else:
+            # The literal spelling's diagnostics, in place of those typing it
+            # as it stands reported, decide whether it fits.
+            form_type, null, found = written
+            del diagnostics[reported:]
+            diagnostics.extend(found)
+            fits = _fits_parameters(
+                expression,
+                form_type,
+                diagnostics,
+                type_expansions,
+                erroneous=_has_error(found),
+                null=null,
+            )
+            if not fits:
+                checked = cast(LetValues, lets).checked
+                checked[id(expression)] = dataclasses.replace(
+                    cast(_Written, checked[id(expression)]),
+                    value_type=_UNKNOWN_VALUE_TYPE,
                 )
+        if not fits:
             value_type = _UNKNOWN_VALUE_TYPE
-        elif not _fits_parameters(
-            expression,
-            value_type,
-            diagnostics,
-            type_expansions,
-            reported=reported,
-            written=(
-                None
-                if written is None
-                else (cast(ValueType, written.value_type), written.always_null)
-            ),
-        ):
-            value_type = _UNKNOWN_VALUE_TYPE
-            if written is not None:
-                written = dataclasses.replace(written, value_type=value_type)
-        if written is not None and not written.errors:
-            # The argument around this one reads it as checked.
-            cast(LetValues, lets).arguments[id(expression)] = (expression, written)
     value_types[expression] = value_type
+    if type(lets) is LetValues and lets.differs:
+        lets.typed[id(expression)] = (diagnostics, reported, len(diagnostics))
     return value_type
 
 

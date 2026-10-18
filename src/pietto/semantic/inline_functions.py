@@ -984,6 +984,17 @@ def _check_body(
     before = len(found)
     actual = infer_row_expression(body, schema, {}, found, report_unknown_name=True)
     if len(found) != before:
+        # Each use of an argument that the body repeats is checked; its
+        # mismatch is reported once, as analysis reports one at a call.
+        mismatches: set[Diagnostic] = set()
+        kept: list[Diagnostic] = []
+        for diagnostic in found[before:]:
+            if diagnostic.code == "PIE-S2395":
+                if diagnostic in mismatches:
+                    continue
+                mismatches.add(diagnostic)
+            kept.append(diagnostic)
+        found[before:] = kept
         return
     expected = _value_type(function.return_type)
     if actual.kind is ValueTypeKind.UNKNOWN:

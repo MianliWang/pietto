@@ -2086,6 +2086,9 @@ class ProjectJoinedSatisfyingAnalysis:
         hash=False,
     )
     references: tuple[ProjectJoinedSatisfyingReference, ...] = ()
+    # Outputs read whose def argument does not fit: Unknown here, and their
+    # PIE-S2395 blocks the predicate.
+    unfit_outputs: tuple[str, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...] = ()
 
@@ -2130,10 +2133,11 @@ class ProjectJoinedSatisfyingAnalysis:
                     diagnostic.severity is Severity.ERROR
                     for diagnostic in self.diagnostics
                 )
+                or self.unfit_outputs
                 or self.retention_effects != _SATISFYING_RETENTION_EFFECTS
             ):
                 raise ValueError("Concrete satisfying requires one known Bool result.")
-        elif not self.diagnostics or self.retention_effects:
+        elif not (self.diagnostics or self.unfit_outputs) or self.retention_effects:
             raise ValueError("Non-concrete satisfying requires exact blockers only.")
         object.__setattr__(
             self, "value_types", MappingProxyType(dict(self.value_types))
@@ -2224,6 +2228,7 @@ def _infer_satisfying_value(
     input_filter: ProjectConcreteJoinedRowFilter,
     outputs: tuple[ProjectJoinedStageOutputOccurrence, ...],
     unsupported_names: set[str],
+    mismatched_names: set[str],
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
@@ -2250,6 +2255,10 @@ def _infer_satisfying_value(
             value_type = output.value_type
         elif matches:
             raise ValueError("Concrete stage output names must remain unique.")
+        elif expression.name in mismatched_names:
+            # The output's def argument does not fit (PIE-S2395), so it is
+            # Unknown here, as in a single file.
+            value_type = semantic_satisfying._UNKNOWN_VALUE_TYPE
         else:
             if expression.name in unsupported_names:
                 diagnostic = semantic_satisfying._unsupported_output_diagnostic(
@@ -2327,6 +2336,7 @@ def _infer_satisfying_predicate(
     input_filter: ProjectConcreteJoinedRowFilter,
     outputs: tuple[ProjectJoinedStageOutputOccurrence, ...],
     unsupported_names: set[str],
+    mismatched_names: set[str],
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
@@ -2338,6 +2348,7 @@ def _infer_satisfying_predicate(
             input_filter=input_filter,
             outputs=outputs,
             unsupported_names=unsupported_names,
+            mismatched_names=mismatched_names,
             aggregates=aggregates,
             diagnostics=diagnostics,
             value_types=value_types,
@@ -2358,6 +2369,7 @@ def _infer_satisfying_predicate(
             input_filter=input_filter,
             outputs=outputs,
             unsupported_names=unsupported_names,
+            mismatched_names=mismatched_names,
             aggregates=aggregates,
             diagnostics=diagnostics,
             value_types=value_types,
@@ -2368,6 +2380,7 @@ def _infer_satisfying_predicate(
             input_filter=input_filter,
             outputs=outputs,
             unsupported_names=unsupported_names,
+            mismatched_names=mismatched_names,
             aggregates=aggregates,
             diagnostics=diagnostics,
             value_types=value_types,
@@ -2391,6 +2404,7 @@ def _infer_satisfying_predicate(
             input_filter=input_filter,
             outputs=outputs,
             unsupported_names=unsupported_names,
+            mismatched_names=mismatched_names,
             aggregates=aggregates,
             diagnostics=diagnostics,
             value_types=value_types,
@@ -2401,6 +2415,7 @@ def _infer_satisfying_predicate(
             input_filter=input_filter,
             outputs=outputs,
             unsupported_names=unsupported_names,
+            mismatched_names=mismatched_names,
             aggregates=aggregates,
             diagnostics=diagnostics,
             value_types=value_types,
@@ -2432,6 +2447,7 @@ def _build_satisfying_analysis(
     mode: ProjectJoinedAggregationMode,
     outputs: tuple[ProjectJoinedStageOutputOccurrence, ...],
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
+    mismatched_names: set[str],
 ) -> ProjectJoinedSatisfyingAnalysis | None:
     definition = _definition(input_filter)
     clause = definition.satisfying_clause
@@ -2459,6 +2475,7 @@ def _build_satisfying_analysis(
         input_filter=input_filter,
         outputs=outputs,
         unsupported_names=_authored_unsupported_output_names(input_filter, outputs),
+        mismatched_names=mismatched_names,
         aggregates=aggregates,
         diagnostics=diagnostics,
         value_types=value_types,
@@ -2487,6 +2504,13 @@ def _build_satisfying_analysis(
         predicate_value_type=value_type,
         value_types=value_types,
         references=tuple(references),
+        unfit_outputs=tuple(
+            dict.fromkeys(
+                expression.name
+                for expression in value_types
+                if type(expression) is NameExpr and expression.name in mismatched_names
+            )
+        ),
         diagnostics=tuple(diagnostics),
         retention_effects=(
             _SATISFYING_RETENTION_EFFECTS
@@ -3026,6 +3050,25 @@ def build_project_joined_aggregation(
         mode=mode,
         outputs=stage_outputs,
         aggregates=aggregates,
+        # Outputs whose def argument does not fit (PIE-S2395).
+        mismatched_names={
+            name
+            for issue in (
+                *(
+                    item
+                    for item in aggregate_results
+                    if type(item) is ProjectJoinedAggregateIssue
+                ),
+                *selected_output_issues,
+            )
+            if issue.kind
+            in {
+                ProjectJoinedAggregateIssueKind.DEF_ARGUMENT_MISMATCH,
+                ProjectJoinedSelectedOutputIssueKind.DEF_ARGUMENT_MISMATCH,
+            }
+            and issue.item is not None
+            and (name := _projection_output_name(issue.item)) is not None
+        },
     )
     diagnostics = _ordered_diagnostics(
         group_key_results=group_key_results,

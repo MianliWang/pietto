@@ -251,6 +251,15 @@ CLI:
   `def` argument a value that is ill-typed only once `null` is written in is
   not reported: with `k = null` and `j = coalesce(k, 1)`, `v = lower(j)`
   passes `check`, and single-file emission writes `lower(COALESCE(NULL, 1))`.
+- Over a source without a shape, a `let:` name read outside a `def`
+  argument has no type, so a value ill-typed only where the name is read is
+  not reported: with `u = a is null`, `v = len(u)` passes `check`, and
+  PostgreSQL emission writes `length(("a" IS NULL))`.
+- In a `def` argument, the errors inside a `let:` value are reported at the
+  start of the name that reads it, once for each code and message: with
+  `k = null`, `j = coalesce(k, 1)` and `d = len(j) + len(j)`, the argument
+  `d` is one PIE-S2104 at `d`, where the value written by hand reports two,
+  one at each `len`.
 - Division with a `Decimal` operand is not specified yet: it has no result
   type and emits a bare `/`. Division by zero follows the target (PostgreSQL
   raises an error, MySQL returns NULL), and dividing the smallest `Int` by -1
