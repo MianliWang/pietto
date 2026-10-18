@@ -368,6 +368,7 @@ class ProjectJoinedAggregateIssueKind(StrEnum):
     ARGUMENT_NON_CONCRETE = "argument_non_concrete"
     WRONG_ARGUMENT_TYPE = "wrong_argument_type"
     ARGUMENT_EXPRESSION_UNSUPPORTED = "argument_expression_unsupported"
+    DEF_ARGUMENT_MISMATCH = "def_argument_mismatch"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -904,6 +905,19 @@ def _aggregate_attempt(
     )
     if result_type is None:
         raise AssertionError("valid aggregate inputs lost an existing result type")
+    # An aggregate passed to a def is its result, which must fit the parameter
+    # (PIE-S2395) as in a single file.
+    unfit: list[Diagnostic] = []
+    _check_inlined_argument(expression, result_type, unfit, None)
+    if unfit:
+        return ProjectJoinedAggregateIssue(
+            input_filter=input_filter,
+            selected_output_ordinal=selected_output_ordinal,
+            item=item,
+            kind=ProjectJoinedAggregateIssueKind.DEF_ARGUMENT_MISMATCH,
+            argument_analysis=argument_analysis,
+            diagnostics=tuple(unfit),
+        )
     return ProjectJoinedAggregateOccurrence(
         input_filter=input_filter,
         selected_output_ordinal=selected_output_ordinal,
@@ -1027,6 +1041,7 @@ class ProjectJoinedSelectedOutputIssueKind(StrEnum):
     GROUPED_SCALAR_PROJECTION = "grouped_scalar_projection"
     MIXED_GLOBAL_ROW_PROJECTION = "mixed_global_row_projection"
     PURE_GROUPING = "pure_grouping"
+    DEF_ARGUMENT_MISMATCH = "def_argument_mismatch"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1163,6 +1178,20 @@ def _build_stage_outputs(
         output_name = _projection_output_name(item)
         key = _group_key_projection(input_filter, item, group_keys)
         if key is not None and output_name is not None:
+            # A key passed to a def must fit the parameter (PIE-S2395).
+            unfit: list[Diagnostic] = []
+            _check_inlined_argument(item.expression, key.value_type, unfit, None)
+            if unfit:
+                issues.append(
+                    ProjectJoinedSelectedOutputIssue(
+                        input_filter=input_filter,
+                        selected_output_ordinal=ordinal,
+                        item=item,
+                        kind=ProjectJoinedSelectedOutputIssueKind.DEF_ARGUMENT_MISMATCH,
+                        diagnostics=tuple(unfit),
+                    )
+                )
+                continue
             outputs.append(
                 ProjectJoinedStageOutputOccurrence(
                     input_filter=input_filter,

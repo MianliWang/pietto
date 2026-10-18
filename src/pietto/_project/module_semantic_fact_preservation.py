@@ -170,7 +170,7 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import _check_inlined_argument, infer_row_expression
 from pietto.semantic.predicate_checks import _check_bool_expression
 from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.nullability_formulas import SignatureResultFormula
@@ -3846,6 +3846,26 @@ def _select_facts(
                 ]
             retained_types = failed_types
         output_name = _projection_output_name(item)
+        selected = (
+            None
+            if schema is None or output_name is None
+            else schema.fields.get(output_name)
+        )
+        if (
+            selected is not None
+            and inlined_arguments(item.expression)
+            and contains_semantic_aggregate(item.expression)
+        ):
+            # An aggregate passed to a def is its result, which must fit the
+            # parameter (PIE-S2395) as in a single file.
+            _check_inlined_argument(
+                item.expression,
+                project_row_field_to_semantic_value_type(
+                    selected, selected.nullability
+                ),
+                expression_diagnostics,
+                None,
+            )
         expression_schema = None
         if output_name is not None and type(item.expression) is not WindowExpr:
             expression_schema = adapt_project_row_expression_schema(
@@ -3865,11 +3885,7 @@ def _select_facts(
                 item=item,
                 output_name=output_name,
                 expression_schema=expression_schema,
-                field=(
-                    None
-                    if schema is None or output_name is None
-                    else schema.fields.get(output_name)
-                ),
+                field=selected,
                 aggregate_result_fact=(
                     None if output_name is None else aggregate_by_name.get(output_name)
                 ),

@@ -268,8 +268,9 @@ class LetValues(dict[str, Expression]):
     ``differs`` whether any is written other than as it is typed where it
     is read; ``arguments`` each argument checked as written, by identity,
     as the argument around it reads it; and ``reported`` the errors of
-    arguments as written reported so far, which only a copy of the same
-    argument repeats.
+    arguments as written reported so far to each diagnostics list, by
+    identity, with the list it holds, which only a copy of the same argument
+    repeats.
     """
 
     __slots__ = (
@@ -294,7 +295,7 @@ class LetValues(dict[str, Expression]):
         self.written: dict[str, _Written | None] = {}
         self.differs = False
         self.arguments: dict[int, tuple[Expression, _Written | None]] = {}
-        self.reported: set[Diagnostic] = set()
+        self.reported: dict[int, tuple[list[Diagnostic], set[Diagnostic]]] = {}
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -303,7 +304,7 @@ class _Written:
     ``value_type`` where that is not the type it has where it is read (None
     where it is), ``always_null`` or not, ``size`` nodes nested ``levels``
     deep once inlined, as PIE-S2328 counts them, and the ``errors`` typing it
-    found, its value then being unknown."""
+    found, a binding's value then being unknown."""
 
     form: Expression
     value_type: ValueType | None
@@ -343,7 +344,8 @@ def _written_form(
     each part that has none of them, keeps its type in ``value_types``. A
     read of a binding whose written value has errors is unknown, and those
     errors are at the read, where the value is written. An argument already
-    checked as written is the form it was checked as. At the ``root`` the
+    checked as written is the form it was checked as, still the argument of
+    its own calls. At the ``root`` the
     expression's own ``def`` parameters are left out, for its caller to
     check them. None when it reads a captured field whose type is not known
     here, or an argument whose form was not used.
@@ -361,10 +363,22 @@ def _written_form(
             argument = checked[1]
             if argument is None:
                 return None
+            form = argument.form
             if argument.value_type is not None:
-                seeds[argument.form] = argument.value_type
+                # Still the argument of its calls: one that does not fit
+                # stays unknown, and is no null literal, around it.
+                form = (
+                    _null_fitting(
+                        form.span, (*inlined_arguments(form), *inlined_arguments(node))
+                    )
+                    if _is_null_literal(form)
+                    else functools.reduce(
+                        with_inlined_argument, inlined_arguments(node), form
+                    )
+                )
+                seeds[form] = argument.value_type
             return (
-                argument.form,
+                form,
                 argument.value_type is not None,
                 argument.always_null,
                 argument.size,
@@ -536,8 +550,20 @@ def _write_lets(
             errors.extend(item for item in found if item.severity is Severity.ERROR)
             if errors:
                 value_type = _UNKNOWN_VALUE_TYPE
+        # Each error moves to the read that writes the value in, so the
+        # binding keeps one of each.
+        at = _span_location(lets.bindings[name].span)
         lets.written[name] = _Written(
-            form, value_type, null, size, levels + 1, tuple(errors)
+            form,
+            value_type,
+            null,
+            size,
+            levels + 1,
+            tuple(
+                dict.fromkeys(
+                    dataclasses.replace(error, location=at) for error in errors
+                )
+            ),
         )
         lets.differs = lets.differs or null or value_type is not None
 
@@ -582,7 +608,7 @@ def _written_argument(
 ) -> _Written | None:
     """A ``def`` argument of ``value_type`` where it stands as emission writes
     it, with the `let:` values ``lets`` has written in: its form, type and
-    whether it is always null there, or the errors typing it finds, each
+    whether it is always null there, and the errors typing it finds, each
     where the literal spelling has it, a value written in at its read. None
     when it is checked as it stands: it reads no binding written other than
     as typed where it is read, writing them in passes the PIE-S2328 limit,
@@ -630,7 +656,7 @@ def _written_argument(
         lets.arguments[id(expression)] = (expression, None)
         errors.sort(key=lambda item: (item.location.line, item.location.column))
         return _Written(
-            form, _UNKNOWN_VALUE_TYPE, null, size, levels, tuple(dict.fromkeys(errors))
+            form, form_type, null, size, levels, tuple(dict.fromkeys(errors))
         )
     written = _Written(form, form_type, null, size, levels)
     if form_type.kind is ValueTypeKind.UNKNOWN and not null:
@@ -1954,14 +1980,7 @@ def _infer(
     if inlined_arguments(expression):
         lets = bare_value_expressions
         written = None
-        if (
-            type(lets) is LetValues
-            and lets.differs
-            and value_type.nullability is EffectiveNullability.UNKNOWN
-            and not any(
-                item.severity is Severity.ERROR for item in diagnostics[reported:]
-            )
-        ):
+        if type(lets) is LetValues and lets.differs:
             # Checked as emission writes it, with each `let:` value in place.
             written = _written_argument(
                 expression,
@@ -1978,14 +1997,28 @@ def _infer(
                 relation_columns=relation_columns,
             )
         if written is not None and written.errors:
-            # Its errors as written, as the literal spelling reports them,
-            # once however many times the body uses it; the argument is then
-            # unknown, so it is not checked against its parameter.
-            reported = cast(LetValues, lets).reported
+            # Its errors as written, as the literal spelling reports them, at
+            # each place where typing it as it stands reported no error of
+            # the same code, once however many times the body uses it. A type
+            # it keeps is checked against its parameter, as the literal
+            # spelling's is; the argument is then unknown.
+            own = {(item.code, item.location) for item in diagnostics[reported:]}
+            seen = cast(LetValues, lets).reported.setdefault(
+                id(diagnostics), (diagnostics, set())
+            )[1]
             for error in written.errors:
-                if error not in reported or error not in diagnostics:
-                    reported.add(error)
+                if (error.code, error.location) not in own and error not in seen:
+                    seen.add(error)
                     diagnostics.append(error)
+            form_type = cast(ValueType, written.value_type)
+            if form_type.kind is not ValueTypeKind.UNKNOWN:
+                _fits_parameters(
+                    expression,
+                    value_type,
+                    diagnostics,
+                    type_expansions,
+                    written=(form_type, written.always_null),
+                )
             value_type = _UNKNOWN_VALUE_TYPE
         elif not _fits_parameters(
             expression,

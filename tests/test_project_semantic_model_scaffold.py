@@ -752,6 +752,34 @@ def test_a_project_def_checks_a_let_that_an_aggregate_reads(
     ] + [_mismatch("idt", DEF_LINE + 42, 23, "Text not null", "Text nullable")]
 
 
+def test_a_project_def_checks_an_aggregate_or_group_key_passed_to_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An aggregate passed to a def is its result, and a group key passed to
+    one is that key, which must fit the parameter as in a single file:
+    PIE-S2395 at the call, grouped or not, with JOIN inputs or without, while
+    a `count` fits a `not null` parameter."""
+    joined = (
+        "    from others\n    inner join rows as r:\n        from others\n"
+        "        on r.id == others.row_id\n"
+    )
+    source = DEF_HEAD + (
+        "query g:\n    from rows\n    group by: id\n    select:\n        id\n"
+        "        a = idt(max(n))\n        b = idi(count(n))\n"
+        "query a:\n    from rows\n    select:\n        a = idi(max(n))\n"
+        f"query jg:\n{joined}    group by: others.id\n    select:\n"
+        "        k = others.id\n        a = idi(max(r.n))\n        b = idi(count(r.n))\n"
+        f"query jk:\n{joined}    group by: r.n\n    select:\n        k = idi(r.n)\n"
+        "        c = count()\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _mismatch("idt", DEF_LINE + 5, 13, "Text not null", "Int nullable"),
+        _mismatch("idi", DEF_LINE + 10, 13, "Int not null", "Int nullable"),
+        _mismatch("idi", DEF_LINE + 19, 13, "Int not null", "Int nullable"),
+        _mismatch("idi", DEF_LINE + 28, 13, "Int not null", "Int nullable"),
+    ]
+
+
 def test_a_project_def_refuses_an_imported_alias(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

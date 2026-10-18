@@ -820,12 +820,16 @@ ILL_TYPED_LETS = (
     "        i1 = coalesce(nill, 1)\n        i2 = upper(nill) + 1\n"
     "        i3 = lower(nill) * 2\n        i4 = not lower(nill)\n"
     "        i5 = coalesce(nill, text, 1)\n        i6 = text if nill else 1\n"
-    "        i7 = len(nill) + text\n        i8 = lower(i1)\n"
+    "        i7 = len(nill) + text\n        i8 = lower(i1), i9 = lower(i1) is null\n"
     "    where pos({I2})\n    select:\n        id\n"
     "        a = nt(lower({I1}))\n        b = pos({I3})\n        c = bb({I4})\n"
     "        d = pos({I5})\n        e = pos({I6})\n        f = pos({I7})\n"
     "        g = nt({I8})\n        h = tw(lower({I1}))\n"
     "        k = nt(nt(lower({I1})))\n        m = i2\n"
+    "        n = bb(lower({I1}) is null)\n        o = bb({I9})\n"
+    "        p = bb(coalesce(lower({I1}) == 'a', false))\n"
+    "        q = nt(text if lower({I1}) == 'a' else 'b')\n"
+    "        r = bb(lower({I1}) == 'a')\n        s = nt(substr(lower({I1}), 1))\n"
 )
 ILL_TYPED = {
     "I1": "coalesce(null, 1)",
@@ -836,6 +840,7 @@ ILL_TYPED = {
     "I6": "text if null else 1",
     "I7": "len(null) + text",
     "I8": "lower(coalesce(null, 1))",
+    "I9": "lower(coalesce(null, 1)) is null",
 }
 NOT_NUMERIC = "Invalid operands for operator {}: expected numeric operands"
 LOWER_OF_INT = (
@@ -868,6 +873,25 @@ ILL_TYPED_ERRORS = [
     ("PIE-S2104", BODY_LINE + 24, 16, LOWER_OF_INT),
     ("PIE-S2104", BODY_LINE + 25, 16, LOWER_OF_INT),
     ("PIE-S2104", BODY_LINE + 26, 19, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 28, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 29, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 30, 25, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 31, 24, LOWER_OF_INT),
+    (
+        "PIE-S2395",
+        BODY_LINE + 32,
+        13,
+        "Invalid argument for def bb at position 1 (p): "
+        "expected Bool not null, got Bool of unknown nullability",
+    ),
+    ("PIE-S2104", BODY_LINE + 32, 16, LOWER_OF_INT),
+    (
+        "PIE-S2104",
+        BODY_LINE + 33,
+        16,
+        "Invalid arguments for function substr: expected 3, got 2",
+    ),
+    ("PIE-S2104", BODY_LINE + 33, 23, LOWER_OF_INT),
 ]
 NULLS = {
     "null_argument": (
@@ -1263,10 +1287,12 @@ def test_an_argument_ill_typed_once_its_lets_are_written_in_is_an_error(
     spelling: dict[str, str],
 ) -> None:
     """An argument whose `let:` values are ill-typed once the null they read
-    is written in reports the error the values written by hand report, where
-    they start, once however many times the body uses it, and is then
-    unknown, so its parameter adds nothing. A read outside a def argument
-    (`m = i2`) is not checked so."""
+    is written in reports the errors the values written by hand report, where
+    they start, once however many times the body uses it, also inside a value
+    whose type is known without them (`is null`, `coalesce(..., false)`, a
+    conditional's condition), next to an error of its own (`substr`), and is
+    checked against its parameter when it still has a type (`r`), as those
+    values are. A read outside a def argument (`m = i2`) is not checked so."""
     assert _errors(SHAPES + DEFS + ILL_TYPED_LETS.format(**spelling)) == (
         ILL_TYPED_ERRORS
     )
@@ -1949,6 +1975,76 @@ def test_writing_a_chain_of_null_lets_grows_linearly() -> None:
         ]
         for length in (100, 200)
     ]
+
+
+def _doubling(depth: int) -> int:
+    """Typing work for a `let:` value ill-typed once the null it reads is
+    written in, read twice by each of ``depth`` further names, the last read
+    by twenty more, once a def argument makes the relation write them all."""
+
+    source = (
+        SHAPES
+        + "def same(x: Int nullable) -> Int nullable: return x\n"
+        + "table t:\n    from rows\n    let:\n        k = null\n"
+        + "        s0 = upper(k) + 1\n"
+        + "".join(f"        s{i} = s{i - 1} + s{i - 1}\n" for i in range(1, depth + 1))
+        + "".join(f"        t{j} = s{depth} + {j}\n" for j in range(20))
+        + "    select:\n        id\n        v = same(k)\n"
+    )
+    parsed = parse_source(source, path="m.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert analyze(parsed.ast).diagnostics == ()
+    return _module_lines(
+        functools.partial(analyze, parsed.ast), sys.maxsize, expressions_module
+    )
+
+
+def test_writing_lets_keeps_one_copy_of_each_error_they_read() -> None:
+    """A written `let:` value keeps each error it reads once, however many
+    paths lead to it, so twice the depth of names that each read the one
+    before twice costs at most about twice the typing work."""
+    assert _doubling(12) <= _doubling(6) * 21 // 10
+
+
+def test_an_argument_used_twice_finds_its_reported_errors_by_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each item reports its argument's error as written once, although the
+    body uses the argument twice, and finds the copy already reported by
+    lookup, not by comparing it with every error reported before it: twice
+    the items make at most about twice the comparisons."""
+
+    def comparisons(items: int) -> int:
+        source = (
+            SHAPES
+            + "def tw(x: Int nullable) -> Int nullable: return x + x\n"
+            + "table t:\n    from rows\n    let:\n        k = null\n"
+            + "        i = upper(k) + 1\n    select:\n        id\n"
+            + "".join(f"        v{item} = tw(i)\n" for item in range(items))
+        )
+        parsed = parse_source(source, path="m.pietto")
+        assert parsed.diagnostics == () and parsed.ast is not None
+        count = 0
+        compare = Diagnostic.__eq__
+
+        def counted(self: Diagnostic, other: object) -> bool:
+            nonlocal count
+            count += 1
+            return compare(self, other)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Diagnostic, "__eq__", counted)
+            diagnostics = analyze(parsed.ast).diagnostics
+        assert [
+            (item.code, item.location.line, item.location.column)
+            for item in diagnostics
+        ] == [
+            ("PIE-S2105", BODY_LINE + 6 + item, 16 + len(str(item)))
+            for item in range(items)
+        ]
+        return count
+
+    assert comparisons(200) <= comparisons(100) * 21 // 10
 
 
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:
