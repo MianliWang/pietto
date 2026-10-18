@@ -68,6 +68,7 @@ from pietto.ast_nodes import (
     SelectItem,
     TableDef,
     WindowExpr,
+    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic import group_by as semantic_group_by
@@ -811,7 +812,18 @@ def _aggregate_attempt(
         )
         if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
             diagnostics = _reference_blocker_diagnostics(analysis)
-            if not analysis.blocking_resolutions:
+            if not analysis.blocking_resolutions and not (
+                # A field or `let:` name passed to a def it does not fit is
+                # unknown here: its PIE-S2395 is its error, as in a single file.
+                type(argument) in {NameExpr, DottedNameExpr}
+                and inlined_arguments(argument)
+                and {
+                    diagnostic.code
+                    for diagnostic in analysis.diagnostics
+                    if diagnostic.severity is Severity.ERROR
+                }
+                == {"PIE-S2395"}
+            ):
                 diagnostics = (
                     *diagnostics,
                     semantic_aggregates.deferred_argument_expression_diagnostic(

@@ -74,6 +74,7 @@ from pietto._project.module_resolution import (
     _suppressing_diagnostics_for_cycle,
     _suppressing_diagnostics_for_export_issues,
 )
+from pietto._project.row_expression_type_facts import reports_unfit_def_argument
 from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
@@ -2602,6 +2603,12 @@ def _relation_row_state(
         or relation_definition.satisfying_clause is not None
         or any(
             type(item.expression) not in {NameExpr, DottedNameExpr}
+            # A field passed to a def it does not fit is no direct field.
+            or reports_unfit_def_argument(
+                item.expression,
+                source_schema,
+                relation_qualifier=relation_definition.from_clause.source_name,
+            )
             for item in relation_definition.select_items
         )
     )

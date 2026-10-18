@@ -1674,7 +1674,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   body, reported once however many times the body uses the argument and
   only for the innermost call that does not fit: an argument that does not
   fit is unknown to every expression around it, also through a built-in call
-  such as `len`. An argument with an
+  such as `len`. In a project, a relation whose select output is a field or
+  `let:` name passed to a def it does not fit has no known columns, as when
+  a computed output has an error, so a relation that reads it reports what
+  it reports then, such as PIE-S2333. An argument with an
   error of its own that leaves its type unknown, such as a comparison with
   the null literal (`text == null`, PIE-S2105) or `k + zz` with an unknown
   field `zz`, is not checked against its parameter. One that is ill-typed
@@ -1725,17 +1728,19 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   argument count, relation-read and position rules above still apply): a type
   or field `ensure`; in a project, a `constraint` or `derive` body and a shape
   `check`, `index` predicate or field `derive` (a single file checks them); a
-  single-file `qualify:` (which `explain` and `emit-sql` refuse); an
-  ungrouped `order by` in a project check (`emit-sql --project` blocks a
-  mismatched argument there without naming it); and, in a project check, the
-  WHERE of a relation with a `let:` binding of unknown type, such as
-  `k = null` (`emit-sql --project` blocks it with PIE-B1003). In a project, a
-  mismatch is reported where the same error written by hand would be: where a
-  project reports the errors of a position as PIE-S2333 at the relation, such
-  as a grouped `satisfying` or an aggregate argument without JOIN inputs, a
-  select over a VALUES let or the ORDER BY of a global-aggregate query, the
-  mismatch is PIE-S2333 there too, also for a `let:` name that an aggregate
-  reads, which is checked with its binding's type.
+  single-file `qualify:` (which `explain` and `emit-sql` refuse); in a
+  project check, the ungrouped `order by` of a relation without JOIN inputs
+  (`emit-sql --project` blocks a mismatched argument there with PIE-B1003
+  without naming it; with JOIN inputs the argument is checked); and, in a
+  project check, the WHERE of a relation with a `let:` binding of unknown
+  type, such as `k = null` (`emit-sql --project` blocks it with PIE-B1003).
+  In a project, a mismatch is reported where the same error written by hand
+  would be: where a project reports the errors of a position as PIE-S2333 at
+  the relation, such as a grouped `satisfying` or an aggregate argument
+  without JOIN inputs, a select over a VALUES let or the ORDER BY of a
+  global-aggregate query, the mismatch is PIE-S2333 there too, also for a
+  `let:` name that an aggregate reads, which is checked with its binding's
+  type.
 - Expansion: each call becomes one parenthesized expression. An argument that
   the body uses n times is written n times in the SQL, as it would be by hand:
   with `def twice(x: Int nullable) -> Int nullable: return x + x`, the item
@@ -1757,7 +1762,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   in a position that refuses it (PIE-S2355), which a project check currently
   reports at each use of the argument. A def body is checked at the def
   before any call, and there an error in a call is reported as often as its
-  expansion makes it, in both checks. With its arguments, one expansion has
+  expansion makes it, in both checks, except an argument mismatch
+  (PIE-S2395), which is reported once as at any call: with
+  `def dup(x: Int not null) -> Int not null: return coalesce(x, x)`, a body
+  `dup(true)` is one PIE-S2395. With its arguments, one expansion has
   at most 1000 expression nodes and 64 levels of nesting (PIE-S2399); every
   expression counts, also those in a window call's arguments and
   specification and in a cast's type arguments. A single file counts the
@@ -1765,12 +1773,14 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   in it replaced by its expansion, so a call nested 400 levels deep whose
   body nests 60 levels makes the expression 459 levels deep.
 - Reporting: an error in a def itself (PIE-S2001 for a def, PIE-S2396 to
-  PIE-S2399, PIE-S2402), a wrong argument count or a relation-read argument
-  stops the check of the file before semantic analysis, so other semantic
-  errors appear once these are fixed. In a project these are reported with the
-  file's parse and pre-admission diagnostics, take the place of its capture
-  and header checks, and no project semantic analysis runs. Type and
-  nullability mismatches of arguments (PIE-S2395) are reported during
+  PIE-S2399, PIE-S2402, or any error in its body, such as a PIE-S2395
+  mismatch or a PIE-S2105 of a call written there), a wrong argument count or
+  a relation-read argument stops the check of the file before semantic
+  analysis, so other semantic errors appear once these are fixed. In a
+  project these are reported with the file's parse and pre-admission
+  diagnostics, take the place of its capture and header checks, and no
+  project semantic analysis runs. Type and nullability mismatches of
+  arguments (PIE-S2395) at a call outside a def body are reported during
   semantic analysis with the other errors. A problem that only the position
   of a call can cause, such as a form that `satisfying` does not support, is
   reported at the call.

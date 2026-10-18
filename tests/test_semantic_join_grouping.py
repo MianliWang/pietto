@@ -2020,6 +2020,79 @@ def test_satisfying_reports_a_def_argument_that_does_not_fit_once(
     ]
 
 
+def test_an_aggregate_reports_its_unfit_def_argument_alone(tmp_path: Path) -> None:
+    """A field or `let:` name passed to a def it does not fit is PIE-S2395
+    alone as an aggregate argument, grouped or not, as in a single file: it is
+    no expression argument (PIE-S2315), as one that fits shows. An expression
+    argument written by hand keeps PIE-S2315."""
+    header = PROJECT_SOURCE.split("query absent_stage:")[0]
+    joined = (
+        "    from accounts\n    inner join events as event:\n"
+        "        from accounts\n        on event.account_id == accounts.id\n"
+    )
+    grouped = "    group by: accounts.id\n    select:\n        key = accounts.id\n"
+    queries = (
+        f"query field:\n{joined}{grouped}        top = max(nn(event.metric))\n"
+        f"query global:\n{joined}    select:\n"
+        "        total = count(nn(event.metric))\n"
+        f"query let_name:\n{joined}    let:\n        j = event.metric\n{grouped}"
+        "        top = max(nn(j))\n"
+        f"query wrong_type:\n{joined}{grouped}        top = max(tn(event.metric))\n"
+        f"query fits:\n{joined}{grouped}        top = max(ni(event.metric))\n"
+        f"query expression:\n{joined}{grouped}"
+        "        top = max(lower(event.metric))\n"
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        header
+        + "def nn(x: Int not null) -> Int not null: return x\n"
+        + "def ni(x: Int nullable) -> Int nullable: return x\n"
+        + "def tn(x: Text not null) -> Text not null: return x\n"
+        + queries,
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    offset = header.count("\n") + 3
+    assert [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        *(
+            (
+                "PIE-S2395",
+                f"Invalid argument for def {name} at position 1 (x): "
+                f"expected {expected} not null, got Int nullable",
+                line,
+                column,
+            )
+            for name, expected, line, column in (
+                ("nn", "Int", 9, 19),
+                ("nn", "Int", 16, 23),
+                ("nn", "Int", 27, 19),
+                ("tn", "Text", 36, 19),
+            )
+        ),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+            54,
+            19,
+        ),
+        (
+            "PIE-S2315",
+            "Aggregate function max requires a direct field argument; "
+            "expression arguments are not supported yet",
+            54,
+            15,
+        ),
+    ]
+
+
 def test_collection_preserves_exact_slice8_order_membership_and_slice7_ledger(
     built: _Built,
 ) -> None:

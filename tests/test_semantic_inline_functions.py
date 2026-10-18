@@ -443,6 +443,28 @@ CALL_ERRORS = {
             )
         ],
     ),
+    # A `let:` name passed to a def it does not fit is PIE-S2395 alone as an
+    # aggregate argument, as the field written in its place is; it is no
+    # expression argument (PIE-S2315), as one that fits shows.
+    "unfit_aggregate_let": (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def ni(x: Int nullable) -> Int nullable: return x\n"
+        "table g:\n    from rows\n    let:\n        w = n\n    group by: id\n"
+        "    select:\n        id\n        c = count(nn(w))\n        d = count(nn(n))\n"
+        "        e = count(ni(w))\n"
+        "table s:\n    from rows\n    let:\n        w = n\n    select:\n"
+        "        t = sum(nn(w))\n        u = sum(nn(n))\n",
+        [
+            (
+                "PIE-S2395",
+                BODY_LINE + line,
+                column,
+                "Invalid argument for def nn at "
+                "position 1 (x): expected Int not null, got Int nullable",
+            )
+            for line, column in ((9, 19), (10, 19), (17, 17), (18, 17))
+        ],
+    ),
     "shape_check_and_field_derive": (
         "shape S:\n    a: Int nullable\n    b: Text nullable\n"
         "    c: Text not null derive up(b)\n    check k: pos(a)\n",

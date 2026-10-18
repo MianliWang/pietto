@@ -2711,6 +2711,7 @@ def _project_direct_relation_row_schema(
     from pietto._project.let_scope_facts import (
         ProjectLetScopeFactsStatus,
         build_project_relation_let_scope_facts,
+        checked_let_values,
     )
     from pietto._project.row_expression_schema import (
         ProjectExpressionSchemaOriginKind,
@@ -2719,6 +2720,7 @@ def _project_direct_relation_row_schema(
     )
     from pietto._project.row_expression_type_facts import (
         build_project_row_expression_value_types,
+        reports_unfit_def_argument,
     )
 
     fields: dict[str, ProjectRowField] = {}
@@ -2755,6 +2757,39 @@ def _project_direct_relation_row_schema(
         read_types=read_types,
         captured_value_types=captured_value_types,
     )
+    deferred = _ProjectRelationRowSchemaResult(
+        schema=None,
+        state_reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
+
+    let_names = (
+        []
+        if definition.let_clause is None
+        else [binding.name for binding in definition.let_clause.bindings]
+    )
+
+    def passes_unfit_argument(item: SelectItem) -> bool:
+        """Whether ``item`` passes its field or `let:` name to a ``def`` it
+        does not fit (`reports_unfit_def_argument`), typed as the select check
+        types it: with each `let:` name bound once written in."""
+
+        return reports_unfit_def_argument(
+            item.expression,
+            source_schema,
+            relation_qualifier=definition.from_clause.source_name,
+            bare_value_types=let_value_types,
+            bare_value_expressions=checked_let_values(
+                let_scope_facts,
+                {
+                    name: expression
+                    for name, expression in let_scope_facts.binding_expressions.items()
+                    if let_names.count(name) == 1
+                },
+            ),
+            suppressed_unknown_names=set(let_names),
+            read_types=read_types,
+            captured_value_types=captured_value_types,
+        )
 
     for item in definition.select_items:
         if type(item.expression) is WindowExpr:
@@ -2852,6 +2887,8 @@ def _project_direct_relation_row_schema(
                     raise AssertionError(
                         "Concrete let-derived projection requires type facts"
                     )
+                if passes_unfit_argument(item):
+                    return deferred
 
                 fields[output_name] = ProjectRowField(
                     name=output_name,
@@ -2877,6 +2914,8 @@ def _project_direct_relation_row_schema(
             is_unknown = True
             unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
             continue
+        if passes_unfit_argument(item):
+            return deferred
 
         fields[output_name] = ProjectRowField(
             name=output_name,

@@ -834,6 +834,68 @@ def test_a_project_def_checks_an_aggregate_or_group_key_passed_to_it(
     ]
 
 
+def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A field or `let:` name passed to a def it does not fit is unknown, as
+    in a single file: a relation that selects it, also as a relation let or
+    from another module, has no known columns for the relations that read
+    it, which report PIE-S2333 as when a computed output has an error, never
+    the field's or the let's type. One that fits keeps the field's type."""
+    source = DEF_HEAD + (
+        "query q1:\n    from rows\n    let:\n        u = true\n    select:\n"
+        "        id\n        f = idi(n)\n        t = idi(text)\n        b = idi(u)\n"
+        "query q2:\n    from q1\n    select:\n        id\n        x = lower(f)\n"
+        "        y = t + 1\n        z = not b\n"
+        "query q3:\n    let base:\n        from rows\n        select:\n"
+        "            id\n            w = idt(n)\n    from base\n    select:\n"
+        "        id\n"
+        "query fit:\n    from rows\n    select:\n        o = idi(id)\n"
+        "query reader:\n    from fit\n    select:\n        x = lower(o)\n"
+        "export:\n    query q1\n"
+    )
+    files = {
+        "a.pietto": source,
+        "b.pietto": 'import "a.pietto":\n    query q1\n'
+        "query q4:\n    from q1\n    select:\n        id\n",
+    }
+    assert _def_check(tmp_path, capsys, files) == [
+        _mismatch("idi", DEF_LINE + 6, 13, "Int not null", "Int nullable"),
+        _mismatch("idi", DEF_LINE + 7, 13, "Int not null", "Text not null"),
+        _mismatch("idi", DEF_LINE + 8, 13, "Int not null", "Bool not null"),
+        (
+            "PIE-S2333",
+            "a.pietto",
+            DEF_LINE + 9,
+            1,
+            "Project relation semantic completion is unavailable: q2",
+        ),
+        _mismatch("idt", DEF_LINE + 21, 17, "Text not null", "Int nullable"),
+        (
+            "PIE-S2333",
+            "a.pietto",
+            DEF_LINE + 16,
+            1,
+            "Project relation semantic completion is unavailable: q3",
+        ),
+        (
+            "PIE-S2104",
+            "a.pietto",
+            DEF_LINE + 32,
+            13,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+        ),
+        (
+            "PIE-S2333",
+            "b.pietto",
+            3,
+            1,
+            "Project relation semantic completion is unavailable: q4",
+        ),
+    ]
+
+
 def test_a_project_def_refuses_an_imported_alias(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

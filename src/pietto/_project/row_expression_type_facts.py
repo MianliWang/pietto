@@ -18,8 +18,9 @@ from pietto.ast_nodes import (
     Expression,
     NameExpr,
     RelationScalarExpr,
+    inlined_arguments,
 )
-from pietto.errors import Diagnostic
+from pietto.errors import Diagnostic, Severity
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import (
@@ -159,6 +160,44 @@ def build_project_row_expression_value_types(
         value_types.update(scratch_value_types)
 
     return MappingProxyType(value_types)
+
+
+def reports_unfit_def_argument(
+    expression: Expression,
+    input_schema: ProjectRowSchema,
+    *,
+    relation_qualifier: str | None,
+    bare_value_types: Mapping[str, ValueType] | None = None,
+    bare_value_expressions: Mapping[str, Expression] | None = None,
+    suppressed_unknown_names: set[str] | None = None,
+    read_types: Mapping[Expression, ValueType] | None = None,
+    captured_value_types: (
+        Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None
+    ) = None,
+) -> bool:
+    """Whether ``expression``, a field or `let:` name selected as passed to a
+    ``def``, reports an error typed as the select check types it, as PIE-S2395
+    for one that does not fit its parameter. Its column is then no copy of
+    the field or `let:` value: the relation's rows are deferred, as for a
+    computed expression whose typing fails."""
+
+    if not inlined_arguments(expression):
+        return False
+    diagnostics: list[Diagnostic] = []
+    infer_row_expression(
+        expression,
+        project_row_schema_to_semantic_row_schema(input_schema),
+        scalar_read_types_within(expression, read_types),
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=relation_qualifier,
+        bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
+        suppressed_unknown_names=suppressed_unknown_names,
+        relation_columns=read_types,
+        captured_value_types=captured_value_types,
+    )
+    return any(item.severity is Severity.ERROR for item in diagnostics)
 
 
 def project_row_schema_to_semantic_row_schema(

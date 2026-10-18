@@ -256,6 +256,25 @@ def _fits_parameters(
     return True
 
 
+def unfit_let_argument(
+    argument: Expression,
+    let_value: Expression,
+    value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool:
+    """Whether ``argument``, an aggregate argument passed to a ``def`` and
+    read as its `let:` value ``let_value``, does not fit its parameter as
+    the value's type in ``value_types``: its PIE-S2395 is then its error, as
+    for a field passed in its place, which is unknown to the aggregate."""
+
+    value_type = None if value_types is None else value_types.get(let_value)
+    return (
+        value_type is not None
+        and value_type.kind is not ValueTypeKind.UNKNOWN
+        and not _fits_parameters(argument, value_type, [], type_expansions)
+    )
+
+
 class LetValues(dict[str, Expression]):
     """The `let:` values of one relation that typing follows by name, as
     emission inlines them, and what checks a ``def`` argument as emission

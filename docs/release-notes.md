@@ -55,9 +55,11 @@ remains an alpha; the CLI does not execute database queries.
   same expression written by hand; no database function is created. A def
   belongs to its module (no import or export), recursion is refused, and an
   error inside a call is reported once however often the body uses the
-  argument, except in a call written inside another def's body, where it is
-  reported as often as its expansion makes it, and in two project cases (see
-  [Known limitations](#known-limitations)). Available in single files and
+  argument, except in a call written inside another def's body, where an
+  error other than an argument mismatch (PIE-S2395) is reported as often as
+  its expansion makes it, and in two project cases (see
+  [Known limitations](#known-limitations)). An error in a def body stops the
+  check of its file before semantic analysis. Available in single files and
   explicit-module projects.
 - **New diagnostics:** PIE-P1008 (an unclosed `(`), PIE-S2378 (a JOIN with
   `on` or a CROSS JOIN without `from`), PIE-S2379 (`def` in a schema version 1
@@ -222,7 +224,8 @@ CLI:
   def as often as the called def's expansion makes it, in single files and
   projects: with
   `def low(x: Int nullable) -> Bool nullable: return x < 3 or x < 4`, a def
-  body that calls `low(null)` gets two PIE-S2105.
+  body that calls `low(null)` gets two PIE-S2105. An argument mismatch
+  (PIE-S2395) there is reported once.
 - A project check still repeats the errors of a JOIN `on` condition, written
   by hand or made by a `def` call, and reports a query header parameter passed
   to a `def` and read in a position that refuses it (PIE-S2355) at each use of
@@ -247,6 +250,15 @@ CLI:
   more than one type (`year`, `month`, `day`, `sign`), so the arguments
   `null and true`, `year(null)` and `coalesce(-null, n)` pass a `not null`
   parameter unchecked, written by hand or through a `let:` name.
+- In a relation without JOIN inputs, a project check does not type a `def`
+  argument in the ungrouped `order by`, or in the WHERE when the relation has
+  a `let:` binding of unknown type such as `k = null`, as it does not type
+  the same expression written by hand there. An argument of known type that
+  does not fit its parameter therefore passes `check --project` there: with a
+  field `text: Text not null` and
+  `def nn(x: Int not null) -> Int not null: return x`, `order by: nn(text)`
+  passes. `emit-sql --project` blocks both with PIE-B1003 without naming the
+  argument.
 - A `let:` name bound to `null` has no type where it is read, so outside a
   `def` argument a value that is ill-typed only once `null` is written in is
   not reported: with `k = null` and `j = coalesce(k, 1)`, `v = lower(j)`
