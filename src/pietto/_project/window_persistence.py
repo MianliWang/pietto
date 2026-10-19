@@ -54,7 +54,12 @@ from pietto.ast_nodes import (
     TableDef,
     WindowExpr,
 )
-from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
+from pietto.semantic.model import (
+    EffectiveNullability,
+    TypeKind,
+    ValueType,
+    ValueTypeKind,
+)
 from pietto.semantic.window_semantics import (
     WindowExpressionUnsupported,
     WindowResultAvailabilityKind,
@@ -313,6 +318,7 @@ def build_project_window_persistence(
         definition=definition,
         base_schema=base_schema,
         window_result_facts=facts,
+        input_schema=input_schema,
     )
     state = ProjectRelationRowSchemaState(
         status=ProjectRelationRowSchemaStatus.CONCRETE,
@@ -379,7 +385,7 @@ def _window_fact_matches_source(
         availability.kind is not WindowResultAvailabilityKind.CONCRETE
         or value_type is None
         or value_type.kind is not ValueTypeKind.KNOWN
-        or value_type.resolved_type.kind is not TypeKind.BUILTIN
+        or _window_result_type(value_type, input_schema) is None
         or value_type.nullability
         not in {
             EffectiveNullability.NON_NULL,
@@ -458,11 +464,39 @@ def _window_dependency_matches_base(
     return False
 
 
+def _window_result_type(
+    value_type: ValueType,
+    input_schema: ProjectRowSchema,
+) -> ProjectResolvedType | None:
+    """The project type of a window result of ``value_type``: its builtin
+    type, or the one enum of that name among the ``input_schema`` fields, such
+    as the value of `lag(status)`; None for any other type."""
+
+    resolved = value_type.resolved_type
+    if resolved.kind is TypeKind.BUILTIN:
+        return ProjectResolvedType(
+            name=resolved.name,
+            kind=ProjectResolvedTypeKind.BUILTIN,
+        )
+    if resolved.kind is not TypeKind.ENUM:
+        return None
+    enums = [
+        field.resolved_type
+        for field in input_schema.fields.values()
+        if field.resolved_type.kind is ProjectResolvedTypeKind.ENUM
+        and field.resolved_type.name == resolved.name
+    ]
+    if not enums or any(item.symbol != enums[0].symbol for item in enums):
+        return None
+    return enums[0]
+
+
 def _final_schema(
     *,
     definition: _DerivedRelation,
     base_schema: ProjectRowSchema,
     window_result_facts: Mapping[str, WindowResultProjectFact],
+    input_schema: ProjectRowSchema,
 ) -> ProjectRowSchema:
     fields: dict[str, ProjectRowField] = {}
     for item in definition.select_items:
@@ -480,14 +514,16 @@ def _final_schema(
         if fact is None:
             raise ValueError("window persistence requires every selected fact")
         value_type = fact.semantic_fact.result.value_type
-        if value_type is None:
+        resolved_type = (
+            None
+            if value_type is None
+            else _window_result_type(value_type, input_schema)
+        )
+        if value_type is None or resolved_type is None:
             raise ValueError("concrete window persistence requires a value type")
         fields[output_name] = ProjectRowField(
             name=output_name,
-            resolved_type=ProjectResolvedType(
-                name=value_type.resolved_type.name,
-                kind=ProjectResolvedTypeKind.BUILTIN,
-            ),
+            resolved_type=resolved_type,
             nullability=(
                 ProjectRowFieldNullability.NON_NULL
                 if value_type.nullability is EffectiveNullability.NON_NULL

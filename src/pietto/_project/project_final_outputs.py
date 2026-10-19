@@ -3312,7 +3312,9 @@ def _project_type_symbols(
         if symbol is None:
             continue
         retained = symbols.get(resolved.name)
-        if retained is not None and retained is not symbol:
+        # Each field resolves its type to an equal symbol of its own: only
+        # two declarations of one name conflict.
+        if retained is not None and retained != symbol:
             conflicts.add(resolved.name)
             continue
         symbols[resolved.name] = symbol

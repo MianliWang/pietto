@@ -18,6 +18,7 @@ from pietto._project.model import (
     ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
+    ProjectResolvedTypeKind,
     ProjectRowFieldNullability,
     ProjectRowResultRole,
     ProjectSemanticResult,
@@ -2935,10 +2936,12 @@ def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
         forged_order if fact is order else fact for fact in relation.clause_dependencies
     )
     assert relation.aggregate_grouped_clause_readiness is not None
+    assert relation.input_state is not None
     forged_state = preservation._reduce_window_outputs_to_state(
         definition=cast(QueryDef, relation.owner.definition),
         base_state=relation.aggregate_grouped_clause_readiness.finalization.state,
         outputs=relation.window_outputs,
+        input_schema=relation.input_state.schema,
     )
     forged_relation = replace(
         relation,
@@ -3370,6 +3373,162 @@ def test_a_selected_read_of_a_binding_bound_to_null_is_typed_where_it_stands(
         ("w", "Int", ProjectRowFieldNullability.NON_NULL),
         ("d", "Int", ProjectRowFieldNullability.NON_NULL),
     ]
+
+
+def test_a_window_value_of_an_enum_field_is_a_column_of_that_enum(
+    tmp_path: Path,
+) -> None:
+    """`lag`, `lead`, `first_value`, `last_value` and `nth_value` of an enum
+    field, nullable or not, of an alias of one or of a grouped enum key give a
+    nullable column of that enum, as in a single file, which a later relation
+    reads as the enum. Before, the project window fact refused the enum result
+    while keeping it, and the check crashed with a ValueError."""
+    window = "window:\n            order by:\n                id\n"
+    text = (
+        "enum Status:\n    active\n    gone\ntype Phase = Status\n"
+        "shape Row:\n    id: Int not null\n    status: Status not null\n"
+        "    phase: Phase not null\n    maybe: Status nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table navigated:\n    from rows\n    select:\n        id\n"
+        f"        previous = lag(status) {window}"
+        f"        prior = lag(maybe) {window}"
+        f"        following = lead(phase) {window}"
+        f"        first = first_value(status) {window}"
+        f"        last = last_value(phase) {window}"
+        f"        nth = nth_value(status, 2) {window}"
+        "query grouped:\n    from rows\n    group by:\n        status\n"
+        "    select:\n        status\n        n = count()\n"
+        "        last = last_value(status) window:\n            order by:\n"
+        "                status\n"
+        "query later:\n    from navigated\n    select:\n        id\n"
+        "        v = lower(previous)\n"
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected "
+            "Text, got Status",
+            text.splitlines().index("        v = lower(previous)") + 1,
+            13,
+        )
+    ]
+    for name, outputs in (
+        ("navigated", ("previous", "prior", "following", "first", "last", "nth")),
+        ("grouped", ("last",)),
+    ):
+        state = _relation(semantic, "main.pietto", name).state
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.schema is not None
+        assert [
+            (
+                field.resolved_type.name,
+                field.resolved_type.kind,
+                field.nullability,
+                field.result_role,
+            )
+            for output_name, field in state.schema.fields.items()
+            if output_name in outputs
+        ] == [
+            (
+                "Status",
+                ProjectResolvedTypeKind.ENUM,
+                ProjectRowFieldNullability.NULLABLE,
+                ProjectRowResultRole.WINDOW_RESULT,
+            )
+        ] * len(outputs)
+
+
+def test_a_window_result_that_no_project_column_carries_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A concrete window result whose project fact does not match the
+    relation's row publishes no project fact: the window is unsupported and
+    the relation fails closed with PIE-S2333. Before, the output kept the
+    fact beside a BLOCKED status, which its own check refused with a
+    ValueError."""
+    monkeypatch.setattr(preservation, "_window_fact_matches_source", lambda **_: False)
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": _query(
+                "    select:\n        id\n        rn = row_number() window:\n"
+                "            order by:\n                id\n"
+            )
+        },
+    )
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: result",
+            6,
+            1,
+        )
+    ]
+    relation = _relation(semantic, "main.pietto", "result")
+    assert (relation.state.status, relation.state.reason) == (
+        ProjectRelationRowSchemaStatus.UNKNOWN,
+        ProjectRelationRowSchemaReason.INVALID_WINDOW_OUTPUT,
+    )
+    (output,) = relation.window_outputs
+    assert type(output.analysis) is WindowExpressionUnsupported
+    assert output.analysis.reason == "window result has no project row column"
+    assert output.project_fact is None
+    assert output.retained_project_fact is None
+    assert output.diagnostics == ()
+
+
+def test_a_window_reads_only_the_named_windows_it_uses(tmp_path: Path) -> None:
+    """Beside a binding of unknown type (`k = null`), a window is analyzed
+    when neither it, nor the named window it uses, nor that window's bases
+    read a binding, whatever another named window of the relation reads; one
+    whose named window or base reads a binding leaves the relation to
+    PIE-S2333. Before, any named window that read a binding made every named
+    use fail closed."""
+    lets = "    let:\n        k = null\n        w = coalesce(k, amount)\n"
+    split = "    window split:\n        partition by:\n            w\n"
+    queries = {
+        "other": "        rn = row_number() window ordered\n"
+        "    window ordered:\n        order by:\n            id\n" + split,
+        "based": "        rn = row_number() window child\n    window child = base\n"
+        "    window base:\n        order by:\n            id\n" + split,
+        "extended": "        rn = row_number() window base:\n            order by:\n"
+        "                id\n    window base:\n        partition by:\n"
+        "            id\n" + split,
+        "reading": "        rn = row_number() window child\n    window child = base\n"
+        "    window base:\n        partition by:\n            w\n"
+        "        order by:\n            id\n",
+    }
+    text = _prefix() + "".join(
+        f"query {name}:\n    from rows\n{lets}    select:\n        id\n{body}"
+        for name, body in queries.items()
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: reading",
+            text.splitlines().index("query reading:") + 1,
+            1,
+        )
+    ]
+    assert [
+        type(output.analysis)
+        for name in ("other", "based", "extended")
+        for output in _relation(semantic, "main.pietto", name).window_outputs
+    ] == [WindowExpressionAnalysis] * 3
 
 
 def test_navigation_offset_default_generic_and_nullability_formula_evidence_is_exact(

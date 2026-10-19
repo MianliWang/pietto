@@ -812,17 +812,11 @@ def _aggregate_attempt(
         )
         if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
             diagnostics = _reference_blocker_diagnostics(analysis)
-            if not analysis.blocking_resolutions and not (
-                # A field or `let:` name passed to a def it does not fit is
-                # unknown here: its PIE-S2395 is its error, as in a single file.
-                type(argument) in {NameExpr, DottedNameExpr}
-                and inlined_arguments(argument)
-                and {
-                    diagnostic.code
-                    for diagnostic in analysis.diagnostics
-                    if diagnostic.severity is Severity.ERROR
-                }
-                == {"PIE-S2395"}
+            if not analysis.blocking_resolutions and not _unfit_argument_alone(
+                function_name,
+                argument,
+                analysis,
+                _let_expansions(input_filter),
             ):
                 diagnostics = (
                     *diagnostics,
@@ -939,6 +933,42 @@ def _aggregate_attempt(
         argument_analysis=argument_analysis,
         field_dependencies=dependencies,
         result_value_type=result_type,
+    )
+
+
+def _unfit_argument_alone(
+    function_name: str,
+    argument: Expression,
+    analysis: ProjectNonConcreteJoinedNamespaceExpression,
+    let_expansions: Mapping[str, Expression],
+) -> bool:
+    """Whether ``argument`` is unknown here only because it does not fit its
+    ``def`` (PIE-S2395), as in a single file, in a form the aggregate accepts
+    for some argument type: its PIE-S2395 is then its one error. A form it
+    accepts for no type, or one that reads a `let:` name other than as the
+    whole argument, is also PIE-S2315, which no argument type would avoid."""
+
+    return (
+        bool(inlined_arguments(argument))
+        and {
+            diagnostic.code
+            for diagnostic in analysis.diagnostics
+            if diagnostic.severity is Severity.ERROR
+        }
+        == {"PIE-S2395"}
+        and (
+            all(
+                type(resolution) is not ProjectJoinedLetReferenceResolution
+                for resolution in analysis.resolutions
+            )
+            or semantic_aggregates.aggregate_argument_can_use_let_scope(
+                function_name, argument, let_expansions
+            )
+            or _is_let_extremum(function_name, argument, let_expansions)
+        )
+        and semantic_aggregates.accepts_argument_form(
+            function_name, argument, let_expansions=let_expansions
+        )
     )
 
 

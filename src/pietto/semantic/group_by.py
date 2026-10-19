@@ -19,9 +19,11 @@ from pietto.ast_nodes import (
     TableDef,
     TypeExpr,
     WindowExpr,
+    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    accepts_argument_form,
     aggregate_alias_required_diagnostic,
     contains_semantic_aggregate,
     deferred_argument_expression_diagnostic,
@@ -192,9 +194,13 @@ def project_grouped_schema(
         )
         if key_identity is not None and key_identity in key_fields:
             if output_name is not None:
-                fields[output_name] = _projected_row_field(
-                    output_name,
-                    key_fields[key_identity],
+                key_field = key_fields[key_identity]
+                fields[output_name] = (
+                    _unknown_row_field(output_name)
+                    if passes_unfit_field(
+                        item.expression, key_field, expression_value_types
+                    )
+                    else _projected_row_field(output_name, key_field)
                 )
                 grouped_order_outputs[output_name] = _GroupedOrderOutput(
                     supported=True,
@@ -397,12 +403,19 @@ def _aggregate_output_field(
         has_unknown_reference = has_unknown_field_reference(
             effective_argument,
             expression_value_types,
-        ) or unfit_argument(
-            function_name,
-            argument,
-            let_expansions,
-            expression_value_types,
-            type_expansions,
+        ) or (
+            unfit_argument(
+                function_name,
+                argument,
+                let_expansions,
+                expression_value_types,
+                type_expansions,
+            )
+            # In a form the aggregate accepts for no argument type, it is also
+            # PIE-S2315, which no argument type would avoid.
+            and accepts_argument_form(
+                function_name, argument, let_expansions=let_expansions
+            )
         )
 
         authored_type = (
@@ -601,6 +614,26 @@ def _projected_row_field(output_name: str, input_field: RowField) -> RowField:
         nullability=input_field.nullability,
         definition=input_field.definition,
     )
+
+
+def passes_unfit_field(
+    expression: Expression,
+    input_field: RowField,
+    value_types: Mapping[Expression, ValueType] | None,
+) -> bool:
+    """Whether ``expression`` selects ``input_field`` passed to a ``def`` it
+    does not fit (PIE-S2395), which typing records as Unknown although the
+    field has a type: its output then has no type, as a computed output with
+    an error has."""
+
+    if (
+        not inlined_arguments(expression)
+        or value_types is None
+        or input_field.resolved_type.kind is TypeKind.UNKNOWN
+    ):
+        return False
+    value_type = value_types.get(expression)
+    return value_type is not None and value_type.kind is ValueTypeKind.UNKNOWN
 
 
 def _unknown_named_field(output_name: str | None) -> RowField | None:

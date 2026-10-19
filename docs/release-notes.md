@@ -59,8 +59,8 @@ remains an alpha; the CLI does not execute database queries.
   error other than an argument mismatch (PIE-S2395) is reported as often as
   its expansion makes it, and in two project cases (see
   [Known limitations](#known-limitations)). An error in a def body stops the
-  check of its file before semantic analysis. Available in single files and
-  explicit-module projects.
+  check before semantic analysis: of its file, and in a project of every
+  module. Available in single files and explicit-module projects.
 - **New diagnostics:** PIE-P1008 (an unclosed `(`), PIE-S2378 (a JOIN with
   `on` or a CROSS JOIN without `from`), PIE-S2379 (`def` in a schema version 1
   project), PIE-S2395 to PIE-S2399 (`def` arguments, recursion, forms, names
@@ -77,52 +77,63 @@ remains an alpha; the CLI does not execute database queries.
   API.
 - Explicit-module projects:
   - A field of an enum, or of an alias of one, is typed as that enum, as in a
-    single file. Programs 0.1.3 accepted are refused: `where status`
-    (PIE-S2202), `status in ("active")` and `status not like "a%"`
-    (PIE-S2105), `lower(status)` and `coalesce(status, "x")` (PIE-S2104) and
-    a `def` parameter the field does not fit (PIE-S2395); after a JOIN,
-    `count(c.status)` is PIE-S2314 instead of PIE-S2315. Programs 0.1.3
-    refused with PIE-S2333, PIE-S2334, PIE-S2335 or PIE-S2103 pass
-    `check --project`: a read of an enum field after a JOIN (selected, bound
-    in `let:`, in `between`, as an ORDER BY key, or partitioning or ordering a
-    window), a JOIN `on` that compares enum fields, and a JOIN over a relation
-    `let` that outputs one. `emit-sql --project` still blocks every table or
-    query that reads a source with an enum field (PIE-B1003).
+    single file, and a `def` parameter the field does not fit is PIE-S2395.
+    Programs 0.1.3 accepted are refused: `where status` (PIE-S2202),
+    `status in ("active")` and `status not like "a%"` (PIE-S2105), and
+    `lower(status)` and `coalesce(status, "x")` (PIE-S2104). Programs 0.1.3
+    refused pass `check --project`: with JOIN inputs, a selected `let:` name
+    bound to an enum field (0.1.3: PIE-S2333), a JOIN `on` that compares enum
+    fields (PIE-S2334 and PIE-S2335) and a JOIN over a relation `let` that
+    outputs one (PIE-S2333); without them, `select distinct` of an enum field
+    and a grouped `satisfying` that compares one (PIE-S2333), a window or
+    QUALIFY partitioned or ordered by one (PIE-S2103 `Unknown function`), and
+    `lag`, `lead`, `first_value`, `last_value` and `nth_value` of one
+    (PIE-S2104 `value type must be concrete`). The other JOINs over a source
+    with an enum field, on which 0.1.3 crashed with a ValueError traceback
+    (see Included repairs), pass when they select, group, order, compare or
+    window the field, and `count(c.status)` there is PIE-S2314.
+    `emit-sql --project` still blocks every table or query that reads a
+    source with an enum field (PIE-B1003). Some enum reads still fail closed
+    with PIE-S2333 (see Known limitations).
   - A LIKE pattern read through a `let:` name of a relation with JOIN inputs
     and ending in an unpaired `!` is PIE-S2105, where 0.1.3 emitted a
     VERIFIED `LIKE ... ESCAPE '!'` that PostgreSQL rejects.
   - The WHERE of a relation with a `let:` binding of unknown type, such as
-    `k = null`, or with an error in a binding is checked as in a single file:
-    `where n == k` is PIE-S2105 and a `def` argument that does not fit is
-    PIE-S2395, where 0.1.3 passed `check` and `emit-sql --project` blocked
-    the relation with PIE-B1003.
+    `k = null`, or with an error in a binding is checked as in a single file,
+    except in a `select distinct` relation or one with QUALIFY (see Known
+    limitations): `where n == k` is PIE-S2105, where 0.1.3 passed `check` and
+    `emit-sql --project` blocked the relation with PIE-B1003, and a `def`
+    argument there that does not fit is PIE-S2395.
   - A relation reports the errors of each `let:` binding, of its WHERE and of
     every SELECT item, in source order, also with JOIN inputs, where 0.1.3
     reported only the first part that failed: an error in a JOIN relation's
     `let:` hid its WHERE and SELECT errors, the first failing SELECT item hid
-    the others, and an error in any relation's `let:` hid its WHERE.
+    the others, and an error in any relation's `let:` hid its WHERE. Without
+    JOIN inputs, the SELECT items of a `select distinct` relation and an
+    aggregate argument a project refuses still report no error of their own
+    (see Known limitations).
   - Beside a binding of unknown type or with an error, the other bindings keep
     their types: with `k = null`, `f = id` and `h = f`, `v = h` passes, where
-    0.1.3 reported PIE-S2333 (PIE-S2102 in a schema version 1 project), and a
-    window that reads no binding is analyzed. A selected read of `k` itself
-    takes its type from where it stands, as in a single file, so
-    `v = coalesce(k, 1)` and `v = 1 if k else 2` pass `check --project` where
-    0.1.3 reported PIE-S2333; `emit-sql --project` still blocks such a
-    relation (PIE-B1003). A window that reads a binding there fails closed
-    with the binding's error or PIE-S2333, without the PIE-S2103
-    `relation context requires canonical window input scope facts` of 0.1.3.
+    0.1.3 reported PIE-S2102 `Unknown field: h`, and a window that reads no
+    binding, also through the named window it uses, is analyzed, where 0.1.3
+    reported PIE-S2103 `Unknown function` for every window there. A selected
+    read of `k` itself takes its type from where it stands, as in a single
+    file, so `v = coalesce(k, 1)` and `v = 1 if k else 2` pass
+    `check --project` where 0.1.3 reported PIE-S2102 `Unknown field: k`;
+    `emit-sql --project` still blocks such a relation (PIE-B1003). A window
+    that reads a binding there fails closed with the binding's error or
+    PIE-S2333.
   - With JOIN inputs, a `let:` binding of unknown type is written into a later
     binding's `def` argument and null test, as without them: with `k = null`,
     `w = coalesce(k, o.id)` and `v = tnn(w)` for a `Text not null` parameter,
-    `v` is PIE-S2395 where 0.1.3 reported a bare PIE-S2333. A read of such a
-    binding is typed as without JOIN inputs too, so a later binding, SELECT
-    item or WHERE that is ill-typed only then reports its error: with
-    `j = coalesce(k, 1)`, `d = len(j)` is PIE-S2104 where 0.1.3 reported a
-    bare PIE-S2333; with nothing ill-typed, such a relation still fails closed
-    with PIE-S2333. A `let` that renames a field, such as `g = r.n` with
-    `group by: g`, selects that field's group key, so `k = g` passes and emits
-    where 0.1.3 reported PIE-S2102; another `let:` name selected from the
-    groups is PIE-S2333 instead of PIE-S2102.
+    `v` is PIE-S2395. A read of such a binding is typed as without JOIN inputs
+    too, so a later binding, SELECT item or WHERE that is ill-typed only then
+    reports its error: with `j = coalesce(k, 1)`, `d = len(j)` is PIE-S2104
+    where 0.1.3 reported a bare PIE-S2333; with nothing ill-typed, such a
+    relation still fails closed with PIE-S2333. A `let` that renames a field,
+    such as `g = r.n` with `group by: g`, selects that field's group key, so
+    `k = g` passes and emits where 0.1.3 reported PIE-S2102; another `let:`
+    name selected from the groups is PIE-S2333 instead of PIE-S2102.
   - In a relation with JOIN inputs, a null literal compared or combined in
     `satisfying:`, also as a nullable `def` argument, is PIE-S2327 at the
     literal, and any other predicate of unknown type is PIE-S2333, where 0.1.3
@@ -186,18 +197,25 @@ remains an alpha; the CLI does not execute database queries.
     emitted `lower(COALESCE(NULL, 1))`; over a source without a shape, with
     `w = n is null`, `-w` is PIE-S2105 and `coalesce(w, 0)` PIE-S2104. An
     explicit-module project reports such an error too: in a binding of a
-    relation without JOIN inputs, as `d = len(j)`, which 0.1.3 passed, and
-    where 0.1.3 reported a bare PIE-S2333 (see Explicit-module projects
-    above).
+    relation without JOIN inputs, as `d = len(j)`, which 0.1.3 passed; in a
+    SELECT item of such a relation, as `v = lower(j)`, where 0.1.3 reported
+    PIE-S2102 `Unknown field: j`; and with JOIN inputs, where 0.1.3 reported
+    a bare PIE-S2333 (see Explicit-module projects above). A column that a
+    relation computes from such a name has that type in later relations: with
+    `z = coalesce(k, n)` for an `Int nullable` field `n`, a later relation's
+    `v = lower(z)` is PIE-S2104, where 0.1.3 emitted `lower("z")` (and in a
+    project reported PIE-S2102 `Unknown field: k` and PIE-S2333).
 - SQL that differs for programs 0.1.3 already emitted:
   - MySQL `Int / Int` emits `a DIV b` instead of `a / b`, so the result is an
     integer, not a DECIMAL; PostgreSQL bytes are unchanged. This includes a
     `let:` name read as above: with `k = null` and `j = coalesce(k, id)`,
     `j / 2` emits ``COALESCE(NULL, `id`) DIV 2``, and over a source without
     a shape, with `u = 7`, `u / 2` emits `7 DIV 2`, as the values written in
-    place do.
+    place do; a later relation's `z / 2` of the column `z` above emits
+    `` `z` DIV 2 ``.
   - Single-file `cast(j as Float)` of a `let:` name whose value reads `null`,
-    such as `j` above, emits `CAST(... AS double precision)` (PostgreSQL) or
+    such as `j` above, or of a column an earlier relation computes from one,
+    such as `z` above, emits `CAST(... AS double precision)` (PostgreSQL) or
     `CAST(... AS DOUBLE)` (MySQL) as the value written in place does, where
     0.1.3 refused it with PIE-B1000.
   - Single-file `avg` of an `Int` emits `AVG(CAST(x AS double precision))` on
@@ -205,13 +223,16 @@ remains an alpha; the CLI does not execute database queries.
   - PostgreSQL `sign(x)` of an `Int` emits `CAST(sign(x) AS bigint)`.
   - An ORDER BY input field that has the same name as a different output alias
     is qualified with its FROM item's reference name.
+- Single-file `explain` reports the type an output has when it is computed
+  from a `let:` name whose value reads `null`, also as the column of a later
+  relation, where 0.1.3 reported `unknown`: with `j = coalesce(k, id)`,
+  `v = j + 1` is `Int`.
 - Diagnostics: many messages name their cause more precisely. Invalid source
   gets different PIE-P1000 wording, counts and positions: at most one parser
   error per top-level declaration, naming the unexpected token and what was
   expected. A lone CR now ends a line in every reported position, and
   PIE-P1004 counts lines only at LF, CRLF and CR. A project reports a restated
-  diagnostic once. A cast of a `let:` name whose binding has an error of its
-  own reports only that error, without PIE-S2105 `cast(unknown as T)`.
+  diagnostic once.
 - CLI: a failed write to stdout, and a refused `--output` (no SQL to write,
   an existing output the user may not write or that belongs to another user,
   or in single-file mode an existing FIFO, socket or device), exit `2`; a
@@ -251,14 +272,15 @@ Compiler:
   module; a relationship JOIN over an input completed in the same run, such
   as a named `select distinct` query, emits instead of INPUT_REJECTED;
   repeated `on` operands, a VIA through a grouped endpoint, an unknown grain, a
-  grouped query listing a window before an aggregate and a JOIN reading enum
-  or shape fields no longer crash; deeply nested project expressions are
-  PIE-S2006 instead of a RecursionError traceback, and a configuration or
-  package manifest nested too deeply is a `project_resource` error; a `let:`
-  binding read in a SELECT item no longer reports a false unknown field; a
-  bare PIE-S2333 for a relationship JOIN over an input it cannot read yet
-  names the reason; the JOIN fan-out remedy lists each key once; and query
-  block IR verification checks every use against the output its owner names.
+  grouped query listing a window before an aggregate, a JOIN over a source
+  with enum or shape fields and an ORDER BY of an enum group key no longer
+  crash; deeply nested project expressions are PIE-S2006 instead of a
+  RecursionError traceback, and a configuration or package manifest nested
+  too deeply is a `project_resource` error; a `let:` binding read in a
+  SELECT item no longer reports a false unknown field; a bare PIE-S2333 for a
+  relationship JOIN over an input it cannot read yet names the reason; the
+  JOIN fan-out remedy lists each key once; and query block IR verification
+  checks every use against the output its owner names.
 - The execution API reports a recursion overflow while preparing a query as
   PIE-R1004.
 
@@ -305,9 +327,29 @@ CLI:
   by hand or made by a `def` call, and reports a query header parameter passed
   to a `def` and read in a position that refuses it (PIE-S2355) at each use of
   the argument.
-- `lag`, `lead`, `first_value`, `last_value` and `nth_value` over a field
-  typed by an alias of an enum are PIE-S2104, while the enum itself is
-  accepted.
+- In single files, `lag`, `lead`, `first_value`, `last_value` and
+  `nth_value` over a field typed by an alias of an enum are PIE-S2104, while
+  the enum itself is accepted; an explicit-module project types such a field
+  as the enum and accepts both.
+- In an explicit-module project, some reads of an enum value fail closed with
+  PIE-S2333 at the table or query, where a single file passes or reports
+  another code: without JOIN inputs, an aggregate of an enum field
+  (PIE-S2314 in a single file and after a JOIN), a selected `let:` name
+  bound to an enum value and another output of enum type that is not a
+  field, such as `coalesce(new_status, status)`; with or without them, an
+  output such as `status in ("active", null)`. A project check does not type
+  the ungrouped `order by` of a relation without JOIN inputs that is not
+  `select distinct`, so `order by: lower(status)` passes `check --project`
+  there.
+- In an explicit-module project, a relation without JOIN inputs reports no
+  error of its SELECT items when it is `select distinct`, nor of an aggregate
+  argument that a project refuses (PIE-S2314 or PIE-S2315 in a single file,
+  such as `max(t + 1)`): it reports PIE-S2333 at its table or query, or,
+  beside another error such as one in its WHERE, only that error.
+- Over a source without a shape, a built-in call with an argument of unknown
+  type has an unknown type, also where its result type does not depend on
+  the argument, so `where len(t)` passes `check` and emits a WHERE that is
+  not `Bool`, which PostgreSQL rejects and MySQL converts.
 - In an explicit-module project, a relationship JOIN without `on` whose input
   is a `select distinct` query completes on its own, but reports PIE-S2333 at
   its table or query when that table or query is itself `select distinct` or
@@ -325,20 +367,24 @@ CLI:
   more than one type (`year`, `month`, `day`, `sign`), so the arguments
   `null and true`, `year(null)` and `coalesce(-null, n)` pass a `not null`
   parameter unchecked, written by hand or through a `let:` name.
-- In a relation without JOIN inputs, a project check does not type a `def`
-  argument in the ungrouped `order by`, as it does not type the same
-  expression written by hand there. An argument of known type that does not
-  fit its parameter therefore passes `check --project` there: with a field
-  `text: Text not null` and
+- In a relation without JOIN inputs that is not `select distinct`, a project
+  check does not type a `def` argument in the ungrouped `order by`, as it
+  does not type the same expression written by hand there. An argument of
+  known type that does not fit its parameter therefore passes
+  `check --project` there: with a field `text: Text not null` and
   `def nn(x: Int not null) -> Int not null: return x`, `order by: nn(text)`
   passes. `emit-sql --project` blocks it with PIE-B1003 without naming the
   argument.
 - In an explicit-module project, a relation with a `let:` binding of unknown
-  type, such as `k = null`, fails closed: with JOIN inputs, a GROUP BY or
-  `select distinct` it reports PIE-S2333 at its table or query even when
-  nothing in it is ill-typed, where a single file passes, and otherwise
+  type, such as `k = null`, fails closed: with JOIN inputs, a GROUP BY,
+  `select distinct` or QUALIFY it reports PIE-S2333 at its table or query
+  even when nothing in it is ill-typed (a single file passes such a GROUP BY,
+  QUALIFY or relationship JOIN without `on`), and otherwise
   `emit-sql --project` blocks it with PIE-B1003 once it passes
-  `check --project`.
+  `check --project`. A `select distinct` relation or one with QUALIFY does
+  not check its WHERE beside such a binding or a binding with an error of its
+  own: it reports that PIE-S2333, or the binding's error, in place of the
+  WHERE's errors.
 - A `substr` start and count must be `Int` literals written in the call: a
   `let:` name bound to one, such as `start = 1` in `substr(t, start, 1)`, is
   PIE-S2104, also in a `def` argument, although single-file emission would

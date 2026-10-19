@@ -2093,6 +2093,75 @@ def test_an_aggregate_reports_its_unfit_def_argument_alone(tmp_path: Path) -> No
     ]
 
 
+def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
+    tmp_path: Path,
+) -> None:
+    """An aggregate argument passed to a def it does not fit adds PIE-S2315
+    beside its PIE-S2395 only in a form the aggregate accepts for no
+    argument type, as in a single file: not for `event.metric + 1` in
+    `count` (before: PIE-S2315 too), but for a `let:` value the aggregate
+    reads as `upper(event.label)` or a constant (before: PIE-S2395 alone),
+    as the same forms are without the def, and for an expression that
+    reads a `let:` name."""
+    header = PROJECT_SOURCE.split("query absent_stage:")[0]
+    joined = (
+        "    from accounts\n    inner join events as event:\n"
+        "        from accounts\n        on event.account_id == accounts.id\n"
+    )
+    grouped = "    group by: accounts.id\n    select:\n        key = accounts.id\n"
+    queries = (
+        f"query plus:\n{joined}{grouped}        c = count(nn(event.metric + 1))\n"
+        f"query let_upper:\n{joined}    let:\n        j = upper(event.label)\n"
+        f"{grouped}        c = count(nn(j))\n"
+        f"query let_constant:\n{joined}    let:\n        j = 1.5\n{grouped}"
+        "        s = sum(nn(j))\n"
+        f"query let_read:\n{joined}    let:\n        j = event.metric\n{grouped}"
+        "        c = count(nn(j + 1))\n"
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        header + "def nn(x: Int not null) -> Int not null: return x\n" + queries,
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    offset = header.count("\n") + 1
+
+    def mismatch(line: int, column: int, actual: str) -> tuple[str, str, int, int]:
+        return (
+            "PIE-S2395",
+            "Invalid argument for def nn at position 1 (x): "
+            f"expected Int not null, got {actual}",
+            line,
+            column,
+        )
+
+    def expression_argument(name: str, line: int) -> tuple[str, str, int, int]:
+        return (
+            "PIE-S2315",
+            f"Aggregate function {name} requires a direct field argument; "
+            "expression arguments are not supported yet",
+            line,
+            13,
+        )
+
+    assert [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        mismatch(9, 19, "Int of unknown nullability"),
+        mismatch(20, 19, "Text not null"),
+        expression_argument("count", 20),
+        mismatch(31, 17, "Float not null"),
+        expression_argument("sum", 31),
+        mismatch(42, 19, "Int of unknown nullability"),
+        expression_argument("count", 42),
+    ]
+
+
 _JOINED_STAGE_SOURCE = """shape Point:
     code: Text not null
 shape T:

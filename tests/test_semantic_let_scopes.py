@@ -693,6 +693,7 @@ source src: T is postgres.table("src")
 source oth: O is postgres.table("oth")
 def lk(x: Text not null, p: Text not null) -> Bool nullable: return x like p
 def tnn(x: Text not null) -> Text not null: return x
+def inl(x: Int nullable) -> Int nullable: return x
 """
 
 
@@ -810,6 +811,39 @@ def test_a_joined_null_binding_is_written_into_later_bindings(
             23,
             1,
         ),
+    ]
+
+
+def test_a_joined_def_argument_reads_let_values_with_their_join_fields(
+    tmp_path: Path,
+) -> None:
+    """With JOIN inputs, a def argument that reads a `let:` binding whose value
+    reads a JOIN field and another binding is checked with the value written
+    in, typed with the types of the fields it reads, as without JOIN inputs:
+    in a SELECT item, a WHERE or a later binding it fits its `Int nullable`
+    parameter, and passed to a `Text not null` parameter it is PIE-S2395.
+    Before, the value written in had no type for its JOIN field, so it was of
+    unknown type and the relations but the WHERE one were PIE-S2333."""
+    lets = "    let:\n        a = src.id\n        c = a + o.oid\n"
+    assert _joined_let_diagnostics(
+        tmp_path,
+        (
+            ("selected", f"{lets}    select:\n        x = inl(c)\n"),
+            (
+                "filtered",
+                f"{lets}    where inl(c) > 0\n    select:\n        x = o.oid\n",
+            ),
+            ("bound", f"{lets}        d = inl(c)\n    select:\n        x = d\n"),
+            ("unfit", f"{lets}    select:\n        x = tnn(c)\n"),
+        ),
+    ) == [
+        (
+            "PIE-S2395",
+            "Invalid argument for def tnn at position 1 (x): expected Text not "
+            "null, got Int of unknown nullability",
+            42,
+            13,
+        )
     ]
 
 

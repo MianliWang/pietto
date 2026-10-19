@@ -912,6 +912,106 @@ def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns
     ]
 
 
+def test_a_grouped_project_relation_selecting_an_unfit_def_key_has_no_known_columns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A group key passed to a def it does not fit, a field, a `let:` key or
+    an unaliased qualified name, is unknown as without GROUP BY: a relation
+    that reads its relation reports PIE-S2333, as for a key passed to a def
+    of another body, never the key's type (before: PIE-S2104 at `lower`). A
+    key that fits keeps its type."""
+    source = DEF_HEAD + (
+        "query g1:\n    from rows\n    group by: n\n    select:\n        k = idi(n)\n"
+        "        c = count()\n"
+        "query g2:\n    from rows\n    let:\n        w = n + 1\n    group by: w\n"
+        "    select:\n        k = idi(w)\n        c = count()\n"
+        "query g3:\n    from rows\n    group by: rows.n\n    select:\n"
+        "        idi(rows.n)\n        c = count()\n"
+        "query fit:\n    from rows\n    group by: id\n    select:\n        k = idi(id)\n"
+        "        c = count()\n"
+        "query r1:\n    from g1\n    select:\n        x = lower(k)\n"
+        "query r2:\n    from g2\n    select:\n        x = lower(k)\n"
+        "query r3:\n    from g3\n    select:\n        x = lower(n)\n"
+        "query r4:\n    from fit\n    select:\n        x = lower(k)\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _mismatch("idi", DEF_LINE + 4, 13, "Int not null", "Int nullable"),
+        _mismatch(
+            "idi", DEF_LINE + 12, 13, "Int not null", "Int of unknown nullability"
+        ),
+        _mismatch("idi", DEF_LINE + 18, 9, "Int not null", "Int nullable"),
+        *(
+            (
+                "PIE-S2333",
+                "a.pietto",
+                DEF_LINE + line,
+                1,
+                f"Project relation semantic completion is unavailable: {name}",
+            )
+            for name, line in (("r1", 26), ("r2", 30), ("r3", 34))
+        ),
+        (
+            "PIE-S2104",
+            "a.pietto",
+            DEF_LINE + 41,
+            13,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+        ),
+    ]
+
+
+def test_a_project_relation_builds_its_def_argument_check_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A relation's row schema checks each select item that passes a def,
+    with the input row and `let:` values built once for the relation, and
+    builds nothing for a relation whose items pass no def, so its check grows
+    with its size (before: both once per item that selects a field or a
+    `let:` name, cubic in a relation with many `let:` names, def or not)."""
+    from pietto._project import let_scope_facts, row_expression_type_facts
+
+    calls: dict[str, int] = {}
+    for module, name in (
+        (let_scope_facts, "checked_let_values"),
+        (row_expression_type_facts, "project_row_schema_to_semantic_row_schema"),
+        (row_expression_type_facts, "reports_unfit_def_argument"),
+    ):
+
+        def counting(*args: object, _run=getattr(module, name), _name=name, **kw):
+            calls[_name] = calls.get(_name, 0) + 1
+            return _run(*args, **kw)
+
+        monkeypatch.setattr(module, name, counting)
+
+    def check(size: int, item: str) -> dict[str, int]:
+        calls.clear()
+        lets = "".join(f"        j{index} = n + {index}\n" for index in range(size))
+        items = "".join(
+            f"        v{index} = {item.format(f'j{index}')}\n" for index in range(size)
+        )
+        source = (
+            DEF_HEAD
+            + "def idn(x: Int nullable) -> Int nullable: return x\n"
+            + f"query q:\n    from rows\n    let:\n{lets}    select:\n        id\n{items}"
+        )
+        root = tmp_path / f"{size}-{'def' if '(' in item else 'defless'}"
+        assert _def_check(root, capsys, {"a.pietto": source}) == []
+        return dict(calls)
+
+    defless = check(4, "{}")
+    assert "reports_unfit_def_argument" not in defless
+    assert check(8, "{}") == defless
+    with_def = check(4, "idn({})")
+    assert with_def.pop("reports_unfit_def_argument") == 4
+    assert with_def["checked_let_values"] == 1
+    assert {
+        name: count
+        for name, count in check(8, "idn({})").items()
+        if name != "reports_unfit_def_argument"
+    } == with_def
+
+
 def test_a_project_def_refuses_an_imported_alias(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

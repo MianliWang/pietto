@@ -560,16 +560,27 @@ VERIFIED-only inspection. Project Explain keeps its separate schema boundary.
 A JOIN of any kind above may read a source with fields typed by an enum or a
 shape, or by an alias of either, with or without `nullable` or `not null`, and
 `check --project` completes it. A project types a field of an enum, or of an
-alias of one, as that enum, as a single file does, with or without a JOIN and
-whatever the JOIN makes of its nullability: it may be selected, bound in
-`let:`, compared, tested with `is null` or `between`, grouped, ordered,
-partitioned or ordered in a window, or matched in a JOIN `on`, and every read is
-checked as a single file checks it, so `lower(c.status)` and
-`coalesce(c.status, "x")` report PIE-S2104, `c.status in ("active")` and
-`c.status not like "a%"` report PIE-S2105, `count(c.status)` reports PIE-S2314,
-`where c.status` reports PIE-S2202 and a `def` parameter it does not fit reports
-PIE-S2395. Selecting a JOIN's enum group key from the groups reports PIE-S2333
-at the table or query.
+alias of one, as that enum, with or without a JOIN and whatever the JOIN makes
+of its nullability: it may be selected (also from the groups), compared, tested
+with `is null` or `between`, grouped, ordered, partitioned or ordered in a
+window, the value of `lag`, `lead`, `first_value`, `last_value` or `nth_value`,
+or matched in a JOIN `on`, and a read is checked as a single file checks it, so
+`lower(c.status)` and `coalesce(c.status, "x")` report PIE-S2104,
+`c.status in ("active")` and `c.status not like "a%"` report PIE-S2105,
+`where c.status` reports PIE-S2202 and a `def` parameter it does not fit
+reports PIE-S2395. With JOIN inputs a `let:` name bound to it and another
+output of enum type may be selected, and `count(c.status)` reports PIE-S2314.
+Without JOIN inputs a project does not complete every such read yet: an
+aggregate of an enum field (PIE-S2314 in a single file), a selected `let:` name
+bound to an enum value and another output of enum type that is not a field,
+such as `coalesce(new_status, status)` of two enum fields or a conditional
+between them, report PIE-S2333 at the table or query, and a project check does
+not type the ungrouped `order by` of a relation without JOIN inputs that is not
+`select distinct`, so `order by: lower(status)` passes `check --project` there.
+An output such as `status in ("active", null)` reports PIE-S2333 with or
+without JOIN inputs. A single file keeps an alias of an enum as the alias, so
+its messages name the alias and its window value functions refuse it
+(PIE-S2104).
 
 A table, query or relation `let` that outputs a field typed by a shape, or by
 an alias of one, and completes on its own can be the target of a SEMI or ANTI
@@ -1512,7 +1523,9 @@ stay accepted. In an EXPLICIT_MODULES project the WHERE of a relation with a
 `let:` binding of unknown type, such as `nothing = null`, or with an error in
 a binding is checked as well, as in a single file (a read of a binding with
 an error of its own is of unknown type), so `where x == nothing` is PIE-S2105
-there too. In `satisfying:` a comparison
+there too, except in a `select distinct` relation or one with QUALIFY, which
+reports PIE-S2333 at the relation, or the binding's own error, instead. In
+`satisfying:` a comparison
 with the null literal is PIE-S2327 (`Unsupported satisfying expression form:
 null literal`) in single-file checks and in an EXPLICIT_MODULES relation with
 JOIN inputs, at the literal, and a bare PIE-S2333 in an EXPLICIT_MODULES
@@ -1709,13 +1722,18 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   only for the innermost call that does not fit: an argument that does not
   fit is unknown to every expression around it, also through a built-in call
   such as `len`, and to an aggregate whose argument it is, which adds no
-  PIE-S2315 beside it, as for a field of unknown type: `count(nn(n + 1))` is
-  PIE-S2395 alone, also through a `let:` name the aggregate reads, with
-  `w = n + 1` or `j = n` and `w = j + 1`. In a project, a relation whose
-  select output is a field or
-  `let:` name passed to a def it does not fit has no known columns, as when
-  a computed output has an error, so a relation that reads it reports what
-  it reports then, such as PIE-S2333. An argument with an
+  PIE-S2315 beside it when it accepts the argument's form for some argument
+  type, as for a field of unknown type: `count(nn(n + 1))` is PIE-S2395
+  alone, also through a `let:` name the aggregate reads, with `w = n + 1` or
+  `j = n` and `w = j + 1`. A form the aggregate accepts for no argument type
+  is PIE-S2315 too: `count(nn(upper(text)))` is PIE-S2395 and PIE-S2315, as
+  `count(upper(text))` is PIE-S2315, also through a `let:` name the
+  aggregate reads, with `w = upper(text)` or a constant such as `w = 1.5`. A
+  select output that is a field or `let:` name passed to a def it does not
+  fit, a group key included, has no type, as a computed output with an
+  error has; in a project its relation then has no known columns, so a
+  relation that reads it reports what it reports then, such as PIE-S2333.
+  An argument with an
   error of its own that leaves its type unknown, such as a comparison with
   the null literal (`text == null`, PIE-S2105) or `k + zz` with an unknown
   field `zz`, is not checked against its parameter. A `let:` value is typed
@@ -1730,9 +1748,11 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   PIE-S2104 at `lower`; `lower(j) == "a"` passed to a `Bool not null`
   parameter is that PIE-S2104 and PIE-S2395, as the comparison is still
   `Bool` of unknown nullability; and with `w = lower(j) is null`, the
-  binding `w` is PIE-S2104 and `w` passed to an `Int not null` parameter is
-  PIE-S2395, as `w` is `Bool not null`. An argument whose type is unknown
-  for another reason is not checked either, as the same expression written
+  binding `w` is PIE-S2104 and, in a single file, `w` passed to an
+  `Int not null` parameter is PIE-S2395, as `w` is `Bool not null` (a project
+  check does not check an argument that reads a binding with an error of its
+  own). An argument whose type is unknown for another reason is not checked
+  either, as the same expression written
   by hand is not: a field of a source without a shape; `null` inside `and` or
   `or`, as a `between` bound or as the argument of a built-in that admits
   more than one type (`year`, `month`, `day`, `sign`), such as
@@ -1763,15 +1783,17 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   `check`, `index` predicate or field `derive` (a single file checks them); a
   single-file `qualify:` (which `explain` and `emit-sql` refuse); in a
   project check, the ungrouped `order by` of a relation without JOIN inputs
-  (`emit-sql --project` blocks a mismatched argument there with PIE-B1003
-  without naming it; with JOIN inputs the argument is checked).
+  that is not `select distinct` (`emit-sql --project` blocks a mismatched
+  argument there with PIE-B1003 without naming it; with JOIN inputs or
+  `select distinct` the argument is checked).
   In a project, a mismatch is reported where the same error written by hand
   would be: where a project reports the errors of a position as PIE-S2333 at
   the relation, such as a grouped `satisfying` or an aggregate argument
-  without JOIN inputs, a select over a VALUES let or the ORDER BY of a
-  global-aggregate query, the mismatch is PIE-S2333 there too, also for a
-  `let:` name that an aggregate reads, which is checked with its binding's
-  type.
+  without JOIN inputs, a select over a VALUES let, the ORDER BY of a
+  global-aggregate query or the WHERE of a `select distinct` relation or one
+  with QUALIFY that has a `let:` binding of unknown type, such as `k = null`,
+  the mismatch is PIE-S2333 there too, also for a `let:` name that an
+  aggregate reads, which is checked with its binding's type.
 - Expansion: each call becomes one parenthesized expression. An argument that
   the body uses n times is written n times in the SQL, as it would be by hand:
   with `def twice(x: Int nullable) -> Int nullable: return x + x`, the item

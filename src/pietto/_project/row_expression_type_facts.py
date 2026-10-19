@@ -164,7 +164,7 @@ def build_project_row_expression_value_types(
 
 def reports_unfit_def_argument(
     expression: Expression,
-    input_schema: ProjectRowSchema,
+    row_schema: RowSchema,
     *,
     relation_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None = None,
@@ -176,17 +176,19 @@ def reports_unfit_def_argument(
     ) = None,
 ) -> bool:
     """Whether ``expression``, a field or `let:` name selected as passed to a
-    ``def``, reports an error typed as the select check types it, as PIE-S2395
-    for one that does not fit its parameter. Its column is then no copy of
-    the field or `let:` value: the relation's rows are deferred, as for a
-    computed expression whose typing fails."""
+    ``def``, reports an error typed as the select check types it, over
+    ``row_schema``, the relation's input as the select check reads it
+    (`project_row_schema_to_semantic_row_schema`), as PIE-S2395 for one that
+    does not fit its parameter. Its column is then no copy of the field or
+    `let:` value: the relation's rows are deferred, as for a computed
+    expression whose typing fails."""
 
     if not inlined_arguments(expression):
         return False
     diagnostics: list[Diagnostic] = []
     infer_row_expression(
         expression,
-        project_row_schema_to_semantic_row_schema(input_schema),
+        row_schema,
         scalar_read_types_within(expression, read_types),
         diagnostics,
         report_unknown_name=True,

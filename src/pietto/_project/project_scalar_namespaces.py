@@ -846,9 +846,6 @@ def build_project_joined_let_namespaces(
     unknown_types: list[ProjectJoinedLetOccurrence] = []
     all_names = {binding.name for binding in bindings}
     prior_names: set[str] = set()
-    # The admitted values, which a def argument is checked with written in and
-    # a check that reads a value through its name (a LIKE pattern) follows.
-    let_values = LetValues()
     # Bindings without an error of their own whose type is unknown, such as
     # `k = null`, and those that read one, with the type each has as written:
     # written in as above and read with that type, a name bound to `null`
@@ -858,6 +855,10 @@ def build_project_joined_let_namespaces(
     unadmitted: dict[str, ValueType] = {}
     # The type of each field read so far, for a binding written in.
     field_types: dict[Expression, ValueType] = {}
+    # The admitted values, which a def argument is checked with written in,
+    # each with the types of the fields it reads, and a check that reads a
+    # value through its name (a LIKE pattern) follows.
+    let_values = LetValues(field_types=field_types)
 
     for occurrence in occurrences:
         namespace = ProjectJoinedScalarNamespace(

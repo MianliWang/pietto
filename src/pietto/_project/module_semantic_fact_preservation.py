@@ -137,7 +137,6 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WhereClause,
     WindowExpr,
-    WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -939,6 +938,10 @@ def _window_diagnostic_location_is_owned(
 # the relation's PIE-S2333 reports it.
 _LET_READING_WINDOW_REASON = "window reads a let binding of a non-concrete scope"
 
+# A window computation whose result no project row column carries
+# (`_window_fact_matches_source`): the relation's PIE-S2333 reports it.
+_UNMATCHED_WINDOW_RESULT_REASON = "window result has no project row column"
+
 
 def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
     return reason.startswith(
@@ -946,6 +949,7 @@ def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
             "no-group aggregate context does not admit ",
             "grouped context does not admit ",
             _LET_READING_WINDOW_REASON,
+            _UNMATCHED_WINDOW_RESULT_REASON,
         )
     )
 
@@ -2034,6 +2038,7 @@ def _reduce_window_outputs_to_state(
     definition: _DerivedRelation,
     base_state: ProjectRelationRowSchemaState,
     outputs: tuple[ProjectModuleWindowOutputFact, ...],
+    input_schema: ProjectRowSchema | None,
 ) -> ProjectRelationRowSchemaState:
     if not outputs or base_state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
         return base_state
@@ -2060,10 +2065,13 @@ def _reduce_window_outputs_to_state(
                     "Concrete window reduction requires exact named project facts."
                 )
             concrete_facts[output.output_name] = output.project_fact
+        if input_schema is None:
+            raise ValueError("Concrete window reduction requires its input schema.")
         final_schema = _final_window_schema(
             definition=definition,
             base_schema=base_schema,
             window_result_facts=concrete_facts,
+            input_schema=input_schema,
         )
         return ProjectRelationRowSchemaState(
             status=ProjectRelationRowSchemaStatus.CONCRETE,
@@ -2444,6 +2452,9 @@ def _validate_relation_window_fact_set_closure(
             definition=derived,
             base_state=pre_window_state,
             outputs=relation.window_outputs,
+            input_schema=(
+                None if relation.input_state is None else relation.input_state.schema
+            ),
         )
     )
     expected_state = _apply_clause_ambiguity_to_window_state(
@@ -4838,10 +4849,17 @@ def _window_output_facts(
                     let_scope_facts=let_scope,
                 )
             ):
-                status = ProjectModuleCandidateBucketStatus.BLOCKED
-                reason = (
-                    ProjectRelationRowSchemaReason.CONFLICTING_WINDOW_RESULT_FACTS.value
+                # No project row column carries the result: the relation
+                # fails closed with PIE-S2333 instead of publishing it.
+                analysis = WindowExpressionUnsupported(
+                    occurrence=analysis.semantic_fact.occurrence,
+                    expression=expression,
+                    identity=expression.identity,
+                    reason=_UNMATCHED_WINDOW_RESULT_REASON,
                 )
+                project_fact = None
+                status = ProjectModuleCandidateBucketStatus.UNKNOWN
+                reason = analysis.reason
         output_name = item.alias
         outputs.append(
             ProjectModuleWindowOutputFact(
@@ -4865,6 +4883,7 @@ def _window_output_facts(
             definition=definition,
             base_state=base_state,
             outputs=result,
+            input_schema=input_schema,
         ),
         result,
     )
@@ -4893,15 +4912,20 @@ def _window_let_facts(
     }:
         return None, None, False
     names = {binding.name for binding in let_scope.bindings}
-    pending: list[object] = [
-        expression.call.arguments,
-        expression.spec,
-        *(
-            definition.named_windows
-            if expression.use_kind is not WindowUseKind.INLINE
-            else ()
-        ),
-    ]
+    pending: list[object] = [expression.call.arguments, expression.spec]
+    # A named use reads the window it names and that window's bases.
+    window_names = [] if expression.base is None else [expression.base.name]
+    followed: set[str] = set()
+    while window_names:
+        window_name = window_names.pop()
+        if window_name in followed:
+            continue
+        followed.add(window_name)
+        for declaration in definition.named_windows:
+            if declaration.name == window_name:
+                pending.append(declaration.spec)
+                if declaration.base is not None:
+                    window_names.append(declaration.base.name)
     while pending:
         node = pending.pop()
         if type(node) is NameExpr:

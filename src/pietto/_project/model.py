@@ -54,6 +54,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
     WindowExpr,
+    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.capability_facts import CapabilityKey, CapabilitySupport
@@ -2720,6 +2721,7 @@ def _project_direct_relation_row_schema(
     )
     from pietto._project.row_expression_type_facts import (
         build_project_row_expression_value_types,
+        project_row_schema_to_semantic_row_schema,
         reports_unfit_def_argument,
     )
 
@@ -2780,18 +2782,13 @@ def _project_direct_relation_row_schema(
         if definition.let_clause is None
         else [binding.name for binding in definition.let_clause.bindings]
     )
-
-    def passes_unfit_argument(item: SelectItem) -> bool:
-        """Whether ``item`` passes its field or `let:` name to a ``def`` it
-        does not fit (`reports_unfit_def_argument`), typed as the select check
-        types it: with each `let:` name bound once written in."""
-
-        return reports_unfit_def_argument(
-            item.expression,
-            source_schema,
-            relation_qualifier=definition.from_clause.source_name,
-            bare_value_types=let_value_types,
-            bare_value_expressions=checked_let_values(
+    # What `passes_unfit_argument` types with, built once for a relation that
+    # passes a select item to a def: the input row and one `LetValues` with
+    # each `let:` name bound once, which writes each binding once.
+    unfit_scope = (
+        (
+            project_row_schema_to_semantic_row_schema(source_schema),
+            checked_let_values(
                 let_scope_facts,
                 {
                     name: expression
@@ -2799,7 +2796,27 @@ def _project_direct_relation_row_schema(
                     if let_names.count(name) == 1
                 },
             ),
-            suppressed_unknown_names=set(let_names),
+            set(let_names),
+        )
+        if any(inlined_arguments(item.expression) for item in definition.select_items)
+        else None
+    )
+
+    def passes_unfit_argument(item: SelectItem) -> bool:
+        """Whether ``item`` passes its field or `let:` name to a ``def`` it
+        does not fit (`reports_unfit_def_argument`), typed as the select check
+        types it: with each `let:` name bound once written in."""
+
+        if unfit_scope is None or not inlined_arguments(item.expression):
+            return False
+        row_schema, let_values, suppressed_names = unfit_scope
+        return reports_unfit_def_argument(
+            item.expression,
+            row_schema,
+            relation_qualifier=definition.from_clause.source_name,
+            bare_value_types=let_value_types,
+            bare_value_expressions=let_values,
+            suppressed_unknown_names=suppressed_names,
             read_types=read_types,
             captured_value_types=captured_value_types,
         )

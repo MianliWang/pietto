@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    accepts_argument_form,
     aggregate_alias_required_diagnostic,
     contains_semantic_aggregate,
     deferred_composition_diagnostic,
@@ -43,7 +44,7 @@ from pietto.semantic.expressions import (
     rejected_let_names,
     unfit_argument,
 )
-from pietto.semantic.group_by import project_grouped_schema
+from pietto.semantic.group_by import passes_unfit_field, project_grouped_schema
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
     CheckMode,
@@ -271,7 +272,11 @@ def _project_schema(
                 expression_value_types=expression_value_types,
             )
             continue
-        fields[output_name] = _projected_row_field(output_name, input_field)
+        fields[output_name] = (
+            _unknown_row_field(output_name)
+            if passes_unfit_field(expression, input_field, expression_value_types)
+            else _projected_row_field(output_name, input_field)
+        )
 
     return RowSchema(
         fields=fields,
@@ -349,12 +354,19 @@ def _aggregate_projection_diagnostics(
             has_unknown_reference = has_unknown_field_reference(
                 effective_argument,
                 expression_value_types,
-            ) or unfit_argument(
-                function_name,
-                argument,
-                let_expansions,
-                expression_value_types,
-                type_expansions,
+            ) or (
+                unfit_argument(
+                    function_name,
+                    argument,
+                    let_expansions,
+                    expression_value_types,
+                    type_expansions,
+                )
+                # In a form the aggregate accepts for no argument type, it
+                # is also PIE-S2315, which no argument type would avoid.
+                and accepts_argument_form(
+                    function_name, argument, let_expansions=let_expansions
+                )
             )
             authored_type = (
                 None

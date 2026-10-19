@@ -31,6 +31,7 @@ from pietto._project.model import (
 )
 from pietto._project.row_expression_type_facts import (
     build_project_row_expression_value_types,
+    project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
@@ -45,6 +46,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     WindowExpr,
+    inlined_arguments,
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
@@ -970,6 +972,11 @@ def _build_project_group_key_schema_attempt(
             else None
         )
         if computed_key is not None:
+            if _passes_unfit_key(selected_expression, computed_key.value_type):
+                failure_reasons.append(
+                    ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+                )
+                continue
             selected_key_targets[item] = computed_key
             selected_fields[item] = ProjectRowField(
                 name=item.alias or computed_key.field_identity,
@@ -1003,7 +1010,15 @@ def _build_project_group_key_schema_attempt(
                 ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
             )
             continue
-        if field_identity not in declared_group_identities:
+        if field_identity not in declared_group_identities or (
+            inlined_arguments(selected_expression)
+            and _passes_unfit_key(
+                selected_expression,
+                project_row_field_to_semantic_value_type(
+                    input_field, input_field.nullability
+                ),
+            )
+        ):
             failure_reasons.append(
                 ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
             )
@@ -2135,6 +2150,20 @@ def _computed_group_key(
                 ),
             ),
         ),
+    )
+
+
+def _passes_unfit_key(expression: Expression, value_type: ValueType) -> bool:
+    """Whether ``expression``, a group key of ``value_type`` selected as passed
+    to a ``def``, does not fit it (PIE-S2395): its column is then no copy of
+    the key, and the relation fails as with a select item that has an
+    error. A key of unknown type is not checked, as typing does not check
+    it."""
+
+    return (
+        value_type.kind is not ValueTypeKind.UNKNOWN
+        and _check_inlined_argument(expression, value_type, [], None).kind
+        is ValueTypeKind.UNKNOWN
     )
 
 

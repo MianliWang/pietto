@@ -389,7 +389,6 @@ ENUM_JOIN_FORMS = {
     "anti_relationship": ("anti", ""),
     "left_via": ("left", "        via order_customer: order -> customer\n"),
 }
-ENUM_READ_UNAVAILABLE = "Project relation semantic completion is unavailable: q"
 
 
 def _completed_diagnostics(root: Path, source: str) -> list[tuple[str, str, int, int]]:
@@ -508,7 +507,6 @@ def test_a_relation_output_with_an_enum_field_joins_whatever_its_nullability(
         )
 
 
-ENUM_UNAVAILABLE_AT_QUERY = [("PIE-S2333", ENUM_READ_UNAVAILABLE, 17, 1)]
 ENUM_GROUPED = "    group by:\n        orders.id\n        c.status\n"
 ENUM_WINDOW = (
     "        rn = row_number() window:\n            partition by:\n"
@@ -585,10 +583,18 @@ ENUM_JOINED_READS = {
         ],
     ),
     "order_field": ("", "    order by:\n        c.status\n", []),
+    # The joined row has two `Status` fields; their equal type symbols are no
+    # conflict, so an output of that enum is typed as with one.
     "group_key_selected": (
         ENUM_GROUPED,
         "        v = c.status\n        n = count()\n",
-        ENUM_UNAVAILABLE_AT_QUERY,
+        [],
+    ),
+    "let_selected": ("    let:\n        e = c.status\n", "        v = e\n", []),
+    "computed_selected": (
+        "",
+        "        v = coalesce(c.status, orders.status)\n",
+        [],
     ),
     "aggregate": (
         "    group by:\n        orders.id\n",

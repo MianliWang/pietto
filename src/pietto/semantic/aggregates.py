@@ -78,6 +78,10 @@ DECIMAL_NULLABLE_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="Decimal", kind=TypeKind.BUILTIN),
     nullability=EffectiveNullability.NULLABLE,
 )
+_TEXT_VALUE_TYPE = ValueType(
+    resolved_type=ResolvedType(name="Text", kind=TypeKind.BUILTIN),
+    nullability=EffectiveNullability.NULLABLE,
+)
 
 
 _KNOWN_EXPRESSIONS = frozenset(
@@ -362,6 +366,26 @@ def is_supported_semantic_aggregate_argument_expression(
     return _is_supported_sum_avg_numeric_expression_shape(
         expression,
         value_type,
+    )
+
+
+def accepts_argument_form(
+    function_name: str,
+    expression: Expression,
+    *,
+    let_expansions: Mapping[str, Expression] | None = None,
+) -> bool:
+    """Return whether an aggregate accepts this argument expression for some
+    argument type: a `Text` one for ``count_distinct`` and an `Int` one for
+    every other aggregate, which each form it accepts takes."""
+
+    return is_supported_semantic_aggregate_argument_expression(
+        function_name,
+        expression,
+        _TEXT_VALUE_TYPE
+        if function_name == COUNT_DISTINCT_AGGREGATE_NAME
+        else INT_NULLABLE_VALUE_TYPE,
+        let_expansions=let_expansions,
     )
 
 

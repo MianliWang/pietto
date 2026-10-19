@@ -486,8 +486,11 @@ CALL_ERRORS = {
         ],
     ),
     # And so is any other argument written in an aggregate's place, which
-    # reports its PIE-S2395 (before: PIE-S2315 alone). An aggregate argument
-    # that passes no def keeps PIE-S2315 alone (`count(lower(n))`).
+    # reports its PIE-S2395 (before: PIE-S2315 alone), in a form the aggregate
+    # accepts for some argument type (`n + 1`); in a form it accepts for none
+    # it is also PIE-S2315, as `count(coalesce(note, 'z'))` is.
+    # An aggregate argument that passes no def keeps PIE-S2315 alone
+    # (`count(lower(n))`).
     "unfit_aggregate_expression": (
         "def nn(x: Int not null) -> Int not null: return x\n"
         "def ni(x: Int nullable) -> Int nullable: return x\n"
@@ -502,6 +505,13 @@ CALL_ERRORS = {
                 19,
                 "Invalid argument for def nn at position 1 (x): "
                 "expected Int not null, got Int of unknown nullability",
+            ),
+            (
+                "PIE-S2315",
+                BODY_LINE + 8,
+                13,
+                "Aggregate function count requires a direct field argument; "
+                "expression arguments are not supported yet",
             ),
             (
                 "PIE-S2395",
@@ -524,6 +534,44 @@ CALL_ERRORS = {
                 "Invalid argument for def nn at position 1 (x): "
                 "expected Int not null, got Int of unknown nullability",
             ),
+        ],
+    ),
+    # So is a `let:` name that the aggregate reads as a value in such a form,
+    # a constant included, grouped or not, as the value written in its place
+    # is (before: PIE-S2395 alone).
+    "unfit_aggregate_form": (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "table g:\n    from rows\n    let:\n        w = upper(text)\n        v = 1.5\n"
+        "    group by: id\n    select:\n        id\n        c = count(nn(w))\n"
+        "        d = count(nn(upper(text)))\n        s = sum(nn(v))\n"
+        "        e = count_distinct(nn(n + 1))\n"
+        "table a:\n    from rows\n    let:\n        w = upper(text)\n    select:\n"
+        "        c = count(nn(w))\n",
+        [
+            item
+            for function, line, column, actual in (
+                ("count", 9, 19, "Text not null"),
+                ("count", 10, 19, "Text not null"),
+                ("sum", 11, 17, "Float not null"),
+                ("count_distinct", 12, 28, "Int of unknown nullability"),
+                ("count", 18, 19, "Text not null"),
+            )
+            for item in (
+                (
+                    "PIE-S2315",
+                    BODY_LINE + line,
+                    13,
+                    f"Aggregate function {function} requires a direct field "
+                    "argument; expression arguments are not supported yet",
+                ),
+                (
+                    "PIE-S2395",
+                    BODY_LINE + line,
+                    column,
+                    "Invalid argument for def nn at position 1 (x): "
+                    f"expected Int not null, got {actual}",
+                ),
+            )
         ],
     ),
     "shape_check_and_field_derive": (
@@ -1637,6 +1685,73 @@ def test_an_aggregate_reads_a_let_value_with_its_type_over_an_unknown_row() -> N
             "Invalid argument for def wrapn at position 1 (x): "
             "expected Int not null, got Bool not null",
         ),
+    ]
+
+
+def test_a_global_aggregate_over_an_unknown_row_checks_its_let_argument() -> None:
+    """Over a shapeless source a global aggregate that reads a `let:` name
+    bound to a constant passes the constant to the def, which refuses it
+    (PIE-S2395), and the aggregate refuses a constant as its argument
+    (PIE-S2315), as once the argument fits: `count(tt(w))` is PIE-S2315
+    (before: PIE-S2395 alone)."""
+    source = (
+        'source raw is postgres.table("raw")\n'
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def tt(x: Text not null) -> Text not null: return x\n"
+        "table g:\n    from raw\n    let:\n        w = 'x'\n    select:\n"
+        "        c = count(nn(w))\n"
+        "table f:\n    from raw\n    let:\n        w = 'x'\n    select:\n"
+        "        c = count(tt(w))\n"
+    )
+    expression_argument = (
+        "Aggregate function count requires a direct field argument; "
+        "expression arguments are not supported yet"
+    )
+    assert _errors(source) == [
+        ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
+        ("PIE-S2315", 9, 13, expression_argument),
+        (
+            "PIE-S2395",
+            9,
+            19,
+            "Invalid argument for def nn at position 1 (x): "
+            "expected Int not null, got Text not null",
+        ),
+        ("PIE-S2315", 15, 13, expression_argument),
+    ]
+
+
+def test_a_selected_field_passed_to_a_def_it_does_not_fit_has_no_type() -> None:
+    """A field passed to a def it does not fit is unknown, so a select item
+    that outputs it, a group key or an unaliased or qualified name included,
+    has no type, as a computed output with an error has: a relation that
+    reads it is not checked against the field's type (before: PIE-S2104 at
+    each `lower`). One that fits keeps the field's type."""
+    source = SHAPES + (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def ni(x: Int nullable) -> Int nullable: return x\n"
+        "table g:\n    from rows\n    group by: n\n    select:\n        k = nn(n)\n"
+        "        c = count()\n"
+        "table q:\n    from rows\n    select:\n        id\n        nn(n)\n"
+        "        m = nn(rows.n)\n"
+        "table fit:\n    from rows\n    group by: n\n    select:\n        k = ni(n)\n"
+        "        c = count()\n"
+        "table r:\n    from g\n    select:\n        a = lower(k)\n"
+        "table s:\n    from q\n    select:\n        a = lower(n)\n        b = lower(m)\n"
+        "table t:\n    from fit\n    select:\n        a = lower(k)\n"
+    )
+    assert _errors(source) == [
+        *(
+            (
+                "PIE-S2395",
+                line,
+                column,
+                "Invalid argument for def nn at position 1 (x): "
+                "expected Int not null, got Int nullable",
+            )
+            for line, column in ((14, 13), (20, 9), (21, 13))
+        ),
+        ("PIE-S2104", 40, 13, LOWER_OF_INT),
     ]
 
 

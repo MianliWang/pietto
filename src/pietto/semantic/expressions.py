@@ -6,7 +6,7 @@ import bisect
 import dataclasses
 import functools
 import itertools
-from collections import Counter
+from collections import ChainMap, Counter
 from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ParamSpec, cast
@@ -329,18 +329,22 @@ class LetValues(dict[str, Expression]):
     identity, the diagnostics list it was typed into and where in it its
     diagnostics are, and ``checked`` each ``def`` argument as the argument
     around it reads it (`_Written`), or None for one checked as it stands
-    that reads a binding.
+    that reads a binding. Where typing has no row to read fields from (a
+    relation with JOIN inputs), ``field_types`` holds the type of each field
+    the values read, which a binding is written with (`_write_lets`).
     """
 
-    __slots__ = ("checked", "differs", "erroneous", "typed", "written")
+    __slots__ = ("checked", "differs", "erroneous", "field_types", "typed", "written")
 
     def __init__(
         self,
         values: Mapping[str, Expression] | None = None,
         erroneous: set[str] | None = None,
+        field_types: dict[Expression, ValueType] | None = None,
     ) -> None:
         super().__init__(values or {})
         self.erroneous: set[str] = set() if erroneous is None else erroneous
+        self.field_types = field_types
         self.written: dict[str, _Written | None] = {}
         self.differs = False
         self.typed: dict[int, tuple[list[Diagnostic], int, int]] = {}
@@ -585,13 +589,18 @@ def _write_lets(
     pending = list(
         itertools.takewhile(lambda name: name not in lets.written, reversed(lets))
     )
+    # The parts of a value are typed as where it is bound: by the row, or by
+    # the field types the values read where there is no row.
+    part_types = (
+        value_types
+        if lets.field_types is None
+        else ChainMap(cast(dict[Expression, ValueType], value_types), lets.field_types)
+    )
     for name in reversed(pending):
         lets.written[name] = None
         if name in lets.erroneous:
             continue
-        item = _written_form(
-            lets[name], lets, row_schema, value_types, None, root=False
-        )
+        item = _written_form(lets[name], lets, row_schema, part_types, None, root=False)
         if item is None:
             continue
         form, seeds, changed, null, size, levels = item

@@ -1269,3 +1269,54 @@ def test_an_enum_field_of_a_join_input_blocks_as_without_the_join(
             outside_domain(2),
             outside_domain(5),
         ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_window_value_of_an_enum_field_blocks_as_any_window_of_its_source(
+    tmp_path, target
+):
+    """`lag` of an enum field, and a later relation's `first_value` of that
+    column, are typed as the enum and blocked as a window over the source that
+    reads no enum field is: by the stage input and the enum field's source
+    port. Before, their project check crashed with a ValueError."""
+    window = "window:\n            order by:\n                id\n"
+    field = {"path": "main.pietto", "line": 7, "column": 5}
+    field |= {"end_line": 7, "end_column": 27}
+    blocked = [
+        (
+            "PIE-B1001",
+            {
+                "detail": "stage_input_not_bound",
+                "reference": {"kind": "stage_port", "position": 2},
+            },
+            None,
+        ),
+        (
+            "PIE-B1003",
+            {
+                "detail": "representation_not_in_initial_domain",
+                "reference": {"kind": "source_port", "position": 2},
+            },
+            field,
+        ),
+    ]
+    for name, body in (
+        ("integer", f"        p = lag(id) {window}"),
+        ("enum", f"        p = lag(state) {window}"),
+        (
+            "later",
+            f"        p = lag(state) {window}query result:\n    from navigated\n"
+            f"    select:\n        id\n        f = first_value(p) {window}",
+        ),
+    ):
+        relation = "table navigated" if name == "later" else "query result"
+        published = enum_field_document(
+            tmp_path / name,
+            target,
+            f"{relation}:\n    from lhs\n    select:\n        id\n{body}",
+            " not null",
+        )
+        assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
+        assert [
+            (b["code"], b["subject"], b["location"]) for b in published["blockers"]
+        ] == blocked

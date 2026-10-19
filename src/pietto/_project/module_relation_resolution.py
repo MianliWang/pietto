@@ -74,7 +74,10 @@ from pietto._project.module_resolution import (
     _suppressing_diagnostics_for_cycle,
     _suppressing_diagnostics_for_export_issues,
 )
-from pietto._project.row_expression_type_facts import reports_unfit_def_argument
+from pietto._project.row_expression_type_facts import (
+    project_row_schema_to_semantic_row_schema,
+    reports_unfit_def_argument,
+)
 from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
@@ -92,6 +95,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeExpr,
     WindowExpr,
+    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import contains_semantic_aggregate
@@ -2562,6 +2566,33 @@ def _resolved_row_type(
     )
 
 
+def _passes_unfit_field(
+    definition: TableDef | QueryDef,
+    source_schema: ProjectRowSchema,
+) -> bool:
+    """Whether a select item of ``definition`` passes its field to a ``def``
+    it does not fit (`reports_unfit_def_argument`), which is then no direct
+    field; the input row is converted once, and only for a relation that
+    passes a select item to a def."""
+
+    arguments = [
+        item.expression
+        for item in definition.select_items
+        if inlined_arguments(item.expression)
+    ]
+    if not arguments:
+        return False
+    row_schema = project_row_schema_to_semantic_row_schema(source_schema)
+    return any(
+        reports_unfit_def_argument(
+            argument,
+            row_schema,
+            relation_qualifier=definition.from_clause.source_name,
+        )
+        for argument in arguments
+    )
+
+
 def _relation_row_state(
     draft: _RelationResolutionDraft,
     occurrence: ProjectDeclarationOccurrence,
@@ -2603,14 +2634,9 @@ def _relation_row_state(
         or relation_definition.satisfying_clause is not None
         or any(
             type(item.expression) not in {NameExpr, DottedNameExpr}
-            # A field passed to a def it does not fit is no direct field.
-            or reports_unfit_def_argument(
-                item.expression,
-                source_schema,
-                relation_qualifier=relation_definition.from_clause.source_name,
-            )
             for item in relation_definition.select_items
         )
+        or _passes_unfit_field(relation_definition, source_schema)
     )
     output_names: set[str] = set()
     duplicate = False
