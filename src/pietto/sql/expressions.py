@@ -291,6 +291,8 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
             expression.operator,
             "unary",
         )
+        if expression.operator == "-":
+            _refuse_untyped_null_arithmetic(expression.operator, expression.operand)
         sql = f"{operator}{_render_expression_sql(expression.operand, nested=True)}"
     elif isinstance(expression, BinaryIR):
         operator = _supported_operator(
@@ -298,6 +300,10 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
             expression.operator,
             "binary",
         )
+        if expression.operator not in {"and", "or"}:
+            _refuse_untyped_null_arithmetic(
+                expression.operator, expression.left, expression.right
+            )
         sql = (
             f"{_render_expression_sql(expression.left, nested=True)} {operator} "
             f"{_render_expression_sql(expression.right, nested=True)}"
@@ -308,6 +314,17 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+def _refuse_untyped_null_arithmetic(operator: str, *operands: ExpressionIR) -> None:
+    """PostgreSQL types an arithmetic operator from its operands and finds no
+    operator when every one is an untyped NULL, as in `NULL + NULL` or
+    `-NULL`."""
+
+    if all(type(item) is LiteralIR and item.value is None for item in operands):
+        raise ValueError(
+            f"PostgreSQL cannot type operator {operator} when every operand is NULL"
+        )
 
 
 def render_window_call_sql(
@@ -402,9 +419,18 @@ def render_window_call_sql(
         raise ValueError(
             f"PostgreSQL {name} integer argument is outside signed int32 range"
         )
-    argument_sql = ", ".join(
-        _render_expression_sql(argument, nested=True) for argument in arguments
-    )
+    rendered = [_render_expression_sql(argument, nested=True) for argument in arguments]
+    value = next(iter(arguments), None)
+    if (
+        name in {"lag", "lead", "first_value", "last_value", "nth_value"}
+        and len(arguments) < 3
+        and type(value) is LiteralIR
+        and type(value.value) is str
+    ):
+        # Without a default, PostgreSQL types the value from itself alone and
+        # cannot type a string literal there.
+        rendered[0] = f"CAST({rendered[0]} AS text)"
+    argument_sql = ", ".join(rendered)
     if over_sql is None:
         components = render_window_components_sql(
             partition_by,

@@ -2162,6 +2162,55 @@ def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
     ]
 
 
+def test_an_aggregate_argument_part_that_does_not_fit_its_def_is_unknown(
+    tmp_path: Path,
+) -> None:
+    """A def argument that does not fit and is only a part of an aggregate's
+    argument is unknown to the aggregate as a whole one is, as in a single
+    file: PIE-S2395 alone where the aggregate accepts the argument's form
+    (`count(nn(event.metric) + 1)`; before: PIE-S2315 too), and both where it
+    accepts the form for no argument type (`max(nn(event.metric) + 1)`)."""
+    header = PROJECT_SOURCE.split("query absent_stage:")[0]
+    joined = (
+        "    from accounts\n    inner join events as event:\n"
+        "        from accounts\n        on event.account_id == accounts.id\n"
+    )
+    grouped = "    group by: accounts.id\n    select:\n        key = accounts.id\n"
+    queries = (
+        f"query part:\n{joined}{grouped}        c = count(nn(event.metric) + 1)\n"
+        f"query extremum:\n{joined}{grouped}        m = max(nn(event.metric) + 1)\n"
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        header + "def nn(x: Int not null) -> Int not null: return x\n" + queries,
+        encoding="utf-8",
+    )
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    offset = header.count("\n") + 1
+    mismatch = (
+        "Invalid argument for def nn at position 1 (x): "
+        "expected Int not null, got Int nullable"
+    )
+    assert [
+        (d.code, d.message, d.location.line - offset, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        ("PIE-S2395", mismatch, 9, 19),
+        ("PIE-S2395", mismatch, 18, 17),
+        (
+            "PIE-S2315",
+            "Aggregate function max requires a direct field argument; "
+            "expression arguments are not supported yet",
+            18,
+            13,
+        ),
+    ]
+
+
 _JOINED_STAGE_SOURCE = """shape Point:
     code: Text not null
 shape T:

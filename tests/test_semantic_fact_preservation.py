@@ -3487,6 +3487,67 @@ def test_a_window_value_of_an_enum_field_is_a_column_of_that_enum(
         ] * len(outputs)
 
 
+def test_a_lag_or_lead_of_an_enum_completes_where_its_relation_is_read(
+    tmp_path: Path,
+) -> None:
+    """`lag` and `lead` of an enum field give that enum with its declaration,
+    as `first_value` does, so a relation that selects one completes under
+    `select distinct`, as the input of a JOIN, a union or `exists`, with JOIN
+    inputs of its own (whose row has two fields of the enum) and with QUALIFY.
+    Before, the result named the enum without its declaration, and each of
+    these crashed `check --project` and `emit-sql --project` with a
+    ValueError (`DISTINCT computed field cannot substitute its type
+    evidence.`)."""
+    window = "window:\n            order by:\n                id\n"
+    text = (
+        "enum Status:\n    active\n    gone\n"
+        "shape Row:\n    id: Int not null\n    status: Status not null\n"
+        "    maybe: Status nullable\n    unique row_key on id\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table navigated:\n    from rows\n    select:\n        id\n"
+        f"        previous = lag(status) {window}"
+        f"        following = lead(maybe) {window}"
+        "query joined:\n    from navigated\n    inner join rows as r:\n"
+        "        from navigated\n        on r.id == navigated.id\n"
+        "    select:\n        id = navigated.id\n        previous = navigated.previous\n"
+        "query distinct_lag:\n    from rows\n    select distinct:\n        id\n"
+        f"        previous = lag(status) {window}"
+        "table joined_window:\n    from rows\n    left join rows as r:\n"
+        "        from rows\n        on r.id == rows.id\n    select:\n"
+        "        id = rows.id\n        previous = lag(r.status) window:\n"
+        "            order by:\n                rows.id\n"
+        "query unioned:\n    union all:\n        from joined_window\n"
+        "        from joined_window\n"
+        "query existing:\n    from rows\n    where exists joined_window\n"
+        "    select:\n        id\n"
+        "query semi_reader:\n    from joined_window\n    semi join rows as r:\n"
+        "        from joined_window\n        on r.id == joined_window.id\n"
+        "    select:\n        id\n"
+        "table qualified:\n    from rows\n    select:\n        id\n"
+        f"        previous = lag(status) {window}"
+        "    qualify:\n        previous is not null\n"
+        "query unioned_qualified:\n    union all:\n        from qualified\n"
+        "        from qualified\n"
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+
+    assert build_project_completed_semantic_result(semantic).diagnostics == ()
+    for name, outputs in (
+        ("navigated", ("previous", "following")),
+        ("distinct_lag", ("previous",)),
+    ):
+        state = _relation(semantic, "main.pietto", name).state
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.schema is not None
+        assert [
+            (field.resolved_type.name, field.resolved_type.kind, field.result_role)
+            for output_name, field in state.schema.fields.items()
+            if output_name in outputs
+        ] == [
+            ("Status", ProjectResolvedTypeKind.ENUM, ProjectRowResultRole.WINDOW_RESULT)
+        ] * len(outputs)
+
+
 def test_a_window_result_that_no_project_column_carries_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

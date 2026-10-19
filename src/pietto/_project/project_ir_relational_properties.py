@@ -827,19 +827,23 @@ def build_project_ir_relational_property_stage(
             factors = (*incoming.grain.factors, *origin.basis.universe.factors)
             if context.group_keys:
                 active = tuple(item.identity for item in origin.basis.universe.factors)
-                dependencies.append(
-                    ProjectGrainDependencyFact(
-                        determinants=incoming.grain.active,
-                        dependents=active,
+                # An input with no active grain factors, such as one global
+                # aggregate row, gives no dependency either way, as in
+                # `resolved_grouped_relational_properties`.
+                if incoming.grain.active:
+                    dependencies.append(
+                        ProjectGrainDependencyFact(
+                            determinants=incoming.grain.active,
+                            dependents=active,
+                        )
                     )
-                )
                 group_fields = tuple(
                     target
                     for fact in context.semantic_facts.clause_dependencies
                     if fact.role.value == "group_key"
                     for target in fact.target_fields
                 )
-                if any(
+                if incoming.grain.active and any(
                     key.strength is ProjectRowUniquenessStrength.STRICT
                     and all(
                         any(

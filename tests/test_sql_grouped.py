@@ -96,6 +96,43 @@ def test_a_grouped_aggregation_binds_group_by_to_its_input_column(tmp_path, targ
     public(outcome)
 
 
+GROUPED_OVER_GLOBAL_SQL = {
+    "postgres": 'WITH "p0" ("c0") AS (SELECT COUNT(*) AS "c0" FROM "public".'
+    '"phase66 agg é" AS "s0"), "p1" ("c0") AS (SELECT "t1"."c0" AS "c0" FROM '
+    '"p0" AS "t1"), "p2" ("c0", "c1") AS (SELECT "s1"."c0" AS "c0", COUNT(*) '
+    'AS "c1" FROM "p1" AS "s1" GROUP BY "s1"."c0") SELECT "t3"."c0" AS "c", '
+    '"t3"."c1" AS "k" FROM "p2" AS "t3"',
+    "mysql": "WITH `p0` (`c0`) AS (SELECT COUNT(*) AS `c0` FROM `phase66`."
+    "`phase66 agg é` AS `s0`), `p1` (`c0`) AS (SELECT `t1`.`c0` AS `c0` FROM "
+    "`p0` AS `t1`), `p2` (`c0`, `c1`) AS (SELECT `s1`.`c0` AS `c0`, COUNT(*) "
+    "AS `c1` FROM `p1` AS `s1` GROUP BY `s1`.`c0`) SELECT `t3`.`c0` AS `c`, "
+    "`t3`.`c1` AS `k` FROM `p2` AS `t3`",
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_grouped_aggregation_over_a_global_table_groups_its_one_row(tmp_path, target):
+    """GROUP BY over a table that is one global aggregate row groups that row.
+    Before, its input's empty grain made a dependency with no determinants, and
+    `check --project` and `emit-sql --project` of either relation raised a
+    TypeError."""
+    outcome = emit_source(
+        tmp_path,
+        target,
+        "table totals:\n    from agg\n    select:\n        c = count()\n"
+        "query result:\n    from totals\n    group by: c\n    select:\n"
+        "        c\n        k = count()\n",
+    )
+    data = document(outcome)
+    assert data["status"] == "VERIFIED"
+    assert data["sql"] == GROUPED_OVER_GLOBAL_SQL[target]
+    assert [(item["label"], item["nullable"]) for item in data["columns"]] == [
+        ("c", False),
+        ("k", False),
+    ]
+    public(outcome)
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_constant_valued_determinant_groups_by_its_established_value(
     tmp_path, target

@@ -151,6 +151,19 @@ remains an alpha; the CLI does not execute database queries.
     contract is read, before it is assessed and realized, beside no other
     blocker than a premise conflict: a 300-binding chain is refused in
     seconds instead of about a minute.
+  - A GROUP BY over a table or query that is one global aggregate row, such
+    as a table that selects only `c = count()`, passes `check --project` and
+    emits, where 0.1.3 crashed with a TypeError traceback in `check --project`
+    and in `emit-sql --project` of either relation.
+  - A SEMI or ANTI JOIN over some inputs, such as a table that selects the
+    fields of a source with a unique key in another order than the source
+    declares them, emits, where 0.1.3 reported every table and query of the
+    project INPUT_REJECTED `Project planning roots are unavailable.` (exit
+    `2`) although `check --project` passed.
+- LEGACY_FLAT projects (`schema_version = 1`): a table or query whose `from`
+  reads a set operation reports PIE-S2334 at that `from`, as a single file
+  does, where 0.1.3 stopped `check --project` with an internal
+  AssertionError.
 - Programs that 0.1.3 accepted and 0.1.4 refuses:
   - a file whose first code line is indented (PIE-P1000);
   - a comparison with the null literal, or with a `let:` name bound to it,
@@ -211,6 +224,22 @@ remains an alpha; the CLI does not execute database queries.
   - PostgreSQL emission of an identifier longer than 63 bytes, which
     PostgreSQL would truncate, and of a window integer argument outside int32
     (PIE-B1000);
+  - single-file PostgreSQL emission of an arithmetic whose every operand is
+    `null`, such as `null + null`, `-null` or `coalesce(-null, n)`, which
+    PostgreSQL cannot type, and of a table or query that another relation of
+    the file reads when one of its outputs is `null` itself, such as
+    `v = null` or a `let:` name bound to `null`, which PostgreSQL gives the
+    reader as a `text` column (PIE-B1000); MySQL emission is unchanged;
+  - a `between` with one null bound, which is now a `Bool` whose other bound
+    is checked against the value: `n between null and "z"` with an `Int`
+    field and a conditional such as `n if flag else n between null and 1`
+    are PIE-S2105, where 0.1.3 passed `check` and emitted SQL that
+    PostgreSQL rejects;
+  - an operand of `+`, `-`, `*`, `/` or `%` that the operator does not take
+    beside a `null` operand, also a `let:` name bound to one, such as
+    `label + null` for a `Text` field, `lower(label) - null` or `0.5 % null`
+    (PIE-S2105), as `label + label` and `0.5 % 0.5` are, where 0.1.3 emitted
+    SQL that PostgreSQL rejects for a `Text` operand;
   - a `let:` value, or an expression that reads a `let:` name, that is
     ill-typed once the name has the type of its value written in its place:
     a name whose value is `null` takes its type from where it is read, as
@@ -244,6 +273,10 @@ remains an alpha; the CLI does not execute database queries.
   - Single-file `avg` of an `Int` emits `AVG(CAST(x AS double precision))` on
     PostgreSQL and `AVG(CAST(x AS DOUBLE))` on MySQL, as project SQL does.
   - PostgreSQL `sign(x)` of an `Int` emits `CAST(sign(x) AS bigint)`.
+  - Single-file PostgreSQL `lag`, `lead`, `first_value`, `last_value` and
+    `nth_value` of a string literal without a `lag`/`lead` default write the
+    literal as `CAST('b' AS text)`, where 0.1.3 wrote `LAG('b')`, which
+    PostgreSQL rejects; MySQL bytes are unchanged.
   - An ORDER BY input field that has the same name as a different output alias
     is qualified with its FROM item's reference name.
 - Single-file `explain` reports the type an output has when it is computed
@@ -291,12 +324,19 @@ Compiler:
   emission with PIE-B1000 instead of an internal error.
 - In a grouped query, `first_value`, `last_value` and `nth_value` over an
   aggregate output emit SQL instead of crashing.
+- In single files, a `lag` or `lead` result of an enum keeps the enum's
+  declaration, as a `first_value` result does, so a later relation may
+  combine the column with a field of that enum, as in
+  `coalesce(previous, status)`, which 0.1.3 refused with PIE-S2104 (and a
+  conditional with PIE-S2105).
 - Projects: a project relation may read a declaration written later in its
   module; a relationship JOIN over an input completed in the same run, such
-  as a named `select distinct` query, emits instead of INPUT_REJECTED;
+  as a named `select distinct` query, and a SEMI or ANTI JOIN over a table
+  that reorders a keyed source's fields emit instead of INPUT_REJECTED;
   repeated `on` operands, a VIA through a grouped endpoint, an unknown grain, a
   grouped query listing a window before an aggregate, a JOIN over a source
-  with enum or shape fields and an ORDER BY of an enum group key no longer
+  with enum or shape fields, an ORDER BY of an enum group key, a GROUP BY over
+  a global aggregate and a LEGACY_FLAT read of a set operation no longer
   crash; deeply nested project expressions are PIE-S2006 instead of a
   RecursionError traceback, and a configuration or package manifest nested
   too deeply is a `project_resource` error; a `let:` binding read in a
@@ -358,12 +398,13 @@ CLI:
   PIE-S2333 at the table or query, where a single file passes or reports
   another code: without JOIN inputs, an aggregate of an enum field
   (PIE-S2314 in a single file and after a JOIN), a selected `let:` name
-  bound to an enum value and another output of enum type that is not a
-  field, such as `coalesce(new_status, status)`; with or without them, an
-  output such as `status in ("active", null)`. A project check does not type
-  the ungrouped `order by` of a relation without JOIN inputs that is not
-  `select distinct`, so `order by: lower(status)` passes `check --project`
-  there.
+  bound to an enum value and a computed output of enum type other than a
+  window value, such as `coalesce(new_status, status)`; with or without them,
+  an output such as `status in ("active", null)`, and a window value function
+  over an enum field of a row that also has a field of another module's enum
+  of the same name. A project check does not type the ungrouped `order by` of
+  a relation without JOIN inputs that is not `select distinct`, so
+  `order by: lower(status)` passes `check --project` there.
 - In an explicit-module project, a relation without JOIN inputs reports no
   error of its SELECT items when it is `select distinct`, nor of an aggregate
   argument that a project refuses (PIE-S2314 or PIE-S2315 in a single file,
@@ -394,7 +435,7 @@ CLI:
 - A `def` argument of unknown type is not checked against its parameter.
   Inside a built-in call, `coalesce`, conditional or `in` list only `null`
   itself takes a type from where it stands, and `null` takes none inside
-  `and`/`or`, as a `between` bound or in a built-in whose parameter admits
+  `and`/`or` or in a built-in whose parameter admits
   more than one type (`year`, `month`, `day`, `sign`), so the arguments
   `null and true`, `year(null)` and `coalesce(-null, n)` pass a `not null`
   parameter unchecked, written by hand or through a `let:` name.

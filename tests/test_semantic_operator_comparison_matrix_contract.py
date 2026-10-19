@@ -178,13 +178,50 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
             ),
         )
 
+    # One null bound may be FALSE: the test is a Bool the other bound decides.
     value, diagnostics = expression_facts("amount between null and 5")
-    assert value.kind is ValueTypeKind.UNKNOWN
+    assert value.resolved_type.name == "Bool"
+    assert value.nullability is EffectiveNullability.UNKNOWN
     assert diagnostics == ()
     value, diagnostics = expression_facts("created_at is null")
     assert value.resolved_type.name == "Bool"
     assert value.nullability is EffectiveNullability.NON_NULL
     assert diagnostics == ()
+
+
+def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None:
+    """A null operand of `+`, `-`, `*`, `/` or `%` takes the other operand's
+    type, which the operator must take, and the expression stays of unknown
+    type. Before, a null operand switched the operand check off, so
+    `status + null` passed and emitted SQL that PostgreSQL rejects."""
+    for expression in (
+        "amount + null",
+        "null - score",
+        "price * null",
+        "amount % null",
+        "null / price",
+        "null + null",
+        "-null",
+    ):
+        value, diagnostics = expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == (), expression
+
+    for expression, operator, expected in (
+        ("status + null", "+", "numeric operands"),
+        ("null - active", "-", "numeric operands"),
+        ("order_date * null", "*", "numeric operands"),
+        ("score % null", "%", "Int operands"),
+        ("null / status", "/", "numeric operands"),
+    ):
+        value, diagnostics = expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == (
+            (
+                "PIE-S2105",
+                f"Invalid operands for operator {operator}: expected {expected}",
+            ),
+        ), expression
 
 
 def test_membership_mixes_decimal_with_int_as_its_comparisons_do() -> None:

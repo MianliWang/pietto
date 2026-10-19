@@ -25,11 +25,12 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     accepts_argument_form,
     aggregate_alias_required_diagnostic,
+    aggregate_argument_can_use_let_scope,
+    child_expressions,
     contains_semantic_aggregate,
     deferred_argument_expression_diagnostic,
     deferred_composition_diagnostic,
     effective_semantic_aggregate_argument_expression,
-    has_unknown_field_reference,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
@@ -169,6 +170,8 @@ def project_grouped_schema(
         if contains_semantic_aggregate(item.expression):
             aggregate_field, aggregate_diagnostics, valid = _aggregate_output_field(
                 item,
+                definition=definition,
+                input_schema=input_schema,
                 output_name=output_name,
                 expression_value_types=expression_value_types,
                 let_expansions=let_expansions,
@@ -357,6 +360,8 @@ def _resolve_input_field(
 def _aggregate_output_field(
     item: SelectItem,
     *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
     output_name: str | None,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
@@ -395,36 +400,21 @@ def _aggregate_output_field(
     argument_type = None
     if expression.arguments:
         argument = expression.arguments[0]
-        effective_argument = effective_semantic_aggregate_argument_expression(
-            function_name,
-            argument,
-            let_expansions=let_expansions,
-        )
-        has_unknown_reference = has_unknown_field_reference(
-            effective_argument,
-            expression_value_types,
-        ) or (
-            unfit_argument(
-                function_name,
-                argument,
-                let_expansions,
-                expression_value_types,
-                type_expansions,
-            )
-            # In a form the aggregate accepts for no argument type, it is also
-            # PIE-S2315, which no argument type would avoid.
-            and accepts_argument_form(
-                function_name, argument, let_expansions=let_expansions
-            )
-        )
-
         authored_type = (
             None
             if expression_value_types is None
             else expression_value_types.get(argument)
         )
         if authored_type is None or authored_type.kind is ValueTypeKind.UNKNOWN:
-            if not has_unknown_reference:
+            if not unknown_to_aggregate(
+                function_name,
+                argument,
+                definition=definition,
+                input_schema=input_schema,
+                let_expansions=let_expansions,
+                value_types=expression_value_types,
+                type_expansions=type_expansions,
+            ):
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
             return _unknown_row_field(item.alias), diagnostics, False
         # An aggregate reads a type alias argument as the type it expands to.
@@ -634,6 +624,91 @@ def passes_unfit_field(
         return False
     value_type = value_types.get(expression)
     return value_type is not None and value_type.kind is ValueTypeKind.UNKNOWN
+
+
+def unknown_to_aggregate(
+    function_name: str,
+    argument: Expression,
+    *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+    value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool:
+    """Whether the aggregate ``function_name`` adds no PIE-S2315 for its
+    ``argument`` of unknown type: the argument reads a field of unknown type,
+    or a ``def`` argument in it that does not fit its parameter, at any depth
+    or in the value of a `let:` name it reads, is unknown because of its own
+    PIE-S2395 and the aggregate accepts the argument's form for some argument
+    type. A part that is unknown only because of such a ``def`` argument is no
+    field of unknown type. The aggregate reads a `let:` name only as its whole
+    argument, and then the names that name's value reads."""
+
+    if value_types is None:
+        return False
+    lets = (
+        let_expansions
+        if let_expansions is not None
+        and aggregate_argument_can_use_let_scope(
+            function_name, argument, let_expansions
+        )
+        else {}
+    )
+
+    def unfit(node: Expression) -> bool:
+        if not inlined_arguments(node):
+            return False
+        if isinstance(node, DottedNameExpr) or (
+            isinstance(node, NameExpr) and node.name not in lets
+        ):
+            field = _resolve_input_field(definition, node, input_schema)
+            return field is not None and passes_unfit_field(node, field, value_types)
+        return unfit_argument(
+            function_name, node, let_expansions, value_types, type_expansions
+        )
+
+    def holds_unfit(root: Expression) -> bool:
+        reached: set[str] = set()
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if unfit(node):
+                return True
+            if isinstance(node, NameExpr) and node.name in lets:
+                if node.name not in reached:
+                    reached.add(node.name)
+                    pending.append(lets[node.name])
+            else:
+                pending.extend(child_expressions(node))
+        return False
+
+    pending = [
+        effective_semantic_aggregate_argument_expression(
+            function_name, argument, let_expansions=let_expansions
+        )
+    ]
+    while pending:
+        node = pending.pop()
+        if not isinstance(node, (NameExpr, DottedNameExpr)):
+            pending.extend(child_expressions(node))
+            continue
+        value_type = value_types.get(node)
+        if (
+            (value_type is None or value_type.kind is ValueTypeKind.UNKNOWN)
+            and not unfit(node)
+            and not (
+                isinstance(node, NameExpr)
+                and node.name in lets
+                and holds_unfit(lets[node.name])
+            )
+        ):
+            return True
+    # In a form the aggregate accepts for no argument type, it is also
+    # PIE-S2315, which no argument type would avoid.
+    return holds_unfit(argument) and accepts_argument_form(
+        function_name, argument, let_expansions=let_expansions
+    )
 
 
 def _unknown_named_field(output_name: str | None) -> RowField | None:

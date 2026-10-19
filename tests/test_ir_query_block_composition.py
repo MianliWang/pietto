@@ -1399,3 +1399,76 @@ def test_a_grouped_input_two_join_hops_back_keeps_its_exact_image(
     assert tuple(issue.kind for issue in invalid.issues) == (
         ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE,
     )
+
+
+# SEMI and ANTI JOINs over a projection that reorders the fields of a keyed
+# source: the projection keeps its key FD once per dependent order.
+MEMBERSHIP_OVER_REORDERED_SOURCE = """shape Row:
+    id: Int not null
+    flag: Bool nullable
+    amount: Int not null
+    unique row_key on id
+source s: Row is postgres.table("s")
+table picked:
+    from s
+    select:
+        id
+        amount_copy = amount
+        flag_copy = flag
+query semi_reader:
+    from picked
+    semi join s as other:
+        from picked
+        on picked.amount_copy == other.id
+    select:
+        n = count()
+query anti_reader:
+    from picked
+    anti join s as other:
+        from picked
+        on picked.amount_copy == other.id
+    select:
+        id = picked.id
+"""
+
+
+def _fd_signatures(properties: Any) -> list[tuple[tuple[int, ...], ...]]:
+    positions = {
+        item: position for position, item in enumerate(properties.value_classes)
+    }
+    return [
+        (
+            tuple(positions[item] for item in fd.determinants),
+            tuple(positions[item] for item in fd.dependents),
+            fd.strength,
+        )
+        for fd in properties.fds
+    ]
+
+
+def test_a_membership_join_merges_the_fds_its_left_input_repeats(
+    tmp_path: Path,
+) -> None:
+    """A SEMI or ANTI JOIN output keeps one FD where its left input has one
+    in two dependent orders, as every other JOIN and the composed image of a
+    JOIN do, so the snapshot verifies. Before, the JOIN kept both, its
+    composed image one, and the JOIN_REUSE issue made `emit-sql --project`
+    reject every relation of the project as `Project planning roots are
+    unavailable.`"""
+    snapshot = _snapshot(tmp_path, MEMBERSHIP_OVER_REORDERED_SOURCE)
+    strict = ProjectRowUniquenessStrength.STRICT
+    picked = _owned(snapshot, "picked").active_properties.relational
+    assert _fd_signatures(picked) == [((0,), (2, 1), strict), ((0,), (1, 2), strict)]
+    result = verify_project_query_block_ir(snapshot)
+    assert result.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
+    assert result.issues == ()
+    build_project_query_block_ir_analysis_bundle(result)
+    for name in ("semi_reader", "anti_reader"):
+        entry = _named(snapshot, name)
+        assert entry.join_prefix is not None
+        (joined,) = entry.join_prefix.joins
+        assert (
+            _fd_signatures(joined.source_properties)
+            == _fd_signatures(entry.join_properties[0].relational)
+            == [((0,), (1, 2), strict)]
+        )

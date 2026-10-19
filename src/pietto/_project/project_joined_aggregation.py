@@ -68,7 +68,6 @@ from pietto.ast_nodes import (
     SelectItem,
     TableDef,
     WindowExpr,
-    inlined_arguments,
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic import group_by as semantic_group_by
@@ -942,15 +941,15 @@ def _unfit_argument_alone(
     analysis: ProjectNonConcreteJoinedNamespaceExpression,
     let_expansions: Mapping[str, Expression],
 ) -> bool:
-    """Whether ``argument`` is unknown here only because it does not fit its
-    ``def`` (PIE-S2395), as in a single file, in a form the aggregate accepts
-    for some argument type: its PIE-S2395 is then its one error. A form it
-    accepts for no type, or one that reads a `let:` name other than as the
-    whole argument, is also PIE-S2315, which no argument type would avoid."""
+    """Whether ``argument`` is unknown here only because a ``def`` argument in
+    it, at any depth, does not fit its parameter (PIE-S2395), as in a single
+    file, in a form the aggregate accepts for some argument type: its
+    PIE-S2395 is then its one error. A form it accepts for no type, or one
+    that reads a `let:` name other than as the whole argument, is also
+    PIE-S2315, which no argument type would avoid."""
 
     return (
-        bool(inlined_arguments(argument))
-        and {
+        {
             diagnostic.code
             for diagnostic in analysis.diagnostics
             if diagnostic.severity is Severity.ERROR

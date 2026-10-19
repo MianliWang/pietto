@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
-from pietto._flat_relational_admission import syntax_diagnostics
+from pietto._flat_relational_admission import (
+    _EXPLICIT_MODULES,
+    availability_diagnostic,
+    syntax_diagnostics,
+)
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -1896,6 +1900,17 @@ def _build_project_relation_namespace_facts(
             symbol = catalog.relation_symbols.get(from_clause.source_name)
             if symbol is None:
                 diagnostics.append(_unknown_project_relation_diagnostic(from_clause))
+                continue
+            if type(symbol.definition) is SetRelationDef:
+                # As in a single file: a set operation, refused itself, is no
+                # input either.
+                diagnostics.append(
+                    availability_diagnostic(
+                        from_clause.span,
+                        "Set-operation inputs are available only when "
+                        f"{_EXPLICIT_MODULES} completes them: {symbol.name}",
+                    )
+                )
                 continue
             relation_resolutions[from_clause] = symbol
 

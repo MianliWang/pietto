@@ -12,6 +12,8 @@ from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectConfigPath,
     ProjectParseCheckResult,
+    ProjectRelationRowSchemaReason,
+    ProjectRelationRowSchemaStatus,
     ProjectRoot,
     ProjectSemanticCatalog,
     ProjectSemanticModel,
@@ -124,6 +126,41 @@ def test_missing_relation_targets_emit_project_relative_diagnostics(
         "missing_relations.pietto",
         "missing_relations.pietto",
     ]
+
+
+def test_a_set_operation_input_is_refused_as_in_a_single_file(tmp_path: Path) -> None:
+    """A relation that reads a set operation reports that such an input is
+    available only in EXPLICIT_MODULES projects, as a single file does, and
+    its input stays unresolved. Before, `check --project` raised an
+    AssertionError (`Every project relation requires one terminal bundle`)."""
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "set_input.pietto",
+        'shape U:\n    id: Int not null\nsource us: U is postgres.table("us")\n'
+        "table a1:\n    from us\n    select:\n        id\n"
+        "query q:\n    union distinct:\n        from a1\n        from a1\n"
+        "query q2:\n    from q\n    select:\n        id\n",
+    )
+
+    parse_result, semantic_result = _project_semantic_result(root)
+
+    available = "available only when an EXPLICIT_MODULES project (schema version 2)"
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in semantic_result.diagnostics
+    ] == [
+        ("PIE-S2334", f"Set-operation inputs are {available} completes them: q", 13, 5),
+        ("PIE-S2334", f"Set operations are {available} completes them.", 9, 5),
+    ]
+    assert semantic_result.model is not None
+    q2 = _derived_definition(parse_result, "q2")
+    assert q2.from_clause not in semantic_result.model.relation_resolutions
+    state = semantic_result.model.relation_row_schema_states[q2]
+    assert (state.status, state.reason) == (
+        ProjectRelationRowSchemaStatus.BLOCKED,
+        ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED,
+    )
 
 
 def test_duplicate_relation_symbols_short_circuit_relation_resolution(

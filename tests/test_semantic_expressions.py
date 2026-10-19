@@ -938,6 +938,9 @@ COMPARISON_WHERE_LINE = COMPARISON_SOURCE.count("\n") + 1
         ("token >= born", ">=", 11),
         ('email is null or count == "x"', "==", 28),
         ('count between 1 and "z"', "between", 11),
+        # One null bound leaves the other to check (before: not checked).
+        ('count between null and "z"', "between", 11),
+        ('count between "z" and null', "between", 11),
     ],
 )
 def test_comparison_operands_of_different_families_report_s2105(
@@ -1076,6 +1079,8 @@ def test_null_operands_that_can_be_false_or_match_are_not_refused(
         'coalesce(email, null) == "x"',
         'email is null or email == "x"',
         "count between 1 and 10",
+        "count between null and 10",
+        "count between 1 and null",
     ],
 )
 def test_comparable_or_unchecked_operands_keep_bool(predicate: str) -> None:
@@ -1088,6 +1093,35 @@ def test_comparable_or_unchecked_operands_keep_bool(predicate: str) -> None:
     assert result.diagnostics == ()
     assert value_type.resolved_type.name == "Bool"
     assert value_type.nullability is EffectiveNullability.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "count if active else count between null and 1",
+        "count if active else count between 0 and null",
+    ],
+)
+def test_a_between_with_one_null_bound_is_a_bool_where_it_is_used(
+    predicate: str,
+) -> None:
+    """A `between` with one null bound is a `Bool`, so a conditional with an
+    `Int` branch is refused. Before, it had no type and the WHERE passed, and
+    PostgreSQL rejected the emitted `CASE WHEN ... THEN "count" ELSE ...`."""
+    result = analyze(_parse(_comparison_source(predicate)))
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator conditional: expected same canonical "
+            "branch types",
+            COMPARISON_WHERE_LINE,
+            11,
+        )
+    ]
 
 
 @pytest.mark.parametrize(

@@ -111,6 +111,55 @@ def test_pipeline_emits_decimal_int_membership_as_written() -> None:
     assert result.diagnostics == ()
 
 
+def test_pipeline_refuses_null_arithmetic_and_read_null_outputs_on_postgresql() -> None:
+    """PostgreSQL types an arithmetic from its operands and finds no operator
+    when every one is an untyped NULL, and it makes an untyped NULL output a
+    `text` column, which a relation that reads it takes for its type. Before,
+    emission wrote `NULL + NULL`, `-NULL` and `NULL AS "c"` for a relation
+    that another relation reads. A NULL beside a typed operand, and a NULL
+    output no relation reads, emit as written."""
+    result = _compile_and_emit(
+        "shape Acct:\n"
+        "    n: Int nullable\n"
+        'source accts: Acct is postgres.table("accts")\n'
+        "table sums:\n    from accts\n    select:\n        a = null + null\n"
+        "table signs:\n    from accts\n    select:\n        b = coalesce(-null, n)\n"
+        "table nothing:\n    from accts\n    let:\n        k = null\n"
+        "    select:\n        c = null\n        d = k\n"
+        "query later:\n    from nothing\n    select:\n        c\n"
+        "query typed:\n    from accts\n    select:\n        e = n + null\n"
+        "        f = null\n",
+        path="null.pietto",
+    )
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "PostgreSQL SQL emission is not implemented for RelationIR: "
+            f"{name}. PostgreSQL {reason}",
+            line,
+            1,
+        )
+        for name, reason, line in (
+            ("sums", "cannot type operator + when every operand is NULL", 4),
+            ("signs", "cannot type operator - when every operand is NULL", 8),
+            (
+                "nothing",
+                "types a NULL output that another relation reads as text, "
+                "which Pietto leaves untyped",
+                12,
+            ),
+        )
+    ]
+    assert [artifact.sql for artifact in result.artifacts] == [
+        'SELECT\n    "c" AS "c"\nFROM "nothing"',
+        'SELECT\n    "n" + NULL AS "e",\n    NULL AS "f"\nFROM "accts"',
+    ]
+
+
 def test_pipeline_uses_escape_string_for_backslash_quote_payload() -> None:
     result = _compile_and_emit(
         "shape User:\n"

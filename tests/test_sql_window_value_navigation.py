@@ -606,6 +606,40 @@ def test_postgresql_refuses_window_counts_outside_int32(call: str) -> None:
     assert "2147483648" in mysql_sql.artifacts[0].sql
 
 
+@pytest.mark.parametrize(
+    ("call", "postgresql", "mysql"),
+    (
+        ('lag("b")', "LAG(CAST('b' AS text))", "LAG('b')"),
+        ('lead("b", 2)', "LEAD(CAST('b' AS text), 2)", "LEAD('b', 2)"),
+        ('first_value("b")', "FIRST_VALUE(CAST('b' AS text))", "FIRST_VALUE('b')"),
+        ('last_value("b")', "LAST_VALUE(CAST('b' AS text))", "LAST_VALUE('b')"),
+        ('nth_value("b", 2)', "NTH_VALUE(CAST('b' AS text), 2)", "NTH_VALUE('b', 2)"),
+        ('lag("b", 1, "c")', "LAG('b', 1, 'c')", "LAG('b', 1, 'c')"),
+        (
+            'lag(category, 1, "c")',
+            "LAG(\"category\", 1, 'c')",
+            "LAG(`category`, 1, 'c')",
+        ),
+    ),
+)
+def test_postgresql_casts_a_text_literal_value_that_nothing_else_types(
+    call: str, postgresql: str, mysql: str
+) -> None:
+    """Without a default, PostgreSQL types a value window function from its
+    value alone, and a string literal has no type of its own there: it is
+    written as `CAST('b' AS text)`. Before, PostgreSQL emission wrote
+    `LAG('b')`, which PostgreSQL rejects (`could not determine polymorphic
+    type`). A default types the call, and MySQL needs no cast."""
+    postgres_ir, _ = _compile(call)
+    mysql_ir, _ = _compile(call, connector="mysql.table")
+    postgres_sql = emit_postgres_sql(postgres_ir)
+    mysql_sql = emit_mysql_sql(mysql_ir)
+
+    assert postgres_sql.diagnostics == () and mysql_sql.diagnostics == ()
+    assert f"{postgresql} OVER" in postgres_sql.artifacts[0].sql
+    assert f"{mysql} OVER" in mysql_sql.artifacts[0].sql
+
+
 def test_let_bound_frame_offset_emits_its_inlined_literal() -> None:
     for connector, emitter, frame_sql in (
         (

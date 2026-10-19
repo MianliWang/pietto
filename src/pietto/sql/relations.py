@@ -51,6 +51,14 @@ def render_relation_sql(
     )
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
+    if any(
+        type(projection.expression) is LiteralIR and projection.expression.value is None
+        for projection in relation.projections
+    ) and any(other.source.target == relation.symbol for other in relations.values()):
+        raise ValueError(
+            "PostgreSQL types a NULL output that another relation reads as text, "
+            "which Pietto leaves untyped"
+        )
     if has_untyped_result_predicate(relation):
         raise ValueError("PostgreSQL result predicate requires a known Bool type")
     if relation.result_predicate is not None and not relation.group_keys:

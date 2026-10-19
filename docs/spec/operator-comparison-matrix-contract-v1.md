@@ -110,6 +110,15 @@ Text concatenation is not supported by Slice 7. `Text + Text` is not a string
 concatenation operator and must remain rejected under current numeric-operand
 rules.
 
+A binary arithmetic operand that is the null literal, or a `let:` name bound to
+it, takes the other operand's type for the rows above: `n + null` with an
+`Int` field records `ValueTypeKind.UNKNOWN` without a diagnostic, while
+`label + null` with a `Text` field reports `PIE-S2105` (`expected numeric
+operands`), as `label + label` does. With both operands null, or unary `-` of
+null, the expression records `ValueTypeKind.UNKNOWN` without a diagnostic, and
+single-file PostgreSQL emission refuses it with `PIE-B1000`, as PostgreSQL
+finds no operator for operands that are all an untyped NULL.
+
 Slice 7 recorded the Slice 6 Decimal boundaries. Later work accepted
 `Decimal * Decimal` and `Decimal` with `Int` under `+` and `-`, so the rows
 above are the current Decimal arithmetic: Decimal division stays deferred,
@@ -164,9 +173,11 @@ replaced it with an operand family check:
 - a value, or both bounds, that is the null literal or a `let:` name bound to
   it reports `PIE-S2105` (`comparison with null is never true`) and records
   `ValueTypeKind.UNKNOWN`, because both comparisons are then NULL; one null
-  bound is not refused, as the other comparison may be FALSE;
-- if any child value type is unknown, current semantic typing records
-  `ValueTypeKind.UNKNOWN`;
+  bound is not refused, as the other comparison may be FALSE, and is left out
+  of the two checks below, so `x between null and 1` records `Bool UNKNOWN`
+  and `x between null and "z"` with an `Int` value reports `PIE-S2105`;
+- if the value or a bound that is not such a null literal has an unknown
+  type, current semantic typing records `ValueTypeKind.UNKNOWN`;
 - a known bound from another family reports `PIE-S2105` for operator
   `between` and records `ValueTypeKind.UNKNOWN`;
 - otherwise it records `Bool UNKNOWN`.

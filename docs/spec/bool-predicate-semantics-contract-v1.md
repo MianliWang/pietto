@@ -67,7 +67,7 @@ Current expression typing records these Bool and predicate-producing facts:
 | Bool `and` / `or` | Requires known Bool operands; returns `Bool UNKNOWN` |
 | Bool `and` / `or` with known non-Bool operands | Reports existing `PIE-S2105` invalid-operator diagnostic and produces unknown value type |
 | Comparison expression | Types children and returns `Bool UNKNOWN` when children are known, except that known operands rejected by the comparison family check (see `operator-comparison-matrix-contract-v1.md`) report existing `PIE-S2105` and produce unknown value type |
-| `between` expression | Types children and returns `Bool UNKNOWN` when children are known, except that a known bound rejected by the comparison family check reports existing `PIE-S2105` and produces unknown value type |
+| `between` expression | Types children and returns `Bool UNKNOWN` when the value and every bound that is not the null literal (or a `let:` name bound to it) are known, also beside one null bound, except that a known bound rejected by the comparison family check reports existing `PIE-S2105` and produces unknown value type |
 | `is null` / `is not null` expression | Returns `Bool NON_NULL` |
 | Unknown or unsupported child value type | Produces unknown value type and relies on existing unknown or unsupported diagnostics |
 

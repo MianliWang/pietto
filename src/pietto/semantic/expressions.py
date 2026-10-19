@@ -694,6 +694,16 @@ def _write_lets(
         elif not changed and bare_value_types is not None and name in bare_value_types:
             value_type = bare_value_types[name]
         else:
+            # Without a row, a field below a part that is not kept whole, as
+            # in `not o.flag`, takes the type it has where it is bound.
+            field_types = lets.field_types or {}
+            nodes = [form] if field_types else []
+            while nodes:
+                node = nodes.pop()
+                if type(node) not in (NameExpr, DottedNameExpr):
+                    nodes.extend(_captured_field_children(node))
+                elif (field_type := field_types.get(node)) is not None:
+                    seeds.setdefault(node, field_type)
             value_type = _infer(
                 form,
                 row_schema,
@@ -2724,6 +2734,24 @@ def _binary_value_type(
         # Each operand is a condition, which an operand of unknown type
         # without an error of its own leaves to be checked.
         expected = "Bool operands"
+    elif (
+        expression.operator in {"+", "-", "*", "/", "%"}
+        and result.kind is ValueTypeKind.UNKNOWN
+        and expected is None
+    ):
+        # A null operand takes the other's type, which the operator must take.
+        for null, other_type in (
+            (expression.left, right_type),
+            (expression.right, left_type),
+        ):
+            if other_type.kind is ValueTypeKind.KNOWN and _reads_null_literal(
+                (null,), row_schema, bare_value_expressions
+            ):
+                canonical = _canonical_value_type(other_type, type_expansions)
+                _, expected = resolved_binary_value_type(
+                    expression.operator, canonical, canonical
+                )
+                break
     if expected is not None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -3000,9 +3028,17 @@ def _between_value_type(
     ):
         diagnostics.append(_null_comparison_diagnostic(expression, remedy=None))
         return _UNKNOWN_VALUE_TYPE
-    if any(child_type.kind is ValueTypeKind.UNKNOWN for child_type in child_types):
+    # A null bound leaves the test a Bool that the other bound decides.
+    known_types = (child_types[0],) + tuple(
+        bound_type
+        for bound, bound_type in zip(
+            (expression.lower, expression.upper), child_types[1:], strict=True
+        )
+        if not _reads_null_literal((bound,), row_schema, bare_value_expressions)
+    )
+    if any(child_type.kind is ValueTypeKind.UNKNOWN for child_type in known_types):
         return _UNKNOWN_VALUE_TYPE
-    for bound_type in child_types[1:]:
+    for bound_type in known_types[1:]:
         _, expected = resolved_comparison_value_type(
             child_types[0], bound_type, type_expansions
         )
@@ -3632,10 +3668,10 @@ def _call_argument_types(
                 let_expansions=bare_value_expressions,
             )
             or has_unknown_field_reference(argument, value_types)
-            # A def argument that does not fit is unknown to the aggregate,
-            # as such a field is, and its PIE-S2395 is its error.
-            or unfit_argument(
-                function_name, argument, None, value_types, type_expansions
+            # A def argument in it that does not fit is unknown to the
+            # aggregate, as such a field is, and its PIE-S2395 is its error.
+            or any(
+                diagnostic.code == "PIE-S2395" for diagnostic in temporary_diagnostics
             )
         ):
             diagnostics.extend(temporary_diagnostics)

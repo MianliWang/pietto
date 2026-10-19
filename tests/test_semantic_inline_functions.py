@@ -574,6 +574,44 @@ CALL_ERRORS = {
             )
         ],
     ),
+    # A def argument that is only a part of the aggregate's argument, or the
+    # value of a `let:` name the aggregate reads, is unknown to it alike: its
+    # PIE-S2395 is kept (before: `count(nn(n + 1) + 1)` was PIE-S2315 alone),
+    # and the aggregate adds PIE-S2315 only in a form it accepts for no
+    # argument type, as `min(n + 1)` and `count_distinct(n + 1)` (before:
+    # `min(nn(n) + 1)` was PIE-S2395 alone and `count(w)` PIE-S2315 too).
+    "unfit_aggregate_part": (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def inc(x: Int not null) -> Int nullable: return x + 1\n"
+        "table g:\n    from rows\n    let:\n        w = nn(n + 1)\n"
+        "    group by: id\n    select:\n        id\n"
+        "        c = count(nn(n + 1) + 1)\n        m = min(nn(n) + 1)\n"
+        "        v = count(w)\n        i = count(inc(n))\n"
+        "        d = count_distinct(inc(n))\n"
+        "table a:\n    from rows\n    select:\n        c = count(nn(n + 1) + 1)\n",
+        [
+            (
+                code,
+                BODY_LINE + line,
+                column,
+                f"Aggregate function {name} requires a direct field argument; "
+                "expression arguments are not supported yet"
+                if code == "PIE-S2315"
+                else f"Invalid argument for def {name} at position 1 (x): "
+                f"expected Int not null, got {actual}",
+            )
+            for code, line, column, name, actual in (
+                ("PIE-S2395", 5, 13, "nn", "Int of unknown nullability"),
+                ("PIE-S2395", 9, 19, "nn", "Int of unknown nullability"),
+                ("PIE-S2315", 10, 13, "min", ""),
+                ("PIE-S2395", 10, 17, "nn", "Int nullable"),
+                ("PIE-S2395", 12, 19, "inc", "Int nullable"),
+                ("PIE-S2315", 13, 13, "count_distinct", ""),
+                ("PIE-S2395", 13, 28, "inc", "Int nullable"),
+                ("PIE-S2395", 17, 19, "nn", "Int of unknown nullability"),
+            )
+        ],
+    ),
     "shape_check_and_field_derive": (
         "shape S:\n    a: Int nullable\n    b: Text nullable\n"
         "    c: Text not null derive up(b)\n    check k: pos(a)\n",

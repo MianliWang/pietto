@@ -214,7 +214,10 @@ operations, and PIE-S2345 to PIE-S2352 for relation lets, header parameters,
 VALUES bodies, relation reads, `capture` lines and table functions. Each of
 these messages says that the form is available in EXPLICIT_MODULES projects
 (schema version 2), except the DISTINCT one, which says that DISTINCT requires
-explicit-module semantics. An `inner` or `left` relationship traversal passes
+explicit-module semantics. A LEGACY_FLAT project check refuses them the same
+way, and there, as in a single file, a table or query whose `from` reads a set
+operation reports PIE-S2334 at that `from`.
+An `inner` or `left` relationship traversal passes
 single-file `check` only while its target, `from` binding and `via` steps
 resolve (PIE-S2301 at the JOIN for an unknown target; PIE-S2335 at the VIA step
 for an unknown relationship or role, and otherwise at the JOIN) and nothing
@@ -240,7 +243,12 @@ authored `qualify:` block and a relationship JOIN with PIE-I1000. `emit-sql
 --dialect X` then asks the X backend, which refuses with PIE-B1000 forms it
 does not support, for example `ignore nulls` and `from last` on both backends,
 GROUPS and EXCLUDE frames on MySQL, and a source whose connector is not
-`X.table`. Only `emit-sql --dialect X` shows that a file emits for X.
+`X.table`. PostgreSQL also refuses a table or query that another relation of
+the file reads when one of its outputs is `null` itself, such as `v = null`, a
+`let:` name bound to `null` or a `def` call that is `null` once written in, as
+PostgreSQL would give the reader a `text` column where Pietto has no type (a
+project refuses such an output at check with PIE-S2333). Only `emit-sql
+--dialect X` shows that a file emits for X.
 
 ## Types and shapes
 
@@ -572,14 +580,16 @@ reports PIE-S2395. With JOIN inputs a `let:` name bound to it and another
 output of enum type may be selected, and `count(c.status)` reports PIE-S2314.
 Without JOIN inputs a project does not complete every such read yet: an
 aggregate of an enum field (PIE-S2314 in a single file), a selected `let:` name
-bound to an enum value and another output of enum type that is not a field,
-such as `coalesce(new_status, status)` of two enum fields or a conditional
-between them, report PIE-S2333 at the table or query, and a project check does
-not type the ungrouped `order by` of a relation without JOIN inputs that is not
-`select distinct`, so `order by: lower(status)` passes `check --project` there.
-An output such as `status in ("active", null)` reports PIE-S2333 with or
-without JOIN inputs. A single file keeps an alias of an enum as the alias, so
-its messages name the alias and its window value functions refuse it
+bound to an enum value and a computed output of enum type other than a window
+value, such as `coalesce(new_status, status)` of two enum fields or a
+conditional between them, report PIE-S2333 at the table or query, and a project
+check does not type the ungrouped `order by` of a relation without JOIN inputs
+that is not `select distinct`, so `order by: lower(status)` passes
+`check --project` there. An output such as `status in ("active", null)` reports
+PIE-S2333 with or without JOIN inputs, and so does a window value function over
+an enum field of a row that also has a field of another enum of the same name,
+declared in another module. A single file keeps an alias of an enum as the
+alias, so its messages name the alias and its window value functions refuse it
 (PIE-S2104).
 
 A table, query or relation `let` that outputs a field typed by a shape, or by
@@ -1480,7 +1490,14 @@ not specified here. Division with a `Decimal` operand is not specified yet: it
 has no result type and emits a bare `/`, so each target applies its own
 numeric division. Semantic support is intentionally narrower
 than parsing for some type/operator pairs; rejected pairs use diagnostics
-rather than implicit conversions.
+rather than implicit conversions. A `null` operand of `+`, `-`, `*`, `/` or
+`%`, also a `let:` name bound to it, takes the other operand's type, which the
+operator must accept: `n + null` is accepted, while `label + null` with a
+`Text` field is PIE-S2105, as `label + label` is. PostgreSQL types no
+arithmetic whose every operand is `null`, so single-file PostgreSQL emission
+refuses `null + null` and `-null`, also as `coalesce(-null, n)` or as
+`twice(null)` with `def twice(x: Int nullable) -> Int nullable: return x + x`
+(PIE-B1000); MySQL emits them.
 
 Comparisons and `between` require operands from one family: numeric (`Int`,
 `Float`, `Decimal`), `Text`, `Bool`, temporal (`Date`, `Timestamp`), or
@@ -1519,7 +1536,10 @@ The same applies to a `between` whose value or both bounds are null and to an
 null bound (never true, but false when the other bound fails), an `in` list
 with a null among other options (it can still match), a comparison with an
 operand that may be NULL at run time, and calls such as `coalesce(x, null)`
-stay accepted. In an EXPLICIT_MODULES project the WHERE of a relation with a
+stay accepted. Such a `between` is still a `Bool` whose other bound must be
+comparable with the value: `n between null and "z"` is PIE-S2105, and
+`n if flag else n between null and 1` is PIE-S2105 for its branches of two
+types. In an EXPLICIT_MODULES project the WHERE of a relation with a
 `let:` binding of unknown type, such as `nothing = null`, or with an error in
 a binding is checked as well, as in a single file (a read of a binding with
 an error of its own is of unknown type), so `where x == nothing` is PIE-S2105
@@ -1747,14 +1767,17 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   body, reported once however many times the body uses the argument and
   only for the innermost call that does not fit: an argument that does not
   fit is unknown to every expression around it, also through a built-in call
-  such as `len`, and to an aggregate whose argument it is, which adds no
+  such as `len`, and to an aggregate whose argument it is or is part of, also
+  as the value of a `let:` name the aggregate reads, which adds no
   PIE-S2315 beside it when it accepts the argument's form for some argument
   type, as for a field of unknown type: `count(nn(n + 1))` is PIE-S2395
   alone, also through a `let:` name the aggregate reads, with `w = n + 1` or
-  `j = n` and `w = j + 1`. A form the aggregate accepts for no argument type
+  `j = n` and `w = j + 1`, and so are `count(nn(n + 1) + 1)` and `count(w)`
+  with `w = nn(n + 1)`. A form the aggregate accepts for no argument type
   is PIE-S2315 too: `count(nn(upper(text)))` is PIE-S2395 and PIE-S2315, as
   `count(upper(text))` is PIE-S2315, also through a `let:` name the
-  aggregate reads, with `w = upper(text)` or a constant such as `w = 1.5`.
+  aggregate reads, with `w = upper(text)` or a constant such as `w = 1.5`,
+  and `min(nn(n) + 1)` is both, as `min(n + 1)` is PIE-S2315.
   A null argument is no exception: `sum(nn(null))` is PIE-S2395 and
   PIE-S2315, as `nn(null)` outside an aggregate is PIE-S2395, and so is
   `sum(nn(k))` with `k = null`, while `count(nn(n + null))` is PIE-S2395
@@ -1784,7 +1807,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   own). An argument whose type is unknown for another reason is not checked
   either, as the same expression written
   by hand is not: a field of a source without a shape; `null` inside `and` or
-  `or`, as a `between` bound or as the argument of a built-in that admits
+  `or` or as the argument of a built-in that admits
   more than one type (`year`, `month`, `day`, `sign`), such as
   `null and true` or `year(null)`; or an always-null value other than `null`
   inside a built-in call, `coalesce`, conditional or `in` list, such as
@@ -2081,7 +2104,13 @@ windows included, single-file checks require each ROWS or GROUPS offset to be,
 once `let:` names are inlined, a nonnegative `Int` literal up to
 9223372036854775807, and refuse a literal `ntile` count, `lag`/`lead` offset or
 `nth_value` position above that value (PIE-S2104); PostgreSQL emission also
-requires those three to fit signed `int32` (PIE-B1000). Single-file `check`
+requires those three to fit signed `int32` (PIE-B1000). The result of `lag`,
+`lead`, `first_value`, `last_value` and `nth_value` has the type of its value,
+or of the `lag`/`lead` default when the value is `null`, an enum's included,
+so in a single file a later relation may combine the column with a field of
+that enum, as in `coalesce(previous, status)`. PostgreSQL types a string
+literal value, such as `lag("b")`, only from a default, so without one
+PostgreSQL emission writes it as `CAST('b' AS text)`. Single-file `check`
 does not analyze QUALIFY windows (see QUALIFY below). RANGE offsets retain
 unresolved Phase 64 type/arithmetic requirements. GROUPS uses canonical peer
 groups; EXCLUDE is a removal-only membership filter after base-frame clipping.

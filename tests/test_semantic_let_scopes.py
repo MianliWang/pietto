@@ -847,6 +847,56 @@ def test_a_joined_def_argument_reads_let_values_with_their_join_fields(
     ]
 
 
+def test_a_joined_def_argument_reads_join_fields_at_any_depth(
+    tmp_path: Path,
+) -> None:
+    """A JOIN field the value of a `let:` binding reads below a part that is
+    written as it is, as in `-o.oid`, `o.oid * 2`, `len(src.t)`, a condition
+    or an `in` test, types that value as without JOIN inputs: a def argument
+    that reads the binding fits its `Int nullable` parameter, and passed to a
+    `Text not null` parameter in a WHERE it is PIE-S2395. Before, such a value
+    had no type: the relations whose argument fits but the WHERE one were
+    PIE-S2333, and the unfit argument passed."""
+    lets = "    let:\n        a = src.id\n"
+    assert _joined_let_diagnostics(
+        tmp_path,
+        (
+            (
+                "negated",
+                f"{lets}        c = a + (-o.oid)\n    select:\n        x = inl(c)\n",
+            ),
+            (
+                "scaled",
+                f"{lets}        c = a + o.oid * 2\n        d = inl(c)\n"
+                "    select:\n        x = d\n",
+            ),
+            (
+                "called",
+                f"{lets}        c = a + len(src.t)\n    where inl(c) > 0\n"
+                "    select:\n        x = o.oid\n",
+            ),
+            (
+                "tested",
+                f"{lets}        c = a if not (o.oid in (1, 2)) else 0\n"
+                "    select:\n        x = inl(c)\n",
+            ),
+            (
+                "unfit",
+                f"{lets}        c = a + (-o.oid)\n    where tnn(c) is not null\n"
+                "    select:\n        x = o.oid\n",
+            ),
+        ),
+    ) == [
+        (
+            "PIE-S2395",
+            "Invalid argument for def tnn at position 1 (x): expected Text not "
+            "null, got Int of unknown nullability",
+            51,
+            11,
+        )
+    ]
+
+
 def test_a_joined_read_of_a_null_binding_is_typed_where_it_stands(
     tmp_path: Path,
 ) -> None:

@@ -762,20 +762,27 @@ def resolved_left_subset_properties(
         )
         for key in left.keys
     )
-    fds = tuple(
-        image
-        for fact in left.fds
-        if (
-            image := _image_fd(
-                fact,
-                images,
-                classes,
-                output=output,
-                strength=fact.strength,
-                support=witness,
+    # Two left FDs whose dependents differ only in order image to one FD,
+    # merged once as every other JOIN kernel and the composed image merge it.
+    fds = _key_fds(
+        output,
+        classes,
+        (),
+        tuple(
+            image
+            for fact in left.fds
+            if (
+                image := _image_fd(
+                    fact,
+                    images,
+                    classes,
+                    output=output,
+                    strength=fact.strength,
+                    support=witness,
+                )
             )
-        )
-        is not None
+            is not None
+        ),
     )
     grain, _ = _grain(
         join_identity=None,

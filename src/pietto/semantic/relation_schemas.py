@@ -21,13 +21,10 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
-    accepts_argument_form,
     aggregate_alias_required_diagnostic,
     contains_semantic_aggregate,
     deferred_composition_diagnostic,
     deferred_argument_expression_diagnostic,
-    effective_semantic_aggregate_argument_expression,
-    has_unknown_field_reference,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
@@ -42,9 +39,12 @@ from pietto.semantic.aggregates import (
 from pietto.semantic.expressions import (
     _canonical_value_type,
     rejected_let_names,
-    unfit_argument,
 )
-from pietto.semantic.group_by import passes_unfit_field, project_grouped_schema
+from pietto.semantic.group_by import (
+    passes_unfit_field,
+    project_grouped_schema,
+    unknown_to_aggregate,
+)
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
     CheckMode,
@@ -202,6 +202,7 @@ def _project_schema(
     named_items: list[tuple[SelectItem, str]] = []
     aggregate_diagnostics, invalid_aggregate_items = _aggregate_projection_diagnostics(
         definition,
+        input_schema=input_schema,
         expression_value_types=expression_value_types,
         let_expansions=let_expansions,
         type_expansions=type_expansions,
@@ -298,6 +299,7 @@ def _let_expansions_for_definition(
 def _aggregate_projection_diagnostics(
     definition: DerivedRelation,
     *,
+    input_schema: RowSchema,
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
@@ -346,35 +348,21 @@ def _aggregate_projection_diagnostics(
 
         if expression.arguments:
             argument = expression.arguments[0]
-            effective_argument = effective_semantic_aggregate_argument_expression(
-                function_name,
-                argument,
-                let_expansions=let_expansions,
-            )
-            has_unknown_reference = has_unknown_field_reference(
-                effective_argument,
-                expression_value_types,
-            ) or (
-                unfit_argument(
-                    function_name,
-                    argument,
-                    let_expansions,
-                    expression_value_types,
-                    type_expansions,
-                )
-                # In a form the aggregate accepts for no argument type, it
-                # is also PIE-S2315, which no argument type would avoid.
-                and accepts_argument_form(
-                    function_name, argument, let_expansions=let_expansions
-                )
-            )
             authored_type = (
                 None
                 if expression_value_types is None
                 else expression_value_types.get(argument)
             )
             if authored_type is None or authored_type.kind is ValueTypeKind.UNKNOWN:
-                if not has_unknown_reference:
+                if not unknown_to_aggregate(
+                    function_name,
+                    argument,
+                    definition=definition,
+                    input_schema=input_schema,
+                    let_expansions=let_expansions,
+                    value_types=expression_value_types,
+                    type_expansions=type_expansions,
+                ):
                     diagnostics.append(
                         deferred_argument_expression_diagnostic(expression)
                     )

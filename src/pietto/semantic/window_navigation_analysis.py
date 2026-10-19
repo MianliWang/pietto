@@ -560,11 +560,11 @@ def analyze_navigation_computation_arguments(
     if type(nullability_result) is not NullabilityEvaluationMatch:
         raise AssertionError("navigation nullability formula must evaluate")
 
+    # The type T is bound to, an enum's declaration included, as for first_value.
+    bound_type = default_type if value_always_null else value_type
+    assert bound_type is not None
     result_type = ValueType(
-        resolved_type=ResolvedType(
-            name=signature_result.result_type.name,
-            kind=signature_result.result_type.kind,
-        ),
+        resolved_type=bound_type.resolved_type,
         nullability=nullability_result.value,
     )
     result = WindowResultAvailability(

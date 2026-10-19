@@ -711,6 +711,44 @@ def test_value_null_binds_T_from_concrete_default_only(case: int) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "call",
+    (
+        "lag(status)",
+        "lead(status, 2)",
+        "lag(null, 1, status)",
+        "lead(status, 1, status)",
+    ),
+)
+def test_an_enum_result_keeps_its_declaration_for_later_readers(call: str) -> None:
+    """A lag or lead result has the type T binds to, the enum's declaration
+    included, as a first_value result has, so a later relation may combine
+    its column with a field of that enum. Before, the result named the enum
+    without its declaration: `coalesce(previous, status)` was PIE-S2104 and
+    the conditional PIE-S2105."""
+    source = (
+        "enum Status:\n    active\n    paused\n"
+        "shape Row:\n    id: Int not null\n    status: Status not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table navigated:\n    from rows\n    select:\n        id\n        status\n"
+        f"        previous = {call} window:\n            order by:\n"
+        "                id\n"
+        "query later:\n    from navigated\n    select:\n        id\n"
+        "        v = coalesce(previous, status)\n"
+        "        w = previous if previous is null else status\n"
+    )
+    parsed = parse_source(source, path="navigated.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == ()
+    enum, navigated = parsed.ast.definitions[0], parsed.ast.definitions[3]
+    assert type(navigated) is TableDef
+    schema = semantic.model.relation_row_schemas[navigated]
+    assert schema.fields["previous"].resolved_type == ResolvedType(
+        name="Status", kind=TypeKind.ENUM, definition=enum
+    )
+
+
 @pytest.mark.parametrize("case", range(2, 6))
 def test_unbound_null_only_T_cases_fail_closed(case: int) -> None:
     identity = IDENTITIES[case % 2]
