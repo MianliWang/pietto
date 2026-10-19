@@ -105,13 +105,18 @@ remains an alpha; the CLI does not execute database queries.
     `emit-sql --project` blocked the relation with PIE-B1003, and a `def`
     argument there that does not fit is PIE-S2395.
   - A relation reports the errors of each `let:` binding, of its WHERE and of
-    every SELECT item, in source order, also with JOIN inputs, where 0.1.3
-    reported only the first part that failed: an error in a JOIN relation's
-    `let:` hid its WHERE and SELECT errors, the first failing SELECT item hid
-    the others, and an error in any relation's `let:` hid its WHERE. Without
-    JOIN inputs, the SELECT items of a `select distinct` relation and an
-    aggregate argument a project refuses still report no error of their own
-    (see Known limitations).
+    its SELECT items, in source order, where 0.1.3 reported only the first
+    part that failed: the first failing SELECT item hid the others, an error
+    in any relation's `let:` hid its WHERE, and an error in a JOIN relation's
+    `let:` hid its WHERE and SELECT errors. After such an error in a JOIN
+    relation's `let:`, its WHERE and, without GROUP BY or aggregates, each
+    SELECT item that is no window report their own errors when they read no
+    relation (`exists`, `scalar` or `in`), no binding with an error of its
+    own and no field that does not resolve; any other SELECT item, such as a
+    grouped or aggregate one, still reports none. Without JOIN inputs, the
+    SELECT items of a `select distinct` relation and an aggregate argument a
+    project refuses still report no error of their own (see Known
+    limitations).
   - Beside a binding of unknown type or with an error, the other bindings keep
     their types: with `k = null`, `f = id` and `h = f`, `v = h` passes, where
     0.1.3 reported PIE-S2102 `Unknown field: h`, and a window that reads no
@@ -161,6 +166,24 @@ remains an alpha; the CLI does not execute database queries.
     `sign`, `year`, `month`, `day` and a connector, `substr` bounds, and a
     cast to any type but `Float` (PIE-S2103, PIE-S2104, PIE-S2105,
     PIE-S2306);
+  - a condition that is not a `Bool` beside values of unknown type, for which
+    0.1.3 emitted SQL that PostgreSQL rejects and MySQL converts: over a
+    source without a shape, a `where`, shape `check` or index `when`
+    condition that is a built-in call whose signature fixes another result
+    type, such as `where len(t)` or `where lower(t)`, also through a `let:`
+    name bound to one (PIE-S2202), and an operand of `and`, `or` or `not` or
+    the condition of a conditional that is such a call, or of a known type
+    that is not `Bool` beside an operand or branch of unknown type, such as
+    `not lower(t)`, `t and 5` or `1 if len(t) else 2` (PIE-S2105). The same
+    holds where an always-null argument leaves such a call's type unknown,
+    as in `where lower(coalesce(null, null))`, also with a shape and in an
+    explicit-module relation, which 0.1.3 passed and blocked at emission with
+    PIE-B1003 or reported as a bare PIE-S2333 (a WHERE of such a relation
+    with JOIN inputs still fails closed with PIE-S2333 unless a `let:`
+    binding there has an error of its own). Over a source without a shape a
+    `count()` output read alone, as an `and` operand or compared with a value
+    that is not a number in `satisfying:` is PIE-S2202 or PIE-S2105, which
+    0.1.3 refused only at emission;
   - an ORDER BY key that is a bare constant once `let:` names are inlined, and
     in a query with aggregates and no GROUP BY a key that reads an input field
     outside an aggregate (PIE-S2380);
@@ -346,10 +369,18 @@ CLI:
   argument that a project refuses (PIE-S2314 or PIE-S2315 in a single file,
   such as `max(t + 1)`): it reports PIE-S2333 at its table or query, or,
   beside another error such as one in its WHERE, only that error.
+- In an explicit-module project, after an error in the `let:` of a relation
+  with JOIN inputs, a SELECT item reports no error of its own when the
+  relation has a GROUP BY or aggregates, when it is a window, or when it
+  reads a relation, a binding with an error of its own or a field that does
+  not resolve.
 - Over a source without a shape, a built-in call with an argument of unknown
-  type has an unknown type, also where its result type does not depend on
-  the argument, so `where len(t)` passes `check` and emits a WHERE that is
-  not `Bool`, which PostgreSQL rejects and MySQL converts.
+  type has an unknown type outside a condition, also where its result type
+  does not depend on the argument: `lower(t) + 1` passes `check` and emits
+  SQL that PostgreSQL rejects, `len(t) / 2` emits `/` on MySQL, which keeps
+  the fraction that PostgreSQL drops, and a condition built on such a call,
+  such as `where len(t) + 1`, passes. Over such a source a `count` output
+  with an argument has an unknown type to `satisfying` too.
 - In an explicit-module project, a relationship JOIN without `on` whose input
   is a `select distinct` query completes on its own, but reports PIE-S2333 at
   its table or query when that table or query is itself `select distinct` or

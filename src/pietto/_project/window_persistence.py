@@ -237,6 +237,7 @@ def build_project_window_persistence(
         if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
         else None
     )
+    enum_types = _window_enum_types(input_schema)
     facts: dict[str, WindowResultProjectFact] = {}
     for selected_output_ordinal, item in window_items:
         source_id = item.expression.span.path or fallback_path
@@ -295,6 +296,7 @@ def build_project_window_persistence(
             selected_output_ordinal=selected_output_ordinal,
             source_id=source_id,
             input_schema=input_schema,
+            enum_types=enum_types,
             base_schema=base_schema,
             upstream_symbol=upstream_symbol,
             let_scope_facts=let_scope_facts,
@@ -318,7 +320,7 @@ def build_project_window_persistence(
         definition=definition,
         base_schema=base_schema,
         window_result_facts=facts,
-        input_schema=input_schema,
+        enum_types=enum_types,
     )
     state = ProjectRelationRowSchemaState(
         status=ProjectRelationRowSchemaStatus.CONCRETE,
@@ -357,6 +359,7 @@ def _window_fact_matches_source(
     selected_output_ordinal: int,
     source_id: str,
     input_schema: ProjectRowSchema,
+    enum_types: Mapping[str, ProjectResolvedType | None],
     base_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
     let_scope_facts: ProjectRelationLetScopeFacts,
@@ -385,7 +388,7 @@ def _window_fact_matches_source(
         availability.kind is not WindowResultAvailabilityKind.CONCRETE
         or value_type is None
         or value_type.kind is not ValueTypeKind.KNOWN
-        or _window_result_type(value_type, input_schema) is None
+        or _window_result_type(value_type, enum_types) is None
         or value_type.nullability
         not in {
             EffectiveNullability.NON_NULL,
@@ -464,13 +467,32 @@ def _window_dependency_matches_base(
     return False
 
 
+def _window_enum_types(
+    input_schema: ProjectRowSchema,
+) -> dict[str, ProjectResolvedType | None]:
+    """Each enum name among the ``input_schema`` fields: the one enum of that
+    name, or None when its fields name different enums."""
+
+    enums: dict[str, list[ProjectResolvedType]] = {}
+    for field in input_schema.fields.values():
+        if field.resolved_type.kind is ProjectResolvedTypeKind.ENUM:
+            enums.setdefault(field.resolved_type.name, []).append(field.resolved_type)
+    return {
+        name: (
+            None if any(item.symbol != items[0].symbol for item in items) else items[0]
+        )
+        for name, items in enums.items()
+    }
+
+
 def _window_result_type(
     value_type: ValueType,
-    input_schema: ProjectRowSchema,
+    enum_types: Mapping[str, ProjectResolvedType | None],
 ) -> ProjectResolvedType | None:
     """The project type of a window result of ``value_type``: its builtin
-    type, or the one enum of that name among the ``input_schema`` fields, such
-    as the value of `lag(status)`; None for any other type."""
+    type, or the one enum of that name among the input fields
+    (`_window_enum_types`), such as the value of `lag(status)`; None for any
+    other type."""
 
     resolved = value_type.resolved_type
     if resolved.kind is TypeKind.BUILTIN:
@@ -480,15 +502,7 @@ def _window_result_type(
         )
     if resolved.kind is not TypeKind.ENUM:
         return None
-    enums = [
-        field.resolved_type
-        for field in input_schema.fields.values()
-        if field.resolved_type.kind is ProjectResolvedTypeKind.ENUM
-        and field.resolved_type.name == resolved.name
-    ]
-    if not enums or any(item.symbol != enums[0].symbol for item in enums):
-        return None
-    return enums[0]
+    return enum_types.get(resolved.name)
 
 
 def _final_schema(
@@ -496,7 +510,7 @@ def _final_schema(
     definition: _DerivedRelation,
     base_schema: ProjectRowSchema,
     window_result_facts: Mapping[str, WindowResultProjectFact],
-    input_schema: ProjectRowSchema,
+    enum_types: Mapping[str, ProjectResolvedType | None],
 ) -> ProjectRowSchema:
     fields: dict[str, ProjectRowField] = {}
     for item in definition.select_items:
@@ -515,9 +529,7 @@ def _final_schema(
             raise ValueError("window persistence requires every selected fact")
         value_type = fact.semantic_fact.result.value_type
         resolved_type = (
-            None
-            if value_type is None
-            else _window_result_type(value_type, input_schema)
+            None if value_type is None else _window_result_type(value_type, enum_types)
         )
         if value_type is None or resolved_type is None:
             raise ValueError("concrete window persistence requires a value type")

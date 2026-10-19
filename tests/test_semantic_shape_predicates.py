@@ -208,6 +208,33 @@ def test_shape_predicate_diagnostics_follow_source_order() -> None:
     ]
 
 
+def test_a_built_in_call_of_null_values_is_a_shape_condition_of_its_type() -> None:
+    """A built-in call whose always-null argument leaves its type unknown is a
+    condition of the result type its signature fixes (before: accepted); an
+    argument's own error explains an unknown type, so it adds nothing."""
+    result = analyze(
+        _parse(
+            "shape Record:\n"
+            "    amount: Int not null\n"
+            "    label: Text nullable\n"
+            "    check sized:\n"
+            "        len(coalesce(null, null))\n"
+            "    check unknown:\n"
+            "        len(missing)\n"
+            "    index by_label on label when lower(coalesce(null, null))\n"
+        )
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2202", 5, 9, "Expected Bool expression in shape check"),
+        ("PIE-S2102", 7, 13, "Unknown field: missing"),
+        ("PIE-S2202", 8, 34, "Expected Bool expression in index predicate"),
+    ]
+
+
 def test_shape_predicates_mix_decimal_with_int_membership_as_queries_do() -> None:
     # A shape check and an index condition type `in` as a query does: Decimal
     # mixes with Int, and Decimal with Float stays PIE-S2105.

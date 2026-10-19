@@ -243,7 +243,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import infer_row_expression, unknown_explained
 from pietto._project.row_expression_type_facts import scalar_read_types_within
 from pietto.semantic.group_by import _grouped_order_by_unsupported_diagnostic
 from pietto.semantic.model import CheckMode, RowSchema, ValueType, ValueTypeKind
@@ -3446,11 +3446,12 @@ def _no_join_where(
             owner=owner,
             kind=ProjectNoJoinWhereKind.ABSENT,
         )
+    let_values = checked_let_values(let_scope, let_scope.binding_expressions)
     analysis = _analyze_no_join_scalar(
         owner=owner,
         input_schema=input_schema,
         let_scope=let_scope,
-        let_values=checked_let_values(let_scope, let_scope.binding_expressions),
+        let_values=let_values,
         expression=clause.expression,
         read_types=read_types,
         captures=captures,
@@ -3472,12 +3473,27 @@ def _no_join_where(
             value_types=analysis.value_types,
             diagnostics=tuple(diagnostics),
         )
-    if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
+    concrete = analysis.status is ProjectNoJoinScalarStatus.CONCRETE
+    row_schema = (
+        None if concrete else project_row_schema_to_semantic_row_schema(input_schema)
+    )
+    if row_schema is not None and (
+        analysis.value_type is None
+        or analysis.value_type.kind is not ValueTypeKind.UNKNOWN
+        or unknown_explained(
+            clause.expression, analysis.diagnostics, row_schema, let_values
+        )
+    ):
         return analysis
+    # A WHERE of unknown type that no error explains is still refused where it
+    # is known not to be a Bool, as in a single file.
     bool_diagnostic = semantic_predicates._check_bool_expression(
         clause.expression,
         context="where clause",
         expression_value_types=analysis.value_types,
+        explained=concrete,
+        row_schema=row_schema,
+        lets=let_values,
     )
     if bool_diagnostic is not None:
         return ProjectNoJoinScalarExpression(
@@ -3490,6 +3506,8 @@ def _no_join_where(
             value_types=analysis.value_types,
             diagnostics=(*analysis.diagnostics, bool_diagnostic),
         )
+    if not concrete:
+        return analysis
     return ProjectConcreteNoJoinWhere(
         owner=owner,
         kind=ProjectNoJoinWhereKind.AUTHORED_WHERE,
@@ -3775,13 +3793,18 @@ def _joined_let_unreached_diagnostics(
             found.extend(local)
             if (
                 where
-                and value_type.kind is ValueTypeKind.KNOWN
                 and not any(item.severity is Severity.ERROR for item in local)
                 and (
                     bool_diagnostic := semantic_predicates._check_bool_expression(
                         expression,
                         context="where clause",
                         expression_value_types=value_types,
+                        explained=value_type.kind is ValueTypeKind.KNOWN
+                        or unknown_explained(
+                            expression, local, RowSchema(), namespaces.written_lets
+                        ),
+                        row_schema=RowSchema(),
+                        lets=namespaces.written_lets,
                     )
                 )
                 is not None

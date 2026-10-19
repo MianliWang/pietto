@@ -1320,8 +1320,9 @@ NULLS = {
             ),
         ],
     ),
-    # A `let:` name that an aggregate reads is checked with its binding's type,
-    # so `sum(nn(nill))` is PIE-S2315 alone, as `sum(nn(null))` is. `min` and
+    # A `let:` name that an aggregate reads is checked with its binding's type
+    # and is null where its value is, so `sum(nn(nill))` is PIE-S2395 and
+    # PIE-S2315, as `sum(nn(null))` is (before: PIE-S2315 alone). `min` and
     # `max` read no `let:` name, so the name is an unknown field there, with
     # or without a def.
     "null_let_in_an_aggregate_argument": (
@@ -1344,6 +1345,13 @@ NULLS = {
                 13,
                 "Aggregate function sum requires a direct field argument; "
                 "expression arguments are not supported yet",
+            ),
+            (
+                "PIE-S2395",
+                BODY_LINE + 9,
+                17,
+                "Invalid argument for def nn at position 1 (x): "
+                "expected Int not null, got null",
             ),
             ("PIE-S2102", BODY_LINE + 10, 20, "Unknown field: nill"),
             ("PIE-S2102", BODY_LINE + 11, 17, "Unknown field: nill"),
@@ -1718,6 +1726,79 @@ def test_a_global_aggregate_over_an_unknown_row_checks_its_let_argument() -> Non
             "expected Int not null, got Text not null",
         ),
         ("PIE-S2315", 15, 13, expression_argument),
+    ]
+
+
+def test_a_null_aggregate_argument_reports_its_def_mismatch() -> None:
+    """A null argument of a def inside an aggregate, `null` itself, an
+    always-null value or a `let:` name whose value written in is one, keeps
+    its PIE-S2395 at the call, as outside an aggregate (before: dropped, and
+    PIE-S2315 alone), grouped or not; the aggregate adds PIE-S2315 only in a
+    form it accepts for no argument type: `count(nn(n + null))` is
+    PIE-S2395 alone. An argument with an error of its own is not checked,
+    nor is one that reads a binding with one, as outside an aggregate, and
+    one that fits its nullable parameter is no mismatch."""
+    source = SHAPES + (
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def ni(x: Int nullable) -> Int nullable: return x\n"
+        "table g:\n    from rows\n    let:\n        nill = null\n        w = n + null\n"
+        "        bad = lower(n)\n        v = bad + null\n    group by: id\n"
+        "    select:\n        id\n"
+        "        a = sum(nn(null))\n        b = count(nn(n + null))\n"
+        "        c = count(nn(coalesce(null, null)))\n        d = max(nn(null))\n"
+        "        e = sum(nn(nill))\n        f = count(nn(w))\n        g = sum(nn(w))\n"
+        "        h = count(nn(lower(n) + null))\n        i = count(nn(v))\n"
+        "        j = sum(ni(null))\n"
+        "table a:\n    from rows\n    select:\n        s = sum(nn(null))\n"
+        "table o:\n    from rows\n    let:\n        nill = null\n        w = n + null\n"
+        "        bad = lower(n)\n        v = bad + null\n    select:\n        id\n"
+        "        p = nn(null)\n        q = nn(w)\n        r = nn(nill)\n"
+        "        s = nn(v)\n        u = nn(lower(n) + null)\n"
+    )
+
+    def expression_argument(function: str, line: int) -> tuple[str, int, int, str]:
+        return (
+            "PIE-S2315",
+            line,
+            13,
+            f"Aggregate function {function} requires a direct field argument; "
+            "expression arguments are not supported yet",
+        )
+
+    def null_argument(line: int, column: int) -> tuple[str, int, int, str]:
+        return (
+            "PIE-S2395",
+            line,
+            column,
+            "Invalid argument for def nn at position 1 (x): "
+            "expected Int not null, got null",
+        )
+
+    assert _errors(source) == [
+        ("PIE-S2104", 15, 15, LOWER_OF_INT),
+        expression_argument("sum", 20),
+        null_argument(20, 17),
+        null_argument(21, 19),
+        expression_argument("count", 22),
+        null_argument(22, 19),
+        expression_argument("max", 23),
+        null_argument(23, 17),
+        expression_argument("sum", 24),
+        null_argument(24, 17),
+        null_argument(25, 19),
+        expression_argument("sum", 26),
+        null_argument(26, 17),
+        expression_argument("count", 27),
+        null_argument(28, 19),
+        expression_argument("sum", 29),
+        expression_argument("sum", 33),
+        null_argument(33, 17),
+        ("PIE-S2104", 39, 15, LOWER_OF_INT),
+        null_argument(43, 13),
+        null_argument(44, 13),
+        null_argument(45, 13),
+        null_argument(46, 13),
+        ("PIE-S2104", 47, 16, LOWER_OF_INT),
     ]
 
 

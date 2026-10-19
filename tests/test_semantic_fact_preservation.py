@@ -3314,6 +3314,50 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
     ]
 
 
+def test_a_built_in_call_of_null_values_is_a_condition_of_its_result_type(
+    tmp_path: Path,
+) -> None:
+    """A built-in call whose always-null argument leaves its type unknown is a
+    condition of the result type its signature fixes, as in a single file,
+    also beside a binding of unknown type: a WHERE is PIE-S2202 and an `and`
+    operand or a conditional's condition PIE-S2105. Before, such a WHERE
+    passed `check --project` and the conditional was a bare PIE-S2333."""
+    queries = {
+        "plain": "    where lower(coalesce(null, null))\n    select:\n        id\n",
+        "beside": "    let:\n        k = null\n    where len(coalesce(k, k))\n"
+        "    select:\n        id\n",
+        "lines": "    where:\n        len(coalesce(null, null))\n        id > 1\n"
+        "    select:\n        id\n",
+        "chosen": "    select:\n        id\n"
+        "        v = 1 if len(coalesce(null, null)) else 2\n",
+        "fine": "    where contains(coalesce(null, null), 'x')\n    select:\n        id\n",
+    }
+    text = _prefix() + "".join(
+        f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        ("PIE-S2202", "Expected Bool expression in where clause", 8, 11),
+        ("PIE-S2202", "Expected Bool expression in where clause", 15, 11),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator and: expected Bool operands",
+            21,
+            9,
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator conditional: expected Bool condition",
+            29,
+            13,
+        ),
+    ]
+
+
 def test_a_selected_read_of_a_binding_bound_to_null_is_typed_where_it_stands(
     tmp_path: Path,
 ) -> None:

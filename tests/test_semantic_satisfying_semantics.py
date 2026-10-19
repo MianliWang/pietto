@@ -9,7 +9,7 @@ import pytest
 import pietto.cli as cli
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
-from pietto.semantic import SemanticResult, analyze
+from pietto.semantic import SemanticResult, ValueTypeKind, analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
@@ -258,6 +258,58 @@ def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> 
     assert result.diagnostics == ()
     # Kept for lowering, so that emission refuses it (PIE-B1000) deterministically.
     assert result.model.relation_symbols["buckets"] in result.model.result_predicates
+
+
+def test_satisfying_over_an_unknown_row_reads_a_count_output_as_an_int() -> None:
+    """Over a source without a shape a `count()` output is an `Int` to
+    `satisfying`, as over a source with a shape, whatever the row: alone it is
+    PIE-S2202, beside an operand of unknown type an `and` operand that is not
+    a Bool is PIE-S2105, and it compares only with numbers (before: each
+    accepted). A predicate that passes keeps the facts it had."""
+
+    def relation(name: str, satisfying: str) -> str:
+        return (
+            f"table {name}:\n    from raw\n    group by: t\n    select:\n"
+            "        c = count()\n        m = max(n)\n"
+            f"    satisfying: {satisfying}\n"
+        )
+
+    result = analyze(
+        _parse(
+            'source raw is postgres.table("raw")\n'
+            + relation("a", "c")
+            + relation("b", "c and m > 1")
+            + relation("d", "c > 'x'")
+            + relation("e", "c > 1 and m > 1")
+        )
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == [
+        ("PIE-S2202", 8, 17, "Expected Bool expression in satisfying clause"),
+        (
+            "PIE-S2105",
+            15,
+            17,
+            "Invalid operands for operator and: expected Bool operands",
+        ),
+        (
+            "PIE-S2105",
+            22,
+            17,
+            "Invalid operands for operator >: expected comparable operands",
+        ),
+    ]
+    (definition, predicate), *rest = result.model.result_predicates.items()
+    assert (definition.name, rest) == ("e", [])
+    # Typed as before, so that emission refuses it as before (PIE-B1000).
+    assert (
+        predicate.expression_value_types[predicate.clause.expression].kind
+        is ValueTypeKind.UNKNOWN
+    )
 
 
 def test_computed_projection_output_in_satisfying_is_deferred() -> None:

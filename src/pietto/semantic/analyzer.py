@@ -103,7 +103,6 @@ from pietto.semantic.source_connectors import (
 )
 from pietto.semantic.satisfying import check_satisfying_clauses
 from pietto.semantic.sources import check_sources
-from pietto.semantic.predicate_checks import check_predicates
 from pietto.semantic.type_aliases import expand_type_aliases
 
 if TYPE_CHECKING:
@@ -372,9 +371,6 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             script, (*connector_expression_diagnostics, *connector_diagnostics)
         )
     )
-    diagnostics.extend(
-        check_predicates(script, expression_value_types, type_expansions)
-    )
     result_predicates, satisfying_diagnostics = check_satisfying_clauses(
         script,
         from_resolutions=from_resolutions,
@@ -388,6 +384,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         },
         type_expansions=type_expansions,
         record_unknown=True,
+        projection_value_types=expression_value_types,
     )
     diagnostics.extend(satisfying_diagnostics)
     diagnostics.extend(

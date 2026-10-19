@@ -120,6 +120,20 @@ type it expands to in these checks: a `where`, shape `check`, index `when` or
 `satisfying:` predicate whose type is an alias of `Bool`, and a `satisfying:`
 `and` / `or` operand of such an alias, count as known `Bool`.
 
+A later defect fix reads a predicate of unknown value type that is a built-in
+call whose signature fixes its result type (every scalar function but
+`coalesce` and `nullif`), also as the value of a `let:` name, as that type,
+because the call has that type or fails wherever it runs: over a source
+without a shape `where len(t)` and `where lower(t)` report `PIE-S2202`, unless
+an error of the predicate's own, or of a `let:` binding it reads, explains
+the unknown type. The same reading applies to an `and` / `or` / `not` operand
+and to a conditional's condition, which report existing `PIE-S2105` when they
+are such a call or of a known non-Bool type beside an operand of unknown type
+that reported no error of its own and reads no `let:` binding with one
+(`t and 5`). Over a source without a shape a `count()` output is a known
+`Int` to `satisfying:`. Any other predicate of unknown value type still
+receives no Bool-cascade diagnostic.
+
 These codes and messages are existing repo behavior. Slice 4 introduces no new
 diagnostic code and does not change diagnostic ordering, spans, severity,
 message text, or fail-closed paths.

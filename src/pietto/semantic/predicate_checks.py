@@ -4,65 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pietto.ast_nodes import (
-    CheckDef,
-    Expression,
-    IndexDef,
-    QueryDef,
-    Script,
-    ShapeDef,
-    TableDef,
-    TypeExpr,
-)
+from pietto.ast_nodes import Expression, TypeExpr
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.expressions import _canonical_value_type
-from pietto.semantic.model import ResolvedType, ValueType, ValueTypeKind
-
-
-def check_predicates(
-    script: Script,
-    expression_value_types: Mapping[Expression, ValueType],
-    type_expansions: Mapping[TypeExpr, ResolvedType],
-) -> list[Diagnostic]:
-    """Require known where, shape check, and index predicates to be Bool.
-
-    A predicate of a type alias is read as the builtin type it expands to.
-    """
-
-    diagnostics: list[Diagnostic] = []
-    for definition in script.definitions:
-        if isinstance(definition, (TableDef, QueryDef)):
-            if definition.where_clause is not None:
-                diagnostic = _check_bool_expression(
-                    definition.where_clause.expression,
-                    context="where clause",
-                    expression_value_types=expression_value_types,
-                    type_expansions=type_expansions,
-                )
-                if diagnostic is not None:
-                    diagnostics.append(diagnostic)
-        elif isinstance(definition, ShapeDef):
-            for item in definition.items:
-                expression: Expression | None = None
-                context = ""
-                if isinstance(item, CheckDef):
-                    expression = item.expression
-                    context = "shape check"
-                elif isinstance(item, IndexDef) and item.predicate is not None:
-                    expression = item.predicate
-                    context = "index predicate"
-
-                if expression is not None:
-                    diagnostic = _check_bool_expression(
-                        expression,
-                        context=context,
-                        expression_value_types=expression_value_types,
-                        type_expansions=type_expansions,
-                    )
-                    if diagnostic is not None:
-                        diagnostics.append(diagnostic)
-
-    return diagnostics
+from pietto.semantic.expressions import _canonical_value_type, condition_value_type
+from pietto.semantic.model import ResolvedType, RowSchema, ValueType, ValueTypeKind
 
 
 def _check_bool_expression(
@@ -71,11 +16,22 @@ def _check_bool_expression(
     context: str,
     expression_value_types: Mapping[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    explained: bool = True,
+    row_schema: RowSchema | None = None,
+    lets: Mapping[str, Expression] | None = None,
 ) -> Diagnostic | None:
-    """Return a diagnostic when a predicate has a known non-Bool type."""
+    """Return a diagnostic when a predicate has a known non-Bool type, or,
+    where no error explains its unknown type (``explained``, see
+    `unknown_explained`), when it is a built-in call whose signature fixes a
+    type that is not Bool, also as the value of a `let:` name of ``lets``
+    (`condition_value_type`)."""
 
     value_type = expression_value_types.get(expression)
-    if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
+    if value_type is None:
+        return None
+    if not explained:
+        value_type = condition_value_type(expression, value_type, row_schema, lets)
+    if value_type.kind is ValueTypeKind.UNKNOWN:
         return None
     if _canonical_value_type(value_type, type_expansions).resolved_type.name == "Bool":
         return None

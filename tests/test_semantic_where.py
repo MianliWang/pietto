@@ -182,6 +182,98 @@ def test_unknown_function_suppresses_bool_diagnostic() -> None:
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 
+def _errors(source: str) -> list[tuple[str, int, int, str]]:
+    return [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in analyze(_parse(source, path="m.pietto")).diagnostics
+    ]
+
+
+EXPECTED_BOOL = "Expected Bool expression in where clause"
+
+
+def test_a_built_in_call_over_an_unknown_row_is_a_condition_of_its_result_type() -> (
+    None
+):
+    """Over a source without a shape a built-in call whose signature fixes its
+    result type has that type to a condition whatever its arguments are, also
+    as a `let:` value: `where len(t)` and `where lower(t)` are PIE-S2202, as
+    over a source with a shape, and a known operand of `and`, `or` or `not`
+    that is not a Bool is PIE-S2105 beside an operand of unknown type, such
+    as a line of a `where:` block (before: each accepted, and emission wrote
+    a WHERE that is not Bool). A value of unknown type stays accepted."""
+    source = (
+        'source raw is postgres.table("raw")\n'
+        "table a:\n    from raw\n    where len(t)\n    select:\n        id\n"
+        "table b:\n    from raw\n    where lower(t)\n    select:\n        id\n"
+        "table c:\n    from raw\n    let:\n        w = year(t)\n        v = w\n"
+        "    where v\n    select:\n        id\n"
+        "table d:\n    from raw\n    where:\n        t\n        5\n    select:\n"
+        "        id\n"
+        "table e:\n    from raw\n    where t == 1 or upper(t)\n    select:\n"
+        "        id\n"
+        "table f:\n    from raw\n    where not lower(t)\n    select:\n        id\n"
+        "table g:\n    from raw\n    where:\n        t\n        coalesce(t, u)\n"
+        "        contains(t, 'x')\n        matches(t, 'y')\n    select:\n        id\n"
+    )
+
+    assert _errors(source) == [
+        ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
+        ("PIE-S2202", 4, 11, EXPECTED_BOOL),
+        ("PIE-S2202", 9, 11, EXPECTED_BOOL),
+        ("PIE-S2202", 17, 11, EXPECTED_BOOL),
+        (
+            "PIE-S2105",
+            23,
+            9,
+            "Invalid operands for operator and: expected Bool operands",
+        ),
+        (
+            "PIE-S2105",
+            29,
+            11,
+            "Invalid operands for operator or: expected Bool operands",
+        ),
+        (
+            "PIE-S2105",
+            34,
+            11,
+            "Invalid operands for operator not: expected Bool operand",
+        ),
+    ]
+
+
+def test_a_built_in_call_of_null_values_is_a_condition_of_its_result_type() -> None:
+    """A built-in call is a condition of its result type also where an
+    always-null argument leaves its type unknown, written by hand or through
+    a `let:` name (before: accepted). An error of its own explains an unknown
+    type, also one of a binding it reads, so it adds nothing there."""
+    source = SOURCE + (
+        "table a:\n    from rows\n    where lower(coalesce(null, null))\n"
+        "    select:\n        text\n"
+        "table b:\n    from rows\n    let:\n        k = null\n"
+        "        j = len(coalesce(k, k))\n    where j\n    select:\n        text\n"
+        "table c:\n    from rows\n    where len(missing)\n    select:\n        text\n"
+        "table d:\n    from rows\n    where missing and 1\n    select:\n        text\n"
+        "table e:\n    from rows\n    let:\n        e = lower(1)\n    where len(e)\n"
+        "    select:\n        text\n"
+    )
+
+    assert _errors(source) == [
+        ("PIE-S2202", 8, 11, EXPECTED_BOOL),
+        ("PIE-S2202", 16, 11, EXPECTED_BOOL),
+        ("PIE-S2102", 21, 15, "Unknown field: missing"),
+        ("PIE-S2102", 26, 11, "Unknown field: missing"),
+        (
+            "PIE-S2104",
+            32,
+            13,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+        ),
+    ]
+
+
 def test_where_validation_does_not_mutate_input_ast() -> None:
     script = _parse(
         SOURCE + "table filtered:\n"

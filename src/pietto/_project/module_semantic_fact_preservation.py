@@ -97,6 +97,7 @@ from pietto._project.row_dependency_graph import (
 )
 from pietto._project.window_persistence import (
     _final_schema as _final_window_schema,
+    _window_enum_types,
     _window_fact_matches_source,
 )
 from pietto._project.window_semantics import (
@@ -126,6 +127,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     MembershipExpr,
     NameExpr,
+    NamedWindowDeclaration,
     OrderItem,
     QueryDef,
     RelationMembershipExpr,
@@ -172,7 +174,11 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
-from pietto.semantic.expressions import _check_inlined_argument, infer_row_expression
+from pietto.semantic.expressions import (
+    _check_inlined_argument,
+    infer_row_expression,
+    unknown_explained,
+)
 from pietto.semantic.predicate_checks import _check_bool_expression
 from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.nullability_formulas import SignatureResultFormula
@@ -2071,7 +2077,7 @@ def _reduce_window_outputs_to_state(
             definition=definition,
             base_schema=base_schema,
             window_result_facts=concrete_facts,
-            input_schema=input_schema,
+            enum_types=_window_enum_types(input_schema),
         )
         return ProjectRelationRowSchemaState(
             status=ProjectRelationRowSchemaStatus.CONCRETE,
@@ -4007,23 +4013,29 @@ def _where_fact(
         diagnostics.append(
             invalid_context_diagnostic(clause.expression, context="where clause")
         )
-    infer_row_expression(
+    row_schema = project_row_schema_to_semantic_row_schema(input_schema)
+    let_values = checked_let_values(let_scope, let_scope.binding_expressions)
+    where_type = infer_row_expression(
         clause.expression,
-        project_row_schema_to_semantic_row_schema(input_schema),
+        row_schema,
         value_types,
         diagnostics,
         report_unknown_name=True,
         field_qualifier=definition.from_clause.source_name,
         bare_value_types=let_scope.binding_value_types,
-        bare_value_expressions=checked_let_values(
-            let_scope, let_scope.binding_expressions
-        ),
+        bare_value_expressions=let_values,
         suppressed_unknown_names=unknown_names or None,
         relation_columns=read_types,
         captured_value_types=captures,
     )
     diagnostic = _check_bool_expression(
-        clause.expression, context="where clause", expression_value_types=value_types
+        clause.expression,
+        context="where clause",
+        expression_value_types=value_types,
+        explained=where_type.kind is ValueTypeKind.KNOWN
+        or unknown_explained(clause.expression, diagnostics, row_schema, let_values),
+        row_schema=row_schema,
+        lets=let_values,
     )
     if diagnostic is not None:
         diagnostics.append(diagnostic)
@@ -4767,6 +4779,8 @@ def _window_output_facts(
         raise ValueError("Concrete window base state requires a concrete schema.")
 
     semantic_input = project_row_schema_to_semantic_row_schema(input_schema)
+    named_windows = _named_windows_by_name(definition)
+    enum_types = _window_enum_types(input_schema)
     outputs: list[ProjectModuleWindowOutputFact] = []
     for ordinal, item in window_items:
         expression = cast(WindowExpr, item.expression)
@@ -4774,7 +4788,7 @@ def _window_output_facts(
         diagnostics: list[Diagnostic] = []
         value_types: dict[Expression, ValueType] = {}
         let_values, let_expressions, quiet = _window_let_facts(
-            let_scope, definition, expression
+            let_scope, named_windows, expression
         )
         analysis = analyze_window_expression(
             definition=definition,
@@ -4844,6 +4858,7 @@ def _window_output_facts(
                     selected_output_ordinal=ordinal,
                     source_id=source_id,
                     input_schema=input_schema,
+                    enum_types=enum_types,
                     base_schema=base_schema,
                     upstream_symbol=upstream_symbol,
                     let_scope_facts=let_scope,
@@ -4889,9 +4904,21 @@ def _window_output_facts(
     )
 
 
+def _named_windows_by_name(
+    definition: _DerivedRelation,
+) -> dict[str, list[NamedWindowDeclaration]]:
+    """Every named window of ``definition`` by name, the declarations of one
+    name in source order (`_window_let_facts`)."""
+
+    by_name: dict[str, list[NamedWindowDeclaration]] = {}
+    for declaration in definition.named_windows:
+        by_name.setdefault(declaration.name, []).append(declaration)
+    return by_name
+
+
 def _window_let_facts(
     let_scope: ProjectRelationLetScopeFacts,
-    definition: _DerivedRelation,
+    named_windows: Mapping[str, list[NamedWindowDeclaration]],
     expression: WindowExpr,
 ) -> tuple[Mapping[str, ValueType] | None, Mapping[str, Expression] | None, bool]:
     """The `let:` types and values a window computation reads, and whether its
@@ -4921,11 +4948,10 @@ def _window_let_facts(
         if window_name in followed:
             continue
         followed.add(window_name)
-        for declaration in definition.named_windows:
-            if declaration.name == window_name:
-                pending.append(declaration.spec)
-                if declaration.base is not None:
-                    window_names.append(declaration.base.name)
+        for declaration in named_windows.get(window_name, ()):
+            pending.append(declaration.spec)
+            if declaration.base is not None:
+                window_names.append(declaration.base.name)
     while pending:
         node = pending.pop()
         if type(node) is NameExpr:
@@ -4972,13 +4998,14 @@ def _unavailable_window_outputs(
         if input_schema is None
         else project_row_schema_to_semantic_row_schema(input_schema)
     )
+    named_windows = _named_windows_by_name(definition)
     outputs: list[ProjectModuleWindowOutputFact] = []
     for ordinal, item in enumerate(definition.select_items):
         if type(item.expression) is not WindowExpr:
             continue
         diagnostics: list[Diagnostic] = []
         let_values, let_expressions, quiet = _window_let_facts(
-            let_scope, definition, item.expression
+            let_scope, named_windows, item.expression
         )
         analysis = analyze_window_expression(
             definition=definition,

@@ -854,6 +854,52 @@ def test_unused_let_over_an_unknown_input_row_keeps_its_call_errors() -> None:
     ]
 
 
+def test_a_conditional_condition_known_not_to_be_bool_is_refused_beside_unknowns() -> (
+    None
+):
+    """A condition of a known type that is not Bool is PIE-S2105 also beside a
+    branch of unknown type, and over an unknown input row a built-in call is
+    a condition of the result type its signature fixes, also as a `let:`
+    value (before: each accepted). A condition of unknown type stays
+    accepted, and a branch with an error of its own still explains it."""
+    unknown_row = analyze(
+        _parse(
+            'source people is postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    let:\n"
+            "        c = len(name)\n"
+            "    select:\n"
+            "        a = 1 if len(name) else 2\n"
+            "        b = name if 5 else 2\n"
+            "        d = 1 if 'x' else name\n"
+            "        e = 1 if c else 2\n"
+            "        f = 1 if name else 2\n"
+            "        g = 1 if contains(name, 'x') else 2\n"
+        ),
+        mode_override=CheckMode.LOOSE,
+    )
+    known_row = analyze(
+        _parse(
+            "shape Person:\n    count: Int not null\n"
+            'source people: Person is postgres.table("people")\n'
+            "table projected:\n    from people\n    select:\n"
+            "        a = missing if 5 else 2\n"
+            "        b = 1 if count else missing\n"
+        )
+    )
+
+    condition = "Invalid operands for operator conditional: expected Bool condition"
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in (*unknown_row.diagnostics, *known_row.diagnostics)
+    ] == [
+        *(("PIE-S2105", condition, line, 13) for line in (7, 8, 9, 10)),
+        ("PIE-S2102", "Unknown field: missing", 7, 13),
+        ("PIE-S2102", "Unknown field: missing", 8, 29),
+    ]
+
+
 COMPARISON_SOURCE = (
     "type Age = Int not null\n"
     "enum Status:\n"

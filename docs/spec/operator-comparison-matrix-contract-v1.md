@@ -96,7 +96,7 @@ nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 | Division `/` | any other known operand type: `Text`, `Bool`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`, `Any`, an Enum or a shape | currently rejected with existing `PIE-S2105` (`expected numeric operands`), as for `+`, `-` and `*` |
 | Bool `and` / `or` | `Bool` / `Bool` | currently accepted as `Bool UNKNOWN` |
 | Bool `and` / `or` | known non-Bool operands | currently rejected with existing `PIE-S2105`; Bool operators require Bool operands |
-| Bool `and` / `or` | unknown operands | currently deferred/unknown without an extra invalid-operand cascade |
+| Bool `and` / `or` | unknown operands | currently deferred/unknown without an extra invalid-operand cascade, except, after a later defect fix, beside an operand of unknown type that reported no error of its own and reads no `let:` binding with one: an operand of a known type that is not `Bool`, or a built-in call whose signature fixes a result type that is not `Bool`, is then rejected with existing `PIE-S2105`, as unary `not` of such a call and a conditional's condition are (see `bool-predicate-semantics-contract-v1.md`) |
 
 Every row above reads a type alias operand, including an alias chain, as the
 builtin type it expands to, and records that base type, not the alias, as the
@@ -234,7 +234,9 @@ Current diagnostic behavior is preserved exactly:
   truncates to `Int`) and reports existing `PIE-S2105` for every other known
   operand type that is not `Decimal`; Decimal division stays deferred;
 - unknown child value types suppress invalid-operator cascades under current
-  behavior;
+  behavior, except that an `and`/`or`/`not` operand or a conditional's
+  condition is still checked as a condition beside operands of unknown type
+  without an error of their own (the `and` / `or` row above);
 - predicate diagnostics remain owned by the existing predicate paths and the
   Slice 4 Bool/predicate contract;
 - Slice 7 introduces no new diagnostic code, no renamed diagnostic, no

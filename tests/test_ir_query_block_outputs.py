@@ -723,6 +723,57 @@ def test_every_clause_of_a_relation_reports_its_own_errors(
     ]
 
 
+@pytest.mark.parametrize(
+    "join",
+    (
+        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
+        "    inner join oth as r\n",
+        "",
+    ),
+    ids=("on", "relationship", "none"),
+)
+def test_a_where_beside_a_binding_error_is_a_condition_of_its_call_type(
+    tmp_path: Path, join: str
+) -> None:
+    """Beside a `let:` binding with an error of its own, a WHERE that is a
+    built-in call whose always-null argument leaves its type unknown is a
+    condition of the result type its signature fixes (PIE-S2202), as in a
+    single file, with or without JOIN inputs. Before, the binding's error
+    was reported alone."""
+    text = (
+        _STAGE_ERRORS_SOURCE + f"query q:\n    from src\n{join}"
+        "    let:\n        l1 = lower(1)\n    where len(coalesce(null, null))\n"
+        "    select:\n        id\n"
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(text, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    lines = text.splitlines()
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected Text, "
+            "got Int",
+            lines.index("        l1 = lower(1)") + 1,
+            14,
+        ),
+        (
+            "PIE-S2202",
+            "Expected Bool expression in where clause",
+            lines.index("    where len(coalesce(null, null))") + 1,
+            11,
+        ),
+    ]
+
+
 def test_hidden_qualify_window_never_becomes_an_automatic_final_field(
     built: _Built,
 ) -> None:

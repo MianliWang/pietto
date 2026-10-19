@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
@@ -90,12 +90,16 @@ def check_satisfying_clauses(
     | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     record_unknown: bool = False,
+    projection_value_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
     """Validate parsed satisfying clauses and collect lowering facts.
 
     A predicate of unknown type is not refused for that alone. With
     `record_unknown`, its fact is still collected so that single-file emission
     can refuse it deterministically; without it, the predicate has no fact.
+    Over a row of unknown type, whose outputs have no type, a direct aggregate
+    output has the type typing gave it (``projection_value_types``), such as
+    `count()`, an `Int` whatever the row.
     """
 
     result_predicates: dict[DerivedRelation, SatisfyingResultPredicateInfo] = {}
@@ -149,8 +153,33 @@ def check_satisfying_clauses(
             diagnostics.extend(relation_diagnostics)
             continue
 
+        typed_scope = (
+            None
+            if value_type.kind is not ValueTypeKind.UNKNOWN
+            or projection_value_types is None
+            or not input_schema.is_unknown
+            else _typed_outputs(output_scope, projection_value_types)
+        )
+        checked_type = value_type
+        if typed_scope is not None:
+            # Checked as over a known row, with the outputs that have a type
+            # whatever the row; the predicate keeps its own facts.
+            checked_type = _infer_predicate(
+                expression,
+                typed_scope,
+                input_schema=input_schema,
+                let_expansions=let_expansions,
+                let_value_types=let_value_types,
+                diagnostics=relation_diagnostics,
+                value_types={},
+                type_expansions=type_expansions,
+                check_known=True,
+            )
+            if relation_diagnostics:
+                diagnostics.extend(relation_diagnostics)
+                continue
         bool_diagnostic = _bool_predicate_diagnostic(
-            expression, value_type, type_expansions
+            expression, checked_type, type_expansions
         )
         if bool_diagnostic is not None:
             diagnostics.append(bool_diagnostic)
@@ -239,6 +268,35 @@ def _satisfying_output_scope(
     return scope
 
 
+def _typed_outputs(
+    scope: Mapping[str, _SatisfyingOutput],
+    projection_value_types: Mapping[Expression, ValueType],
+) -> dict[str, _SatisfyingOutput] | None:
+    """``scope`` of a relation over a row of unknown type, whose outputs have
+    no type, with each supported output (a direct aggregate, the only one
+    there) of the known type typing gave it, such as `count()`; None when
+    there is none."""
+
+    typed = dict(scope)
+    for name, output in scope.items():
+        value_type = projection_value_types.get(output.expression)
+        if (
+            output.supported
+            and output.field is None
+            and value_type is not None
+            and value_type.kind is ValueTypeKind.KNOWN
+        ):
+            typed[name] = replace(
+                output,
+                field=RowField(
+                    name=name,
+                    resolved_type=value_type.resolved_type,
+                    nullability=value_type.nullability,
+                ),
+            )
+    return None if typed == scope else typed
+
+
 def _group_by_items(definition: DerivedRelation) -> tuple[GroupByItem, ...]:
     if definition.group_by_clause is None:
         return ()
@@ -306,7 +364,12 @@ def _infer_predicate(
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    check_known: bool = False,
 ) -> ValueType:
+    """Type a satisfying predicate. With ``check_known``, as over a row of
+    unknown type, an operand of `and` or `or` of unknown type without an
+    error of its own leaves the other to be checked."""
+
     if isinstance(expression, (NameExpr, LiteralExpr, ParameterRefExpr, CallExpr)):
         value_type = _infer_value(
             expression,
@@ -366,6 +429,7 @@ def _infer_predicate(
         return value_type
 
     if isinstance(expression, BinaryExpr) and expression.operator in {"and", "or"}:
+        start = len(diagnostics)
         left_type = _infer_predicate(
             expression.left,
             output_scope,
@@ -375,6 +439,7 @@ def _infer_predicate(
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
+            check_known=check_known,
         )
         right_type = _infer_predicate(
             expression.right,
@@ -385,11 +450,24 @@ def _infer_predicate(
             diagnostics=diagnostics,
             value_types=value_types,
             type_expansions=type_expansions,
+            check_known=check_known,
         )
         if (
             left_type.kind is ValueTypeKind.UNKNOWN
             or right_type.kind is ValueTypeKind.UNKNOWN
         ):
+            if (
+                check_known
+                and len(diagnostics) == start
+                and any(
+                    value_type.kind is ValueTypeKind.KNOWN
+                    and not _is_bool(value_type, type_expansions)
+                    for value_type in (left_type, right_type)
+                )
+            ):
+                diagnostics.append(
+                    _invalid_operands_diagnostic(expression, "Bool operands")
+                )
             value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
         if _is_bool(left_type, type_expansions) and _is_bool(

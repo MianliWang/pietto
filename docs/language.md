@@ -1584,6 +1584,31 @@ bound to one, that ends in an unpaired `!` is PIE-S2105. `matches` remains
 outside the selected
 project SQL scalar subset.
 
+A condition must be a `Bool`: a `where`, `satisfying`, shape `check` or index
+`when` condition (PIE-S2202), an operand of `and`, `or` or `not`, and the
+condition of a conditional (PIE-S2105). An operand of `and` or `or`, or the
+condition of a conditional, of a known type that is not `Bool` is refused
+also beside an operand or branch of unknown type that reported no error of
+its own and reads no `let:` binding with one, and a call of one of the
+functions above but `coalesce` and `nullif` has, as a condition, the result
+type its signature gives it even where an argument of unknown type leaves
+the call's own type unknown, as the call has that type or fails wherever it
+runs. So over a source without a shape `where len(t)` and `where lower(t)`
+are PIE-S2202, and `not lower(t)`, `t and 5` (also as the lines `t` and `5`
+of a `where:` block) and `1 if len(t) else 2` are PIE-S2105, also through a
+`let:` name bound to such a call, while `where t`, `where coalesce(t, u)` and
+`where contains(t, "x")` pass. A call whose always-null argument leaves its
+type unknown is such a condition as well: `where lower(coalesce(null, null))`
+is PIE-S2202, in a single file and in an EXPLICIT_MODULES relation without
+JOIN inputs or beside a `let:` binding with an error of its own (one with
+JOIN inputs otherwise fails closed with PIE-S2333). Over a source without a
+shape a `count()` output is an `Int` to `satisfying`, so with `c = count()`,
+`satisfying: c` is PIE-S2202 and `satisfying: c and m > 1` PIE-S2105. A
+condition whose unknown type an error of its own explains, or one of a
+`let:` binding it reads, reports nothing more. Elsewhere such a call keeps
+its unknown type, so `lower(t) + 1` and `where len(t) + 1` still pass
+`check`.
+
 Selected project SQL admits this closed Q1 surface only when every operand has
 an established carrier. A conditional emits `CASE WHEN condition THEN
 when_true ELSE when_false END`: NULL conditions take the else branch, and the
@@ -1717,7 +1742,8 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   not replaced, so that its error stands alone; nor is one that is an
   unknown field where it is read, as in a grouped select item (PIE-S2102);
   and one that an aggregate argument reads is checked with its binding's
-  type. These are PIE-S2395 at the call, also when the call is in a def
+  type, and is null where its value written in is null. These are
+  PIE-S2395 at the call, also when the call is in a def
   body, reported once however many times the body uses the argument and
   only for the innermost call that does not fit: an argument that does not
   fit is unknown to every expression around it, also through a built-in call
@@ -1728,7 +1754,11 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   `j = n` and `w = j + 1`. A form the aggregate accepts for no argument type
   is PIE-S2315 too: `count(nn(upper(text)))` is PIE-S2395 and PIE-S2315, as
   `count(upper(text))` is PIE-S2315, also through a `let:` name the
-  aggregate reads, with `w = upper(text)` or a constant such as `w = 1.5`. A
+  aggregate reads, with `w = upper(text)` or a constant such as `w = 1.5`.
+  A null argument is no exception: `sum(nn(null))` is PIE-S2395 and
+  PIE-S2315, as `nn(null)` outside an aggregate is PIE-S2395, and so is
+  `sum(nn(k))` with `k = null`, while `count(nn(n + null))` is PIE-S2395
+  alone, also as `count(nn(w))` with `w = n + null`. A
   select output that is a field or `let:` name passed to a def it does not
   fit, a group key included, has no type, as a computed output with an
   error has; in a project its relation then has no known columns, so a
