@@ -361,3 +361,26 @@ def test_unknown_definition_has_one_availability_diagnostic() -> None:
     assert [*relation_diagnostics, *syntax_diagnostics(unknown)] == [
         availability_diagnostic(span, "Definition semantics are not implemented.")
     ]
+
+
+def test_single_file_select_distinct_names_the_project_that_completes_it() -> None:
+    result = analyze(
+        _parse(
+            'shape Row:\n    id: Int not null\nsource rows: Row is postgres.table("rows")\n'
+            "query d:\n    from rows\n    select distinct:\n        id\n"
+        )
+    )
+
+    assert [
+        (d.code, d.severity, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2334",
+            Severity.ERROR,
+            6,
+            12,
+            "SELECT DISTINCT is available only when an EXPLICIT_MODULES project "
+            "(schema version 2) completes it.",
+        )
+    ]

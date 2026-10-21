@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import cache
 
 from pietto.ast_nodes import (
+    BinaryExpr,
     CallExpr,
     DottedNameExpr,
     Expression,
     GroupByItem,
+    LiteralExpr,
     NameExpr,
     Node,
     QueryDef,
@@ -18,6 +21,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     TypeExpr,
+    UnaryExpr,
     WindowExpr,
     inlined_arguments,
 )
@@ -31,6 +35,7 @@ from pietto.semantic.aggregates import (
     deferred_argument_expression_diagnostic,
     deferred_composition_diagnostic,
     effective_semantic_aggregate_argument_expression,
+    extremum_reads_let,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
@@ -42,7 +47,16 @@ from pietto.semantic.aggregates import (
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
-from pietto.semantic.expressions import _canonical_value_type, unfit_argument
+from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BUILTIN_TYPE_NAMES
+from pietto.semantic.expressions import (
+    _canonical_value_type,
+    condition_value_type,
+    let_value,
+    null_arithmetic_argument_diagnostics,
+    resolved_binary_value_type,
+    resolved_unary_value_type,
+    unfit_argument,
+)
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -92,20 +106,29 @@ def project_grouped_schema(
     let_expansions: Mapping[str, Expression] | None = None,
     rejected_lets: frozenset[str] = frozenset(),
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_extrema: bool = True,
+    reported_errors: frozenset[Diagnostic] | None = None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build grouped row schema facts while keeping lowering fail-closed.
 
     A bare read of a name in `rejected_lets` (a let binding PIE-S2329 already
-    refused) is not also reported as an unknown field.
+    refused) is not also reported as an unknown field. Without `let_extrema`,
+    as in a single file, `min` and `max` read no `let:` name (PIE-S2315).
+
+    Over a row of unknown type, such as a source without a shape, the relation
+    is checked by the names of the fields it reads (`open_input_schema`), its
+    ORDER BY is refused as a whole (PIE-S2321), and its row has no field, as
+    before Pietto checked one.
     """
 
     diagnostics: list[Diagnostic] = []
     if definition.group_by_clause is None:
         raise AssertionError("grouped schema requires a GROUP BY clause")
 
-    if input_schema.is_unknown:
-        diagnostics.extend(_grouped_order_by_diagnostics(definition))
-        return _unknown_schema(), diagnostics
+    unknown = input_schema.is_unknown
+    if unknown:
+        # A row of unknown type hides the types of its fields, not their names.
+        input_schema = open_input_schema(definition)
 
     group_keys, unknown_key_texts, key_diagnostics = _resolve_group_keys(
         definition,
@@ -176,6 +199,8 @@ def project_grouped_schema(
                 expression_value_types=expression_value_types,
                 let_expansions=let_expansions,
                 type_expansions=type_expansions,
+                reported_errors=reported_errors,
+                let_extrema=let_extrema,
             )
             diagnostics.extend(aggregate_diagnostics)
             if aggregate_field is not None:
@@ -256,7 +281,7 @@ def project_grouped_schema(
     diagnostics.extend(
         _grouped_order_by_diagnostics(
             definition,
-            grouped_order_outputs,
+            None if unknown else grouped_order_outputs,
             input_schema=input_schema,
             let_expansions=let_expansions,
             suppressed_output_names=duplicate_output_names,
@@ -266,6 +291,8 @@ def project_grouped_schema(
     if not saw_valid_aggregate and not saw_invalid_projection:
         diagnostics.append(_pure_grouped_output_deferred_diagnostic(definition))
 
+    if unknown:
+        return RowSchema(is_unknown=True), diagnostics
     return RowSchema(fields=fields), diagnostics
 
 
@@ -366,6 +393,8 @@ def _aggregate_output_field(
     expression_value_types: Mapping[Expression, ValueType] | None,
     let_expansions: Mapping[str, Expression] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    let_extrema: bool,
+    reported_errors: frozenset[Diagnostic] | None = None,
 ) -> tuple[RowField | None, list[Diagnostic], bool]:
     expression = item.expression
     diagnostics: list[Diagnostic] = []
@@ -393,6 +422,17 @@ def _aggregate_output_field(
         if not _has_unknown_argument(
             expression,
             expression_value_types=expression_value_types,
+        ) or (
+            input_schema.is_unknown
+            and unknown_row_arguments(
+                function_name,
+                expression,
+                definition=definition,
+                input_schema=input_schema,
+                let_expansions=let_expansions,
+                value_types=expression_value_types,
+                type_expansions=type_expansions,
+            )
         ):
             diagnostics.append(wrong_arity_diagnostic(expression))
         return _unknown_row_field(item.alias), diagnostics, False
@@ -400,12 +440,52 @@ def _aggregate_output_field(
     argument_type = None
     if expression.arguments:
         argument = expression.arguments[0]
+        unread = (
+            unread_let_diagnostics(function_name, argument, let_expansions)
+            if input_schema.is_unknown
+            else []
+        )
         authored_type = (
             None
             if expression_value_types is None
             else expression_value_types.get(argument)
         )
+        if unread:
+            diagnostics.extend(unread)
+            if (
+                authored_type is not None
+                and authored_type.kind is ValueTypeKind.KNOWN
+                and not is_supported_semantic_aggregate_argument(
+                    function_name,
+                    _canonical_value_type(authored_type, type_expansions, enum=True),
+                )
+            ):
+                diagnostics.append(
+                    wrong_argument_type_diagnostic(
+                        expression,
+                        actual_name=authored_type.resolved_type.name,
+                    )
+                )
+            return _unknown_row_field(item.alias), diagnostics, False
+        checked = (
+            unknown_row_aggregate(
+                function_name,
+                expression,
+                definition=definition,
+                input_schema=input_schema,
+                let_expansions=let_expansions,
+                value_types=expression_value_types,
+                type_expansions=type_expansions,
+                reported_errors=reported_errors,
+            )
+            if input_schema.is_unknown
+            else None
+        )
         if authored_type is None or authored_type.kind is ValueTypeKind.UNKNOWN:
+            if checked is not None:
+                valid, errors = checked
+                diagnostics.extend(errors)
+                return _unknown_row_field(item.alias), diagnostics, valid
             if not unknown_to_aggregate(
                 function_name,
                 argument,
@@ -414,6 +494,7 @@ def _aggregate_output_field(
                 let_expansions=let_expansions,
                 value_types=expression_value_types,
                 type_expansions=type_expansions,
+                reported_errors=reported_errors,
             ):
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
             return _unknown_row_field(item.alias), diagnostics, False
@@ -430,13 +511,23 @@ def _aggregate_output_field(
                 )
             )
             return _unknown_row_field(item.alias), diagnostics, False
-        if not is_supported_semantic_aggregate_argument_expression(
+        if (
+            not let_extrema
+            and extremum_reads_let(
+                function_name, argument, let_expansions, input_schema
+            )
+        ) or not is_supported_semantic_aggregate_argument_expression(
             function_name,
             argument,
             argument_type,
             let_expansions=let_expansions,
         ):
             diagnostics.append(deferred_argument_expression_diagnostic(expression))
+            return _unknown_row_field(item.alias), diagnostics, False
+        if checked is not None and not checked[0]:
+            # A call typed by its signature beside a field of the row has a
+            # type that no field type may give it.
+            diagnostics.extend(checked[1])
             return _unknown_row_field(item.alias), diagnostics, False
 
     value_type = (
@@ -635,23 +726,53 @@ def unknown_to_aggregate(
     let_expansions: Mapping[str, Expression] | None,
     value_types: Mapping[Expression, ValueType] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    reported_errors: frozenset[Diagnostic] | None = None,
+    reading_field: bool = False,
 ) -> bool:
     """Whether the aggregate ``function_name`` adds no PIE-S2315 for its
-    ``argument`` of unknown type: the argument reads a field of unknown type,
+    ``argument`` of unknown type: a scalar error from typed NULL arithmetic
+    is already specific, or the argument reads a field of unknown type,
     or a ``def`` argument in it that does not fit its parameter, at any depth
     or in the value of a `let:` name it reads, is unknown because of its own
     PIE-S2395 and the aggregate accepts the argument's form for some argument
     type. A part that is unknown only because of such a ``def`` argument is no
     field of unknown type. The aggregate reads a `let:` name only as its whole
-    argument, and then the names that name's value reads."""
+    argument, and then the names that name's value reads; over an input row of
+    known shape a `min` or `max` argument reads any `let:` name in it as its
+    value, its form is accepted for no argument type, and a field of unknown
+    type there does not make it unknown (`extremum_reads_let`).
+
+    With ``reading_field``, whether only fields of unknown type leave the
+    argument unknown: it reads one and holds no such ``def`` argument."""
 
     if value_types is None:
         return False
+    if reported_errors:
+        error_argument = (
+            let_value(argument, input_schema, let_expansions)
+            if aggregate_argument_can_use_let_scope(
+                function_name, argument, let_expansions
+            )
+            else argument
+        )
+        if null_arithmetic_argument_diagnostics(
+            error_argument,
+            input_schema,
+            value_types,
+            let_expansions,
+            type_expansions,
+            reported_errors=reported_errors,
+        ):
+            return True
+    extremum = extremum_reads_let(function_name, argument, let_expansions, input_schema)
     lets = (
         let_expansions
         if let_expansions is not None
-        and aggregate_argument_can_use_let_scope(
-            function_name, argument, let_expansions
+        and (
+            extremum
+            or aggregate_argument_can_use_let_scope(
+                function_name, argument, let_expansions
+            )
         )
         else {}
     )
@@ -688,13 +809,25 @@ def unknown_to_aggregate(
             function_name, argument, let_expansions=let_expansions
         )
     ]
-    while pending:
+    followed: set[str] = set()
+    reads_field = False
+    while pending and not reads_field:
         node = pending.pop()
         if not isinstance(node, (NameExpr, DottedNameExpr)):
             pending.extend(child_expressions(node))
             continue
-        value_type = value_types.get(node)
+        # A name met again (`w = w`) is checked as the read it is.
         if (
+            extremum
+            and isinstance(node, NameExpr)
+            and node.name in lets
+            and node.name not in followed
+        ):
+            followed.add(node.name)
+            pending.append(lets[node.name])
+            continue
+        value_type = value_types.get(node)
+        reads_field = (
             (value_type is None or value_type.kind is ValueTypeKind.UNKNOWN)
             and not unfit(node)
             and not (
@@ -702,13 +835,534 @@ def unknown_to_aggregate(
                 and node.name in lets
                 and holds_unfit(lets[node.name])
             )
-        ):
-            return True
+            # There a field of unknown type is still read through a name that
+            # is no direct field; only an error elsewhere explains the name.
+            and not (
+                extremum
+                and _resolve_input_field(definition, node, input_schema) is not None
+            )
+        )
+    if reading_field:
+        return reads_field and not holds_unfit(argument)
+    if reads_field:
+        return True
     # In a form the aggregate accepts for no argument type, it is also
     # PIE-S2315, which no argument type would avoid.
-    return holds_unfit(argument) and accepts_argument_form(
+    return (
+        not extremum
+        and holds_unfit(argument)
+        and accepts_argument_form(
+            function_name, argument, let_expansions=let_expansions
+        )
+    )
+
+
+def unknown_row_aggregate(
+    function_name: str,
+    expression: CallExpr,
+    *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+    value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    reported_errors: frozenset[Diagnostic] | None = None,
+) -> tuple[bool, list[Diagnostic]] | None:
+    """Check the aggregate ``expression`` of a relation over a row of unknown
+    type, such as a source without a shape, read as ``input_schema`` from
+    `open_input_schema`, whose one argument reads fields of that row, which
+    alone leave it unknown when it is, as over a known row of field types
+    the argument allows: whether it is valid, and its errors. It is valid
+    when the aggregate accepts the argument's form for a type the argument
+    has for one type of each of those fields (`_argument_types`), so a part
+    of known type, such as a literal, is checked as over a known row:
+    `count(x + 1)` is valid and `count(x + "a")` and `count(len(x) + x)` are
+    PIE-S2315, as over a row of any field types, and so is any other form. A
+    read of a name that is no field of the row has an error of its own, and
+    so has an argument of an accepted form in which typing reported one.
+    An already-reported typed-NULL scalar error also stands alone when the
+    argument form is refused.
+    None when the argument reads no field of the row or is unknown for
+    another reason."""
+
+    argument = expression.arguments[0]
+    reads = _reads_unknown_row(
+        function_name,
+        argument,
+        definition=definition,
+        input_schema=input_schema,
+        let_expansions=let_expansions,
+        value_types=value_types,
+        type_expansions=type_expansions,
+    )
+    if reads is None:
+        return None
+    if not reads:
+        return False, []
+    form = effective_semantic_aggregate_argument_expression(
         function_name, argument, let_expansions=let_expansions
     )
+    if accepts_argument_form(function_name, form):
+        types = _argument_types(
+            argument,
+            lambda name: is_supported_semantic_aggregate_argument_expression(
+                function_name, form, _builtin_type(name), form_only=True
+            ),
+            definition=definition,
+            input_schema=input_schema,
+            let_expansions=let_expansions,
+            value_types=value_types or {},
+            type_expansions=type_expansions,
+        )
+        if types is None:
+            return False, []
+        if types:
+            return True, []
+    if reported_errors and value_types is not None:
+        error_argument = (
+            let_value(argument, input_schema, let_expansions)
+            if aggregate_argument_can_use_let_scope(
+                function_name, argument, let_expansions
+            )
+            else argument
+        )
+        if null_arithmetic_argument_diagnostics(
+            error_argument,
+            input_schema,
+            value_types,
+            let_expansions,
+            type_expansions,
+            reported_errors=reported_errors,
+        ):
+            return False, []
+    return False, [deferred_argument_expression_diagnostic(expression)]
+
+
+_ArgumentPart = tuple[ValueType | None, frozenset[str]]
+
+# A field of a row of unknown type that an aggregate argument reads takes the
+# first of these types that all its reads may have. When some field types
+# give the argument a type the aggregate accepts, so do those that make each
+# field of a number type an `Int`: only fields give a `Decimal` in such an
+# argument, so each part of a number type is then an `Int`, or a `Float`
+# where it reads a `Float` literal, and each rule that takes a number takes
+# either beside either, but `%`, which takes only an `Int`, as its operands
+# then still are.
+_FIELD_TYPE_ORDER = ("Int", *sorted(BUILTIN_TYPE_NAMES - {"Int"}))
+
+
+def _argument_types(
+    argument: Expression,
+    accepts: Callable[[str], bool],
+    *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+    value_types: Mapping[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> frozenset[str] | None:
+    """The built-in types that ``argument``, an aggregate argument in a form
+    the aggregate accepts over the row of unknown type ``input_schema``, has
+    of those ``accepts`` takes, for one type of each field of that row it
+    reads, also through the values of the `let:` names it reads, if some
+    field types give it one, and else none: a literal or other leaf that
+    typing typed has that type, a field read the type of its field, a null
+    any type, as each `null` is typed by its operator, and an operator or a
+    function each type its rule gives over the types its operands may have,
+    none when an operand may have none, as a call typed by its signature
+    beside a field may not (`lower(x + 1)`). None when typing reported an
+    error in it, which explains its unknown type: typing gave no type to a
+    part all of whose operands it typed, read an `and` or `or` operand of a
+    known type that is not `Bool` as a condition (`condition_value_type`), or
+    found a null arithmetic operand beside one of a type that the operator
+    does not take twice.
+
+    The types each part may have, each read of a field taking any type, give
+    from the types the aggregate accepts down the types each read may have
+    there; a field then takes the first type of `_FIELD_TYPE_ORDER` that all
+    its reads may have, which gives the argument a type the aggregate accepts
+    when any field types do. Each part is visited three times, so the cost
+    grows linearly with the argument and the `let:` values it reads."""
+
+    lets = let_expansions or {}
+    row = RowSchema(is_unknown=True)
+
+    def typed(node: Expression) -> ValueType | None:
+        value_type = value_types.get(node)
+        if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
+            return None
+        return _canonical_value_type(value_type, type_expansions)
+
+    def refused(node: BinaryExpr) -> bool:
+        if node.operator in {"and", "or"}:
+            return any(
+                (
+                    condition := _canonical_value_type(
+                        condition_value_type(
+                            operand, value_types.get(operand, _UNKNOWN_TYPE), row, lets
+                        ),
+                        type_expansions,
+                    )
+                ).kind
+                is ValueTypeKind.KNOWN
+                and _type_names(condition) != {"Bool"}
+                for operand in (node.left, node.right)
+            )
+        for null, other in ((node.left, node.right), (node.right, node.left)):
+            other_type = typed(other)
+            value = let_value(null, row, lets)
+            if (
+                other_type is not None
+                and type(value) is LiteralExpr
+                and value.value is None
+            ):
+                return (
+                    resolved_binary_value_type(node.operator, other_type, other_type)[1]
+                    is not None
+                )
+        return False
+
+    def reads(node: Expression) -> tuple[Expression, ...]:
+        if isinstance(node, NameExpr) and node.name in lets:
+            return (lets[node.name],)
+        return child_expressions(node)
+
+    def field(node: Expression) -> str | None:
+        if (
+            not isinstance(node, (NameExpr, DottedNameExpr))
+            or (isinstance(node, NameExpr) and node.name in lets)
+            or typed(node) is not None
+        ):
+            return None
+        return _field_identity(definition, node, input_schema)
+
+    def evaluate(
+        node: Expression,
+        parts: Mapping[int, _ArgumentPart | None],
+        field_types: Mapping[str, frozenset[str]],
+    ) -> _ArgumentPart | None:
+        known = typed(node)
+        operands: list[frozenset[str]] = []
+        operands_typed = True
+        for child in reads(node):
+            operand = parts[id(child)]
+            if operand is None:
+                return None
+            operands.append(operand[1])
+            operands_typed = operands_typed and operand[0] is not None
+        if isinstance(node, NameExpr) and node.name in lets:
+            return known, operands[0]
+        if not operands:
+            if known is not None:
+                return known, _type_names(known)
+            name = field(node)
+            return known, (
+                BUILTIN_TYPE_NAMES
+                if name is None
+                else field_types.get(name, BUILTIN_TYPE_NAMES)
+            )
+        if operands_typed:
+            if known is None:
+                # Typing checked the part with the type of each operand.
+                return None
+        elif isinstance(node, BinaryExpr) and refused(node):
+            return None
+        return known, _part_types(node, operands)
+
+    # A loop, not recursion, as `let:` values may nest deeper than the
+    # interpreter's recursion limit (PIE-S2328); a part on its own path is a
+    # `let:` cycle, which has an error of its own. Each part follows the
+    # parts it reads in `order`.
+    parts: dict[int, _ArgumentPart | None] = {}
+    order: list[Expression] = []
+    on_path: set[int] = set()
+    pending: list[tuple[Expression, bool]] = [(argument, False)]
+    while pending:
+        node, read = pending.pop()
+        key = id(node)
+        if read:
+            on_path.discard(key)
+            parts[key] = evaluate(node, parts, {})
+            order.append(node)
+        elif key in on_path:
+            parts[key] = None
+        elif key not in parts:
+            on_path.add(key)
+            pending.append((node, True))
+            pending.extend((child, False) for child in reads(node))
+    if parts[id(argument)] is None:
+        return None
+    may = {key: part[1] for key, part in parts.items() if part is not None}
+
+    # The types each part may have where the argument has one the aggregate
+    # accepts: those that give each part reading it such a type beside some
+    # types of its other operands.
+    accepted = frozenset(filter(accepts, may[id(argument)]))
+    needs = {id(argument): accepted}
+    reads_need: dict[str, frozenset[str]] = {}
+    for node in reversed(order):
+        need = needs[id(node)]
+        name = field(node)
+        if name is not None:
+            reads_need[name] = reads_need.get(name, need) & need
+            continue
+        children = reads(node)
+        for child, child_need in zip(
+            children,
+            [need]
+            if isinstance(node, NameExpr) and node.name in lets
+            else _operand_needs(node, [may[id(child)] for child in children], need),
+            strict=True,
+        ):
+            key = id(child)
+            needs[key] = needs[key] & child_need if key in needs else child_need
+
+    field_types: dict[str, frozenset[str]] = {}
+    for name, types in reads_need.items():
+        first = next((each for each in _FIELD_TYPE_ORDER if each in types), None)
+        if first is None:
+            return frozenset()
+        field_types[name] = frozenset({first})
+    typed_parts: dict[int, _ArgumentPart | None] = {}
+    for node in order:
+        typed_parts[id(node)] = evaluate(node, typed_parts, field_types)
+    typed_argument = typed_parts[id(argument)]
+    assert typed_argument is not None
+    return typed_argument[1] & accepted
+
+
+_UNKNOWN_TYPE = ValueType(
+    resolved_type=_UNKNOWN_RESOLVED_TYPE,
+    nullability=EffectiveNullability.UNKNOWN,
+    kind=ValueTypeKind.UNKNOWN,
+)
+
+
+def _type_names(value_type: ValueType) -> frozenset[str]:
+    resolved = value_type.resolved_type
+    if resolved.kind is TypeKind.BUILTIN:
+        return frozenset({resolved.name})
+    return frozenset()
+
+
+def _part_types(node: Expression, operands: list[frozenset[str]]) -> frozenset[str]:
+    """The types an operator or a built-in function gives ``node`` over
+    operands of the types ``operands``; any type for another part, which no
+    aggregate accepts in its argument."""
+
+    if isinstance(node, UnaryExpr):
+        return _unary_types(node.operator, operands[0])
+    if isinstance(node, BinaryExpr):
+        return _binary_types(node.operator, operands[0], operands[1])
+    if isinstance(node, CallExpr) and isinstance(node.callee, NameExpr):
+        signature = BUILTIN_FUNCTIONS.get(node.callee.name)
+        if signature is not None and len(signature.parameter_types) == len(operands):
+            if all(
+                parameter in types
+                for parameter, types in zip(
+                    signature.parameter_types, operands, strict=True
+                )
+            ):
+                return frozenset({signature.return_type})
+            return frozenset()
+    return BUILTIN_TYPE_NAMES
+
+
+def _operand_needs(
+    node: Expression, operands: list[frozenset[str]], need: frozenset[str]
+) -> list[frozenset[str]]:
+    """The types of each operand of ``node``, of the types ``operands`` its
+    operands may have, that give ``node`` a type of ``need`` beside some
+    types of its other operands (`_part_types`)."""
+
+    return [
+        frozenset(
+            name
+            for name in types
+            if _part_types(
+                node, [*operands[:index], frozenset({name}), *operands[index + 1 :]]
+            )
+            & need
+        )
+        for index, types in enumerate(operands)
+    ]
+
+
+@cache
+def _builtin_type(name: str) -> ValueType:
+    return ValueType(
+        resolved_type=ResolvedType(name=name, kind=TypeKind.BUILTIN),
+        nullability=EffectiveNullability.UNKNOWN,
+    )
+
+
+@cache
+def _unary_types(operator: str, operand: frozenset[str]) -> frozenset[str]:
+    return frozenset(
+        result.resolved_type.name
+        for name in operand
+        for result, expected in (
+            resolved_unary_value_type(operator, _builtin_type(name)),
+        )
+        if expected is None and result.kind is ValueTypeKind.KNOWN
+    )
+
+
+@cache
+def _binary_types(
+    operator: str, left: frozenset[str], right: frozenset[str]
+) -> frozenset[str]:
+    return frozenset(
+        result.resolved_type.name
+        for left_name in left
+        for right_name in right
+        for result, expected in (
+            resolved_binary_value_type(
+                operator, _builtin_type(left_name), _builtin_type(right_name)
+            ),
+        )
+        if expected is None and result.kind is ValueTypeKind.KNOWN
+    )
+
+
+def unknown_row_arguments(
+    function_name: str,
+    expression: CallExpr,
+    *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+    value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool:
+    """Whether each argument of the aggregate ``expression`` of a relation over
+    a row of unknown type, read as ``input_schema`` from `open_input_schema`,
+    that has no type has none only because it reads fields of that row, so a
+    wrong number of arguments is PIE-S2309 as over a known row."""
+
+    return value_types is not None and all(
+        (
+            (value_type := value_types.get(argument)) is not None
+            and value_type.kind is not ValueTypeKind.UNKNOWN
+        )
+        or _reads_unknown_row(
+            function_name,
+            argument,
+            definition=definition,
+            input_schema=input_schema,
+            let_expansions=let_expansions,
+            value_types=value_types,
+            type_expansions=type_expansions,
+        )
+        is True
+        for argument in expression.arguments
+    )
+
+
+def _reads_unknown_row(
+    function_name: str,
+    argument: Expression,
+    *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+    value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool | None:
+    """Whether ``argument`` of the aggregate ``function_name``, over the row
+    of unknown type ``input_schema`` from `open_input_schema`, reads only
+    fields of that row, also through the values of the `let:` names it reads:
+    None when it is unknown for another reason (`unknown_to_aggregate`), and
+    False when it reads a name that is no field of the row."""
+
+    if not unknown_to_aggregate(
+        function_name,
+        argument,
+        definition=definition,
+        input_schema=input_schema,
+        let_expansions=let_expansions,
+        value_types=value_types,
+        type_expansions=type_expansions,
+        reading_field=True,
+    ):
+        return None
+    lets = let_expansions or {}
+    pending: list[tuple[Expression, frozenset[str]]] = [(argument, frozenset())]
+    while pending:
+        node, reached = pending.pop()
+        if isinstance(node, NameExpr) and node.name in lets:
+            if node.name in reached:
+                return False
+            pending.append((lets[node.name], reached | {node.name}))
+        elif isinstance(node, (NameExpr, DottedNameExpr)):
+            if _resolve_input_field(definition, node, input_schema) is None:
+                return False
+        else:
+            pending.extend((child, reached) for child in child_expressions(node))
+    return True
+
+
+def unread_let_diagnostics(
+    function_name: str,
+    argument: Expression,
+    let_expansions: Mapping[str, Expression] | None,
+) -> list[Diagnostic]:
+    """PIE-S2102 for each `let:` name that the aggregate ``function_name``
+    reads in ``argument`` of a relation over a row of unknown type where it
+    reads no `let:` name: inside a call or an operator, or as the argument of
+    `min` or `max`. Such a name is no field of the row, as over a known row."""
+
+    lets = let_expansions or {}
+    if aggregate_argument_can_use_let_scope(function_name, argument, lets):
+        return []
+    diagnostics: list[Diagnostic] = []
+    pending = [argument]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, NameExpr):
+            if node.name in lets:
+                diagnostics.append(_unknown_field_diagnostic(node))
+        else:
+            pending.extend(reversed(child_expressions(node)))
+    return diagnostics
+
+
+def open_input_schema(definition: DerivedRelation) -> RowSchema:
+    """Return the row of unknown type ``definition`` reads, such as a source
+    without a shape, as its grouping and aggregates read it: each name its
+    `let:` values, GROUP BY keys and SELECT items read, bare or after its
+    `from` binding, that no `let:` binds is a field of unknown type there, and
+    the row stays unknown to any other read."""
+
+    lets = () if definition.let_clause is None else definition.let_clause.bindings
+    keys = (
+        () if definition.group_by_clause is None else definition.group_by_clause.items
+    )
+    let_names = {binding.name for binding in lets}
+    pending: list[Expression] = [
+        *(binding.expression for binding in lets),
+        *(item.key for item in keys),
+        *(item.expression for item in definition.select_items),
+    ]
+    pending.reverse()
+    fields: dict[str, RowField] = {}
+    while pending:
+        node = pending.pop()
+        if isinstance(node, NameExpr):
+            name = None if node.name in let_names else node.name
+        elif isinstance(node, DottedNameExpr):
+            name = (
+                node.parts[1]
+                if len(node.parts) == 2
+                and node.parts[0] == definition.from_clause.source_name
+                else None
+            )
+        else:
+            pending.extend(reversed(child_expressions(node)))
+            continue
+        if name is not None and name not in fields:
+            fields[name] = _unknown_row_field(name)
+    return RowSchema(fields=fields, is_unknown=True)
 
 
 def _unknown_named_field(output_name: str | None) -> RowField | None:
@@ -723,10 +1377,6 @@ def _unknown_row_field(name: str) -> RowField:
         resolved_type=_UNKNOWN_RESOLVED_TYPE,
         nullability=EffectiveNullability.UNKNOWN,
     )
-
-
-def _unknown_schema() -> RowSchema:
-    return RowSchema(is_unknown=True)
 
 
 def _unknown_field_diagnostic(expression: NameExpr | DottedNameExpr) -> Diagnostic:

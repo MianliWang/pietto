@@ -60,7 +60,13 @@ This decision keeps the current aggregate boundaries:
 
 Broader generic paths remain unresolved and deferred. Slice 5 does not define a
 final Enum comparison matrix, ordering policy, group-key policy, or
-`satisfying`/result predicate policy.
+`satisfying`/result predicate policy. A later defect fix checks the operands of
+an enum comparison or `between`: an enum, or an alias of one, compares with
+its own enum and with a `Text` literal, or a `let:` name bound to one, that is
+one of its labels, and any other known operand reports `PIE-S2105`, while an
+`Any` operand is not checked (see
+`operator-comparison-matrix-contract-v1.md`). That fail-closed check defines
+none of the enum comparison policy listed under Future Prerequisites.
 
 ## Explicit Non-goals
 

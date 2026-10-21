@@ -137,6 +137,11 @@ PIE-S2333 — Project relation semantic completion is unavailable: <relation>
 name），不公开 terminal enum、Python carrier、object ID、内部路径或 Project IR
 coordinate。entry 已保留精确 user-facing ERROR 时不生成 fallback。
 
+Post-Phase70 amendment：自身名称或 FROM 输入未能解析的 source、table 或
+query（historical row state `UNRESOLVED_RELATION_BLOCKED`）在 module resolution 已保留
+ERROR（例如 `PIE-S2001`、`PIE-S2301` 或 `PIE-S2704`）时不生成 fallback，与单文件一致；
+读取它的下游 relation 仍按上述规则得到自己的 `PIE-S2333`。
+
 Post-Phase70 amendment：若该 relation 自身的 joined aggregate 因某个 JOIN 可能重复其
 输入行（fan-out）而被拒绝，message 在 relation name 后追加一个原因从句。它按源码顺序点名
 位于每个被拒 aggregate 已确定行的边界上的 JOIN（aggregate 不读任何 JOIN 侧时写作

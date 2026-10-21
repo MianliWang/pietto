@@ -213,8 +213,7 @@ refuse them with an ERROR: PIE-S2334 for the JOIN forms, DISTINCT and set
 operations, and PIE-S2345 to PIE-S2352 for relation lets, header parameters,
 VALUES bodies, relation reads, `capture` lines and table functions. Each of
 these messages says that the form is available in EXPLICIT_MODULES projects
-(schema version 2), except the DISTINCT one, which says that DISTINCT requires
-explicit-module semantics. A LEGACY_FLAT project check refuses them the same
+(schema version 2). A LEGACY_FLAT project check refuses them the same
 way, and there, as in a single file, a table or query whose `from` reads a set
 operation reports PIE-S2334 at that `from`.
 An `inner` or `left` relationship traversal passes
@@ -245,9 +244,11 @@ does not support, for example `ignore nulls` and `from last` on both backends,
 GROUPS and EXCLUDE frames on MySQL, and a source whose connector is not
 `X.table`. PostgreSQL also refuses a table or query that another relation of
 the file reads when one of its outputs is `null` itself, such as `v = null`, a
-`let:` name bound to `null` or a `def` call that is `null` once written in, as
-PostgreSQL would give the reader a `text` column where Pietto has no type (a
-project refuses such an output at check with PIE-S2333). Only `emit-sql
+`let:` name bound to `null` or a `def` call that is `null` once written in, or
+a conditional, `coalesce` or `nullif` whose every value is such a `null`, such
+as `v = null if b else null` or `c = coalesce(null, null)`, as PostgreSQL
+would give the reader a `text` column where Pietto has no type (a project
+refuses such an output at check with PIE-S2333). Only `emit-sql
 --dialect X` shows that a file emits for X.
 
 ## Types and shapes
@@ -354,12 +355,15 @@ label = "x"` or `-1`, is PIE-S2380, even from a source without a shape,
 because SQL reads an integer as a column position and PostgreSQL rejects other
 bare constants; a computed constant such
 as `1 + 1` sorts nothing and is accepted. In a query with aggregates and no
-GROUP BY whose input fields are known (a source with a shape, say), a key
-that reads an input field outside an aggregate is PIE-S2380 too. A grouped
+GROUP BY, a key that reads an input field outside an aggregate is PIE-S2380
+too, also from a source without a shape, where any name that no `let:` binds
+is an input field. A grouped
 key stays PIE-S2321. When a SELECT item would capture a bare
 input field key (an output of the same name, which MySQL compares
-case-insensitively, or on PostgreSQL any unaliased computed item, which it
-names implicitly), the emitted SQL qualifies the key with the name FROM already
+case-insensitively; on PostgreSQL any unaliased computed item, which it
+names implicitly; on MySQL an unaliased Text literal, `true`, `false` or
+`null`, which it names by the Text value or `TRUE`, `FALSE` or `NULL`), the
+emitted SQL qualifies the key with the name FROM already
 gives the input, as in `FROM "sales"."orders" ... ORDER BY "orders"."amount"`;
 the FROM clause is unchanged. Single-file
 lowering inlines a `let` binding wherever a relation expression reads it, so an
@@ -626,6 +630,23 @@ reads a source declaring one BLOCKED with PIE-B1003 (for example
 `representation_not_in_initial_domain` at the field), or with PIE-B1003 `order`
 for an ORDER BY key that reads a shape-typed field inside an expression, such
 as `home is null`.
+
+Without JOIN inputs, the value of a selected `lag`, `lead`, `first_value`,
+`last_value` or `nth_value` of a project table or query, and a `lag`/`lead`
+default, may be a field typed by a shape, or by an alias of one, as in a single
+file a field of the shape itself may be, and the call gives a column of that
+shape. A later table or query may select such a column or read it as a window
+value again, and reads it elsewhere as it reads a field of the shape, so a
+computed output such as `coalesce(previous, payload)` reports PIE-S2333 at the
+table or query; a `select distinct` table or query reports such a window value
+of its own PIE-S2339. A window value function over such a field of a row that
+also has a field of another shape of the same name, declared in another
+module, reports PIE-S2333. A project window partitioned or ordered by such a
+field is still refused (PIE-S2103, or PIE-S2102 for a grouped key), and a
+window of a table or query with JOIN inputs, and a window inside `qualify:`,
+also refuse such a value (PIE-S2104 `value type must be concrete`). A single
+file keeps an alias of a shape as the alias, so its window value functions
+refuse it (PIE-S2104).
 
 An alternate complete table/query body retains named set operands:
 
@@ -1259,7 +1280,10 @@ the parameter. A parameter name that is also an input field (a typed VALUES
 column of a FROM or JOIN input included), a `let:` name, a relation name of the
 module, a JOIN binding, a SELECT output or a named window is an error
 (PIE-S2354), so a read never changes meaning; a SELECT item that only reads a
-parameter needs its own alias.
+parameter needs its own alias. A read is typed as its declaration: a `Text`
+parameter is a `Text` operand that is not a literal, so comparing it with a
+`Date`, `Timestamp`, `UUID`, `Bytes`, `Json` or enum field is PIE-S2105 (see
+Comparisons), and no parameter can stand for a value of those types.
 
 A read, or a `let:` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,
@@ -1460,9 +1484,13 @@ Flag not null` field filters as a `Bool` field does. A pair the base type
 refuses is refused alike, such as `amount * 2` or `-amount` (PIE-S2105),
 `count` of an alias of `Any` is PIE-S2314 as `count` of `Any` is, and
 `lower(amount)` is PIE-S2104, whose message names the type as written (`got
-Money`). An alias of a shape is not expanded, and an alias of an enum only for
-an aggregate argument: with `type Phase = Status not null`, `count` of a
-`Phase` field is PIE-S2314 as `count` of a `Status` field is (`got Phase`).
+Money`). An alias of an enum or a shape is not expanded there, but it reads
+as that enum or shape where operands need one type or family (a comparison,
+`between`, an `in` list, `coalesce`, `nullif` and a conditional's branches),
+and an alias of an enum as the enum for an aggregate argument too: with
+`type Phase = Status not null`, `count` of a `Phase` field is PIE-S2314 as
+`count` of a `Status` field is (`got Phase`), and a `Phase` field compares
+with a `Status` field.
 
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`
@@ -1488,27 +1516,80 @@ raises an error, while MySQL `/` and `DIV` return NULL. Dividing the smallest
 `Int` by -1 overflows the signed 64-bit range; what each target does then is
 not specified here. Division with a `Decimal` operand is not specified yet: it
 has no result type and emits a bare `/`, so each target applies its own
-numeric division. Semantic support is intentionally narrower
-than parsing for some type/operator pairs; rejected pairs use diagnostics
+numeric division. The quotient is still a number, as are arithmetic over it
+and numbers, `abs` of it and a `coalesce`, `nullif` or conditional of such
+numbers, where a `null` takes their type, also through a `let:` name (a
+column of another relation that holds one is of unknown type there), so a use
+that takes no
+number is refused as it is for an operand of each numeric type: with
+`amount: Decimal(10, 2) not null` and `label: Text not null`,
+`where amount / 2`, `where coalesce(amount / 2, 0)` and
+`where coalesce(amount / 2, null)` are PIE-S2202; `amount / 2 + "x"`,
+`amount / 2 == "x"`, `amount / 2 like "x%"`, `amount / 2 in ("x", "y")`,
+`amount / 2 between "a" and "z"`, `not (amount / 2)` and
+`label if amount > 1 else amount / 2` are PIE-S2105, as is
+`abs(amount / 2) + "x"`; and `lower(amount / 2)`, `lower(abs(amount / 2))`,
+`year(amount / 2)` (`got numeric`) and
+`coalesce(label, amount / 2)` are PIE-S2104, in a single file and in an
+EXPLICIT_MODULES relation (one with JOIN inputs may fail closed with
+PIE-S2333 instead). Where a number fits, it is accepted beside numbers of any
+type, so a single file accepts `amount / 2 > 1`, `amount / 2 + 1`,
+`(amount / 2) % 2.5`, `amount / 2 in (1, 2.5)` and `abs(amount / 2)`. Beside
+another operand of unknown type, other than such a `null`, arithmetic, a
+comparison, `like`, `between`, `in`/`not in`, a conditional's branches,
+`coalesce` and `nullif` do not check the quotient, as they do not check an
+operand of any numeric type there; a parameter that takes no number refuses
+it also beside an argument of unknown type. Semantic support is intentionally
+narrower than parsing for some type/operator pairs; rejected pairs use diagnostics
 rather than implicit conversions. A `null` operand of `+`, `-`, `*`, `/` or
 `%`, also a `let:` name bound to it, takes the other operand's type, which the
 operator must accept: `n + null` is accepted, while `label + null` with a
-`Text` field is PIE-S2105, as `label + label` is. PostgreSQL types no
+`Text` field is PIE-S2105, as `label + label` is. The result, always null, has
+the type that the operator gives two operands of that type, as its typed twin
+does: with `Int` fields `n` and `f1`, `n + null` is an `Int` (so MySQL
+divides `(n + null) / 2` with `DIV`), and `trim(null % f1)`,
+`lower(null + n)`, `(null + n) == "x"` and `where null + n` are refused as
+`trim(f1 % f1)` and the others are, while with a `Decimal` field `d`,
+`null / d` is a number of unknown type, as `d / d` is. PostgreSQL types no
 arithmetic whose every operand is `null`, so single-file PostgreSQL emission
 refuses `null + null` and `-null`, also as `coalesce(-null, n)` or as
 `twice(null)` with `def twice(x: Int nullable) -> Int nullable: return x + x`
-(PIE-B1000); MySQL emits them.
+(PIE-B1000); MySQL emits them. PostgreSQL types a conditional, `coalesce` or
+`nullif` whose every value is `null` as `text`, so single-file PostgreSQL
+emission also refuses one (PIE-B1000) as an operand of an arithmetic, `and`,
+`or`, `not` or sign operator, as a `where` condition or a conditional's
+condition, as the argument of `abs`, `sign`, `year`, `month`, `day`, `hour`
+or `minute`, such as `coalesce(null, null) + 1`, and beside an operand of a
+known type that is not `Text`, an enum or `Any` in a comparison, `between`, an
+`in` list, `coalesce`, `nullif` or a conditional's branches, such as
+`coalesce(null, null) == 1` or `coalesce(null if b else null, n)` with an
+`Int` field `n`; MySQL emits them too. As a conditional's branch, a
+`coalesce` or `nullif` argument or an `in` operand, such a value takes the
+type of the values of known type beside it, as `null` does, so the expression
+around it is checked: with a `Text` field `t2`,
+`(t2 if b else (null if b else null)) + 1` and
+`coalesce(t2, coalesce(null, null)) == 1` are PIE-S2105, as
+`(t2 if b else null) + 1` is, and so is `v + 1` in a relation that reads
+`v = t2 if b else (null if b else null)`.
 
 Comparisons and `between` require operands from one family: numeric (`Int`,
-`Float`, `Decimal`), `Text`, `Bool`, temporal (`Date`, `Timestamp`), or
-`UUID`. A type alias operand is checked as the type it expands to. Other known
-pairs, such as an `Int` field compared with `"x"` or a `Bool` field compared
-with `1`, report `PIE-S2105` in every check mode. `Text` against `Date`,
-`Timestamp` or `UUID` stays accepted until typed constants are decided, because
-a text literal is the only constant form for those types; non-literal `Text`
-operands such as fields, calls and `let` values are not yet checked against
-those types either. Operands typed `Any`, `Bytes`, `Json`, an enum, or a shape
-are not checked.
+`Float`, `Decimal`), `Text`, `Bool`, temporal (`Date`, `Timestamp`), `UUID`,
+`Bytes`, `Json`, one enum or one shape. A type alias operand is checked as the
+type it expands to, an alias of an enum or a shape as that enum or shape.
+Other known pairs, such as an `Int` field compared with `"x"`, a `Bool` field
+compared with `1`, or an enum field compared with `1` or with a field of
+another enum, report `PIE-S2105` in every check mode. Operands typed `Any`
+are not checked. A `Text` literal, or a `let:` name bound to
+one, also compares with `Date`, `Timestamp`, `UUID`, `Bytes` and `Json`,
+because a text literal is the only constant form for those types (whether it
+is a valid constant of the type is not checked until typed constants are
+decided), and an enum compares with a `Text` literal that is one of its
+labels, such as `status == "active"` with `status: Status`. Any other `Text`
+operand, such as a field or a call, is PIE-S2105 against those types and an
+enum, and so is a `Text` literal that is not a label against an enum:
+`born == name` with `born: Date` and `status == "gone"` are refused, as
+PostgreSQL has no `date = text` operator and a PostgreSQL enum column rejects
+a value that is not one of its labels.
 
 An `in` or `not in` list tests `value == option` for each option, but its value
 and options must have one type once aliases are expanded, except that `Decimal`
@@ -1518,9 +1599,12 @@ check and emit as written (`"amount" IN (1, 2)` on PostgreSQL), and a `null`
 option among them takes the `Decimal` type. Every other mix is PIE-S2105
 (`expected same canonical membership operands`) even where the comparison is
 accepted, such as `amount in (2.5)` or a `Float` field in `(1, 2)`. A `null`
-option is typed only when the other operands have such a type, and a list with
-an operand of unknown type, an untyped `null` included, is not refused for its
-types, so `amount in (2.5, null)` is not refused either. An EXPLICIT_MODULES
+option is typed only when the other operands have such a type. Otherwise the
+list is PIE-S2105 when the value does not compare with another option (see
+Comparisons), as `id in (1, "x", null)` with an `Int` field `id` is, and is
+not refused for its types when it does, as `amount in (2.5, null)` is not. A
+list with another operand of unknown type is not refused for its types. An
+EXPLICIT_MODULES
 project checks lists and `in` reads alike, and `emit-sql --project` and
 `compile_query` then refuse a `Decimal` with an `Int` in a query they otherwise
 emit with PIE-B1003 `membership_type_pair_not_admitted`, as they refuse
@@ -1539,7 +1623,9 @@ operand that may be NULL at run time, and calls such as `coalesce(x, null)`
 stay accepted. Such a `between` is still a `Bool` whose other bound must be
 comparable with the value: `n between null and "z"` is PIE-S2105, and
 `n if flag else n between null and 1` is PIE-S2105 for its branches of two
-types. In an EXPLICIT_MODULES project the WHERE of a relation with a
+types, and such an `in` list still needs a value that compares with its other
+options: `n in (1, "x", null)` is PIE-S2105.
+In an EXPLICIT_MODULES project the WHERE of a relation with a
 `let:` binding of unknown type, such as `nothing = null`, or with an error in
 a binding is checked as well, as in a single file (a read of a binding with
 an error of its own is of unknown type), so `where x == nothing` is PIE-S2105
@@ -1554,7 +1640,8 @@ type in a project relation with JOIN inputs makes the relation fail closed
 with PIE-S2333. Single-file `check` accepts any authored QUALIFY (see QUALIFY
 below).
 
-The closed scalar surface has explicit signatures; it has no overload search:
+The closed scalar surface has explicit signatures, and no argument is
+converted to fit one:
 
 ```text
 lower(Text) -> Text
@@ -1569,6 +1656,8 @@ starts_with(Text, Text) -> Bool
 ends_with(Text, Text) -> Bool
 coalesce(T, T, ...) -> T
 nullif(T, T) -> T
+abs(Int) -> Int
+abs(Float) -> Float
 abs(Decimal) -> Decimal
 sign(Int | Decimal) -> Int
 year(Date | Timestamp) -> Int
@@ -1586,10 +1675,26 @@ PostgreSQL SQL casts the result: single-file `emit-sql` renders
 MySQL `SIGN` already returns an integer; single-file MySQL SQL renders
 `SIGN(x)` and project SQL `CAST(SIGN(x) AS SIGNED)`.
 
-`coalesce` requires at least two same-canonical-type arguments. `nullif`
-requires exactly two. `substr` is one-based and requires a statically admitted
-positive start and nonnegative count, each an `Int` literal written in the
-call (a `let:` name bound to one is PIE-S2104 too, also in a `def` argument).
+`abs` picks its line by the argument's type and keeps the argument's
+nullability; a `null` argument is read as a `Decimal`, an argument of unknown
+type, such as a field of a source without a shape, makes it a number of
+unknown type, as a quotient with a `Decimal` operand is (see above), so
+`abs(t) * 2` and `abs(t) % 2` pass `check` there while `lower(abs(t))` is
+PIE-S2104 (`got numeric`), and any other type, such as `Text`, is PIE-S2104
+(`expected Int, Float or Decimal`). It emits
+`abs(x)` on PostgreSQL and `ABS(x)` on MySQL, which return the argument's
+type. Project SQL (`emit-sql --project`) proves an `Int` result as it proves
+unary `-` (see Aggregates and grouping).
+
+`coalesce` requires at least two same-canonical-type arguments. Beside an
+argument of unknown type its arguments of known type must still compare with
+each other (see Comparisons), as SQL has no common type for them otherwise:
+over a source without a shape `coalesce(t, 1, "x")` is PIE-S2104, while
+`coalesce(t, 1, 2.5)` is not refused.
+`nullif` requires exactly two. `substr` is one-based and requires a
+statically admitted positive start and nonnegative count, each an `Int`
+literal written in the call (a `let:` name bound to one is PIE-S2104 too,
+also in a `def` argument).
 PostgreSQL additionally requires each
 static `substr` index to fit its signed `int32` argument range. `cast(value as
 Float)` is the only scalar cast: it accepts `Int` and may lose binary64
@@ -1607,27 +1712,36 @@ project SQL scalar subset.
 A condition must be a `Bool`: a `where`, `satisfying`, shape `check` or index
 `when` condition (PIE-S2202), an operand of `and`, `or` or `not`, and the
 condition of a conditional (PIE-S2105). An operand of `and` or `or`, or the
-condition of a conditional, of a known type that is not `Bool` is refused
-also beside an operand or branch of unknown type that reported no error of
-its own and reads no `let:` binding with one, and a call of one of the
-functions above but `coalesce` and `nullif` has, as a condition, the result
-type its signature gives it even where an argument of unknown type leaves
-the call's own type unknown, as the call has that type or fails wherever it
-runs. So over a source without a shape `where len(t)` and `where lower(t)`
-are PIE-S2202, and `not lower(t)`, `t and 5` (also as the lines `t` and `5`
-of a `where:` block) and `1 if len(t) else 2` are PIE-S2105, also through a
-`let:` name bound to such a call, while `where t`, `where coalesce(t, u)` and
-`where contains(t, "x")` pass. A call whose always-null argument leaves its
-type unknown is such a condition as well: `where lower(coalesce(null, null))`
-is PIE-S2202, in a single file and in an EXPLICIT_MODULES relation without
-JOIN inputs or beside a `let:` binding with an error of its own (one with
-JOIN inputs otherwise fails closed with PIE-S2333). Over a source without a
-shape a `count()` output is an `Int` to `satisfying`, so with `c = count()`,
-`satisfying: c` is PIE-S2202 and `satisfying: c and m > 1` PIE-S2105. A
-condition whose unknown type an error of its own explains, or one of a
-`let:` binding it reads, reports nothing more. Elsewhere such a call keeps
-its unknown type, so `lower(t) + 1` and `where len(t) + 1` still pass
-`check`.
+condition of a conditional, of a known type that is not `Bool` is refused also
+beside an operand or branch of unknown type that reported no error of its own
+and reads no `let:` binding with one. A call of one of the functions above but
+`coalesce` and `nullif` has the result type its signature gives it (a number
+for `abs`) also beside an argument of unknown type, as the call has that type
+or fails wherever it runs, and each of its arguments of known type is checked
+against the signature. So over a source without a shape `where len(t)`,
+`where lower(t)` and `where abs(t)` are PIE-S2202, `not lower(t)`, `t and 5`
+(also as the lines `t` and `5` of a `where:` block) and `1 if len(t) else 2`
+are PIE-S2105, also through a `let:` name bound to such a call, `lower(t) + 1`
+is PIE-S2105, `where len(t) + 1` PIE-S2202 and `matches(t, 1)` PIE-S2104, and
+`len(t) / 2` is an `Int` division (MySQL `DIV`), while `where t`,
+`where coalesce(t, u)`, `where contains(t, "x")` and `year(t) + 1` pass. A call
+whose always-null argument, or `Decimal` quotient, leaves its type unknown has
+its result type as well: `where lower(coalesce(null, null))` is PIE-S2202 in a
+single file and in an EXPLICIT_MODULES relation, with or without JOIN inputs,
+and with a `Decimal` field `d`, `sign(d / 2) / 2` is an `Int` division. Over a
+source without a shape a `count()` output, and a `count` or `count_distinct`
+output whose argument reads a field, is an `Int` to `satisfying`, so with
+`c = count()` or
+`c = count(t)`, `satisfying: c` is PIE-S2202 and `satisfying: c and m > 1`
+PIE-S2105. These are types that the checks read inside the relation: over
+such a row `explain` shows the type of an output of a relation with GROUP BY,
+such as `Int` for `c = count(t)` and `len(max(t))`, while every output of a
+relation without GROUP BY, also `z = 1`, is of unknown type there, and the
+outputs of either are of unknown type to a relation that reads it. An unknown
+type that an error of its own explains, or one of a `let:` binding it reads,
+reports nothing more, and neither does a call whose
+argument reads such a binding or a name whose error is reported where it is
+bound, such as a forward reference to a later `let:` binding.
 
 Selected project SQL admits this closed Q1 surface only when every operand has
 an established carrier. A conditional emits `CASE WHEN condition THEN
@@ -1640,6 +1754,12 @@ the SQL bytes must be consumed with the artifact's `fixed_values` and
 expression from the current result scope, retains its authored direction and
 the target's NULL/collation behavior, and rejects hidden-input reuse or an
 arbitrary alias fallback.
+
+Single-file `emit-sql` renders `year(x)` as PostgreSQL
+`CAST(EXTRACT(YEAR FROM x) AS bigint)` and MySQL `YEAR(x)`, and `month`,
+`day`, `hour` and `minute` alike. PostgreSQL resolves no `EXTRACT` of an
+untyped NULL, so for a `null` argument, also a `let:` name bound to `null` or
+a `def` argument that is `null`, the PostgreSQL SQL is `CAST(NULL AS bigint)`.
 
 Selected project SQL carries `year`, `month`, `day`, `hour`, and `minute` from
 an exactly qualified `Timestamp` source: timezone-free proleptic Gregorian
@@ -1720,17 +1840,38 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   the name of a function: `def f(upper: Text not null) -> Text not null:
   return upper(upper)` calls `upper` on its argument. A `constraint` or
   `derive` cannot be called from a body or anywhere else (PIE-S2103).
-- Result: the body is typed with the declared parameter types. Its type must
-  be the declared result type, and a `not null` result needs a body that the
-  checker proves non-null (PIE-S2402). Today a comparison, `between` or
-  arithmetic is not proven non-null, so such defs declare a `nullable` result.
-  The checker does prove non-null for `is null`, `like` on non-null text, a
-  non-null value `in` a literal list, `coalesce` with a non-null fallback,
-  and `lower`, `upper`, `trim` or `len` of a non-null value. A body that is
-  always null (the same forms as for arguments below, such as `x + null`)
-  fits only a `nullable` result, and a body whose type the checker cannot
-  determine, such as `coalesce(null, null) if x > 0 else x`, fits none
-  (PIE-S2402).
+- Result: the body is typed with the declared parameter types, so a `Text`
+  parameter is a `Text` operand that is not a literal: a body that compares
+  it with a `Date`, `Timestamp` or `UUID` parameter, such as `return d > s`
+  with `d: Date nullable` and `s: Text nullable`, is PIE-S2105 at the def,
+  also when no call passes it a value or every call passes a literal, and a
+  `Date`, `Timestamp` or `UUID` parameter takes no `Text` literal argument
+  (PIE-S2395), so no def parameter stands for a constant of those types; the
+  body can compare with one written as a literal (`return d > "2020-01-01"`).
+  Its type must be the declared result type, and a `not null` result needs a
+  body that the checker proves non-null (PIE-S2402). A body is proven
+  non-null when every value it reads is non-null, except through `/`, `%`,
+  `and`, `or`, `nullif` or `matches`: in a body a comparison, `between` or
+  `+`, `-` or `*` of non-null
+  operands is non-null, so `def lt(a: Int not null, b: Int not null) -> Bool
+  not null: return a < b` is accepted, and so are bodies such as `not lt(x,
+  1)` and `abs(a - b)` over non-null parameters, while MySQL `/` and `%` give
+  NULL for a zero divisor. `is null`, `coalesce` with a non-null argument and
+  a conditional with non-null branches are non-null whatever else they read.
+  An argument of a def call fits its parameter as it does outside a body,
+  every part of it typed as there, where a comparison, `between` or
+  arithmetic keeps its unknown nullability: neither `y + 1` nor `abs(y + 1)`
+  fits a `not null` parameter, also in a body, so `return lt(y + 1, 2)` and
+  `return lt(abs(y + 1), 2)` are PIE-S2395 (see Calls below). An argument
+  that fits is then read as any other value: with `def idn(x: Int nullable)
+  -> Int nullable: return x`, `return idn(a + b)` over non-null `a` and `b`
+  is non-null. A body that is always null
+  (the same forms as for arguments below, such as `x + null`) fits only a
+  `nullable` result, of its type where it has one (`x + null` with an `Int`
+  parameter `x` is an `Int`), and a body whose type the checker cannot
+  determine, such as `-null if x > 0 else x`, fits none (PIE-S2402), while
+  `coalesce(null, null) if x > 0 else x` has the type of `x`, as
+  `null if x > 0 else x` does.
 - Names: defs share the callable namespace with `constraint` and `derive` (a
   repeated name or parameter is PIE-S2001). A def cannot take the name of a
   built-in scalar, aggregate or window function or of `generate_series`
@@ -1748,8 +1889,9 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   argument that is always null (`null`; a sign, `not`, arithmetic or
   comparison with an always-null operand, such as `id + null`; or a
   `coalesce` or conditional of such values) fits only a `nullable`
-  parameter, and its type is still checked when it has one: a comparison
-  such as `text == (id + null)` is `Bool`. A def argument is checked as it is
+  parameter, and its type is still checked when it has one: `id + null` is
+  an `Int` and a comparison such as `id == (id + null)` is `Bool`. A def
+  argument is checked as it is
   written into SQL, with each `let:` name replaced by its value: the type,
   nullability and errors of the value written there by hand decide whether
   it fits. With `k = null`, `j = coalesce(k, n)` and `m = id + null`, the
@@ -1807,12 +1949,23 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   own). An argument whose type is unknown for another reason is not checked
   either, as the same expression written
   by hand is not: a field of a source without a shape; `null` inside `and` or
-  `or` or as the argument of a built-in that admits
-  more than one type (`year`, `month`, `day`, `sign`), such as
-  `null and true` or `year(null)`; or an always-null value other than `null`
-  inside a built-in call, `coalesce`, conditional or `in` list, such as
-  `coalesce(-null, n)`. A comparison with null is never true wherever the
-  expansion puts it:
+  `or`, such as `null and true`; or an always-null value other than `null`
+  that has no type, such as `-null` or `null + null` (while `id + null` is
+  an `Int`), inside `coalesce`, `nullif`, a conditional or an `in` list, as
+  in `coalesce(-null, n)`, except a conditional, `coalesce` or `nullif` whose
+  every value is `null`, which takes the type beside it there as `null` does
+  (see Expressions): `coalesce(null if b else null, n)` is checked as
+  `coalesce(null, n)` is. A built-in call whose signature fixes its result type
+  has that type whatever the types of its arguments are, unless an
+  argument's own error, or a `let:` binding's, explains them (see
+  Expressions), so its type is
+  checked: over a source without a shape `len(t)` passed to a
+  `Text nullable` parameter is PIE-S2395. Its nullability then follows from
+  an argument of unknown type and is not checked, as that argument's is not:
+  `lower(t)` and `year(null)` pass a `not null` parameter as `t` does, also
+  through an operator, a conditional or a `let:` name, as in `len(t) + 1` or
+  `k` with `k = lower(t)`. A comparison with null is never true
+  wherever the expansion puts it:
   `low(null)` with `def low(x: Int nullable) -> Bool nullable: return x < 3`
   is PIE-S2105 at the call, as `null < 3` is by hand, unless the null
   argument (also a `let:` name bound to `null`) does not fit its parameter,
@@ -1862,11 +2015,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   argument and however many body nodes make it: `low(null)` with
   `def low(x: Int nullable) -> Bool nullable: return x < 3 or x < 4` is one
   PIE-S2105 at the call, also when the call is itself an argument. This holds
-  in a single-file check, and in a project check except in a JOIN ON
-  condition, whose errors a project check currently repeats whether they are
-  written by hand or come from a def, and for a query header parameter read
-  in a position that refuses it (PIE-S2355), which a project check currently
-  reports at each use of the argument. A def body is checked at the def
+  in a single-file check and in a project check, a JOIN ON condition
+  included, except for a query header parameter read in a position that
+  refuses it (PIE-S2355), which a project check currently reports at each use
+  of the argument. A def body is checked at the def
   before any call, and there an error in a call is reported as often as its
   expansion makes it, in both checks, except an argument mismatch
   (PIE-S2395), which is reported once as at any call: with
@@ -1903,9 +2055,14 @@ count count_distinct sum avg min max
 ```
 
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
-field values. The selected project numeric boundary admits Int unary `+`/`-`
-and binary `+`, `-`, `*` only when the compiler can propagate a signed range
-that fits the selected physical carrier. It also admits `avg(Int)` for a direct
+field values. The selected project numeric boundary admits Int unary `+`/`-`,
+`abs` and binary `+`, `-`, `*` only when the compiler can propagate a signed
+range that fits the selected physical carrier. `abs` of an `Int` is proved in
+its operand's integer type, as unary `-` is, and fits exactly where `-` fits:
+where `-id` is PIE-B1002 (`unary_result_outside_physical_range`), `abs(id)`
+is PIE-B1002 (`abs_result_outside_physical_range`), though unlike `-` it
+reads no query header parameter (PIE-S2355); `abs` of a `Float` or `Decimal`
+keeps its argument's carrier. It also admits `avg(Int)` for a direct
 Int input with `int_range` evidence, casting that input to the target Float
 carrier before aggregation. Empty and all-NULL inputs remain NULL. Project SQL
 emission (`emit-sql --project`) reports `sum(Int)` BLOCKED with `PIE-B1004`
@@ -1920,7 +2077,28 @@ also accept one row `let` name, and the result keeps that value's proven range
 while admitting NULL. With JOIN inputs the argument reads the exact JOIN-side
 fields of that value under the same fan-out law as a direct field argument; a
 value that reads no joined field, such as `level = 3` or a header parameter,
-links no JOIN side, so the group keys alone must fix every side.
+links no JOIN side, so the group keys alone must fix every side. In a single
+file `min` and `max` accept no `let:` name. Over an input row of known shape,
+the argument of a `min` or `max` that is a whole aliased SELECT item and reads
+a `let:` name is never accepted, even where the argument with each name's
+value written in place is: `max(w)` is PIE-S2315 with `w = 3`, as `max(3)`
+is, and also with `w = n` for a field `n`, `w = f(n)` for a `def` that returns
+its argument, or `w = z` for a field `z` of unknown type (such as `z = null`
+in the relation it reads), although `max(n)`, `max(f(n))` and `max(z)` are
+accepted. Beside PIE-S2315 the argument reports the errors of its bindings and
+the other errors of the argument written in place, such as PIE-S2395 for a
+`def` argument that does not fit (`max(f(w))` with `w = status` reports both,
+although `max(f(status))` is PIE-S2395 alone). With each name's value written
+in place, an argument of a known type that `min` or `max` refuses is PIE-S2314
+instead (`max(w)` with `w = status`, as `max(status)`), and one whose value
+reads an unknown name, a binding that reads itself or a name that PIE-S2329
+refused reports only the errors of those bindings (PIE-S2102, PIE-S2330,
+PIE-S2329), as `max(nosuch)` does. Over an input row of unknown shape, such as
+a source without a shape or a relation that reads one, a local `let:` name is
+not an input field in this argument: `max(w)` with `w = 3` reports PIE-S2102
+`Unknown field: w`, as `min(v)` with `v = x` reports it for `v`. A direct input
+field such as `max(x)` still passes `check` there, and `emit-sql` refuses it
+with PIE-B1000.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
@@ -1936,6 +2114,27 @@ leave the signed 64-bit range. `avg(Int)` is a `Float` average on both
 targets: as in project SQL, its argument is cast before averaging (PostgreSQL
 `AVG(CAST(x AS double precision))`, MySQL `AVG(CAST(x AS DOUBLE))`), so the
 target returns a binary64 average instead of its own decimal one.
+
+Over a source without a shape, whose fields have no type, GROUP BY keys and
+aggregate arguments read its fields by name, and an aggregate is checked as
+over a row of field types its argument allows, with one type for each field
+however often the argument reads it: `count(x)`, `count(x + 1)`,
+`count(x * x - x)`, `count_distinct(lower(t))`, `sum(x * 2)` and `min(x)`
+pass. A part of the argument whose type is known, such as a literal or a
+built-in call, is still checked as over a known row: `count(x + "a")`,
+`count(x % 2.5)`, `count(lower(x + 1))` and `count(len(x) + x)`, which no type
+of `x` makes typed, are PIE-S2315 at the call, as is a form the aggregate
+never takes, such as `min(x + 1)`. A `null` operand has no type and is not
+checked, as the database types it from the other operand: `count(x + null)`
+passes; with a known numeric `x`, `count(x + null)` still reports PIE-S2315
+for the unsupported argument form.
+An argument with an error of its own, such as `count(x and 1)` (PIE-S2105),
+reports nothing more. The ORDER BY of a grouped relation over such a source
+is PIE-S2321 at the clause, whatever its keys. These checks do not make
+aggregation over an unknown input row available to SQL emission: even
+`n = count()` keeps an unknown output type, and `emit-sql` refuses it with
+PIE-B1000, or with PIE-I1000 for a grouped window. A relation that reads one
+over such a source also reads its outputs as of unknown type.
 
 In an explicit-module project a JOIN must not let an aggregate see one input
 row several times. A JOIN repeats the rows of one side when the other side may
@@ -1954,12 +2153,42 @@ JOIN:
   side's matched field, declared on the shape of the source that field comes
   from; the field may be `nullable`. With `from orders` and
   `on order.customer_id == customer.id`, `unique customer_key on id` on the
-  customers shape proves an aggregate over order fields for an INNER, LEFT,
-  RIGHT or FULL JOIN, and `unique order_customer on customer_id` on the orders
-  shape proves an aggregate over customer fields for an INNER or RIGHT JOIN
-  only. An INNER or LEFT JOIN along several `via` lines takes such a key for
-  every hop, each under the same rule. A JOIN `on` condition without `via` and
-  a CROSS JOIN get no such proof.
+  customers shape proves an aggregate over order fields for an INNER or LEFT
+  JOIN. A RIGHT or FULL JOIN also keeps each customer that matches no order,
+  with every input before the JOIN NULL, so there the key proves such an
+  aggregate only if it never reads one of these rows, or reads one only with
+  a row of a later JOIN from customers whose relationship or `on` equality
+  matches a key of customers; the argument or a group key must then fix that
+  JOIN's input too, as `count(o2.id)` with `group by: orders.id` does after
+  `left join orders as o2: from c`. For this unmatched-row proof, grouping by
+  a nullable unique key of that later input also fixes it if every key field
+  is proved non-null in the final joined rows. An INNER relationship equality
+  can establish this even with an additional `on`; a later outer JOIN that
+  NULL-extends the input removes that proof. This does not give nullable keys
+  general group protection for unrelated or unbounded JOINs.
+  An aggregate never reads such a row when
+  its argument is NULL there, such as `count(orders.id)` or a `coalesce`,
+  `and` or `or` over fields of those inputs, but not
+  `count(orders.rush or true)` or `max(v)` with
+  `v = orders.amount if orders.rush else 0`; when WHERE is never TRUE there,
+  such as `orders.id is not null`, `not (orders.id is null)`,
+  `orders.id in (1, 2)` or `orders.amount between 1 and 10`, also through a
+  `let` name; or when a later INNER, SEMI or RIGHT JOIN whose condition is
+  never TRUE there drops the row. For an initial RIGHT or FULL JOIN between
+  direct sources with no extra `on`, a later SEMI or INNER traversal of the
+  complete reverse match into the same source also removes every unmatched
+  row; the paired equalities may be written in a different order. A different source declaration or a filtered relation does not supply
+  this proof, even with the same physical table name. A later LEFT or FULL JOIN
+  with such a
+  condition NULL-extends its own input there, so `count(p.id)` after
+  `left join payments as p: from orders` never reads such a row either. A
+  condition that is false there only because of its values, such as
+  `(orders.amount if orders.rush else 0) > 0`, does not count.
+  `unique order_customer on customer_id` on the orders shape proves an
+  aggregate over customer fields for an INNER or RIGHT JOIN only. An INNER or
+  LEFT JOIN along several `via` lines takes such a key for every hop, each
+  under the same rule. A JOIN `on` condition without `via` and a CROSS JOIN
+  get no such proof for themselves.
 
 A unique key of the aggregated side itself does not help, neither declared nor
 as a group key. `count()` without an argument counts the joined rows and needs
@@ -2050,15 +2279,18 @@ side its value reads, including both sides of `agg.rid > r.rid`, but it never
 proves that a side is unique per group, so it never removes a fan-out refusal;
 only direct field keys that form a strict unique key, as described above, can
 do that. There, `satisfying` and grouped
-result ordering may name the key's selected output, while a window or QUALIFY
-reference to it keeps the unknown-name rejection (`PIE-S2102`, `PIE-S2332`).
+result ordering may name the key's selected output. With or without JOIN
+inputs, a QUALIFY reference to the key or a window argument that names it
+keeps the unknown-name rejection (`PIE-S2332`, `PIE-S2102`), and a window
+PARTITION BY or ORDER BY that names it is PIE-S2103 at the window call (see
+Windows).
 With JOIN inputs a `let` binding that only renames a field, such as
 `g = r.n` with `group by: g`, groups by that field, and selecting the name
 selects that field's key, as selecting the field does. A `let` alias of a
-computed binding, window references to the key, single-file checks, and
-LEGACY_FLAT projects keep their existing rejection; with JOIN inputs a
-selected `let` name that names no group key, such an alias included, is
-PIE-S2333 at the table or query rather than an unknown field.
+computed binding, single-file checks, and LEGACY_FLAT projects keep their
+existing rejection; with JOIN inputs a selected `let` name that names no group
+key, such an alias included, is PIE-S2333 at the table or query rather than an
+unknown field.
 
 ## Windows
 
@@ -2078,7 +2310,34 @@ The bounded window identities are `row_number`, `rank`, `dense_rank`,
 `last_value`, and `nth_value`. Aggregates are not window functions yet:
 `sum(n) window:` and the other aggregates over a window report PIE-S2103.
 Partition and resolved order items preserve source order, duplicates,
-qualification, and direction.
+qualification, and direction. Each item names a field: an expression reports
+PIE-S2103 (`window partition expression must be a direct field` or `window
+order expression must be a direct field`) at the window call. A `let:` name
+there stands for its value once its `let:` names and `def` calls are
+expanded: a field, such as with `k = t`, is read as that field, and a value
+that is no name, such as with `k = lower(t)` or `k = 3`, is PIE-S2103 at the
+window call, as that value written there is (a `def` call written there is
+PIE-S2397 instead). In a single file over a known input row a binding's own
+errors do not change this, except that a read of a name that PIE-S2329
+refused reports nothing more and, otherwise, a binding with an error of its
+own whose value is a name, such as `k = nosuch` or `k = j` with `j = k`, makes
+the item an unknown field (PIE-S2102 `Unknown field: k`) beside that error. An
+EXPLICIT_MODULES relation over a known input row checks no window that reads
+a `let:` binding of unknown type, such as `k = null` or
+`k = coalesce(null, null)`, or with an error of its own: the relation fails closed
+with that binding's error or with PIE-S2333 at the table or query, and one
+with a relationship JOIN (one without `on`, written with `via` or found)
+reports PIE-S2103 at the window call instead,
+`relation context requires canonical window input scope facts`, beside the
+binding's error when it has one. Over
+an unknown input row a selected window that reads a `let:` name is instead
+PIE-S2103 at the window call, whatever the name's value: in a single file over
+the row of a source without a shape, read with `from` directly or through a
+chain of `from` inputs, and in an EXPLICIT_MODULES relation without JOIN
+inputs also over the row of a table or query one of whose SELECT outputs has
+an unknown type or an error.
+(Single-file `check` accepts any authored QUALIFY, its windows included; see
+QUALIFY.)
 Window specifications recognize authored ROWS, RANGE, and GROUPS forms with
 optional EXCLUDE:
 
@@ -2100,15 +2359,26 @@ distribution, `ntile`, `lag`, and `lead` remain frame-insensitive, and an
 explicit ROWS, RANGE or GROUPS frame on them is PIE-S2104. `first_value`,
 `last_value`, and `nth_value` are frame-sensitive and use a concrete Pietto
 effective frame even when source omits one. In a selected window, named
-windows included, single-file checks require each ROWS or GROUPS offset to be,
-once `let:` names are inlined, a nonnegative `Int` literal up to
+windows included, single-file checks require each ROWS, GROUPS or RANGE
+offset to be, once `let:` names are inlined, a nonnegative `Int` literal up to
 9223372036854775807, and refuse a literal `ntile` count, `lag`/`lead` offset or
 `nth_value` position above that value (PIE-S2104); PostgreSQL emission also
-requires those three to fit signed `int32` (PIE-B1000). The result of `lag`,
-`lead`, `first_value`, `last_value` and `nth_value` has the type of its value,
+requires those three to fit signed `int32` (PIE-B1000). An EXPLICIT_MODULES
+project check requires the same of each RANGE offset of any window, a QUALIFY
+window included (PIE-S2104), since no target emits another RANGE offset. The
+result of `lag`, `lead`, `first_value`, `last_value` and `nth_value` has the
+type of its value,
 or of the `lag`/`lead` default when the value is `null`, an enum's included,
 so in a single file a later relation may combine the column with a field of
-that enum, as in `coalesce(previous, status)`. PostgreSQL types a string
+that enum, as in `coalesce(previous, status)`. The value or default may have
+an unknown nullability, as an earlier relation's computed column such as
+`v = m + 1` has, where the result's nullability does not depend on it:
+always for `first_value`, `last_value` and `nth_value`, whose result may be
+null; for a `lag` or `lead` value at an offset other than the literal 0
+without a default or with a nullable or `null` one; and for a default when the
+value is nullable or `null`, or at offset 0. Otherwise, as in `lag(v, 0)` or
+`lag(v, 1, 0)`, the call reports PIE-S2104 (`value type must be concrete`, or
+`default type must be concrete` for the default). PostgreSQL types a string
 literal value, such as `lag("b")`, only from a default, so without one
 PostgreSQL emission writes it as `CAST('b' AS text)`. Single-file `check`
 does not analyze QUALIFY windows (see QUALIFY below). RANGE offsets retain
@@ -2252,9 +2522,10 @@ condition, an equality of a relation with itself included, is PIE-P1000 and
 needs the block form.
 
 Endpoint-only declarations remain valid and carry no inferred field match.
-`check FILE` and an EXPLICIT_MODULES `check --project` check every relationship
-declaration, whether or not a query uses it, except that in `check FILE` a
-pre-admission diagnostic (PIE-S2345 to PIE-S2352) stops the file before
+`check FILE` and an EXPLICIT_MODULES or LEGACY_FLAT `check --project` check
+every relationship declaration, whether or not a query uses it, except that a
+pre-admission diagnostic (PIE-S2345 to PIE-S2352, and PIE-S2379 for a `def` in
+a LEGACY_FLAT check) stops `check FILE` and a LEGACY_FLAT check before
 relationships are checked:
 
 - each endpoint names a `source`, `table` or `query` (PIE-S2601, at the
@@ -2292,8 +2563,10 @@ an INNER or LEFT JOIN through it passes `check`, and a RIGHT, FULL, SEMI or
 ANTI JOIN reports its PIE-S2334 at the JOIN in any case. The forms that are not
 errors still pass `check` while no query uses the relationship. A declaration
 alone infers no same-name fields, keys or cardinality and adds no JOIN or SQL.
-A project with `schema_version = 1` does not check relationship declarations
-yet.
+A LEGACY_FLAT project (`schema_version = 1`) checks relationship declarations
+and the JOINs through them as single-file checks do, except in the tables and
+queries whose semantic checks it skips, such as one that reads a JOIN binding
+field (see [Projects and packages](project-package.md#schema-compatibility)).
 
 A JOIN through a relationship cannot yet read the rows of a `from` input that
 has `let:` bindings, GROUP BY, `satisfying` or a computed SELECT output, such as

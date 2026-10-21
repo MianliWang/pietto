@@ -720,7 +720,7 @@ def _located_window_diagnostics(
     return located
 
 
-@pytest.mark.parametrize("unit", ("rows", "groups"))
+@pytest.mark.parametrize("unit", ("rows", "groups", "range"))
 @pytest.mark.parametrize(
     ("offset", "lets", "accepted"),
     (
@@ -746,7 +746,8 @@ def test_single_file_check_judges_frame_offsets_after_let_inlining(
     accepted: bool,
 ) -> None:
     # Before: check passed a bad offset that only emission refused, and a
-    # let-bound `n = 2` offset was refused although emission inlines it.
+    # let-bound `n = 2` offset was refused although emission inlines it; a
+    # RANGE offset was not checked at all.
     diagnostics = _checked_window(
         "first_value(value)",
         frame=f"{unit} between {offset} preceding and current row",
@@ -779,7 +780,8 @@ def test_single_file_check_judges_frame_offsets_after_let_inlining(
             [
                 (
                     "PIE-S2105",
-                    "Invalid operands for operator +: expected numeric operands",
+                    "Invalid operands for operator +: expected numeric operands; "
+                    "string concatenation is not supported yet",
                 )
             ],
         ),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Sequence
 import os
 from pathlib import Path
 import stat
@@ -374,77 +375,74 @@ def _matches_any(patterns: tuple[str, ...], relative_path: str) -> bool:
 
 
 def _matches_path(pattern: str, relative_path: str) -> bool:
-    pattern_parts = tuple(pattern.split("/"))
-    path_parts = tuple(relative_path.split("/"))
-    return _matches_path_parts(pattern_parts, path_parts)
-
-
-def _matches_path_parts(
-    pattern_parts: tuple[str, ...],
-    path_parts: tuple[str, ...],
-) -> bool:
-    if not pattern_parts:
-        return not path_parts
-
-    head, *tail = pattern_parts
-    remaining_pattern = tuple(tail)
-    if head == "**":
-        return _matches_path_parts(remaining_pattern, path_parts) or (
-            bool(path_parts)
-            and not path_parts[0].startswith(".")
-            and _matches_path_parts(pattern_parts, path_parts[1:])
-        )
-
-    return (
-        bool(path_parts)
-        and _matches_segment(head, path_parts[0])
-        and (_matches_path_parts(remaining_pattern, path_parts[1:]))
+    # `**` takes zero or more path parts that do not start with a dot.
+    return _matches_sequence(
+        pattern.split("/"),
+        relative_path.split("/"),
+        "**",
+        lambda part: not part.startswith("."),
+        _matches_segment,
     )
 
 
 def _matches_segment(pattern: str, value: str) -> bool:
     if value.startswith(".") and not pattern.startswith("."):
         return False
-    return _matches_segment_from(pattern, value, 0, 0)
-
-
-def _matches_segment_from(
-    pattern: str,
-    value: str,
-    pattern_index: int,
-    value_index: int,
-) -> bool:
-    if pattern_index == len(pattern):
-        return value_index == len(value)
-
-    token = pattern[pattern_index]
-    if token == "*":
-        return _matches_segment_from(
-            pattern,
-            value,
-            pattern_index + 1,
-            value_index,
-        ) or (
-            value_index < len(value)
-            and _matches_segment_from(pattern, value, pattern_index, value_index + 1)
-        )
-    if token == "?":
-        return value_index < len(value) and _matches_segment_from(
-            pattern,
-            value,
-            pattern_index + 1,
-            value_index + 1,
-        )
-    return (
-        value_index < len(value)
-        and token == value[value_index]
-        and _matches_segment_from(
-            pattern,
-            value,
-            pattern_index + 1,
-            value_index + 1,
-        )
+    # `*` takes zero or more characters and `?` exactly one.
+    return _matches_sequence(
+        pattern,
+        value,
+        "*",
+        lambda _character: True,
+        lambda token, character: token in ("?", character),
     )
+
+
+def _matches_sequence(
+    pattern: Sequence[str],
+    values: Iterable[str],
+    star: str,
+    star_takes: Callable[[str], bool],
+    token_takes: Callable[[str, str], bool],
+) -> bool:
+    """Whether `values` match `pattern`, where each `star` token matches zero or
+    more values it takes and every other token one value it takes.
+
+    One pass over `values` keeps only the reachable pattern positions and stops
+    once none is left, so the stack depth stays fixed, a pattern without stars
+    reads each value at most once, and no match costs more than the product of
+    the lengths.
+    """
+
+    end = len(pattern)
+
+    def with_skipped_stars(positions: Iterable[int]) -> set[int]:
+        # A star may match no value, so the position after it is reachable too.
+        reachable: set[int] = set()
+        for index in positions:
+            while index not in reachable:
+                reachable.add(index)
+                if index == end or pattern[index] != star:
+                    break
+                index += 1
+        return reachable
+
+    # Each position: the values read so far leave pattern[position:] to match.
+    reachable = with_skipped_stars((0,))
+    for value in values:
+        stepped: list[int] = []
+        for index in reachable:
+            if index == end:
+                continue
+            if pattern[index] == star:
+                if star_takes(value):
+                    stepped.append(index)
+            elif token_takes(pattern[index], value):
+                stepped.append(index + 1)
+        if not stepped:
+            return False
+        reachable = with_skipped_stars(stepped)
+    return end in reachable
 
 
 def _relative_path(parts: tuple[str, ...]) -> str:

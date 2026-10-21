@@ -41,6 +41,7 @@ from pietto.ast_nodes import (
     WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.expressions import _window_literal_range_diagnostics
 from pietto.semantic.model import ValueType
 from pietto.semantic.window_analysis import (
     _WindowComputationAdmissionFailure,
@@ -48,6 +49,7 @@ from pietto.semantic.window_analysis import (
     analyze_window_computation,
     named_window_resolution_diagnostics,
 )
+from pietto.semantic.window_input_analysis import computed_let_names
 from pietto.semantic.window_semantics import (
     ComposedNamedWindowUse,
     NamedWindowOccurrence,
@@ -1032,6 +1034,12 @@ def _analyze_site(
         named_composition=named_composition,
         admission_failure=admission,
         prepare_inputs=prepare_inputs,
+        computed_let_names=computed_let_names(
+            {
+                value.occurrence.binding.name: value.occurrence.expression
+                for value in namespace.aggregation.input_filter.namespace.let_values
+            }
+        ),
     )
     if type(semantic) is WindowComputationUnsupported:
         return ProjectNonConcreteWindowComputation(
@@ -1043,6 +1051,32 @@ def _analyze_site(
             diagnostics=tuple(diagnostics),
         )
     assert type(semantic) is WindowComputationAnalysis
+    # A RANGE offset is checked as in a single file (PIE-S2104).
+    refused = _window_literal_range_diagnostics(
+        expression,
+        semantic,
+        None,
+        {
+            value.occurrence.binding.name: value.occurrence.expression
+            for value in namespace.aggregation.input_filter.namespace.let_values
+        },
+        set(),
+        units=frozenset({WindowFrameUnit.RANGE}),
+        counts=False,
+    )
+    if refused:
+        return ProjectNonConcreteWindowComputation(
+            site=site,
+            input_namespace=namespace,
+            reason=ProjectWindowComputationNonConcreteReason.SEMANTIC_NON_CONCRETE,
+            resolutions=resolutions,
+            semantic_failure=WindowComputationUnsupported(
+                expression=expression,
+                identity=expression.identity,
+                reason="window RANGE offset is not a nonnegative Int literal",
+            ),
+            diagnostics=(*diagnostics, *refused),
+        )
     dependencies = _dependencies(
         site=site,
         namespace=namespace,

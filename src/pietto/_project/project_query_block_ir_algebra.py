@@ -355,6 +355,27 @@ def build_project_ir_join_prefix(
     )
 
 
+def input_factor_images(
+    old: tuple[ProjectGrainDomainFactor, ...],
+    new: tuple[ProjectGrainDomainFactor, ...],
+) -> dict[int, ProjectGrainFactorIdentity]:
+    """Image one JOIN input's historical factors, and the base and source
+    factors nested in them, to the factors of the input's active producer."""
+
+    images: dict[int, ProjectGrainFactorIdentity] = {}
+    pending = [(a.identity, b.identity) for a, b in zip(old, new, strict=True)]
+    while pending:
+        before, after = pending.pop()
+        images[id(before)] = after
+        if isinstance(before, ProjectJoinGrainFactorIdentity) and isinstance(
+            after, ProjectJoinGrainFactorIdentity
+        ):
+            pending.append((before.base, after.base))
+            if before.source_factor is not None and after.source_factor is not None:
+                pending.append((before.source_factor, after.source_factor))
+    return images
+
+
 def image_project_ir_join_properties(
     source: ProjectIROutputRelationalProperties,
     output: ProjectIRJoinRowOutput,
@@ -362,16 +383,28 @@ def image_project_ir_join_properties(
     ref_images: Mapping[int, object],
     historical: tuple[object, ...],
     factor_images: dict[int, ProjectGrainFactorIdentity],
+    input_images: Mapping[int, Mapping[int, ProjectGrainFactorIdentity]],
 ) -> ProjectIROutputRelationalProperties:
-    """Use existing field/key/FD kernels and mechanically image grain coordinates."""
+    """Use existing field/key/FD kernels and mechanically image grain coordinates.
 
-    def factor(identity: ProjectGrainFactorIdentity) -> ProjectGrainFactorIdentity:
-        known = factor_images.get(id(identity))
+    A factor that a JOIN introduces at an input images its base and source
+    factor through that input's own producer: two inputs may share one
+    historical factor that their producers no longer share.
+    """
+
+    def factor(
+        identity: ProjectGrainFactorIdentity,
+        scope: Mapping[int, ProjectGrainFactorIdentity] | None = None,
+    ) -> ProjectGrainFactorIdentity:
+        known = None if scope is None else scope.get(id(identity))
+        if known is None:
+            known = factor_images.get(id(identity))
         if known is not None:
             return known
         if isinstance(identity, ProjectJoinGrainFactorIdentity):
+            inner = input_images.get(id(identity.introduction_use))
             result: ProjectGrainFactorIdentity = ProjectJoinGrainFactorIdentity(
-                base=cast(ProjectBaseGrainFactorIdentity, factor(identity.base)),
+                base=cast(ProjectBaseGrainFactorIdentity, factor(identity.base, inner)),
                 introduction_use=cast(
                     ProjectIRUseRef,
                     _mapped_ref(identity.introduction_use, ref_images, historical),
@@ -383,7 +416,8 @@ def image_project_ir_join_properties(
                 source_factor=None
                 if identity.source_factor is None
                 else cast(
-                    ProjectJoinGrainFactorIdentity, factor(identity.source_factor)
+                    ProjectJoinGrainFactorIdentity,
+                    factor(identity.source_factor, inner),
                 ),
             )
         elif isinstance(identity, ProjectGroupedGrainFactorIdentity):

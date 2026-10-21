@@ -119,7 +119,7 @@ The current v0.2 nullability rules are:
 | Comparison expression | Types children and returns `Bool UNKNOWN` when children are known, except that known operands rejected by the comparison family check (see `operator-comparison-matrix-contract-v1.md`) report `PIE-S2105` and produce unknown value type |
 | `between` expression | Types children and returns `Bool UNKNOWN` when children are known, except that a known bound rejected by the comparison family check reports `PIE-S2105` and produces unknown value type |
 | `is null` / `is not null` expression | Returns `Bool NON_NULL` |
-| Scalar function call | Uses the current exact built-in signature and returns conservative `EffectiveNullability.UNKNOWN` |
+| Scalar function call | Uses the current exact built-in signature, under which `abs` picks its `Int`, `Float` or `Decimal` line by its argument's type, and joins the argument nullabilities: `NULLABLE` when one argument is `NULLABLE`, else `UNKNOWN` when one is `UNKNOWN`, else `NON_NULL`; `matches` returns `Bool UNKNOWN`, `coalesce` is `NON_NULL` when one argument is `NON_NULL`, else `UNKNOWN` when one is `UNKNOWN`, else `NULLABLE`, and `nullif` is `NULLABLE` when its first argument is `NON_NULL` and otherwise has that argument's nullability |
 | Computed projection alias | Preserves known expression `ValueType` nullability or publishes unknown output field facts |
 | Group-key projection output | Preserves input field nullability |
 | Direct aggregate projection output | Preserves the aggregate helper result nullability |
@@ -128,6 +128,14 @@ The current v0.2 nullability rules are:
 These rules describe current behavior only. Slice 3 does not add a broader
 nullability solver and does not infer non-null results from operators,
 predicates, functions, aggregate inputs, `where`, or `satisfying:`.
+
+A later change proves more in one place: when typing does not prove a `def`
+body with a `not null` result non-null, the body check types it again, and
+there binary `+`, `-` and `*`, a comparison and `between` whose operands are
+all `NON_NULL` record `NON_NULL`, while `/`, `%`, `and` and `or` keep their
+results (see the
+[operator and comparison matrix](operator-comparison-matrix-contract-v1.md)).
+Every other typing, a def call's arguments included, records the rows above.
 
 ## Aggregate Result Nullability Matrix
 

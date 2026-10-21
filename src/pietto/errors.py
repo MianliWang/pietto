@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +164,37 @@ _WORD_HINTS = {
     "over": "A window function takes `window:` with an indented block or "
     "`window name`, not OVER (...).",
     "case": "Write `a if condition else b` instead of CASE.",
+    "with": "Write a relation let `let x:` at the start of the body instead of "
+    "WITH (EXPLICIT_MODULES projects).",
 }
+_SUBQUERY_HINT = (
+    "A subquery is not written in parentheses: declare it as a relation let "
+    "`let x:` at the start of the body and read it with `in x`, `exists x` or "
+    "`scalar x.c` (EXPLICIT_MODULES projects)."
+)
+_FROM_HINT = (
+    "A FROM reads a named relation: declare a subquery as a relation let "
+    "`let x:` at the start of the body and write `from x` (EXPLICIT_MODULES "
+    "projects)."
+)
+# Words that an expression follows, so a '(' after them is not a call's;
+# `exists` and `scalar` read a relation, as a subquery would.
+_EXPRESSION_WORDS = frozenset(
+    {
+        "else",
+        "ensure",
+        "exists",
+        "if",
+        "in",
+        "is",
+        "limit",
+        "on",
+        "return",
+        "scalar",
+        "when",
+        "where",
+    }
+)
 # Clause headers whose block needs ':' at the end of the header line.
 _BLOCK_HEADERS = frozenset(
     {
@@ -172,7 +203,7 @@ _BLOCK_HEADERS = frozenset(
         PiettoParser.BY,
         PiettoParser.LET,
         PiettoParser.SATISFYING,
-        PiettoParser.QUALIFY,
+        # Not QUALIFY: its condition never follows `qualify:` on that line.
     }
 )
 
@@ -319,13 +350,94 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             # A missing line or block end is an unexpected token to an author.
             self._record(recognizer, token, expected)
             return
-        self._append(
-            token,
-            f"Missing {_expected_display(expected)} before {token_display(token)}.",
+        message = (
+            f"Missing {_expected_display(expected)} before {token_display(token)}."
         )
+        if self._from_parenthesis(recognizer, token):
+            message += " " + _FROM_HINT
+        self._append(token, message)
 
     def _token(self, index: int) -> Token | None:
         return self.tokens[index] if 0 <= index < len(self.tokens) else None
+
+    def _from_parenthesis(self, recognizer: Any, token: Token) -> bool:
+        """Whether ``token`` is a '(' where a FROM clause expects its relation.
+
+        ANTLR reports it as missing or unexpected depending on the token after
+        it, so both reports ask here.
+        """
+
+        previous = self._token(_index(token) - 1)
+        return (
+            token.type == PiettoParser.LPAREN
+            and previous is not None
+            and previous.type == PiettoParser.FROM
+            # The name is a rule of its own inside the FROM clause.
+            and isinstance(recognizer._ctx.parentCtx, PiettoParser.FromClauseContext)
+        )
+
+    @cached_property
+    def _parenthesized(self) -> list[bool]:
+        """Whether a '(' still open on its logical line precedes each token.
+
+        Line breaks inside parentheses are not tokens, so every layout token
+        starts the count again.  The first message that asks makes the one
+        pass, so a message costs the same however long its line is.
+        """
+
+        inside: list[bool] = []
+        depth = 0
+        for token in self.tokens:
+            inside.append(depth > 0)
+            if token.type in _LAYOUT_TOKEN_TYPES:
+                depth = 0
+            elif token.type == PiettoParser.LPAREN:
+                depth += 1
+            elif token.type == PiettoParser.RPAREN and depth:
+                depth -= 1
+        return inside
+
+    def _subquery(self, token: Token) -> bool:
+        """Whether ``token`` is where a query written in parentheses fails.
+
+        A field may be named select, from or with, so only these count, read
+        up to ``token`` and the token after it: `(select` and an operand or
+        ':', `(select * from` and a name, `(with` and a name before `as`, or
+        `(from` and a name before `as` or a relation clause, in parentheses
+        that do not hold a call's or a cast's arguments.  Reading these few
+        tokens keeps the cost of a message the same however long its line is.
+        """
+
+        index = _index(token)
+        words = tuple(
+            (item.text or "").lower()
+            for item in self.tokens[max(index - 4, 0) : max(index, 0)]
+        )
+        after = self._token(index + 1)
+        name = token.type in _NAME_FIRST
+        if words[-4:] == ("(", "select", "*", "from"):
+            parenthesis, query = index - 4, name
+        elif words[-2:] == ("(", "select"):
+            parenthesis = index - 2
+            query = token.type in _OPERAND_FIRST or token.type == PiettoParser.COLON
+        elif words[-2:] == ("(", "with"):
+            parenthesis = index - 2
+            query = name and after is not None and (after.text or "").lower() == "as"
+        elif words[-2:] == ("(", "from"):
+            parenthesis = index - 2
+            query = (
+                name
+                and after is not None
+                and (after.type in _CLAUSE_WORDS or after.type == PiettoParser.AS)
+            )
+        else:
+            return False
+        before = self._token(parenthesis - 1)
+        return query and not (
+            before is not None
+            and before.type in _NAME_FIRST
+            and (before.text or "").lower() not in _EXPRESSION_WORDS
+        )
 
     def _record(self, recognizer: Any, token: Token, expected: Any) -> None:
         previous = self._token(_index(token) - 1)
@@ -415,6 +527,13 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             return "Comments start with `#`."
         if token.type == PiettoParser.UNKNOWN and text == ";":
             return "Lines do not end with `;`."
+        if (
+            token.type == PiettoParser.UNKNOWN
+            and text == "|"
+            and following is not None
+            and following.text == "|"
+        ):
+            return "String concatenation with `||` is not supported yet."
         before = self._token(_index(token) - 2)
         if (
             previous is not None
@@ -423,17 +542,61 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             and before.type == PiettoParser.LPAREN
         ):
             return "Write `count_distinct(x)` for COUNT(DISTINCT x)."
-        if previous is not None and previous.type in _BLOCK_HEADERS:
+        if self._from_parenthesis(recognizer, token):
+            return _FROM_HINT
+        if self._subquery(token):
+            return _SUBQUERY_HINT
+        if (
+            previous is not None
+            and previous.type == PiettoParser.LPAREN
+            and before is not None
+            and before.type == PiettoParser.VALUES
+        ):
             return (
-                "A clause header ends with ':'; its items follow on the same "
-                "line or in an indented block."
+                "A VALUES body has a typed header, `values(id: Int not null, "
+                "label: Text nullable):`, and one row per line below it "
+                "(EXPLICIT_MODULES projects)."
             )
+        if (
+            isinstance(recognizer._ctx, PiettoParser.QualifyClauseContext)
+            and previous is not None
+            and previous.type in {PiettoParser.QUALIFY, PiettoParser.COLON}
+        ):
+            # Unlike the other clause headers, `qualify:` takes only a block.
+            return (
+                "Write the `qualify:` condition in an indented block on the next line."
+            )
+        if (
+            previous is not None
+            and previous.type in _BLOCK_HEADERS
+            and not self._parenthesized[_index(token)]
+        ):
+            # A header word (the `select`, `group`, `order` or `partition`
+            # before `distinct` or `by`) heads a clause only where it starts a
+            # line, not inside an expression, as in `(select ...)`.
+            header = (
+                before
+                if previous.type in {PiettoParser.BY, PiettoParser.DISTINCT}
+                else previous
+            )
+            ahead = None if header is None else self._token(_index(header) - 1)
+            if header is not None and (
+                ahead is None or ahead.type in _LAYOUT_TOKEN_TYPES
+            ):
+                return (
+                    "A clause header ends with ':'; its items follow on the same "
+                    "line or in an indented block."
+                )
         if previous is not None and (previous.text or "").lower() == "case":
             return _WORD_HINTS["case"]
         if token.type == PiettoParser.IDENTIFIER:
             lowered = text.lower()
             if lowered != text and f"'{lowered}'" in PiettoParser.literalNames:
                 return f"Keywords are lowercase: write `{lowered}`."
+            if lowered == "with" and not line_start:
+                # A common table expression starts a line; a WITH later in a
+                # line, as in `with time zone`, is other SQL.
+                return None
             return _WORD_HINTS.get(lowered)
         return None
 

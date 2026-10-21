@@ -39,6 +39,12 @@ WIDE = (-9007199254740993, 9007199254740993)
 OFFSET_MISSING = ("PIE-B1004", "window_frame_offset_evidence_missing")
 OFFSET_WIDE = ("PIE-B1002", "window_frame_offset_out_of_signed64_range")
 BOUNDARY_WIDE = ("PIE-B1002", "window_range_boundary_out_of_signed64_range")
+# A RANGE offset that is not a nonnegative Int literal up to signed64 fails the
+# project check (PIE-S2104), so emission stops before planning it.
+CHECK_FAILED = [
+    ("PIE-B1003", "semantic_result_unsuccessful"),
+    ("PIE-B1003", "active_output_unavailable"),
+]
 
 
 def _build(item: dict[str, Any]) -> Any:
@@ -451,7 +457,7 @@ def test_missing_or_contradictory_key_domains_are_internal_evidence_faults():
         ("rows between id preceding and current row", OFFSET_MISSING),
         ("range between 1 preceding and current row", None),
         (f"range between {I64_MAX} preceding and current row", BOUNDARY_WIDE),
-        (f"range between {I64_MAX + 1} preceding and current row", OFFSET_WIDE),
+        (f"range between {I64_MAX + 1} preceding and current row", CHECK_FAILED),
         ("range between 0 preceding and 0 following", None),
     ),
 )
@@ -466,7 +472,7 @@ def test_finite_offsets_over_the_published_key(target, frame, refusal):
         assert outcome.status == "VERIFIED", _refusal(outcome)
     else:
         assert outcome.status == "BLOCKED" and outcome.artifact is None
-        assert _refusal(outcome) == [refusal]
+        assert _refusal(outcome) == (refusal if refusal is CHECK_FAILED else [refusal])
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -498,8 +504,12 @@ def test_finite_offsets_over_the_published_key(target, frame, refusal):
 def test_the_five_reported_huge_offsets_are_no_longer_verified(target, call, frame):
     outcome = _build(_item(target, _window(call, frame)))
     assert outcome.status == "BLOCKED" and outcome.artifact is None
-    expected = BOUNDARY_WIDE if frame.startswith("range between 9223") else OFFSET_WIDE
-    assert _refusal(outcome) == [expected]
+    if frame.startswith("range between 9223"):
+        assert _refusal(outcome) == [BOUNDARY_WIDE]
+    elif frame.startswith("range "):
+        assert _refusal(outcome) == CHECK_FAILED
+    else:
+        assert _refusal(outcome) == [OFFSET_WIDE]
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1646,12 +1656,26 @@ def test_admitted_literal_and_materialized_aggregate_window_carriers(target, bod
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_an_arithmetic_window_value_stays_refused_before_emission(target):
-    # The earlier semantic refusal is kept; no width rule is reached or needed.
+def test_an_arithmetic_window_value_meets_its_carrier_rules(target):
+    # The window is accepted; `rid + 1` keeps its own physical-range refusal,
+    # and a narrower sum reaches the window, which MySQL refuses by origin.
     assert _refusal(_build(_widths_item(target, COMPUTED))) == [
-        ("PIE-B1003", "semantic_result_unsuccessful"),
-        ("PIE-B1003", "active_output_unavailable"),
+        ("PIE-B1002", "arithmetic_outside_physical_range")
     ]
+    narrow = _build(_widths_item(target, COMPUTED.replace("rid + 1", "s + 1")))
+    if target == "mysql":
+        assert _refusal(narrow) == [ORIGIN_BLOCKED]
+        return
+    assert _sql(narrow) == (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."rid" AS "c0", '
+        '("s0"."s" + CAST(1 AS pg_catalog.int8)) AS "c1" '
+        'FROM "public"."phase66 widths" AS "s0"), '
+        '"p1" ("c0", "c1", "c2") AS (SELECT "s1"."c0" AS "c0", "s1"."c1" AS "c1", '
+        'FIRST_VALUE("s1"."c1") OVER (ORDER BY "s1"."c0" ASC '
+        'RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS "c2" '
+        'FROM "p0" AS "s1") '
+        'SELECT "t2"."c0" AS "record_id", "t2"."c2" AS "w" FROM "p1" AS "t2"'
+    )
 
 
 def test_the_walk_refuses_an_unreviewed_mysql_carrier_class():

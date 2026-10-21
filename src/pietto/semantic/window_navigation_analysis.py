@@ -385,7 +385,7 @@ def analyze_navigation_computation_arguments(
         type_expansions,
     )
     value_always_null = _is_null_literal(value_expression)
-    if not value_always_null and not _is_concrete_value_type(value_type):
+    if not value_always_null and not _has_concrete_type(value_type):
         return _unsupported_after_inference(
             expression=expression,
             reason="navigation value type must be concrete",
@@ -434,6 +434,7 @@ def analyze_navigation_computation_arguments(
 
     default_type: ValueType | None = None
     default_always_null = False
+    default_before = len(diagnostics)
     if len(arguments) < 3:
         default_fact = NavigationDefaultFact(
             expression=None,
@@ -457,7 +458,6 @@ def analyze_navigation_computation_arguments(
                     "be a direct field or Bool, Text, Int, Float, or NULL literal"
                 ),
             )
-        default_before = len(diagnostics)
         default_type = _canonical_value_type(
             infer_row_expression(
                 default_expression,
@@ -471,7 +471,7 @@ def analyze_navigation_computation_arguments(
             type_expansions,
         )
         default_always_null = _is_null_literal(default_expression)
-        if not default_always_null and not _is_concrete_value_type(default_type):
+        if not default_always_null and not _has_concrete_type(default_type):
             return _unsupported_after_inference(
                 expression=expression,
                 reason="navigation default type must be concrete",
@@ -559,6 +559,33 @@ def analyze_navigation_computation_arguments(
     )
     if type(nullability_result) is not NullabilityEvaluationMatch:
         raise AssertionError("navigation nullability formula must evaluate")
+    if nullability_result.value is EffectiveNullability.UNKNOWN:
+        # A value or default of unknown nullability, such as a computed column,
+        # is read only where the result's nullability does not depend on it.
+        if (
+            not value_always_null
+            and value_type.nullability is EffectiveNullability.UNKNOWN
+        ):
+            return _unsupported_after_inference(
+                expression=expression,
+                reason="navigation value type must be concrete",
+                diagnostics=diagnostics,
+                diagnostics_before=value_before,
+                message=(
+                    f"Invalid arguments for function {direction.value}: value type "
+                    "must be concrete"
+                ),
+            )
+        return _unsupported_after_inference(
+            expression=expression,
+            reason="navigation default type must be concrete",
+            diagnostics=diagnostics,
+            diagnostics_before=default_before,
+            message=(
+                f"Invalid arguments for function {direction.value}: default type "
+                "must be concrete"
+            ),
+        )
 
     # The type T is bound to, an enum's declaration included, as for first_value.
     bound_type = default_type if value_always_null else value_type
@@ -710,7 +737,7 @@ def analyze_frame_value_computation_arguments(
         ),
         type_expansions,
     )
-    if _is_null_literal(value_expression) or not _is_concrete_value_type(value_type):
+    if _is_null_literal(value_expression) or not _has_concrete_type(value_type):
         return _unsupported_after_inference(
             expression=expression,
             reason="frame-value input type must be concrete",
@@ -893,18 +920,18 @@ def _is_null_literal(expression: Expression) -> bool:
     return type(expression) is LiteralExpr and expression.value is None
 
 
-def _is_concrete_value_type(value_type: ValueType) -> bool:
-    return (
-        value_type.kind is ValueTypeKind.KNOWN
-        and value_type.resolved_type.kind
-        in {TypeKind.BUILTIN, TypeKind.ENUM, TypeKind.SHAPE}
-        and value_type.nullability
-        in {EffectiveNullability.NON_NULL, EffectiveNullability.NULLABLE}
-    )
+def _has_concrete_type(value_type: ValueType) -> bool:
+    """Whether the type is concrete; its nullability may be unknown."""
+
+    return value_type.kind is ValueTypeKind.KNOWN and value_type.resolved_type.kind in {
+        TypeKind.BUILTIN,
+        TypeKind.ENUM,
+        TypeKind.SHAPE,
+    }
 
 
 def _logical_type_identity(value_type: ValueType | None) -> LogicalTypeIdentity:
-    if value_type is None or not _is_concrete_value_type(value_type):
+    if value_type is None or not _has_concrete_type(value_type):
         raise ValueError("logical identity requires one concrete value type")
     return LogicalTypeIdentity(
         name=value_type.resolved_type.name,

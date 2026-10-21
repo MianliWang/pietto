@@ -79,6 +79,35 @@ def test_pipeline_casts_sign_to_the_int_its_semantics_declare() -> None:
     ]
 
 
+def test_pipeline_emits_abs_of_every_numeric_type_as_written() -> None:
+    # PostgreSQL abs() returns the type of its argument, as Pietto types it.
+    result = _compile_and_emit(
+        "shape Acct:\n"
+        "    n: Int not null\n"
+        "    f: Float nullable\n"
+        "    d: Decimal(10, 2) not null\n"
+        'source accts: Acct is postgres.table("accts")\n'
+        "table q:\n"
+        "    from accts\n"
+        "    where abs(n - 1) < 3\n"
+        "    select:\n"
+        "        an = abs(n)\n"
+        "        af = abs(f)\n"
+        "        ad = abs(d)\n"
+        "        al = abs(-2)\n"
+    )
+
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n"
+        '    abs("n") AS "an",\n'
+        '    abs("f") AS "af",\n'
+        '    abs("d") AS "ad",\n'
+        '    abs((-2)) AS "al"\n'
+        'FROM "accts"\n'
+        'WHERE abs(("n" - 1)) < 3'
+    ]
+
+
 def test_pipeline_emits_decimal_int_membership_as_written() -> None:
     # `amount in (1, 2)` checks like `amount == 1 or amount == 2`; neither
     # side is cast.
@@ -157,6 +186,143 @@ def test_pipeline_refuses_null_arithmetic_and_read_null_outputs_on_postgresql() 
     assert [artifact.sql for artifact in result.artifacts] == [
         'SELECT\n    "c" AS "c"\nFROM "nothing"',
         'SELECT\n    "n" + NULL AS "e",\n    NULL AS "f"\nFROM "accts"',
+    ]
+
+
+def test_pipeline_refuses_read_outputs_whose_every_value_is_null_on_postgresql() -> (
+    None
+):
+    """PostgreSQL types a CASE, COALESCE or NULLIF whose every value is an
+    untyped NULL as `text`, as it does the NULL itself. Before, emission wrote
+    `CASE WHEN "b" THEN NULL ELSE NULL END AS "v"` and `COALESCE(NULL, NULL)
+    AS "c"` for a relation that another relation reads, whose `"v" + 1` then
+    failed with `operator does not exist: text + integer`. One typed value
+    types them, and an output no relation reads emits as written."""
+    result = _compile_and_emit(
+        "shape S:\n    n: Int nullable\n    b: Bool nullable\n"
+        'source src: S is postgres.table("app.src")\n'
+        "table cases:\n    from src\n    select:\n        v = null if b else null\n"
+        "table coalesced:\n    from src\n    select:\n        c = coalesce(null, null)\n"
+        "table nested:\n    from src\n    let:\n        k = nullif(null, null)\n"
+        "    select:\n        d = k if b else coalesce(null, null)\n"
+        "table typed:\n    from src\n    select:\n        e = null if b else n\n"
+        "        f = nullif(null, n)\n        g = coalesce(null, n)\n"
+        "query later:\n    from cases\n    select:\n        w = v + 1\n"
+        "query again:\n    from coalesced\n    select:\n        c\n"
+        "query deeper:\n    from nested\n    select:\n        d\n"
+        "query fine:\n    from typed\n    select:\n        e\n"
+        "query unread:\n    from src\n    select:\n        h = null if b else null\n",
+        path="null-trees.pietto",
+    )
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "PostgreSQL SQL emission is not implemented for RelationIR: "
+            f"{name}. PostgreSQL types a NULL output that another relation "
+            "reads as text, which Pietto leaves untyped",
+            line,
+            1,
+        )
+        for name, line in (("cases", 5), ("coalesced", 9), ("nested", 13))
+    ]
+    assert [artifact.name for artifact in result.artifacts] == [
+        "typed",
+        "later",
+        "again",
+        "deeper",
+        "fine",
+        "unread",
+    ]
+    assert result.artifacts[0].sql == (
+        'SELECT\n    CASE WHEN "b" THEN NULL ELSE "n" END AS "e",\n'
+        '    NULLIF(NULL, "n") AS "f",\n    COALESCE(NULL, "n") AS "g"\n'
+        'FROM "app"."src"'
+    )
+    assert result.artifacts[-1].sql == (
+        'SELECT\n    CASE WHEN "b" THEN NULL ELSE NULL END AS "h"\nFROM "app"."src"'
+    )
+
+
+def test_pipeline_refuses_typed_uses_of_null_cases_on_postgresql() -> None:
+    """PostgreSQL types a CASE, COALESCE or NULLIF whose every value is an
+    untyped NULL as `text`, also inside one relation. Before, emission wrote
+    `COALESCE(NULL, NULL) + 1`, `"n" IN (COALESCE(NULL, NULL), 1)` and
+    `COALESCE((CASE WHEN "b" THEN NULL ELSE NULL END), "n")`, which
+    PostgreSQL rejects (`operator does not exist: text + integer`, `COALESCE
+    types text and bigint cannot be matched`, `argument of WHERE must be type
+    boolean`). Beside a `Text` operand, an enum or the null literal, as the
+    argument of a function that takes text, and where nothing reads it, it
+    emits as written."""
+    result = _compile_and_emit(
+        "enum Status:\n    active\n    done\n"
+        "shape S:\n    n: Int nullable\n    b: Bool nullable\n"
+        "    t: Text nullable\n    st: Status nullable\n"
+        'source src: S is postgres.table("app.src")\n'
+        "query plus:\n    from src\n    select:\n"
+        "        x = coalesce(null, null) + 1\n"
+        "query sign:\n    from src\n    select:\n        x = -nullif(null, null)\n"
+        "query both:\n    from src\n    select:\n"
+        "        x = (null if b else null) and b\n"
+        "query equal:\n    from src\n    select:\n"
+        "        x = coalesce(null, null) == 1\n"
+        "query listed:\n    from src\n    select:\n"
+        "        x = n in (coalesce(null, null), 1)\n"
+        "query nested:\n    from src\n    select:\n"
+        "        x = coalesce(null if b else null, n)\n"
+        "query branch:\n    from src\n    select:\n"
+        "        x = coalesce(null, null) if b else 1\n"
+        "query test:\n    from src\n    select:\n"
+        "        x = 1 if coalesce(null, null) else 2\n"
+        "query kept:\n    from src\n    where nullif(null, null)\n    select:\n"
+        "        n\n"
+        "query part:\n    from src\n    select:\n"
+        "        x = year(null if b else null)\n"
+        "query fine:\n    from src\n    select:\n"
+        "        x = coalesce(null, null) == t\n"
+        "        y = coalesce(null if b else null, t)\n"
+        "        z = st == coalesce(null, null)\n"
+        "        w = len(nullif(null, null))\n"
+        "        v = coalesce(coalesce(null, null), null)\n",
+        path="null-cases.pietto",
+    )
+
+    text = "PostgreSQL types a CASE, COALESCE or NULLIF of only NULL values as text"
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "PostgreSQL SQL emission is not implemented for RelationIR: "
+            f"{name}. {text}, {reason}",
+            line,
+            1,
+        )
+        for name, reason, line in (
+            ("plus", "which operator + does not take", 10),
+            ("sign", "which operator - does not take", 14),
+            ("both", "which operator and does not take", 18),
+            ("equal", "and operator == has no common type for text and Int", 22),
+            ("listed", "and operator in has no common type for text and Int", 26),
+            ("nested", "and coalesce has no common type for text and Int", 30),
+            ("branch", "and a conditional has no common type for text and Int", 34),
+            ("test", "which a condition does not take", 38),
+            ("kept", "which a condition does not take", 42),
+            ("part", "which function year does not take", 47),
+        )
+    ]
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n"
+        '    COALESCE(NULL, NULL) = "t" AS "x",\n'
+        '    COALESCE((CASE WHEN "b" THEN NULL ELSE NULL END), "t") AS "y",\n'
+        '    "st" = COALESCE(NULL, NULL) AS "z",\n'
+        '    length(NULLIF(NULL, NULL)) AS "w",\n'
+        '    COALESCE(COALESCE(NULL, NULL), NULL) AS "v"\n'
+        'FROM "app"."src"'
     ]
 
 

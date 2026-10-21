@@ -498,26 +498,7 @@ _RELATION_ROOT_FILES = {
         (
             "duplicate_source",
             ("blocked",),
-            [
-                (
-                    "PIE-S2001",
-                    "Duplicate symbol name in relation namespace: twice",
-                    5,
-                    1,
-                ),
-                (
-                    "PIE-S2333",
-                    "Project relation semantic completion is unavailable: twice",
-                    4,
-                    1,
-                ),
-                (
-                    "PIE-S2333",
-                    "Project relation semantic completion is unavailable: twice",
-                    5,
-                    1,
-                ),
-            ],
+            [("PIE-S2001", "Duplicate symbol name in relation namespace: twice", 5, 1)],
         ),
         (
             "duplicate_query",

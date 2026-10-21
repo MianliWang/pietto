@@ -48,8 +48,11 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    SEMANTIC_AGGREGATE_NAMES,
+    accepts_argument_form,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
+    extremum_reads_let,
     has_unknown_field_reference,
     invalid_context_diagnostic,
     is_semantic_aggregate_call,
@@ -72,6 +75,7 @@ if TYPE_CHECKING:
     from pietto._inline_argument import InlinedArgument
     from pietto.semantic.window_semantics import (
         ResolvedNamedWindowNamespace,
+        WindowComputationAnalysis,
         WindowExpressionAnalysis,
     )
 
@@ -184,12 +188,15 @@ def _fits_parameters(
     *,
     erroneous: bool = False,
     null: bool | None = None,
+    unchecked: Callable[[], bool] | None = None,
 ) -> bool:
     """Check an argument of ``value_type`` against each ``def`` parameter it
     is inlined for.
 
     A known type must be the parameter type after alias expansion, and a
-    ``not null`` parameter takes only a value proven non-null. An argument
+    ``not null`` parameter takes only a value proven non-null, unless
+    ``unchecked`` finds that its unknown nullability is not checked
+    (`_typed_beside_unknown`). An argument
     that is always null (``null``, by default `always_null` of
     ``expression``) fits only a nullable parameter, and only one of its own
     type when it has one: a comparison with an always-null operand is still
@@ -228,6 +235,12 @@ def _fits_parameters(
                 value_type.nullability is EffectiveNullability.NON_NULL
                 and not is_null()
             )
+            or (
+                value_type.nullability is EffectiveNullability.UNKNOWN
+                and unchecked is not None
+                and not is_null()
+                and unchecked()
+            )
         ):
             continue
         if type_fits and is_null():
@@ -254,6 +267,66 @@ def _fits_parameters(
         # value is unknown to every call around it.
         return False
     return True
+
+
+# Expressions of unknown type beside an operand of unknown type (`_infer`); a
+# comparison other than LIKE is a Bool of unknown nullability beside one.
+_UNKNOWN_SPREADING = (
+    CallExpr,
+    BinaryExpr,
+    UnaryExpr,
+    ConditionalExpr,
+    CastExpr,
+    BetweenExpr,
+    MembershipExpr,
+)
+
+
+def _typed_beside_unknown(
+    expression: Expression,
+    value_types: Mapping[Expression, ValueType],
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+) -> bool:
+    """Whether ``expression`` has a type only as a call has the type its
+    signature gives it beside an argument of unknown type (`_call_value_type`):
+    it reaches such a call through `let:` names and through operands whose
+    unknown type would leave the type around them unknown. The call's
+    nullability then follows from that argument's, which is not known, so a
+    ``def`` parameter does not check it, as it does not check an argument of
+    unknown type. The parts of a `let:` value have the types they have where
+    it is bound (`LetValues.part_types`)."""
+
+    part_types = cast(LetValues, lets).part_types if type(lets) is LetValues else {}
+    pending = [expression]
+    expanded: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if type(node) is NameExpr:
+            name = cast(NameExpr, node).name
+            if (
+                lets
+                and name in lets
+                and name not in row_schema.fields
+                and name not in expanded
+            ):
+                expanded.add(name)
+                pending.append(lets[name])
+            continue
+        if not isinstance(node, _UNKNOWN_SPREADING) and not (
+            type(node) is ComparisonExpr
+            and cast(ComparisonExpr, node).operator in {"like", "not like"}
+        ):
+            continue
+        children = _captured_field_children(node)
+        if type(node) is CallExpr and any(
+            (child_type := value_types.get(child, part_types.get(child))) is not None
+            and child_type.kind is ValueTypeKind.UNKNOWN
+            for child in children
+        ):
+            return True
+        pending.extend(children)
+    return False
 
 
 # Expressions whose type follows from their operands' types alone.
@@ -415,19 +488,31 @@ class LetValues(dict[str, Expression]):
     that reads a binding. Where typing has no row to read fields from (a
     relation with JOIN inputs), ``field_types`` holds the type of each field
     the values read, which a binding is written with (`_write_lets`).
+    ``part_types`` holds the type of each part of the values where they are
+    bound, where typing knows them (`_typed_beside_unknown`).
     """
 
-    __slots__ = ("checked", "differs", "erroneous", "field_types", "typed", "written")
+    __slots__ = (
+        "checked",
+        "differs",
+        "erroneous",
+        "field_types",
+        "part_types",
+        "typed",
+        "written",
+    )
 
     def __init__(
         self,
         values: Mapping[str, Expression] | None = None,
         erroneous: set[str] | None = None,
         field_types: dict[Expression, ValueType] | None = None,
+        part_types: Mapping[Expression, ValueType] | None = None,
     ) -> None:
         super().__init__(values or {})
         self.erroneous: set[str] = set() if erroneous is None else erroneous
         self.field_types = field_types
+        self.part_types: Mapping[Expression, ValueType] = part_types or {}
         self.written: dict[str, _Written | None] = {}
         self.differs = False
         self.typed: dict[int, tuple[list[Diagnostic], int, int]] = {}
@@ -1116,6 +1201,8 @@ def type_relation_expressions(
     | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     let_diagnostics: Sequence[Diagnostic] = (),
+    single_file: bool = True,
+    let_part_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[
     dict[Expression, ValueType],
     list[Diagnostic],
@@ -1126,6 +1213,11 @@ def type_relation_expressions(
 
     ``let_diagnostics`` are the relation `let:` diagnostics; a window frame
     offset that reads a binding with one of them reports no PIE-S2104.
+    Without ``single_file`` the checks that only single-file SQL needs are
+    skipped: the ROWS and GROUPS frame offset and window count literal ranges
+    and a bare constant ungrouped ORDER BY key.
+    ``let_part_types`` are the types of the parts of the `let:` values where
+    they are bound (`LetValues.part_types`).
     """
 
     value_types: dict[Expression, ValueType] = {}
@@ -1158,7 +1250,9 @@ def type_relation_expressions(
             definition, let_diagnostics
         )
         if let_expressions is not None:
-            let_expressions = LetValues(let_expressions, erroneous_lets)
+            let_expressions = LetValues(
+                let_expressions, erroneous_lets, part_types=let_part_types
+            )
             from pietto.semantic.let_bindings import _relation_expressions
 
             if _reads_let_in_argument(
@@ -1263,6 +1357,7 @@ def type_relation_expressions(
                     let_expressions=let_expressions or {},
                     named_window_namespace=named_window_namespace,
                     type_expansions=type_expansions,
+                    let_extrema=False,
                 )
                 # A window read of a let name PIE-S2329 refused reports nothing
                 # more. Dropping its unknown-field report afterwards keeps the
@@ -1281,6 +1376,7 @@ def type_relation_expressions(
 
                 if type(analysis) is WindowExpressionAnalysis:
                     window_analyses[item.expression] = analysis
+                    # A project checks only RANGE offsets, as explicit modules do.
                     diagnostics.extend(
                         _window_literal_range_diagnostics(
                             item.expression,
@@ -1288,6 +1384,10 @@ def type_relation_expressions(
                             input_schema,
                             let_expressions or {},
                             erroneous_lets,
+                            units=frozenset(WindowFrameUnit)
+                            if single_file
+                            else frozenset({WindowFrameUnit.RANGE}),
+                            counts=single_file,
                         )
                     )
                     result = analysis.semantic_fact.result
@@ -1404,7 +1504,9 @@ def type_relation_expressions(
                         item.expression,
                         input_schema,
                         let_expressions or {},
-                        aggregated=aggregated and not input_schema.is_unknown,
+                        aggregated=aggregated,
+                        bare_constants=single_file,
+                        rejected_lets=rejected_lets,
                     )
                 )
                 if problem is not None:
@@ -1420,20 +1522,26 @@ _WINDOW_COUNT_POSITIONS = {"ntile": 0, "lag": 1, "lead": 1, "nth_value": 1}
 
 def _window_literal_range_diagnostics(
     expression: WindowExpr,
-    analysis: WindowExpressionAnalysis,
-    input_schema: RowSchema,
+    analysis: WindowExpressionAnalysis | WindowComputationAnalysis,
+    input_schema: RowSchema | None,
     let_expressions: Mapping[str, Expression],
     erroneous_lets: set[str],
+    *,
+    units: frozenset[WindowFrameUnit] = frozenset(WindowFrameUnit),
+    counts: bool = True,
 ) -> list[Diagnostic]:
     """Refuse window literals that no SQL target accepts, before emission.
 
-    A ROWS or GROUPS offset, after the `let:` inlining emission performs, must
-    be a nonnegative signed 64-bit Int literal, and a count argument may not
-    exceed that range; the narrower PostgreSQL int4 count range is checked
-    when PostgreSQL SQL is emitted. An offset that reads a `let:` name in
-    `erroneous_lets` already has its error.
+    A ROWS, GROUPS or RANGE offset of one of ``units``, after the `let:`
+    inlining emission performs, must be a nonnegative signed 64-bit Int
+    literal (no target emits another RANGE offset), and with ``counts`` a
+    count argument may not exceed that range; the narrower PostgreSQL int4
+    count range is checked when PostgreSQL SQL is emitted. An offset that
+    reads a `let:` name in `erroneous_lets` already has its error. Without
+    ``input_schema`` (a JOIN input) no bare name is an input field.
     """
 
+    input_schema = input_schema or RowSchema()
     name = expression.identity.name
     messages: list[str] = []
     frame = analysis.validated_specification.resolved.frame
@@ -1443,23 +1551,27 @@ def _window_literal_range_diagnostics(
         for bound in (frame.start, frame.end)
         if bound is not None and bound.offset is not None
     )
-    if (unit is WindowFrameUnit.ROWS or unit is WindowFrameUnit.GROUPS) and any(
-        not (
-            type(value) is LiteralExpr
-            and type(value.value) is int
-            and 0 <= value.value <= _SIGNED64_MAX
+    if (
+        unit is not None
+        and unit in units
+        and any(
+            not (
+                type(value) is LiteralExpr
+                and type(value.value) is int
+                and 0 <= value.value <= _SIGNED64_MAX
+            )
+            and not _reads_erroneous_let(
+                offset, input_schema, let_expressions, erroneous_lets
+            )
+            for offset, value in offsets
         )
-        and not _reads_erroneous_let(
-            offset, input_schema, let_expressions, erroneous_lets
-        )
-        for offset, value in offsets
     ):
         messages.append(
             f"Invalid window frame for function {name}: "
             f"{unit.value.upper()} offsets must be nonnegative integer "
             f"literals up to {_SIGNED64_MAX}"
         )
-    position = _WINDOW_COUNT_POSITIONS.get(name)
+    position = _WINDOW_COUNT_POSITIONS.get(name) if counts else None
     arguments = expression.call.arguments
     if position is not None and position < len(arguments):
         count = arguments[position]
@@ -1580,23 +1692,27 @@ def _order_key_problem(
     let_expressions: Mapping[str, Expression],
     *,
     aggregated: bool,
+    bare_constants: bool,
+    rejected_lets: set[str],
 ) -> str | None:
     """Return why a target would misread or reject an ungrouped ORDER BY key.
 
     After `let:` inlining and unary signs a bare constant remains: PostgreSQL
     and MySQL read an integer as a column position, and PostgreSQL rejects any
     other bare constant (a computed constant such as `1 + 1` sorts nothing and
-    stays accepted). In a query with aggregates and no GROUP BY, a key that
-    reads an input field outside an aggregate is rejected by the targets.
+    stays accepted); only ``bare_constants`` reports it. In a query with
+    aggregates and no GROUP BY, a key that reads an input field outside an
+    aggregate is rejected by the targets; over a row of unknown type a name
+    that no `let:` binds is such a field.
     """
 
-    if _is_bare_constant(expression, input_schema, let_expressions):
+    if bare_constants and _is_bare_constant(expression, input_schema, let_expressions):
         return (
             "Constant ORDER BY key: a target reads a bare constant key as a "
             "column position or rejects it"
         )
     if aggregated and _reads_input_field_outside_aggregate(
-        expression, input_schema, let_expressions
+        expression, input_schema, let_expressions, rejected_lets
     ):
         return (
             "ORDER BY key reads an input field outside an aggregate in a query "
@@ -1622,6 +1738,7 @@ def _reads_input_field_outside_aggregate(
     expression: Expression,
     input_schema: RowSchema,
     let_expressions: Mapping[str, Expression],
+    rejected_lets: set[str],
 ) -> bool:
     pending = [expression]
     expanded: set[str] = set()
@@ -1630,9 +1747,12 @@ def _reads_input_field_outside_aggregate(
         if type(node) is NameExpr:
             if node.name in input_schema.fields:
                 return True
-            if node.name in let_expressions and node.name not in expanded:
-                expanded.add(node.name)
-                pending.append(let_expressions[node.name])
+            if node.name in let_expressions:
+                if node.name not in expanded:
+                    expanded.add(node.name)
+                    pending.append(let_expressions[node.name])
+            elif input_schema.is_unknown and node.name not in rejected_lets:
+                return True
             continue
         if type(node) is DottedNameExpr:
             return True
@@ -1996,6 +2116,21 @@ def _infer(
             type_expansions=type_expansions,
             relation_columns=relation_columns,
         )
+        if len(diagnostics) == reported:
+            value_type = _number_call_type(
+                expression,
+                value_type,
+                value_types,
+                diagnostics,
+                type_expansions,
+                nulls=lambda: _null_reads(
+                    expression.arguments,
+                    row_schema,
+                    bare_value_types,
+                    bare_value_expressions,
+                    values=True,
+                ),
+            )
     elif isinstance(expression, ast.CapturedFieldExpr):
         # A captured field is typed only by its let's capture environment.
         raise AssertionError("Captured field read lacks its capture environment.")
@@ -2202,7 +2337,15 @@ def _infer(
             value_type, expected = _UNKNOWN_VALUE_TYPE, None
         else:
             value_type, expected = resolved_comparison_value_type(
-                left_type, right_type, type_expansions
+                left_type,
+                right_type,
+                type_expansions,
+                comparison_literals(
+                    expression.left,
+                    expression.right,
+                    row_schema,
+                    bare_value_expressions,
+                ),
             )
         if expected is not None:
             diagnostics.append(
@@ -2226,9 +2369,24 @@ def _infer(
         # Unsupported forms remain opaque so calls and arithmetic are not
         # accidentally checked through their child expressions.
         value_type = _UNKNOWN_VALUE_TYPE
+    if len(diagnostics) == reported and isinstance(
+        expression, (ComparisonExpr, BetweenExpr, MembershipExpr)
+    ):
+        expected = _number_test_expected(
+            expression, value_types, row_schema, bare_value_expressions, type_expansions
+        )
+        if expected is not None:
+            value_type = _UNKNOWN_VALUE_TYPE
+            diagnostics.append(
+                _invalid_operator_operands_diagnostic(expression, expected=expected)
+            )
 
     lets = bare_value_expressions
     if inlined_arguments(expression):
+
+        def unchecked() -> bool:
+            return _typed_beside_unknown(expression, value_types, row_schema, lets)
+
         written = None
         if type(lets) is LetValues and lets.differs:
             # Checked as emission writes it, with each `let:` value in place.
@@ -2255,6 +2413,7 @@ def _infer(
                 type_expansions,
                 erroneous=_has_error(diagnostics[reported:]),
                 null=argument_null,
+                unchecked=unchecked,
             )
         else:
             # The literal spelling's diagnostics, in place of those typing it
@@ -2269,6 +2428,7 @@ def _infer(
                 type_expansions,
                 erroneous=_has_error(found),
                 null=null,
+                unchecked=unchecked,
             )
             if fits:
                 # Typed as written, also for the expression around it.
@@ -2281,10 +2441,49 @@ def _infer(
                 )
         if not fits:
             value_type = _UNKNOWN_VALUE_TYPE
+    if (
+        type(value_types) is DefBodyTypes
+        and value_type.kind is ValueTypeKind.KNOWN
+        and _non_null_operands(expression, value_types)
+    ):
+        value_type = dataclasses.replace(
+            value_type, nullability=EffectiveNullability.NON_NULL
+        )
     value_types[expression] = value_type
     if type(lets) is LetValues and lets.differs:
         lets.typed[id(expression)] = (diagnostics, reported, len(diagnostics))
     return value_type
+
+
+class DefBodyTypes(dict[Expression, ValueType]):
+    """The types of the parts of a ``def`` body that the body check types
+    again to prove its ``not null`` result further than elsewhere
+    (`_non_null_operands`), once each argument in it has fit its parameter as
+    it does elsewhere."""
+
+    __slots__ = ()
+
+
+def _non_null_operands(
+    expression: Expression, value_types: Mapping[Expression, ValueType]
+) -> bool:
+    """Whether ``expression`` is a comparison, `between` or `+`, `-` or `*`
+    whose operands are all non-null, which SQL never makes NULL. MySQL `/`
+    and `%` are NULL for a zero divisor, and `and` and `or` are not proven."""
+
+    if type(expression) is ComparisonExpr:
+        operands = (expression.left, expression.right)
+    elif type(expression) is BetweenExpr:
+        operands = (expression.value, expression.lower, expression.upper)
+    elif type(expression) is BinaryExpr and expression.operator in {"+", "-", "*"}:
+        operands = (expression.left, expression.right)
+    else:
+        return False
+    return all(
+        operand in value_types
+        and value_types[operand].nullability is EffectiveNullability.NON_NULL
+        for operand in operands
+    )
 
 
 def _unary_value_type(
@@ -2343,6 +2542,8 @@ def _unary_value_type(
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
         )
+    elif operand_type is _UNKNOWN_NUMBER and expression.operator in {"+", "-"}:
+        result = _UNKNOWN_NUMBER
     return result
 
 
@@ -2409,6 +2610,7 @@ def _conditional_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    true_end = len(diagnostics)
     condition_type = _infer(
         expression.condition,
         row_schema,
@@ -2422,6 +2624,7 @@ def _conditional_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    condition_end = len(diagnostics)
     when_false_type = _infer(
         expression.when_false,
         row_schema,
@@ -2435,11 +2638,29 @@ def _conditional_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
-    when_true_null, condition_null, when_false_null = _null_reads(
-        (expression.when_true, expression.condition, expression.when_false),
+    erroneous = {
+        id(child)
+        for child, value_type, errors in (
+            (expression.when_true, when_true_type, diagnostics[start:true_end]),
+            (expression.condition, condition_type, diagnostics[true_end:condition_end]),
+            (expression.when_false, when_false_type, diagnostics[condition_end:]),
+        )
+        if value_type.kind is ValueTypeKind.UNKNOWN and _has_error(errors)
+    }
+    when_true_null, when_false_null = _null_reads(
+        (expression.when_true, expression.when_false),
         row_schema,
         bare_value_types,
         bare_value_expressions,
+        values=True,
+        erroneous=erroneous,
+    )
+    (condition_null,) = _null_reads(
+        (expression.condition,),
+        row_schema,
+        bare_value_types,
+        bare_value_expressions,
+        erroneous=erroneous,
     )
     branch_types = _contextual_null_literal_types(
         (expression.when_true, expression.when_false),
@@ -2474,6 +2695,33 @@ def _conditional_value_type(
                     expected="Bool condition",
                 )
             )
+        elif _is_canonical_builtin(
+            condition_type, "Bool", type_expansions
+        ) or not unknown_explained(
+            expression, diagnostics[start:], row_schema, bare_value_expressions
+        ):
+            # A branch mismatch does not depend on an unchecked condition's type.
+            branch_types = _nulls_as_numbers(
+                (when_true_type, when_false_type),
+                lambda: (when_true_null, when_false_null),
+            )
+            expected = _number_misfit(
+                lambda types: (
+                    None
+                    if _shared_canonical_type(types, type_expansions) is not None
+                    else "same canonical branch types"
+                ),
+                branch_types,
+                type_expansions,
+            )
+            if expected is not None:
+                diagnostics.append(
+                    _invalid_operator_operands_diagnostic(expression, expected=expected)
+                )
+            elif _of_numbers(branch_types, type_expansions) and _is_canonical_builtin(
+                condition_type, "Bool", type_expansions
+            ):
+                return _UNKNOWN_NUMBER
         return _UNKNOWN_VALUE_TYPE
     if not _is_canonical_builtin(condition_type, "Bool", type_expansions):
         diagnostics.append(
@@ -2519,8 +2767,11 @@ def _membership_value_type(
 ) -> ValueType:
     """Type fixed scalar-list membership while retaining every occurrence."""
 
-    child_types = tuple(
-        _infer(
+    erroneous: set[int] = set()
+    inferred: list[ValueType] = []
+    for child in (expression.value, *expression.options):
+        start = len(diagnostics)
+        child_type = _infer(
             child,
             row_schema,
             value_types,
@@ -2533,8 +2784,10 @@ def _membership_value_type(
             type_expansions=type_expansions,
             relation_columns=relation_columns,
         )
-        for child in (expression.value, *expression.options)
-    )
+        inferred.append(child_type)
+        if child_type.kind is ValueTypeKind.UNKNOWN and _has_error(diagnostics[start:]):
+            erroneous.add(id(child))
+    child_types = tuple(inferred)
     # A non-empty list tests `value == option` for each option: always NULL
     # when every test reads the null literal; another option may still match.
     if expression.options:
@@ -2553,24 +2806,53 @@ def _membership_value_type(
             )
             diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
             return _UNKNOWN_VALUE_TYPE
+    nulls = _null_reads(
+        (expression.value, *expression.options),
+        row_schema,
+        bare_value_types,
+        bare_value_expressions,
+        values=True,
+        erroneous=erroneous,
+    )
     contextual = _contextual_null_literal_types(
         (expression.value, *expression.options),
         child_types,
         value_types,
         type_expansions,
-        _null_reads(
-            (expression.value, *expression.options),
-            row_schema,
-            bare_value_types,
-            bare_value_expressions,
-        ),
+        nulls,
         membership=True,
     )
     if contextual is not None:
         child_types = contextual
-    if any(value_type.kind is ValueTypeKind.UNKNOWN for value_type in child_types):
+    # A null option that operands of two types leave untyped is checked as if
+    # it were not there.
+    operands = (expression.value, *expression.options)
+    kept = tuple(
+        (operand, value_type)
+        for position, (operand, value_type, null) in enumerate(
+            zip(operands, child_types, nulls, strict=True)
+        )
+        if position == 0 or not (null and value_type.kind is ValueTypeKind.UNKNOWN)
+    )
+    checked = tuple(value_type for _, value_type in kept)
+    if any(value_type.kind is ValueTypeKind.UNKNOWN for value_type in checked):
         return _UNKNOWN_VALUE_TYPE
-    if _membership_canonical_type(child_types, type_expansions) is None:
+    if _membership_canonical_type(checked, type_expansions) is None:
+        if len(kept) < len(operands) and all(
+            resolved_comparison_value_type(
+                checked[0],
+                option_type,
+                type_expansions,
+                comparison_literals(
+                    expression.value, option, row_schema, bare_value_expressions
+                ),
+            )[1]
+            is None
+            for option, option_type in kept[1:]
+        ):
+            # Comparable operands keep their gradual pairing, but the
+            # membership result is Bool and its NULL option can make it NULL.
+            return _builtin_value_type("Bool", EffectiveNullability.NULLABLE)
         diagnostics.append(
             _invalid_operator_operands_diagnostic(
                 expression,
@@ -2739,7 +3021,10 @@ def _binary_value_type(
         and result.kind is ValueTypeKind.UNKNOWN
         and expected is None
     ):
-        # A null operand takes the other's type, which the operator must take.
+        # A null operand takes the other's type, which the operator must take;
+        # the result, always null, is then of the operator's result type over
+        # two operands of that type, unless an operand's own error, such as a
+        # `let:` name that is an unknown field where it is read, explains it.
         for null, other_type in (
             (expression.left, right_type),
             (expression.right, left_type),
@@ -2748,10 +3033,36 @@ def _binary_value_type(
                 (null,), row_schema, bare_value_expressions
             ):
                 canonical = _canonical_value_type(other_type, type_expansions)
-                _, expected = resolved_binary_value_type(
+                typed, expected = resolved_binary_value_type(
                     expression.operator, canonical, canonical
                 )
+                if expected is None and not _has_error(diagnostics[start:]):
+                    if typed.kind is ValueTypeKind.KNOWN:
+                        result = dataclasses.replace(
+                            typed, nullability=EffectiveNullability.NULLABLE
+                        )
+                    elif _of_numbers(
+                        (canonical, canonical),
+                        type_expansions,
+                        division=expression.operator == "/",
+                    ):
+                        result = _UNKNOWN_NUMBER
                 break
+        else:
+            # An operand that is a number of unknown type (`_UNKNOWN_NUMBER`).
+            expected = _number_misfit(
+                lambda types: resolved_binary_value_type(
+                    expression.operator, types[0], types[1]
+                )[1],
+                (left_type, right_type),
+                type_expansions,
+            )
+            if expected is None and _of_numbers(
+                (left_type, right_type),
+                type_expansions,
+                division=expression.operator == "/",
+            ):
+                result = _UNKNOWN_NUMBER
     if expected is not None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -2822,12 +3133,20 @@ def resolved_binary_value_type(
         name = _binary_arithmetic_result_type(operator, left_type, right_type)
         if name is not None:
             return _builtin_value_type(name, EffectiveNullability.UNKNOWN), None
+        if operator == "+" and (
+            _is_builtin(left_type, "Text") or _is_builtin(right_type, "Text")
+        ):
+            return (
+                _UNKNOWN_VALUE_TYPE,
+                "numeric operands; string concatenation is not supported yet",
+            )
         return _UNKNOWN_VALUE_TYPE, "numeric operands"
     return _UNKNOWN_VALUE_TYPE, None
 
 
-# Builtin families from the canonical scalar type registry trait vocabulary.
-# Any, Bytes, Json, enums and shapes stay unchecked (deferred).
+# Builtin families from the canonical scalar type registry trait vocabulary;
+# an enum or a shape is a family of its own declaration. `Any` has none and
+# stays unchecked (deferred).
 _COMPARISON_FAMILIES = {
     "Int": "numeric",
     "Float": "numeric",
@@ -2837,28 +3156,128 @@ _COMPARISON_FAMILIES = {
     "Date": "temporal",
     "Timestamp": "temporal",
     "UUID": "identifier",
+    "Bytes": "binary",
+    "Json": "json",
 }
-# Text against types without literal syntax awaits a typed-constant decision.
-_DEFERRED_COMPARISON_FAMILY_PAIRS = ({"text", "temporal"}, {"text", "identifier"})
+# A Text literal is the only constant form of these families; which literals
+# are valid constants of them awaits a typed-constant decision.
+_TEXT_CONSTANT_FAMILIES = frozenset({"temporal", "identifier", "binary", "json"})
 
 
 def resolved_comparison_value_type(
     left_type: ValueType,
     right_type: ValueType,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    literals: tuple[object, object] | None = None,
 ) -> tuple[ValueType, str | None]:
-    """Comparison rule over resolved operands; no implicit cross-family conversion."""
-    families = {
-        _comparison_family(left_type, type_expansions),
-        _comparison_family(right_type, type_expansions),
-    }
+    """Comparison rule over resolved operands; no implicit cross-family
+    conversion. A `Text` operand compares with a type of
+    `_TEXT_CONSTANT_FAMILIES` only as a Text literal, and with an enum only
+    as one of its labels: ``literals`` holds each operand's literal value,
+    None for an operand that is not a literal (`comparison_literals`);
+    without it such a pair is not refused."""
+
+    resolved = tuple(
+        _comparison_resolved_type(value_type, type_expansions)
+        for value_type in (left_type, right_type)
+    )
+    families = tuple(_comparison_family(canonical) for canonical in resolved)
     if (
         None in families
-        or len(families) == 1
-        or families in _DEFERRED_COMPARISON_FAMILY_PAIRS
+        or families[0] == families[1]
+        or any(
+            family == "text"
+            and _text_compares_with(
+                cast(ResolvedType, resolved[1 - position]),
+                None if literals is None else literals[position],
+                checked=literals is not None,
+            )
+            for position, family in enumerate(families)
+        )
     ):
         return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN), None
     return _UNKNOWN_VALUE_TYPE, "comparable operands"
+
+
+def comparison_literals(
+    left: Expression,
+    right: Expression,
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+) -> tuple[object, object]:
+    """Each operand's value where it is, after `let:` inlining, a literal, as
+    emission writes it; None for any other operand."""
+
+    return (
+        _comparison_literal(left, row_schema, lets),
+        _comparison_literal(right, row_schema, lets),
+    )
+
+
+def _comparison_literal(
+    operand: Expression,
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+) -> object:
+    node = let_value(operand, row_schema, lets)
+    return cast(LiteralExpr, node).value if type(node) is LiteralExpr else None
+
+
+def _operands_do_not_compare(
+    operands: Sequence[tuple[Expression, ValueType]],
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool:
+    """Whether two of ``operands`` do not compare
+    (`resolved_comparison_value_type`). An operand of no family compares with
+    any, two of one family always compare, and whether two of different
+    families do follows from the families and, for a `Text` operand, its
+    literal value, so an operand is compared only with the first earlier
+    operand of each such key of another family. Two families other than
+    `Text` do not compare, so only the first operands of at most two such
+    families meet every `Text` key."""
+
+    seen: dict[object, dict[object, tuple[ValueType, object]]] = {}
+    for operand, operand_type in operands:
+        family = _comparison_family(
+            _comparison_resolved_type(operand_type, type_expansions)
+        )
+        if family is None:
+            continue
+        literal = _comparison_literal(operand, row_schema, lets)
+        key = literal if family == "text" and type(literal) is str else None
+        keys = seen.setdefault(family, {})
+        if key in keys:
+            continue
+        if any(
+            resolved_comparison_value_type(
+                operand_type, other_type, type_expansions, (literal, other_literal)
+            )[1]
+            is not None
+            for other_family, other_keys in seen.items()
+            if other_family != family
+            for other_type, other_literal in other_keys.values()
+        ):
+            return True
+        keys[key] = (operand_type, literal)
+    return False
+
+
+def _text_compares_with(other: ResolvedType, literal: object, *, checked: bool) -> bool:
+    """Whether a `Text` operand, of literal value ``literal`` where ``checked``,
+    compares with an operand of the type ``other`` of another family: a Text
+    literal with a type that has no literal of its own, and a label of an
+    enum with that enum."""
+
+    if _comparison_family(other) in _TEXT_CONSTANT_FAMILIES:
+        return not checked or type(literal) is str
+    return other.kind is TypeKind.ENUM and (
+        not checked
+        or (
+            type(literal) is str and literal in getattr(other.definition, "members", ())
+        )
+    )
 
 
 def _ends_in_unpaired_like_escape(pattern: Expression) -> bool:
@@ -2966,20 +3385,27 @@ def _join_nullability(
     return EffectiveNullability.NON_NULL
 
 
-def _comparison_family(
+def _comparison_resolved_type(
     value_type: ValueType,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
-) -> str | None:
+) -> ResolvedType | None:
+    if value_type.kind is not ValueTypeKind.KNOWN:
+        return None
     resolved_type = value_type.resolved_type
     if type_expansions is not None and resolved_type.kind is TypeKind.TYPE_ALIAS:
         # Single-file row fields keep alias names; compare the canonical expansion.
         definition = resolved_type.definition
         assert isinstance(definition, TypeDef)
         resolved_type = type_expansions[definition.base]
-    if (
-        value_type.kind is not ValueTypeKind.KNOWN
-        or resolved_type.kind is not TypeKind.BUILTIN
-    ):
+    return resolved_type
+
+
+def _comparison_family(resolved_type: ResolvedType | None) -> object:
+    if resolved_type is None:
+        return None
+    if resolved_type.kind in {TypeKind.ENUM, TypeKind.SHAPE}:
+        return (resolved_type.kind, id(resolved_type.definition))
+    if resolved_type.kind is not TypeKind.BUILTIN:
         return None
     return _COMPARISON_FAMILIES.get(resolved_type.name)
 
@@ -3029,18 +3455,23 @@ def _between_value_type(
         diagnostics.append(_null_comparison_diagnostic(expression, remedy=None))
         return _UNKNOWN_VALUE_TYPE
     # A null bound leaves the test a Bool that the other bound decides.
-    known_types = (child_types[0],) + tuple(
-        bound_type
+    known = ((expression.value, child_types[0]),) + tuple(
+        (bound, bound_type)
         for bound, bound_type in zip(
             (expression.lower, expression.upper), child_types[1:], strict=True
         )
         if not _reads_null_literal((bound,), row_schema, bare_value_expressions)
     )
-    if any(child_type.kind is ValueTypeKind.UNKNOWN for child_type in known_types):
+    if any(child_type.kind is ValueTypeKind.UNKNOWN for _, child_type in known):
         return _UNKNOWN_VALUE_TYPE
-    for bound_type in known_types[1:]:
+    for bound, bound_type in known[1:]:
         _, expected = resolved_comparison_value_type(
-            child_types[0], bound_type, type_expansions
+            child_types[0],
+            bound_type,
+            type_expansions,
+            comparison_literals(
+                expression.value, bound, row_schema, bare_value_expressions
+            ),
         )
         if expected is not None:
             diagnostics.append(
@@ -3070,12 +3501,16 @@ def _call_value_type(
     An Unknown argument suppresses only the checks that need its type. An
     argument's own error also suppresses the name and window checks, the
     `sign`/`year`/`month`/`day` arity check and the `substr` bounds check; an
-    unknown input row suppresses none of them.
+    unknown input row suppresses none of them. A call whose signature fixes
+    its result type, `count` and `count_distinct` included, has that type
+    beside an Unknown argument that no error explains, such as a field of a
+    source without a shape, and its other arguments are checked, as the
+    call has that type or fails wherever it runs.
     """
 
     function_name = _callee_name(expression)
     diagnostic_count = len(diagnostics)
-    argument_types = _call_argument_types(
+    argument_types, erroneous = _call_argument_types(
         expression,
         row_schema,
         value_types,
@@ -3092,13 +3527,37 @@ def _call_value_type(
     # An argument's own error explains an Unknown argument; the call then adds
     # nothing. An unknown input row explains no name, arity or window check,
     # since none of them reads an argument's type.
-    cascade = len(diagnostics) > diagnostic_count and any(
+    unknown = any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
     )
-    nulls = _null_reads(
-        expression.arguments, row_schema, bare_value_types, bare_value_expressions
+    cascade = len(diagnostics) > diagnostic_count and unknown
+    # So is a read of a `let:` binding with an error of its own, or of a name
+    # whose error is reported where it is bound or referenced (a forward or
+    # self reference, a refused binding).
+    explained = cascade or (
+        unknown
+        and _reads_erroneous_let(
+            expression,
+            row_schema,
+            bare_value_expressions or {},
+            (
+                bare_value_expressions.erroneous
+                if type(bare_value_expressions) is LetValues
+                else set()
+            )
+            | (suppressed_unknown_names or set()),
+        )
     )
-    if function_name in {"coalesce", "nullif"}:
+    values = function_name in {"coalesce", "nullif"}
+    nulls = _null_reads(
+        expression.arguments,
+        row_schema,
+        bare_value_types,
+        bare_value_expressions,
+        values=values,
+        erroneous=erroneous,
+    )
+    if values:
         contextual = _contextual_null_literal_types(
             expression.arguments,
             argument_types,
@@ -3107,6 +3566,31 @@ def _call_value_type(
             nulls,
         )
         if contextual is None:
+            # Beside an argument of unknown type the arguments of known type
+            # must still have one type where two of them are of families that
+            # do not compare, as the database then has no common type for
+            # them; others keep the type of the argument of unknown type to
+            # decide.
+            known = tuple(
+                (argument, argument_type)
+                for argument, argument_type in zip(
+                    expression.arguments, argument_types, strict=True
+                )
+                if argument_type.kind is ValueTypeKind.KNOWN
+            )
+            if (
+                function_name == "coalesce"
+                and not explained
+                and _operands_do_not_compare(
+                    known, row_schema, bare_value_expressions, type_expansions
+                )
+            ):
+                _coalesce_value_type(
+                    expression,
+                    tuple(argument_type for _, argument_type in known),
+                    type_expansions,
+                    diagnostics,
+                )
             return _UNKNOWN_VALUE_TYPE
         argument_types = contextual
         if function_name == "coalesce":
@@ -3122,12 +3606,29 @@ def _call_value_type(
             argument_type.kind is ValueTypeKind.UNKNOWN
             for argument_type in argument_types
         ):
+            # `count` and `count_distinct` count whatever they read: of a
+            # field of unknown type, such as of a source without a shape, in
+            # a form they accept, they are an `Int`.
+            if (
+                allow_aggregate_projection
+                and not explained
+                and function_name in {"count", "count_distinct"}
+                and len(expression.arguments) == 1
+                and has_unknown_field_reference(expression.arguments[0], value_types)
+                and accepts_argument_form(
+                    function_name,
+                    expression.arguments[0],
+                    let_expansions=bare_value_expressions,
+                )
+            ):
+                return _builtin_value_type("Int", EffectiveNullability.NON_NULL)
             return _UNKNOWN_VALUE_TYPE
         if allow_aggregate_projection:
             result_type = _aggregate_value_type(
                 expression,
                 argument_types,
                 let_expansions=bare_value_expressions,
+                row_schema=row_schema,
             )
             if result_type is not None:
                 return result_type
@@ -3141,7 +3642,11 @@ def _call_value_type(
         )
         and (cascade or len(argument_types) == 1)
     ):
-        return _UNKNOWN_VALUE_TYPE
+        return (
+            _UNKNOWN_VALUE_TYPE
+            if explained
+            else _builtin_value_type("Int", EffectiveNullability.UNKNOWN)
+        )
     if function_name == "sign":
         return _sign_value_type(
             expression, argument_types, diagnostics, type_expansions=type_expansions
@@ -3176,11 +3681,22 @@ def _call_value_type(
         value_types,
         nulls,
     )
-    if any(
+    if function_name == "abs":
+        # `abs` keeps an Int, Float or Decimal argument's type, so over an
+        # argument of unknown type that no error explains it is a number of
+        # unknown type; its signature, which also types a null argument, is
+        # the Decimal one.
+        if argument_types[0].kind is ValueTypeKind.UNKNOWN:
+            return _UNKNOWN_VALUE_TYPE if explained else _UNKNOWN_NUMBER
+        for name in ("Int", "Float"):
+            if _is_canonical_builtin(argument_types[0], name, type_expansions):
+                return _builtin_value_type(name, argument_types[0].nullability)
+    if explained and any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
     ):
         # The `substr` bounds check reads only literals, so a silent Unknown
-        # argument, such as a field of an unknown input row, does not hide it.
+        # argument, such as a read of a `let:` binding with an error, does not
+        # hide it.
         if (
             function_name == "substr"
             and not cascade
@@ -3189,22 +3705,12 @@ def _call_value_type(
             diagnostics.append(_invalid_substr_bounds_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
 
-    for position, (argument_type, expected_name) in enumerate(
-        zip(argument_types, signature.parameter_types, strict=True),
-        start=1,
-    ):
-        # A function reads a type alias argument as the type it expands to.
-        if not _is_canonical_builtin(argument_type, expected_name, type_expansions):
-            diagnostics.append(
-                _wrong_argument_type_diagnostic(
-                    expression,
-                    signature,
-                    position=position,
-                    expected_name=expected_name,
-                    actual_name=argument_type.resolved_type.name,
-                )
-            )
-            return _UNKNOWN_VALUE_TYPE
+    mismatch = _builtin_argument_mismatch(
+        expression, signature, argument_types, type_expansions
+    )
+    if mismatch is not None:
+        diagnostics.append(mismatch[1])
+        return _UNKNOWN_VALUE_TYPE
 
     if function_name == "substr" and not _valid_static_substr_bounds(expression):
         diagnostics.append(_invalid_substr_bounds_diagnostic(expression))
@@ -3219,6 +3725,125 @@ def _call_value_type(
             tuple(argument_type.nullability for argument_type in argument_types)
         ),
     )
+
+
+def _builtin_argument_mismatch(
+    expression: CallExpr,
+    signature: BuiltinFunction,
+    argument_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> tuple[int, Diagnostic] | None:
+    """The first known argument that the closed builtin signature refuses."""
+
+    for position, (argument_type, expected_name) in enumerate(
+        zip(argument_types, signature.parameter_types, strict=True), start=1
+    ):
+        if argument_type.kind is ValueTypeKind.UNKNOWN:
+            continue
+        if _is_canonical_builtin(argument_type, expected_name, type_expansions) or (
+            signature.name == "abs"
+            and any(
+                _is_canonical_builtin(argument_type, name, type_expansions)
+                for name in ("Int", "Float")
+            )
+        ):
+            continue
+        return position, _wrong_argument_type_diagnostic(
+            expression,
+            signature,
+            position=position,
+            expected_name=(
+                "Int, Float or Decimal" if signature.name == "abs" else expected_name
+            ),
+            actual_name=argument_type.resolved_type.name,
+        )
+    return None
+
+
+def null_arithmetic_argument_diagnostics(
+    expression: Expression,
+    row_schema: RowSchema,
+    value_types: Mapping[Expression, ValueType],
+    let_expressions: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    reported_errors: frozenset[Diagnostic],
+) -> tuple[Diagnostic, ...]:
+    """Closed-call type errors whose failing value reads typed NULL arithmetic.
+
+    These concrete errors survive an aggregate's shape refusal; unrelated
+    argument errors and shapes keep their existing diagnostics. A mismatch
+    must already be in ``reported_errors`` before its value is followed;
+    typing is never replayed to manufacture an error for this check.
+    """
+
+    def reads_typed_null_arithmetic(value: Expression) -> bool:
+        pending = [value]
+        seen: set[int] = set()
+        while pending:
+            node = pending.pop()
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            typed = value_types.get(node)
+            if typed is None or not _is_number(typed, type_expansions):
+                continue
+            if type(node) is BinaryExpr:
+                binary = cast(BinaryExpr, node)
+                if binary.operator in {"+", "-", "*", "/", "%"} and _reads_null_literal(
+                    (binary.left, binary.right), row_schema, let_expressions
+                ):
+                    return True
+            if type(node) is NameExpr:
+                bound = let_value(node, row_schema, let_expressions)
+                if bound is not node:
+                    pending.append(bound)
+            elif type(node) is CallExpr and _callee_name(cast(CallExpr, node)) in {
+                "abs",
+                "nullif",
+            }:
+                pending.extend(cast(CallExpr, node).arguments)
+            else:
+                pending.extend(_null_operands(node))
+        return False
+
+    found: list[Diagnostic] = []
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        pending.extend(reversed(_captured_field_children(node)))
+        if type(node) is not CallExpr:
+            continue
+        call = cast(CallExpr, node)
+        if value_types.get(call, _UNKNOWN_VALUE_TYPE).kind is not ValueTypeKind.UNKNOWN:
+            continue
+        signature = BUILTIN_FUNCTIONS.get(_callee_name(call))
+        if signature is None or len(call.arguments) != len(signature.parameter_types):
+            continue
+        argument_types = tuple(
+            value_types.get(argument, _UNKNOWN_VALUE_TYPE)
+            for argument in call.arguments
+        )
+        if any(
+            value_type.kind is ValueTypeKind.UNKNOWN
+            and value_type is not _UNKNOWN_NUMBER
+            for value_type in argument_types
+        ):
+            continue
+        mismatch = _builtin_argument_mismatch(
+            call, signature, argument_types, type_expansions
+        )
+        if mismatch is None:
+            mismatch = _number_argument_mismatch(
+                call, argument_types, signature.parameter_types
+            )
+        if (
+            mismatch is not None
+            and mismatch[1] in reported_errors
+            and reads_typed_null_arithmetic(call.arguments[mismatch[0] - 1])
+        ):
+            found.append(mismatch[1])
+    return tuple(found)
 
 
 def condition_value_type(
@@ -3286,12 +3911,291 @@ def _not_bool_condition(
 ) -> bool:
     """Whether a condition that reads ``expression`` of ``value_type``, with
     no error explaining an unknown type, is not a Bool
-    (`condition_value_type`)."""
+    (`condition_value_type`), a number of unknown type (`_UNKNOWN_NUMBER`)
+    included."""
 
     condition = condition_value_type(expression, value_type, row_schema, lets)
-    return condition.kind is ValueTypeKind.KNOWN and not _is_canonical_builtin(
-        condition, "Bool", type_expansions
+    return value_type is _UNKNOWN_NUMBER or (
+        condition.kind is ValueTypeKind.KNOWN
+        and not _is_canonical_builtin(condition, "Bool", type_expansions)
     )
+
+
+# A number of unknown type: a quotient with a `Decimal` operand, which has no
+# type while `Decimal` division is not specified, arithmetic (`+`, `-`, `*`,
+# `/`, `%` or a sign) over such a number and numbers, and a `coalesce`,
+# `nullif` or conditional of such numbers, where a null takes their type
+# (`_nulls_as_numbers`, `_of_numbers`). It equals
+# `_UNKNOWN_VALUE_TYPE`, so whatever reads the type sees an unknown type, but
+# typing returns this object for it, as it does for a `let:` name bound to
+# it, so each use tells in O(1) that it reads a number and refuses one that
+# no number fits (`_number_misfit`).
+_UNKNOWN_NUMBER = ValueType(
+    resolved_type=_UNKNOWN_VALUE_TYPE.resolved_type,
+    nullability=_UNKNOWN_VALUE_TYPE.nullability,
+    kind=ValueTypeKind.UNKNOWN,
+)
+# The types a number can have.
+_NUMBER_TYPES = tuple(
+    ValueType(
+        resolved_type=ResolvedType(name=name, kind=TypeKind.BUILTIN),
+        nullability=EffectiveNullability.UNKNOWN,
+    )
+    for name in ("Int", "Float", "Decimal")
+)
+
+
+def is_unknown_number(value_type: ValueType | None) -> bool:
+    """Whether typing typed an expression as a number of unknown type
+    (`_UNKNOWN_NUMBER`), such as `amount / 2` of a `Decimal` field."""
+
+    return value_type is _UNKNOWN_NUMBER
+
+
+def _is_number(
+    value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool:
+    """Whether ``value_type``, an alias read as the type it expands to, is
+    `Int`, `Float` or `Decimal`, or is a number of unknown type."""
+
+    canonical = _canonical_value_type(value_type, type_expansions)
+    return (
+        value_type is _UNKNOWN_NUMBER
+        or _is_numeric(canonical)
+        or _is_builtin(canonical, "Decimal")
+    )
+
+
+def _of_numbers(
+    operand_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    division: bool = False,
+) -> bool:
+    """Whether a value of unknown type that is one of, or is computed from,
+    operands of ``operand_types`` alone is a number of unknown type: each is
+    a number (`_is_number`), and one of them is of unknown type or, in a
+    ``division``, a `Decimal`."""
+
+    return all(
+        _is_number(operand_type, type_expansions) for operand_type in operand_types
+    ) and any(
+        operand_type is _UNKNOWN_NUMBER
+        or (
+            division
+            and _is_builtin(
+                _canonical_value_type(operand_type, type_expansions), "Decimal"
+            )
+        )
+        for operand_type in operand_types
+    )
+
+
+def _nulls_as_numbers(
+    operand_types: tuple[ValueType, ...],
+    nulls: Callable[[], tuple[bool, ...]],
+) -> tuple[ValueType, ...]:
+    """``operand_types`` of the arguments of a `coalesce` or `nullif` or the
+    branches of a conditional, where a null among them (``nulls``,
+    `_null_reads`) beside a number of unknown type is one, as a null there
+    takes the type of the values beside it."""
+
+    if not any(operand_type is _UNKNOWN_NUMBER for operand_type in operand_types):
+        return operand_types
+    return tuple(
+        _UNKNOWN_NUMBER if null else operand_type
+        for operand_type, null in zip(operand_types, nulls(), strict=True)
+    )
+
+
+def _number_misfit[T](
+    rule: Callable[[tuple[ValueType, ...]], T | None],
+    operand_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> T | None:
+    """What ``rule``, which checks operands of ``operand_types`` and returns
+    what it refuses, reports where one of them is a number of unknown type
+    (`_UNKNOWN_NUMBER`) that no number fits: with every number among them
+    read as one numeric type, each numeric type is refused. A number thus
+    fits beside numbers, of whatever types, and any other operand of unknown
+    type leaves the rule unread, as it does without a number."""
+
+    if not any(
+        operand_type is _UNKNOWN_NUMBER for operand_type in operand_types
+    ) or any(
+        operand_type.kind is ValueTypeKind.UNKNOWN
+        and operand_type is not _UNKNOWN_NUMBER
+        for operand_type in operand_types
+    ):
+        return None
+    found = [
+        rule(
+            tuple(
+                number_type
+                if _is_number(operand_type, type_expansions)
+                else _canonical_value_type(operand_type, type_expansions)
+                for operand_type in operand_types
+            )
+        )
+        for number_type in _NUMBER_TYPES
+    ]
+    return None if any(problem is None for problem in found) else found[0]
+
+
+def _number_test_expected(
+    expression: ComparisonExpr | BetweenExpr | MembershipExpr,
+    value_types: Mapping[Expression, ValueType],
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> str | None:
+    """What a comparison, `like`, `between` or `in` test whose operands are
+    typed in ``value_types`` expects where one of them is a number of
+    unknown type that no number fits (`_number_misfit`), as in
+    `amount / 2 == "x"` or `amount / 2 in ("x", "y")`, or None."""
+
+    if isinstance(expression, ComparisonExpr):
+        operands = (expression.left, expression.right)
+    elif isinstance(expression, BetweenExpr):
+        # A null bound leaves the test to the other bound.
+        operands = (expression.value,) + tuple(
+            bound
+            for bound in (expression.lower, expression.upper)
+            if not _reads_null_literal((bound,), row_schema, lets)
+        )
+    else:
+        operands = (expression.value, *expression.options)
+    operand_types = tuple(
+        value_types.get(operand, _UNKNOWN_VALUE_TYPE) for operand in operands
+    )
+    if isinstance(expression, MembershipExpr):
+        return _number_misfit(
+            lambda types: (
+                None
+                if _membership_canonical_type(types, type_expansions) is not None
+                else "same canonical membership operands"
+            ),
+            operand_types,
+            type_expansions,
+        )
+    if isinstance(expression, ComparisonExpr) and expression.operator in {
+        "like",
+        "not like",
+    }:
+        return _number_misfit(
+            lambda types: resolved_like_value_type(types[0], types[1])[1],
+            operand_types,
+            type_expansions,
+        )
+    # A comparison, and a `between` of its value with each bound.
+    return _number_misfit(
+        lambda types: next(
+            (
+                expected
+                for bound_type in types[1:]
+                if (
+                    expected := resolved_comparison_value_type(
+                        types[0], bound_type, type_expansions
+                    )[1]
+                )
+                is not None
+            ),
+            None,
+        ),
+        operand_types,
+        type_expansions,
+    )
+
+
+def _number_call_type(
+    expression: CallExpr,
+    value_type: ValueType,
+    value_types: Mapping[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    nulls: Callable[[], tuple[bool, ...]],
+) -> ValueType:
+    """The type of a built-in call, typed as ``value_type`` with no
+    diagnostic, over a number of unknown type (`_UNKNOWN_NUMBER`): a
+    `coalesce` or `nullif` of numbers, where a null argument (``nulls``,
+    `_null_reads`) takes their type, is one, and an argument that no number
+    fits is PIE-S2104 (`_number_misfit`), as in `coalesce(label, amount / 2)`
+    or, for a parameter of a type that is no number, `lower(amount / 2)`
+    (`got numeric`)."""
+
+    name = _callee_name(expression)
+    arguments = expression.arguments
+    if name in {"coalesce", "nullif"}:
+        if len(arguments) < 2 or (name == "nullif" and len(arguments) > 2):
+            # A wrong argument count is left to emission, as beside any other
+            # argument of unknown type.
+            return value_type
+        check = _coalesce_value_type if name == "coalesce" else _nullif_value_type
+
+        def refused(types: tuple[ValueType, ...]) -> Diagnostic | None:
+            found: list[Diagnostic] = []
+            check(expression, types, type_expansions, found)
+            return found[0] if found else None
+
+        argument_types = _nulls_as_numbers(
+            tuple(
+                value_types.get(argument, _UNKNOWN_VALUE_TYPE) for argument in arguments
+            ),
+            nulls,
+        )
+        diagnostic = _number_misfit(refused, argument_types, type_expansions)
+        if diagnostic is not None:
+            diagnostics.append(diagnostic)
+            return _UNKNOWN_VALUE_TYPE
+        if _of_numbers(argument_types, type_expansions):
+            return _UNKNOWN_NUMBER
+        return value_type
+    signature = BUILTIN_FUNCTIONS.get(name)
+    parameters = (
+        ("Date or Timestamp",)
+        if name in {"year", "month", "day"}
+        else None
+        if signature is None
+        else signature.parameter_types
+    )
+    if parameters is None or len(parameters) != len(arguments):
+        return value_type
+    mismatch = _number_argument_mismatch(
+        expression,
+        tuple(value_types.get(argument, _UNKNOWN_VALUE_TYPE) for argument in arguments),
+        parameters,
+    )
+    if mismatch is not None:
+        diagnostics.append(mismatch[1])
+        return _UNKNOWN_VALUE_TYPE
+    return value_type
+
+
+def _number_argument_mismatch(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    parameters: tuple[str, ...],
+) -> tuple[int, Diagnostic] | None:
+    """The original numeric fallback's first parameter that no number fits."""
+
+    for position, (argument_type, parameter) in enumerate(
+        zip(argument_types, parameters, strict=True), start=1
+    ):
+        if (
+            parameter not in {"Int", "Float", "Decimal"}
+            and argument_type is _UNKNOWN_NUMBER
+        ):
+            return position, _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    f"Invalid argument type for function {_callee_name(expression)} at position "
+                    f"{position}: expected {parameter}, got numeric"
+                ),
+            )
+    return None
 
 
 def _coalesce_value_type(
@@ -3380,23 +4284,99 @@ def _null_reads(
     row_schema: RowSchema,
     bare_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
+    *,
+    values: bool = False,
+    erroneous: set[int] | None = None,
 ) -> tuple[bool, ...]:
     """Whether each of ``expressions`` is a null that takes its type from where
     it stands: the null literal, or a `let:` name read as its binding (in
     ``bare_value_types``) whose value, inlined as emission inlines it, is the
     null literal; never a ``def`` argument that does not fit its parameter,
-    which stays Unknown to the expression around it."""
+    which stays Unknown to the expression around it. With ``values``, where
+    the expressions are values that must have one type (conditional
+    branches, `coalesce` and `nullif` arguments, `in` operands), so is a
+    conditional, `coalesce` or `nullif` whose every value is such a null:
+    beside a value of another type it is that null, so the type of the
+    values beside it is the type of all of them. An Unknown expression
+    whose own typing reported an error (its identity in ``erroneous``) never
+    takes a contextual type; errors in a known sibling do not prevent it."""
 
-    return tuple(
-        _reads_null_literal(
-            (expression,),
-            row_schema,
+    def lets(expression: Expression) -> Mapping[str, Expression] | None:
+        return (
             let_expressions
             if type(expression) is NameExpr
             and bare_value_types is not None
             and expression.name in bare_value_types
-            else None,
+            else None
         )
+
+    def reads(expression: Expression) -> bool:
+        return _reads_null_literal((expression,), row_schema, lets(expression))
+
+    # This call has one row and binding scope; None marks an active node.
+    null_values: dict[tuple[int, bool], bool | None] = {}
+
+    def reads_value(expression: Expression) -> bool:
+        pending: list[
+            tuple[Expression, bool, tuple[tuple[Expression, bool], ...] | None]
+        ] = [(expression, False, None)]
+        while pending:
+            node, alias, children = pending.pop()
+            key = (id(node), alias)
+            if children is not None:
+                null_values[key] = all(
+                    null_values[(id(child), chained)] for child, chained in children
+                )
+                continue
+            if key in null_values:
+                if null_values[key] is None:
+                    null_values[key] = False
+                continue
+            null_values[key] = False
+            if not all(slot.nullable for slot in inlined_arguments(node)):
+                continue
+            if _is_null_literal(node):
+                null_values[key] = True
+                continue
+            if type(node) is NameExpr:
+                bindings = let_expressions if alias else lets(node)
+                name = cast(NameExpr, node).name
+                if (
+                    bindings is None
+                    or name not in bindings
+                    or name in row_schema.fields
+                    or (type(bindings) is LetValues and name in bindings.erroneous)
+                ):
+                    continue
+                value = bindings[name]
+                children = ((value, type(value) is NameExpr),)
+            elif type(node) is ConditionalExpr:
+                conditional = cast(ConditionalExpr, node)
+                children = (
+                    (conditional.when_true, False),
+                    (conditional.when_false, False),
+                )
+            elif (
+                type(node) is CallExpr
+                and _callee_name(cast(CallExpr, node)) in {"coalesce", "nullif"}
+                and cast(CallExpr, node).arguments
+            ):
+                children = tuple(
+                    (child, False) for child in cast(CallExpr, node).arguments
+                )
+            else:
+                continue
+            null_values[key] = None
+            pending.append((node, alias, children))
+            pending.extend(
+                (child, chained, None) for child, chained in reversed(children)
+            )
+        return null_values[(id(expression), False)] is True
+
+    return tuple(
+        False
+        if erroneous is not None and id(expression) in erroneous
+        else (reads_value if values else reads)(expression)
         for expression in expressions
     )
 
@@ -3607,7 +4587,7 @@ def _call_argument_types(
     suppressed_unknown_names: set[str] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     relation_columns: Mapping[Expression, ValueType] | None,
-) -> tuple[ValueType, ...]:
+) -> tuple[tuple[ValueType, ...], set[int]]:
     if (
         allow_aggregate_projection
         and is_semantic_aggregate_call(expression)
@@ -3617,12 +4597,18 @@ def _call_argument_types(
         argument = expression.arguments[0]
         temporary_diagnostics: list[Diagnostic] = []
         function_name = _callee_name(expression)
+        # A `min` or `max` argument that reads a `let:` name is refused
+        # (PIE-S2315, `extremum_reads_let`) after the checks that its names
+        # with their binding types make, as for the value written in place.
         argument_bare_value_types = (
             bare_value_types
             if aggregate_argument_can_use_let_scope(
                 function_name,
                 argument,
                 bare_value_expressions,
+            )
+            or extremum_reads_let(
+                function_name, argument, bare_value_expressions, row_schema
             )
             else None
         )
@@ -3635,6 +4621,7 @@ def _call_argument_types(
             )
             if argument_bare_value_types is not None
             and type(bare_value_expressions) is LetValues
+            and type(argument) is NameExpr
             else None
         )
         # An aggregate reads a type alias argument as the type it expands to.
@@ -3675,10 +4662,29 @@ def _call_argument_types(
             )
         ):
             diagnostics.extend(temporary_diagnostics)
-        return (argument_type,)
+        elif temporary_diagnostics:
+            null_errors = frozenset(
+                null_arithmetic_argument_diagnostics(
+                    argument,
+                    row_schema,
+                    value_types,
+                    bare_value_expressions,
+                    type_expansions,
+                    reported_errors=frozenset(temporary_diagnostics),
+                )
+            )
+            diagnostics.extend(
+                diagnostic
+                for diagnostic in temporary_diagnostics
+                if diagnostic in null_errors
+            )
+        return (argument_type,), set()
 
-    return tuple(
-        _infer(
+    inferred: list[ValueType] = []
+    erroneous: set[int] = set()
+    for argument in expression.arguments:
+        start = len(diagnostics)
+        argument_type = _infer(
             argument,
             row_schema,
             value_types,
@@ -3691,8 +4697,12 @@ def _call_argument_types(
             type_expansions=type_expansions,
             relation_columns=relation_columns,
         )
-        for argument in expression.arguments
-    )
+        inferred.append(argument_type)
+        if argument_type.kind is ValueTypeKind.UNKNOWN and _has_error(
+            diagnostics[start:]
+        ):
+            erroneous.add(id(argument))
+    return tuple(inferred), erroneous
 
 
 def _callee_name(expression: CallExpr) -> str:
@@ -3709,6 +4719,7 @@ def _aggregate_value_type(
     argument_types: tuple[ValueType, ...],
     *,
     let_expansions: Mapping[str, Expression] | None,
+    row_schema: RowSchema,
 ) -> ValueType | None:
     """Return a precise aggregate type only for approved direct projections."""
 
@@ -3720,7 +4731,9 @@ def _aggregate_value_type(
     if len(expression.arguments) != 1:
         return None
     argument = expression.arguments[0]
-    if not is_supported_semantic_aggregate_argument_expression(
+    if extremum_reads_let(
+        function_name, argument, let_expansions, row_schema
+    ) or not is_supported_semantic_aggregate_argument_expression(
         function_name,
         argument,
         argument_types[0],
@@ -3812,13 +4825,17 @@ def _qualified_name_value_type(
     field_qualifier: str,
     report_unknown: bool,
 ) -> ValueType:
-    """Resolve one two-part field reference against the sole relation input."""
+    """Resolve one two-part field reference against the sole relation input.
 
-    if row_schema.is_unknown:
-        return _UNKNOWN_VALUE_TYPE
+    A row of unknown type hides its fields, not the name of its input: a read
+    such as `other.a` or `items.a.b` is unknown there as over a known row.
+    """
+
     if len(expression.parts) != 2 or expression.parts[0] != field_qualifier:
         if report_unknown:
             diagnostics.append(_unknown_field_diagnostic(expression))
+        return _UNKNOWN_VALUE_TYPE
+    if row_schema.is_unknown:
         return _UNKNOWN_VALUE_TYPE
 
     field = row_schema.fields.get(expression.parts[1])
@@ -4101,16 +5118,50 @@ def _order_by_output_name_diagnostic(
     )
 
 
+# The aggregate names in one fixed order, as a message lists them.
+_AGGREGATE_NAMES = sorted(SEMANTIC_AGGREGATE_NAMES)
+# What to write instead of a function that a SQL or Python habit calls, by its
+# lowercase name.
+_UNKNOWN_FUNCTION_HINTS = {
+    "length": "use `len(Text)` instead",
+    "char_length": "use `len(Text)` instead",
+    "concat": "string concatenation is not supported yet",
+    "generate_series": "it is a table function, read with "
+    "`from generate_series(start, stop, step) as n` in an EXPLICIT_MODULES project",
+    **dict.fromkeys(
+        (
+            "array_agg",
+            "group_concat",
+            "mean",
+            "median",
+            "std",
+            "stddev",
+            "stddev_pop",
+            "stddev_samp",
+            "string_agg",
+            "var",
+            "var_pop",
+            "var_samp",
+            "variance",
+        ),
+        f"the available aggregates are {', '.join(_AGGREGATE_NAMES[:-1])} and "
+        f"{_AGGREGATE_NAMES[-1]}",
+    ),
+}
+
+
 def _unknown_function_diagnostic(
     expression: CallExpr,
     function_name: str,
 ) -> Diagnostic:
     """Report a call target absent from the explicit built-in catalog."""
 
+    hint = _UNKNOWN_FUNCTION_HINTS.get(function_name.lower())
     return _call_diagnostic(
         expression,
         code="PIE-S2103",
-        message=f"Unknown function: {function_name}",
+        message=f"Unknown function: {function_name}"
+        + ("" if hint is None else f"; {hint}"),
     )
 
 

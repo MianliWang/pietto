@@ -8,7 +8,14 @@ import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
-from pietto.ast_nodes import CallExpr, Expression, Script, TableDef
+from pietto.ast_nodes import (
+    BinaryExpr,
+    CallExpr,
+    Expression,
+    MembershipExpr,
+    Script,
+    TableDef,
+)
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import (
@@ -113,6 +120,48 @@ def test_unknown_function_reports_pie_s2103() -> None:
         for diagnostic in result.diagnostics
     ] == [("PIE-S2103", Severity.ERROR, "Unknown function: normalize")]
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
+
+
+_AGGREGATES = (
+    "the available aggregates are avg, count, count_distinct, max, min and sum"
+)
+
+
+@pytest.mark.parametrize(
+    ("call", "hint"),
+    [
+        ("length(email)", "use `len(Text)` instead"),
+        ("char_length(email)", "use `len(Text)` instead"),
+        ('concat(email, "!")', "string concatenation is not supported yet"),
+        (
+            "generate_series(1, 3, 1)",
+            "it is a table function, read with `from generate_series(start, stop, "
+            "step) as n` in an EXPLICIT_MODULES project",
+        ),
+        ("stddev(count)", _AGGREGATES),
+        ('string_agg(email, ",")', _AGGREGATES),
+        ("mean(count)", _AGGREGATES),
+        # A name written with capitals gets the hint of its lowercase spelling.
+        ("LENGTH(email)", "use `len(Text)` instead"),
+        ("Median(count)", _AGGREGATES),
+    ],
+)
+def test_unknown_function_of_a_sql_or_python_habit_names_the_pietto_form(
+    call: str, hint: str
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            f"        value = {call}\n"
+        )
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [("PIE-S2103", 8, 17, f"Unknown function: {call.split('(')[0]}; {hint}")]
 
 
 def test_wrong_argument_count_reports_pie_s2104() -> None:
@@ -256,6 +305,95 @@ def test_q1_closed_builtin_catalog_has_typed_nullable_results() -> None:
     assert all(
         value_type.nullability is EffectiveNullability.NULLABLE for value_type in types
     )
+
+
+def test_abs_keeps_its_argument_type_and_nullability() -> None:
+    # A null argument is read as a Decimal.
+    result = analyze(
+        _parse(
+            "type Age = Int not null\n"
+            "shape User:\n"
+            "    count: Int not null\n"
+            "    score: Float nullable\n"
+            "    age: Age not null\n"
+            "    amount: Decimal nullable\n"
+            "    name: Text not null\n"
+            'source users: User is postgres.table("users")\n'
+            "table projected:\n"
+            "    from users\n"
+            "    where abs(count)\n"
+            "    select:\n"
+            "        a = abs(count)\n"
+            "        b = abs(score)\n"
+            "        c = abs(age)\n"
+            "        d = abs(-1.5)\n"
+            "        e = abs(amount)\n"
+            "        f = abs(null)\n"
+            "        g = abs(name)\n"
+        )
+    )
+    table = _table(result)
+    types = tuple(
+        result.model.expression_value_types[item.expression]
+        for item in table.select_items
+    )
+
+    assert [(t.resolved_type.name, t.nullability.value) for t in types[:6]] == [
+        ("Int", "non_null"),
+        ("Float", "nullable"),
+        ("Int", "non_null"),
+        ("Float", "non_null"),
+        ("Decimal", "nullable"),
+        ("Decimal", "nullable"),
+    ]
+    assert types[6].kind is ValueTypeKind.UNKNOWN
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2202", "Expected Bool expression in where clause", 11, 11),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function abs at position 1: "
+            "expected Int, Float or Decimal, got Text",
+            19,
+            13,
+        ),
+    ]
+
+    # No signature fixes its type beside an argument of unknown type, such as
+    # a field of a source without a shape; as a condition it is a number.
+    result = analyze(
+        _parse(
+            'source items is postgres.table("items")\n'
+            "table projected:\n"
+            "    from items\n"
+            "    where abs(t)\n"
+            "    select:\n"
+            "        a = abs(t) * 2\n"
+            "        b = abs(t) in (1.5, 2.5)\n"
+        )
+    )
+    product, membership = (item.expression for item in _table(result).select_items)
+    assert isinstance(product, BinaryExpr)
+    assert isinstance(membership, MembershipExpr)
+
+    assert [
+        result.model.expression_value_types[call].kind
+        for call in (product.left, membership.value)
+    ] == [ValueTypeKind.UNKNOWN, ValueTypeKind.UNKNOWN]
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2303",
+            "Source items has no bound shape; row schema is unknown",
+            1,
+            1,
+        ),
+        ("PIE-S2202", "Expected Bool expression in where clause", 4, 11),
+    ]
 
 
 def test_function_semantic_results_do_not_expose_antlr_nodes() -> None:

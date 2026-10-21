@@ -31,6 +31,7 @@ from pietto._project.project_query_block_ir_algebra import (
     ProjectIRJoinInputCorrespondence,
     build_project_ir_join_prefix,
     image_project_ir_join_properties,
+    input_factor_images,
     _historical_refs,
 )
 
@@ -4601,6 +4602,7 @@ def _build_final_entries(
         elif type(pending) is _PendingCompleted:
             join_properties: list[ProjectIROutputRelationalProperties] = []
             if pending.join_prefix is not None:
+                input_images: dict[int, dict[int, ProjectGrainFactorIdentity]] = {}
                 for joined in pending.join_prefix.joins:
                     for input_image in joined.inputs:
                         if input_image.producer is not None:
@@ -4617,6 +4619,9 @@ def _build_final_entries(
                                 )
                             for old, new in zip(old_factors, new_factors, strict=True):
                                 factor_images[id(old.identity)] = new.identity
+                            input_images[id(input_image.source.ref)] = (
+                                input_factor_images(old_factors, new_factors)
+                            )
                     join_properties.append(
                         image_project_ir_join_properties(
                             joined.source_properties,
@@ -4625,6 +4630,7 @@ def _build_final_entries(
                             ref_images,
                             historical_refs,
                             factor_images,
+                            input_images,
                         )
                     )
                 sources = tuple(

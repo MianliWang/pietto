@@ -74,6 +74,33 @@ def test_visible_float_is_unsupported(tmp_path: Path) -> None:
     )
 
 
+def test_a_visible_window_value_of_a_shape_is_unsupported(tmp_path: Path) -> None:
+    """A `lag` of a shape field is a column of that shape, which DISTINCT has
+    no row equivalence for: PIE-S2339 at the window. Before, the window was
+    PIE-S2104 `value type must be concrete`."""
+    result = _completed(
+        tmp_path,
+        "shape Payload:\n    a: Int not null\n"
+        "shape Row:\n    id: Int not null\n    payload: Payload nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query result:\n    from rows\n    select distinct:\n        id\n"
+        "        p = lag(payload) window:\n            order by:\n"
+        "                id\n",
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2339",
+            "DISTINCT field 'p' of type 'Payload' has unsupported row equivalence: "
+            "unsupported_type.",
+            11,
+            13,
+        )
+    ]
+
+
 @pytest.mark.parametrize("kind", ("table", "query"))
 @pytest.mark.parametrize("distinct", (False, True))
 def test_ast_retains_exact_token(kind: str, distinct: bool) -> None:

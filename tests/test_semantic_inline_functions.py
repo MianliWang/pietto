@@ -57,6 +57,10 @@ SCALARS = (
     "Bool, Int, Float, Decimal, Text, Date, Timestamp or UUID, without arguments, "
     "or an alias of one declared in this file without arguments or `ensure`"
 )
+NOT_PROVEN = (
+    "; a body is proven non-null when every value it reads is non-null, except "
+    "through `/`, `%`, `and`, `or`, `nullif` or `matches`"
+)
 
 
 def _errors(source: str) -> list[tuple[str, int, int, str]]:
@@ -226,13 +230,24 @@ DEFINITION_ERRORS = {
                 "PIE-S2402",
                 1,
                 50,
-                "Def f body may be null, but its declared return type is not null",
-            ),
+                "Def f body may be null, but its declared return type is not null"
+                + NOT_PROVEN,
+            )
+        ],
+    ),
+    # A body of unknown nullability, such as an `or`, is not proven non-null;
+    # a call of a def is read as its expansion (`g(a)` is `a > 1`).
+    "result_nullability_unknown_is_not_proven": (
+        "def f(a: Bool not null, b: Bool not null) -> Bool not null: return a or b\n"
+        "def g(a: Int not null) -> Bool nullable: return a > 1\n"
+        "def h(a: Int not null) -> Bool not null: return g(a)\n",
+        [
             (
                 "PIE-S2402",
-                2,
-                49,
-                "Def g body may be null, but its declared return type is not null",
+                1,
+                68,
+                "Def f body is not proven non-null, but its declared return type "
+                "is not null; declare the result `nullable`" + NOT_PROVEN,
             ),
         ],
     ),
@@ -253,7 +268,13 @@ DEFINITION_ERRORS = {
             ),
             ("PIE-S2395", 3, 50, "Invalid arguments for def g: expected 1, got 2"),
             ("PIE-S2103", 4, 50, "Unknown function: frob"),
-            ("PIE-S2103", 7, 48, "Unknown function: d"),
+            (
+                "PIE-S2103",
+                7,
+                48,
+                "Unknown function: d; d is a derive, which cannot be called; "
+                "write a `def` instead",
+            ),
         ],
     ),
     # A body is checked at the def, where an error in a call's argument is
@@ -347,6 +368,92 @@ def test_each_definition_error_is_reported_at_the_def(
     source: str, expected: list[tuple[str, int, int, str]]
 ) -> None:
     assert _errors(source) == expected
+
+
+def test_a_body_comparison_or_arithmetic_of_non_null_operands_is_non_null() -> None:
+    """In a body a comparison, `between` or `+`, `-`, `*` of non-null operands
+    is non-null, and so is what reads it as it reads any non-null value; `/`,
+    `%`, `and` and `or` are not, and an argument fits a call as it does
+    outside a body."""
+    source = (
+        "def lt(a: Int not null, b: Int not null) -> Bool not null: return a < b\n"
+        "def in_2026(t: Timestamp not null) -> Bool not null:\n"
+        '    return t between "2026-01-01 00:00:00" and "2026-12-31 23:59:59"\n'
+        "def grow(x: Float not null) -> Float not null: return (x + 1.0) * 2.0 - x\n"
+        "def flip(x: Int not null) -> Bool not null: return not lt(x, 1)\n"
+        "def dist(a: Int not null, b: Int not null) -> Int not null: "
+        "return abs(a - b)\n"
+        "def pick(x: Int not null) -> Int not null: return 1 if x > 1 else -(x * 2)\n"
+        "def half(x: Int not null) -> Int not null: return x / 2\n"
+        "def rest(x: Int not null) -> Int not null: return x % 2\n"
+        "def both(x: Int not null) -> Bool not null: return x > 0 and x < 9\n"
+        "def maybe(x: Int nullable) -> Bool not null: return x > 1\n"
+        "def fit(y: Int not null) -> Bool not null: return lt(y + 1, 2)\n"
+    )
+    assert _errors(source) == [
+        (
+            "PIE-S2402",
+            line,
+            column,
+            f"Def {name} body is not proven non-null, but its declared return type "
+            "is not null; declare the result `nullable`" + NOT_PROVEN,
+        )
+        for line, column, name in (
+            (8, 51, "half"),
+            (9, 51, "rest"),
+            (10, 52, "both"),
+            (11, 53, "maybe"),
+        )
+    ] + [
+        (
+            "PIE-S2395",
+            12,
+            51,
+            "Invalid argument for def lt at position 1 (a): "
+            "expected Int not null, got Int of unknown nullability",
+        )
+    ]
+
+
+def test_a_body_argument_fits_its_parameter_as_it_does_outside_a_body() -> None:
+    """Every part of an argument is typed as it is outside a body, also under
+    `-`, `not`, `abs` or `nullif`, with each call's own mismatch; an argument
+    that fits counts for a `not null` result as any other value read."""
+    source = (
+        "def lt(a: Int not null, b: Int not null) -> Bool not null: return a < b\n"
+        "def g(x: Int not null) -> Int not null: return x\n"
+        "def gb(x: Bool not null) -> Bool not null: return x\n"
+        "def idn(x: Int nullable) -> Int nullable: return x\n"
+        "def neg(a: Int not null, b: Int not null) -> Int not null: "
+        "return g(-(a + b))\n"
+        "def nope(a: Int not null, b: Int not null) -> Bool not null: "
+        "return gb(not (a < b))\n"
+        "def zero(a: Int not null, b: Int not null) -> Int not null: "
+        "return g(nullif(a + b, 0))\n"
+        "def two(a: Int not null, b: Int not null) -> Int not null: "
+        "return g(-(a + b)) + g(a + b)\n"
+        "def near(y: Int not null) -> Bool not null: return lt(abs(y + 1), 2)\n"
+        "def same(a: Int not null, b: Int not null) -> Int not null: "
+        "return idn(-(a + b))\n"
+    )
+    unknown = "of unknown nullability"
+    assert _errors(source) == [
+        (
+            "PIE-S2395",
+            line,
+            column,
+            f"Invalid argument for def {name} at position 1 ({parameter}): "
+            f"expected {expected} not null, got {expected} {unknown}",
+        )
+        for line, column, name, parameter, expected in (
+            (5, 67, "g", "x", "Int"),
+            (6, 69, "gb", "x", "Bool"),
+            (7, 68, "g", "x", "Int"),
+            (8, 67, "g", "x", "Int"),
+            (8, 81, "g", "x", "Int"),
+            (9, 52, "lt", "a", "Int"),
+        )
+    ]
 
 
 CALL_ERRORS = {
@@ -1012,12 +1119,14 @@ ILL_TYPED = {
     "I9": "lower(coalesce(null, 1)) is null",
 }
 NOT_NUMERIC = "Invalid operands for operator {}: expected numeric operands"
+# `+` with a Text operand also says that Text does not concatenate.
+TEXT_PLUS = NOT_NUMERIC.format("+") + "; string concatenation is not supported yet"
 LOWER_OF_INT = (
     "Invalid argument type for function lower at position 1: expected Text, got Int"
 )
 # The bindings of ILL_TYPED_LETS, ill-typed at their own positions.
 ILL_TYPED_BINDING_ERRORS = [
-    ("PIE-S2105", BODY_LINE + 8, 14, NOT_NUMERIC.format("+")),
+    ("PIE-S2105", BODY_LINE + 8, 14, TEXT_PLUS),
     ("PIE-S2105", BODY_LINE + 9, 14, NOT_NUMERIC.format("*")),
     (
         "PIE-S2105",
@@ -1038,13 +1147,13 @@ ILL_TYPED_BINDING_ERRORS = [
         "Invalid operands for operator conditional: "
         "expected same canonical branch types",
     ),
-    ("PIE-S2105", BODY_LINE + 13, 14, NOT_NUMERIC.format("+")),
+    ("PIE-S2105", BODY_LINE + 13, 14, TEXT_PLUS),
     ("PIE-S2104", BODY_LINE + 14, 14, LOWER_OF_INT),
     ("PIE-S2104", BODY_LINE + 14, 30, LOWER_OF_INT),
 ]
 # The errors of the values written by hand where ILL_TYPED_LETS reads them.
 ILL_TYPED_ERRORS = [
-    ("PIE-S2105", BODY_LINE + 15, 15, NOT_NUMERIC.format("+")),
+    ("PIE-S2105", BODY_LINE + 15, 15, TEXT_PLUS),
     ("PIE-S2104", BODY_LINE + 18, 16, LOWER_OF_INT),
     ("PIE-S2105", BODY_LINE + 19, 17, NOT_NUMERIC.format("*")),
     (
@@ -1066,7 +1175,7 @@ ILL_TYPED_ERRORS = [
         "Invalid operands for operator conditional: "
         "expected same canonical branch types",
     ),
-    ("PIE-S2105", BODY_LINE + 23, 17, NOT_NUMERIC.format("+")),
+    ("PIE-S2105", BODY_LINE + 23, 17, TEXT_PLUS),
     ("PIE-S2104", BODY_LINE + 24, 16, LOWER_OF_INT),
     ("PIE-S2104", BODY_LINE + 25, 16, LOWER_OF_INT),
     ("PIE-S2104", BODY_LINE + 26, 19, LOWER_OF_INT),
@@ -1360,9 +1469,9 @@ NULLS = {
     ),
     # A `let:` name that an aggregate reads is checked with its binding's type
     # and is null where its value is, so `sum(nn(nill))` is PIE-S2395 and
-    # PIE-S2315, as `sum(nn(null))` is (before: PIE-S2315 alone). `min` and
-    # `max` read no `let:` name, so the name is an unknown field there, with
-    # or without a def.
+    # PIE-S2315, as `sum(nn(null))` is (before: PIE-S2315 alone). A single
+    # file's `min` and `max` read no `let:` name: it is checked the same way,
+    # and the aggregate is PIE-S2315 (before: an unknown field, PIE-S2102).
     "null_let_in_an_aggregate_argument": (
         "def nn(x: Int not null) -> Int not null: return x\n"
         "table t:\n    from rows\n    let:\n        nill = null\n"
@@ -1391,8 +1500,27 @@ NULLS = {
                 "Invalid argument for def nn at position 1 (x): "
                 "expected Int not null, got null",
             ),
-            ("PIE-S2102", BODY_LINE + 10, 20, "Unknown field: nill"),
-            ("PIE-S2102", BODY_LINE + 11, 17, "Unknown field: nill"),
+            (
+                "PIE-S2315",
+                BODY_LINE + 10,
+                13,
+                "Aggregate function max requires a direct field argument; "
+                "expression arguments are not supported yet",
+            ),
+            (
+                "PIE-S2395",
+                BODY_LINE + 10,
+                17,
+                "Invalid argument for def nn at position 1 (x): "
+                "expected Int not null, got null",
+            ),
+            (
+                "PIE-S2315",
+                BODY_LINE + 11,
+                13,
+                "Aggregate function min requires a direct field argument; "
+                "expression arguments are not supported yet",
+            ),
         ],
     ),
     # Each argument reads a `let:` name whose value reads one bound to null;
@@ -1442,8 +1570,7 @@ NULLS = {
         ],
     ),
     "unknown_body": (
-        "def f(x: Int not null) -> Int nullable: "
-        "return coalesce(null, null) if x > 0 else x\n",
+        "def f(x: Int not null) -> Int nullable: return -null if x > 0 else x\n",
         [
             (
                 "PIE-S2402",
@@ -1453,6 +1580,13 @@ NULLS = {
                 "cannot match declared return type Int",
             )
         ],
+    ),
+    # Before: PIE-S2402 as an unknown body. A coalesce of only nulls takes the
+    # type of the branch beside it, as `null if x > 0 else x` does.
+    "null_coalesce_branch_body": (
+        "def f(x: Int not null) -> Int nullable: "
+        "return coalesce(null, null) if x > 0 else x\n",
+        [],
     ),
 }
 
@@ -1668,6 +1802,58 @@ def test_a_let_name_that_is_an_unknown_field_where_it_is_read_stays_one() -> Non
             BODY_LINE + 8,
             16,
             "Grouped scalar projection expressions are not supported yet",
+        ),
+    ]
+
+
+def test_a_call_typed_beside_an_unknown_argument_is_checked_for_its_type_alone() -> (
+    None
+):
+    """Over a shapeless source a built-in call whose signature fixes its result
+    type has that type, so a def checks it (before: unknown and unchecked):
+    `tx(len(t))` does not fit, while `abs(t)`, which keeps its argument's
+    type, is a number of unknown type, which `nn(abs(t))` does not check. Its
+    nullability follows from the argument of unknown type and is not checked,
+    as that argument's is not, also through an operator, a conditional or a
+    `let:` name, and beside a field of unknown type that an upstream error
+    explains; a comparison stays a `Bool` of unknown nullability, as before."""
+    source = (
+        SHAPES + 'source raw is postgres.table("raw")\n'
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "def tn(x: Text not null) -> Text not null: return x\n"
+        "def tx(x: Text nullable) -> Text nullable: return x\n"
+        "def bn(x: Bool not null) -> Bool not null: return x\n"
+        "table t:\n    from raw\n    let:\n        k = lower(t)\n"
+        "        m = len(t) + 1\n    select:\n        id\n"
+        "        a = tn(lower(t))\n        b = nn(m)\n        c = tn(k)\n"
+        "        d = nn(year(null))\n"
+        '        e = bn(contains(t, "x"))\n'
+        "        f = nn(len(t) if len(u) > 0 else 0)\n"
+        "        g = tx(len(t))\n        h = nn(abs(t))\n        i = bn(t == 1)\n"
+        "table bad:\n    from rows\n    select:\n        id\n        x = text + 1\n"
+        "query reads:\n    from bad\n    select:\n        y = tn(lower(x))\n"
+    )
+    assert _errors(source) == [
+        ("PIE-S2303", 8, 1, "Source raw has no bound shape; row schema is unknown"),
+        *(
+            (
+                "PIE-S2395",
+                line,
+                13,
+                f"Invalid argument for def {name} at position 1 (x): "
+                f"expected {expected}, got {actual} of unknown nullability",
+            )
+            for line, name, expected, actual in (
+                (26, "tx", "Text nullable", "Int"),
+                (28, "bn", "Bool not null", "Bool"),
+            )
+        ),
+        (
+            "PIE-S2105",
+            33,
+            13,
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
         ),
     ]
 
@@ -2013,7 +2199,7 @@ ONCE = {
                 "PIE-S2105",
                 4,
                 17,
-                "Invalid operands for operator +: expected numeric operands",
+                TEXT_PLUS,
             )
         ],
     ),
@@ -2553,7 +2739,7 @@ def _doubling(depth: int) -> int:
     parsed = parse_source(source, path="m.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
     assert _errors(source) == [
-        ("PIE-S2105", 13, 14, NOT_NUMERIC.format("+")),
+        ("PIE-S2105", 13, 14, TEXT_PLUS),
     ]
     return _module_lines(
         functools.partial(analyze, parsed.ast), sys.maxsize, expressions_module

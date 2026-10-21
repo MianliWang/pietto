@@ -68,7 +68,13 @@ def test_qualify_rejected_before_legacy_ir_can_drop_it(
     assert result.ir is None
     assert tuple(d.code for d in result.diagnostics) == ("PIE-I1000",)
     diagnostic = result.diagnostics[0]
-    assert "QUALIFY" in diagnostic.message
+    # The refusal says where QUALIFY is lowered and how to get its SQL.
+    assert (diagnostic.message, diagnostic.suggestion) == (
+        "Single-file explain and emit-sql cannot lower QUALIFY; it is lowered "
+        "only in EXPLICIT_MODULES projects (schema version 2)",
+        "Put the query in an EXPLICIT_MODULES project (schema version 2) and "
+        "emit it with `pietto emit-sql --project`.",
+    )
     span = definition.qualify_clause.span
     assert (diagnostic.location.line, diagnostic.location.column) == (
         span.line,

@@ -70,9 +70,13 @@ rule number, frame type or key type. With I64 = [-9223372036854775808,
 | a translated endpoint interval outside I64 | `PIE-B1002` `window_range_boundary_out_of_signed64_range` |
 
 Existing target unit and exclusion refusals are checked first, so MySQL GROUPS keeps its
-own blocker. The five offsets reported by the HOLD (`100000000000000000000` and
-`18446744073709551616` RANGE, `100000000000000000000` and `9223372036854775808` ROWS) now
-refuse their representation, and `9223372036854775807` RANGE over the published key domain
+own blocker. A later defect fix makes the project check refuse a RANGE offset that is not,
+once `let:` names are inlined, a non-negative `Int` literal up to 9223372036854775807
+(`PIE-S2104`, after which emission reports `PIE-B1003`), so for RANGE the second row is not
+reached and the first only through a `let:` name. Of the five offsets reported by the HOLD,
+the `100000000000000000000` and `9223372036854775808` ROWS offsets refuse their
+representation, the `100000000000000000000` and `18446744073709551616` RANGE offsets fail
+that project check, and `9223372036854775807` RANGE over the published key domain
 ±9007199254740993 refuses its translated boundary. No server error is claimed for them.
 
 Each use keeps two new generated R15 requirements directly after its

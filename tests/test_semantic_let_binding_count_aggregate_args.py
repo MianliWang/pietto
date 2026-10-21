@@ -264,8 +264,8 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         ("anything_value = anything", "known = count(anything_value)", "PIE-S2314"),
         ("enum_value = enum_status", "known = count(enum_value)", "PIE-S2314"),
-        ("gross = amount + tax", "smallest = min(gross)", "PIE-S2102"),
-        ("gross = amount + tax", "largest = max(gross)", "PIE-S2102"),
+        ("gross = amount + tax", "smallest = min(gross)", "PIE-S2315"),
+        ("gross = amount + tax", "largest = max(gross)", "PIE-S2315"),
     ],
 )
 def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics(

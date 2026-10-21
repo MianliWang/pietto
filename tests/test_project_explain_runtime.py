@@ -36,7 +36,13 @@ from pietto._project_explain.compatibility_matrix_projection import (
 from pietto._project_explain.extension_catalog_evidence_projection import (
     ProjectExplainCatalogSelectionOutcome,
 )
-from pietto._project_explain.model import ProjectExplainEnvelope, ProjectExplainFormat
+from pietto._project_explain.model import (
+    ProjectExplainEnvelope,
+    ProjectExplainFormat,
+    ProjectExplainLocation,
+    ProjectExplainLogicalPath,
+    ProjectExplainLogicalPathKind,
+)
 from pietto._project_explain.portability_projection import (
     ProjectExplainPortabilityClassification,
     ProjectExplainPortabilityReason,
@@ -46,6 +52,7 @@ from pietto._project_explain.runtime_builder import (
     ProjectExplainRuntimeOutcome,
     _build_project_explain_runtime,
 )
+from pietto.errors import Severity
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -456,6 +463,70 @@ def test_package_parse_failure_is_diagnostic_and_missing_root_is_resource(
     assert resource.outcome is ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR
     assert resource.envelope.payload is None
     assert resource.envelope.diagnostics[0].code == "project_root"
+
+
+_SCHEMA3_CONVERSION = (
+    " This schema version 3 package-root project converts in one step: set "
+    "schema_version to 4 and add an empty [capability_environment] table."
+)
+
+
+@pytest.mark.parametrize(
+    ("config", "conversion"),
+    (
+        ('schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n', ""),
+        ('schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', ""),
+        (
+            'schema_version = 3\n[package]\npath = "pkg"\nnamespace = "test"\n'
+            f'name = "example"\nversion = "1.0.0"\nsha256 = "{"a" * 64}"\n',
+            _SCHEMA3_CONVERSION,
+        ),
+    ),
+    ids=("schema1", "schema2", "schema3"),
+)
+def test_a_root_below_schema4_is_refused_with_the_commands_that_read_it(
+    tmp_path: Path, config: str, conversion: str
+) -> None:
+    (tmp_path / "pietto.toml").write_text(config, encoding="utf-8")
+
+    result = _build_project_explain_runtime(tmp_path)
+
+    assert result.outcome is ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR
+    assert result.envelope.payload is None
+    assert [
+        (item.code, item.severity, item.location, item.message, item.suggestion)
+        for item in result.envelope.diagnostics
+    ] == [
+        (
+            "config_schema",
+            Severity.ERROR,
+            ProjectExplainLocation(
+                path=ProjectExplainLogicalPath(
+                    kind=ProjectExplainLogicalPathKind.PROJECT_RELATIVE,
+                    value="pietto.toml",
+                ),
+                line=None,
+                column=None,
+                end_line=None,
+                end_column=None,
+            ),
+            "Project Explain runtime requires project schema version 4.",
+            "explain --project reads only a schema version 4 package-root project; "
+            "check --project and emit-sql --project read schema version 2 projects, "
+            "and changing schema_version alone does not convert a project."
+            + conversion,
+        )
+    ]
+    if conversion:
+        # The one step is the whole conversion of the configuration.
+        (tmp_path / "pietto.toml").write_text(
+            config.replace("schema_version = 3", "schema_version = 4")
+            + "[capability_environment]\n",
+            encoding="utf-8",
+        )
+        converted = load_project_config(tmp_path)
+        assert converted.ok and converted.config is not None
+        assert converted.config.schema_version == 4
 
 
 def test_runtime_result_remains_private_and_slice14_consumer_is_narrow() -> None:

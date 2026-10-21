@@ -1772,6 +1772,376 @@ def test_a_composite_key_matched_in_two_field_orders_is_offered_once(
         assert _fanout_check(tmp_path, name, declared) == []
 
 
+_NULLING_HEADER = """shape Order:
+    id: Int not null
+    customer_id: Int nullable
+    amount: Int not null
+    rush: Bool not null
+    unique order_key on id
+shape Customer:
+    id: Int not null
+    region_id: Int nullable
+    vip: Bool not null
+    unique customer_key on id
+shape Region:
+    id: Int not null
+    unique region_key on id
+shape Payment:
+    id: Int not null
+    order_id: Int not null
+    unique payment_key on id
+source orders: Order is postgres.table("orders")
+source customers: Customer is postgres.table("customers")
+source regions: Region is postgres.table("regions")
+source payments: Payment is postgres.table("payments")
+relationship order_customer: orders.customer_id == customers.id
+relationship customer_region: customers.region_id == regions.id
+relationship payment_order: payments.order_id == orders.id
+"""
+_RIGHT_C = "    from orders\n    right join customers as c\n"
+_CROSS_R = "    cross join regions as r: from orders\n"
+_BY_ORDER = "    group by: orders.id\n    select:\n        oid = orders.id\n"
+_BY_PAYMENT = "    group by: payments.id\n    select:\n        pid = payments.id\n"
+_RIGHT_O = "    from payments\n    right join orders as o\n"
+
+
+def _where(condition: str) -> str:
+    return (
+        _RIGHT_C
+        + _CROSS_R
+        + f"    where {condition}\n"
+        + _BY_ORDER
+        + ("        n = count(r.id)\n")
+    )
+
+
+# Refused shapes (0.1.4 accepted them) with the JOINs and the group-key binding
+# their clause names, then admitted shapes whose aggregate never reads a row
+# that matches no order, or reads only such rows that a later JOIN's row pins.
+_NULLING_CASES = {
+    "right_then_left": (
+        _RIGHT_C
+        + "    left join regions as r: from c\n"
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        ("JOIN c and JOIN r", "c"),
+    ),
+    "right_then_cross": (
+        _RIGHT_C + _CROSS_R + _BY_ORDER + "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "full_then_cross": (
+        _RIGHT_C.replace("right", "full")
+        + _CROSS_R
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "or_reads_both_sides": (
+        "    from customers\n    right join regions as r\n"
+        "    cross join orders as w: from customers\n"
+        "    select:\n        n = count(customers.vip or w.rush)\n",
+        ("JOIN r", "r"),
+    ),
+    "or_true": (
+        _RIGHT_C + "    select:\n        n = count(orders.rush or true)\n",
+        ("JOIN c", "c"),
+    ),
+    "where_or": (_where("orders.amount > 0 or c.vip"), ("JOIN c", "c")),
+    "where_not_not": (_where("not (not (orders.id is null))"), ("JOIN c", "c")),
+    "where_not_in_empty": (_where("orders.id not in ()"), ("JOIN c", "c")),
+    "where_not_of_in_empty": (_where("not (orders.id in ())"), ("JOIN c", "c")),
+    "where_in_empty_is_false": (_where("(orders.id in ()) == false"), ("JOIN c", "c")),
+    "where_not_in_empty_and": (
+        _where("orders.id not in () and r.id > 0"),
+        ("JOIN c", "c"),
+    ),
+    "on_not_in_empty": (
+        _RIGHT_C
+        + "    inner join regions as r:\n        from orders\n"
+        + "        on orders.id not in ()\n"
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "let_not_in_empty": (
+        _where("keep").replace(
+            "    where keep\n",
+            "    let:\n        keep = orders.id not in ()\n    where keep\n",
+        ),
+        ("JOIN c", "c"),
+    ),
+    "full_where_not_in_empty": (
+        _RIGHT_C.replace("right", "full")
+        + _CROSS_R
+        + "    where orders.amount not in ()\n"
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "anti_keeps_unmatched": (
+        _RIGHT_C
+        + "    anti join payments as p:\n        from orders\n"
+        + "        on p.order_id == orders.id\n"
+        + _CROSS_R
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "conditional_else_literal": (
+        _RIGHT_C
+        + "    let:\n        v = orders.amount if orders.rush else 0\n"
+        + "    select:\n        top = max(v)\n",
+        ("JOIN c", "c"),
+    ),
+    "conditional_on_not_in_empty": (
+        _RIGHT_C
+        + "    let:\n        v = 0 if orders.id not in () else orders.amount\n"
+        + "    select:\n        top = max(v)\n",
+        ("JOIN c", "c"),
+    ),
+    "many_to_one_from_the_right": (
+        _RIGHT_O
+        + "    left join customers as c2: from o\n"
+        + _BY_PAYMENT
+        + "        n = count(c2.id)\n",
+        ("JOIN o and JOIN c2", "o"),
+    ),
+    "on_or_from_the_right": (
+        _RIGHT_O
+        + "    left join payments as p2:\n        from o\n"
+        + "        on p2.order_id == o.id or p2.id > 0\n"
+        + _BY_PAYMENT
+        + "        n = count(p2.id)\n",
+        ("JOIN o and JOIN p2", "o"),
+    ),
+    "same_source_semi_removes_orphans": (
+        _RIGHT_O
+        + "    semi join payments as p2: from o\n"
+        + "    cross join regions as r: from payments\n"
+        + _BY_PAYMENT
+        + "        n = count(r.id)\n",
+        None,
+    ),
+    "same_source_full_semi_removes_orphans": (
+        _RIGHT_O.replace("right", "full")
+        + "    semi join payments as p2: from o\n"
+        + "    cross join regions as r: from payments\n"
+        + _BY_PAYMENT
+        + "        n = count(r.id)\n",
+        None,
+    ),
+    "same_source_later_on_still_removes_orphans": (
+        _RIGHT_O
+        + "    semi join payments as p2:\n        from o\n"
+        + "        via payment_order: orders -> payments\n        on p2.id > 0\n"
+        + "    cross join regions as r: from payments\n"
+        + _BY_PAYMENT
+        + "        n = count(r.id)\n",
+        None,
+    ),
+    "same_source_anti_keeps_orphans": (
+        _RIGHT_O
+        + "    anti join payments as p2: from o\n"
+        + "    cross join regions as r: from payments\n"
+        + _BY_PAYMENT
+        + "        n = count(r.id)\n",
+        ("JOIN o", "o"),
+    ),
+    "same_source_extra_on_keeps_orphans": (
+        _RIGHT_O.replace(
+            "as o\n",
+            "as o:\n        from payments\n        via payment_order: payments -> orders\n        on o.rush\n",
+        )
+        + "    semi join payments as p2: from o\n"
+        + "    cross join regions as r: from payments\n"
+        + _BY_PAYMENT
+        + "        n = count(r.id)\n",
+        ("JOIN o", "o"),
+    ),
+    "strict_argument": (
+        _RIGHT_C + "    select:\n        n = count(orders.id)\n",
+        None,
+    ),
+    "full_strict_argument": (
+        _RIGHT_C.replace("right", "full")
+        + "    select:\n        n = count(orders.amount)\n",
+        None,
+    ),
+    "grouped_by_the_null_extended_key": (
+        _RIGHT_C + _BY_ORDER + "        n = count(c.id)\n",
+        None,
+    ),
+    "or_of_one_side": (
+        _RIGHT_C + "    select:\n        n = count(orders.rush or orders.rush)\n",
+        None,
+    ),
+    "coalesce_of_two_left_inputs": (
+        "    from orders\n    inner join payments as p: from orders\n"
+        "    right join customers as c: from orders\n"
+        "    let:\n        v = coalesce(p.id, orders.amount)\n"
+        "    select:\n        top = max(v)\n",
+        None,
+    ),
+    "let_extremum": (
+        _RIGHT_C
+        + "    let:\n        amt = orders.amount * 2\n"
+        + "    select:\n        top = max(amt)\n",
+        None,
+    ),
+    "conditional_of_null_branches": (
+        _RIGHT_C
+        + "    let:\n        v = orders.amount if orders.rush else orders.amount + 1\n"
+        + "    select:\n        top = max(v)\n",
+        None,
+    ),
+    "conditional_else_unmatched": (
+        _RIGHT_C
+        + "    left join payments as p: from orders\n"
+        + "    let:\n        v = 1 if orders.rush else p.id\n"
+        + "    select:\n        top = max(v)\n",
+        None,
+    ),
+    "conditional_on_in_empty": (
+        _RIGHT_C
+        + "    let:\n        v = 0 if orders.id in () else orders.amount\n"
+        + "    select:\n        top = max(v)\n",
+        None,
+    ),
+    "inner_from_the_left": (
+        _RIGHT_C
+        + "    inner join payments as p: from orders\n"
+        + "    select:\n        n = count(p.id)\n",
+        None,
+    ),
+    "left_from_the_left": (
+        _RIGHT_C
+        + "    left join payments as p: from orders\n"
+        + _BY_ORDER
+        + "        n = count(p.id)\n",
+        None,
+    ),
+    "full_from_the_left": (
+        _RIGHT_C.replace("right", "full")
+        + "    full join payments as p: from orders\n"
+        + _BY_ORDER
+        + "        n = count(p.id)\n",
+        None,
+    ),
+    "inner_on_from_the_left": (
+        _RIGHT_C
+        + "    inner join payments as p:\n        from orders\n"
+        + "        on p.order_id == orders.id\n"
+        + _BY_ORDER
+        + "        n = count(p.id)\n",
+        None,
+    ),
+    "right_on_the_left": (
+        _RIGHT_C
+        + "    right join payments as p:\n        from orders\n"
+        + "        on p.order_id == orders.id\n"
+        + _CROSS_R
+        + "    group by: orders.id, p.id\n    select:\n        oid = orders.id\n"
+        + "        pid = p.id\n        n = count(r.id)\n",
+        None,
+    ),
+    "semi_removes_unmatched": (
+        _RIGHT_C
+        + "    semi join payments as p: from orders\n"
+        + _CROSS_R
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        None,
+    ),
+    "where_removes_unmatched": (_where("orders.id is not null"), None),
+    "where_not_is_null": (_where("not (orders.id is null)"), None),
+    "where_not_or": (_where("not (orders.id is null or c.region_id is null)"), None),
+    "where_in": (_where("orders.id in (1, 2)"), None),
+    "where_between": (_where("orders.amount between 1 and 10"), None),
+    "where_in_empty": (_where("orders.id in ()"), None),
+    "where_not_of_not_in_empty": (_where("not (orders.id not in ())"), None),
+    "on_in_empty": (
+        _RIGHT_C
+        + "    inner join regions as r:\n        from orders\n"
+        + "        on orders.id in ()\n"
+        + _BY_ORDER
+        + "        n = count(r.id)\n",
+        None,
+    ),
+    "where_let_condition": (
+        _where("known").replace(
+            "    where known\n",
+            "    let:\n        known = orders.id is not null\n    where known\n",
+        ),
+        None,
+    ),
+    "left_from_the_right": (
+        _RIGHT_C
+        + "    left join orders as o2: from c\n"
+        + _BY_ORDER
+        + "        n = count(o2.id)\n",
+        None,
+    ),
+    "on_key_from_the_right": (
+        _RIGHT_O
+        + "    left join payments as p2:\n        from o\n"
+        + "        on p2.order_id == o.id\n"
+        + _BY_PAYMENT
+        + "        n = count(p2.id)\n",
+        None,
+    ),
+}
+
+
+def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
+    tmp_path: Path,
+) -> None:
+    """A RIGHT or FULL JOIN keeps each right row that matches no left row beside
+    a left side NULL-extended in every input, so with NULL as a value its
+    at-most-one match proves nothing there: a group key of the NULL-extended
+    side or an argument that is not NULL on such a row (`or` over both sides or
+    with a literal, a conditional whose else branch is a literal, WHERE with
+    `or` or `not (not ...)`, ANTI, a later JOIN that may match such a row more
+    than once) no longer hides a repeated row; nor does an empty list, which
+    is never NULL: `not in ()` is TRUE there in a WHERE or ON (also through
+    `not`, `and`, `== false` or a LET) and as a condition. The match still
+    proves an aggregate that never reads such a row: its argument is NULL when
+    the left side is (`or` of one side, `coalesce` of two left inputs, a LET,
+    a conditional with NULL branches or whose condition, such as `in ()`, is
+    never TRUE), WHERE is never TRUE there (`is not null`, `not (... is null)`,
+    `in`, `between`, `in ()`, a LET condition), or a later JOIN drops it
+    (INNER, SEMI, RIGHT) or NULL-extends what it reads (LEFT, FULL). It also
+    proves one that reads only such rows holding a row of a later JOIN whose
+    relationship or `on` equality matches a key of the right input."""
+
+    source = _NULLING_HEADER + "".join(
+        f"query {name}:\n{body}" for name, (body, _) in _NULLING_CASES.items()
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    lines = source.splitlines()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            f"{_UNAVAILABLE}{name} (an aggregate may read rows repeated by "
+            f"{refusal[0]}; group by a unique key of {refusal[1]} whose fields are "
+            "all not null)",
+            lines.index(f"query {name}:") + 1,
+            1,
+        )
+        for name, (_, refusal) in _NULLING_CASES.items()
+        if refusal is not None
+    ]
+
+
 def test_repeated_self_bindings_keep_argument_occurrences_and_factors_distinct(
     built: _Built,
 ) -> None:
@@ -2550,3 +2920,292 @@ def test_unknown_join_grain_with_an_aggregate_issue_reports_the_issue(
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
     ] == [("PIE-S2102", "Unknown field: j0.id", 17, 18)]
+
+
+@pytest.mark.parametrize("compound", (False, True))
+@pytest.mark.parametrize("extra_on", (False, True))
+def test_equality_non_null_unique_group_key_protects_its_final_join_rows(
+    tmp_path: Path, compound: bool, extra_on: bool
+) -> None:
+    header = _NULLING_HEADER.replace(
+        "    unique order_key on id\n",
+        "    unique order_key on id\n    unique match_key on customer_id"
+        + (", amount" if compound else "")
+        + "\n",
+    )
+    if compound:
+        header = header.replace("amount: Int not null", "amount: Int nullable").replace(
+            "orders.customer_id == customers.id\n",
+            "orders.customer_id == customers.id and orders.amount == customers.region_id\n",
+        )
+    body = _RIGHT_C
+    if extra_on:
+        body = body.replace(
+            "as c\n",
+            "as c:\n        from orders\n        via order_customer: orders -> customers\n        on c.vip\n",
+        )
+    body += "    inner join orders as o2: from c\n" + _CROSS_R
+    groups = "orders.id"
+    if extra_on:
+        groups += ", o2.customer_id" + (", o2.amount" if compound else "")
+    body += f"    group by: {groups}\n    select:\n        n = count(r.id)\n"
+    assert _fanout_check(tmp_path, "nonnull", header + "query result:\n" + body) == []
+    if extra_on:
+        # One unproved component cannot make a nullable composite key strict.
+        incomplete = (
+            header.replace(
+                "orders.customer_id == customers.id and orders.amount == customers.region_id",
+                "orders.customer_id == customers.id",
+            )
+            if compound
+            else header.replace(
+                "unique match_key on customer_id",
+                "unique match_key on customer_id, region",
+            )
+        )
+        if not compound:
+            incomplete = incomplete.replace(
+                "    rush: Bool not null",
+                "    region: Int nullable\n    rush: Bool not null",
+            )
+            body = body.replace("o2.customer_id\n", "o2.customer_id, o2.region\n")
+        assert _fanout_check(
+            tmp_path, "incomplete", incomplete + "query result:\n" + body
+        ) == [
+            (
+                "PIE-S2333",
+                _UNAVAILABLE
+                + "result (an aggregate may read rows repeated by JOIN c; group by a unique key of o2 whose fields are all not null)",
+            )
+        ]
+
+
+@pytest.mark.parametrize("where_first", (False, True))
+def test_composed_where_and_let_depth_does_not_stack(
+    tmp_path: Path, where_first: bool
+) -> None:
+    repeated = " and ".join(["orders.amount > 0"] * 300)
+    declarations = [
+        f"        w = (orders.id is not null) and {repeated}\n",
+        "        v = r.id\n",
+    ]
+    if not where_first:
+        declarations.reverse()
+    body = _RIGHT_C + _CROSS_R + "    let:\n" + "".join(declarations)
+    body += f"    where w and {repeated}\n" + _BY_ORDER + "        n = count(v)\n"
+    assert (
+        _fanout_check(tmp_path, "depth", _NULLING_HEADER + "query result:\n" + body)
+        == []
+    )
+
+
+def test_null_proof_visits_only_demanded_operands_in_order() -> None:
+    source = "query q:\n    from input\n    where (a is null) and (b in ()) and (c or c)\n    select: x\n"
+    program = parse_source(source)
+    assert program.ast is not None and not program.diagnostics
+    query = next(item for item in program.ast.definitions if isinstance(item, QueryDef))
+    assert query.where_clause is not None
+    visits = []
+
+    def leaf(expression, nulls, truth):
+        visits.append((expression.name, truth))
+        return True
+
+    assert aggregation._never(query.where_clause.expression, True, frozenset(), leaf)
+    assert visits == [("c", True), ("c", True)]
+
+
+@pytest.mark.parametrize("filtered", (False, True))
+def test_inverse_relationship_requires_the_same_unfiltered_source_domain(
+    tmp_path: Path, filtered: bool
+) -> None:
+    header = _NULLING_HEADER
+    if filtered:
+        header += "query other:\n    from payments\n    where payments.id > 0\n    select: id, order_id\n"
+    else:
+        header += 'source other: Payment is postgres.table("payments")\n'
+    header += "relationship other_order: other.order_id == orders.id\n"
+    body = (
+        "query result:\n    from other\n    right join orders as o:\n"
+        "        from other\n        via other_order: other -> orders\n"
+        "    semi join payments as p: from o\n"
+        "    cross join regions as r: from other\n"
+        "    group by: other.id\n    select:\n        n = count(r.id)\n"
+    )
+    assert _fanout_check(tmp_path, "domains", header + body) == [
+        (
+            "PIE-S2333",
+            _UNAVAILABLE
+            + "result (an aggregate may read rows repeated by JOIN o; group by a unique key of o whose fields are all not null)",
+        )
+    ]
+
+
+def test_later_outer_join_invalidates_equality_non_null_group_key(
+    tmp_path: Path,
+) -> None:
+    header = _NULLING_HEADER.replace(
+        "    unique order_key on id\n",
+        "    unique order_key on id\n    unique match_key on customer_id\n",
+    )
+    body = (
+        "query result:\n    from orders\n    right join customers as c:\n"
+        "        from orders\n        via order_customer: orders -> customers\n        on c.vip\n"
+        "    inner join orders as o2: from c\n"
+        "    right join customers as c3: from o2\n"
+        + _CROSS_R
+        + "    group by: orders.id, o2.customer_id\n    select:\n        n = count(r.id)\n"
+    )
+    assert _fanout_check(tmp_path, "outer", header + body) == [
+        (
+            "PIE-S2333",
+            _UNAVAILABLE
+            + "result (an aggregate may read rows repeated by JOIN c; group by a unique key of c3 whose fields are all not null)",
+        )
+    ]
+
+
+def test_null_argument_does_not_visit_a_where_let(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = aggregation._namespace_leaf
+    visits = []
+
+    def namespace(*args, **kwargs):
+        answer = original(*args, **kwargs)
+
+        def leaf(expression, nulls, truth):
+            if getattr(expression, "name", None) == "w":
+                visits.append(truth)
+            return answer(expression, nulls, truth)
+
+        return leaf
+
+    monkeypatch.setattr(aggregation, "_namespace_leaf", namespace)
+    repeated = " and ".join(["orders.amount > 0"] * 300)
+    source = _NULLING_HEADER + "query result:\n" + _RIGHT_C
+    source += f"    let:\n        w = {repeated}\n    where w\n"
+    source += "    select:\n        n = count(orders.id)\n"
+    assert _fanout_check(tmp_path, "skipped", source) == []
+    assert visits == []
+
+
+_COMPOSITE_REVERSE_SOURCE = """shape Payment:
+    id: Int not null
+    x: Int not null
+    y: Int not null
+    unique payment_key on id
+shape Order:
+    x: Int not null
+    y: Int not null
+    unique order_key on x, y
+shape Region:
+    id: Int not null
+    unique region_key on id
+source payments: Payment is postgres.table("payments")
+source orders: Order is postgres.table("orders")
+source regions: Region is postgres.table("regions")
+relationship forward_match: payments.x == orders.x and payments.y == orders.y
+relationship reverse_match: orders.y == payments.y and orders.x == payments.x
+query reordered_reverse:
+    from payments
+    right join orders as o:
+        from payments
+        via forward_match: payments -> orders
+    semi join payments as p2:
+        from o
+        via reverse_match: orders -> payments
+    cross join regions as r: from payments
+    group by: payments.id
+    select:
+        n = count(r.id)
+"""
+
+
+@pytest.mark.parametrize(
+    "variant", ("reordered", "wrong_pairs", "duplicates", "missing_duplicate")
+)
+def test_inverse_match_compares_complete_paired_equality_multisets(
+    tmp_path: Path, variant: str
+) -> None:
+    source = _COMPOSITE_REVERSE_SOURCE
+    if variant == "wrong_pairs":
+        source = source.replace(
+            "orders.y == payments.y and orders.x == payments.x",
+            "orders.y == payments.x and orders.x == payments.y",
+        )
+    if variant in {"duplicates", "missing_duplicate"}:
+        source = source.replace(
+            "payments.x == orders.x and payments.y == orders.y",
+            "payments.x == orders.x and payments.y == orders.y and payments.x == orders.x",
+        )
+    if variant == "duplicates":
+        source = source.replace(
+            "orders.y == payments.y and orders.x == payments.x",
+            "orders.x == payments.x and orders.y == payments.y and orders.x == payments.x",
+        )
+    assert _fanout_check(tmp_path, variant, source) == (
+        []
+        if variant in {"reordered", "duplicates"}
+        else [
+            (
+                "PIE-S2333",
+                _UNAVAILABLE
+                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; group by a unique key of o whose fields are all not null)",
+            )
+        ]
+    )
+
+
+_UNBOUNDED_NULLABLE_SOURCE = """shape Order:
+    id: Int not null
+    unique order_key on id
+shape Payment:
+    id: Int not null
+    order_id: Int not null
+    customer_id: Int nullable
+    unique payment_key on id
+    unique payment_customer on customer_id
+shape Customer:
+    id: Int not null
+    unique customer_key on id
+shape Region:
+    id: Int not null
+    unique region_key on id
+source orders: Order is postgres.table("orders")
+source payments: Payment is postgres.table("payments")
+source customers: Customer is postgres.table("customers")
+source regions: Region is postgres.table("regions")
+relationship payment_order: payments.order_id == orders.id
+relationship payment_customer: payments.customer_id == customers.id
+query scope_unbounded_right:
+    from orders
+    right join payments as p: from orders
+    inner join customers as c: from p
+    cross join regions as r: from orders
+    group by: orders.id, p.customer_id
+    select:
+        n = count(r.id)
+"""
+
+
+@pytest.mark.parametrize("unrelated_bounded", (False, True))
+def test_nullable_holder_key_never_seeds_an_unrelated_unbounded_join(
+    tmp_path: Path, unrelated_bounded: bool
+) -> None:
+    source = _UNBOUNDED_NULLABLE_SOURCE
+    if unrelated_bounded:
+        source = source.replace(
+            "query scope_unbounded_right:",
+            "relationship order_region: orders.id == regions.id\nquery scope_unbounded_right:",
+        ).replace(
+            "    from orders\n    right join payments",
+            "    from orders\n    right join regions as bounded: from orders\n    right join payments",
+        )
+    assert _fanout_check(tmp_path, "scope", source) == [
+        (
+            "PIE-S2333",
+            _UNAVAILABLE
+            + "scope_unbounded_right (an aggregate may read rows repeated by JOIN p; group by a unique key of c whose fields are all not null)",
+        )
+    ]

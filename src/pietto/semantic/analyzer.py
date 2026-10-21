@@ -28,6 +28,7 @@ from pietto.ast_nodes import (
     Expression,
     FieldDef,
     FromClause,
+    GroupByClause,
     IsNullExpr,
     IndexDef,
     LiteralExpr,
@@ -49,6 +50,12 @@ from pietto.ast_nodes import (
     WindowSpec,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.aggregates import (
+    MAX_AGGREGATE_NAME,
+    MIN_AGGREGATE_NAME,
+    is_semantic_aggregate_call,
+    semantic_aggregate_call_name,
+)
 from pietto.semantic.callables import (
     check_callable_bodies,
     check_callable_signatures,
@@ -120,6 +127,8 @@ _DECIMAL_PRECISION_MAX = 65
 # top-level call, and each level less leaves the caller about two more frames.
 # RecursionError stays the guard for other deep chains, such as type aliases.
 _MAX_EXPRESSION_LEVELS = 450
+# How PIE-S2103 starts, before the called name.
+_UNKNOWN_FUNCTION = "Unknown function: "
 
 
 def analyze(
@@ -129,10 +138,46 @@ def analyze(
 ) -> SemanticResult:
     """Build the incremental semantic model and ordered diagnostics."""
 
+    return _analyze_script(script, mode_override=mode_override, single_file=True)
+
+
+def analyze_project_namespace(script: Script) -> SemanticResult:
+    """Analyze the shared namespace of a LEGACY_FLAT project as one script.
+
+    Such a project emits no SQL, so the analysis types as an explicit-module
+    project check does and omits the checks that only single-file SQL needs:
+    a field of an alias of an enum is typed as that enum, a `let:` name may be
+    selected unaliased, and there is no let inline expansion limit
+    (PIE-S2328), no refusal of a bare constant ungrouped ORDER BY key other
+    than an integer literal (which the parser refuses, PIE-P1000), no ROWS
+    or GROUPS frame offset or window count literal range check (a RANGE
+    offset of a selected window is checked, as in an explicit-module check,
+    and one of a QUALIFY window is not, as in a single file), no refusal of
+    a `min` or `max` whose argument is a `let:` name in a relation without
+    GROUP BY (PIE-S2315) and no connector table-name check, so source
+    connectors get the diagnostics of an explicit-module check. An ungrouped
+    ORDER BY key still reads input fields and `let:` bindings but no SELECT
+    output other than a selected window result named alone (`w`, not
+    `w + 1`). It has no JOIN binding fields, computed `let:` group keys or
+    aggregates of `let:` names in grouped relations, so it reports nothing
+    inside a table or query that reads one or reads such a relation. LOOSE
+    omits the diagnostics that a check mode selects, which project commands
+    do not take.
+    """
+
+    return _analyze_script(script, mode_override=CheckMode.LOOSE, single_file=False)
+
+
+def _analyze_script(
+    script: Script,
+    *,
+    mode_override: CheckMode | None,
+    single_file: bool,
+) -> SemanticResult:
     mode = mode_override or CheckMode.CHECKED
     try:
         mode = mode_override or _mode_from_script(script)
-        unadmitted = unadmitted_syntax_diagnostics(script, single_file=True)
+        unadmitted = unadmitted_syntax_diagnostics(script, single_file=single_file)
         if unadmitted:
             return SemanticResult(
                 model=SemanticModel(mode=mode), diagnostics=unadmitted, script=script
@@ -142,17 +187,23 @@ def analyze(
         if inline_diagnostics:
             return SemanticResult(
                 model=SemanticModel(mode=mode),
-                diagnostics=inline_diagnostics,
+                diagnostics=name_uncallable_calls(
+                    inline_diagnostics, parsed, shared=not single_file
+                ),
                 script=script,
             )
         # Measured with every def call inlined, as analysis reads the script:
         # an expansion can nest deeper than its call. The checks above walk
         # the parsed script without recursion, so their errors come first.
         if _expression_levels(script) <= _MAX_EXPRESSION_LEVELS:
-            result = _analyze(script, mode=mode)
+            result = _analyze(script, mode=mode, single_file=single_file)
             return replace(
                 result,
-                diagnostics=drop_repeated_call_diagnostics(parsed, result.diagnostics),
+                diagnostics=name_uncallable_calls(
+                    drop_repeated_call_diagnostics(parsed, result.diagnostics),
+                    parsed,
+                    shared=not single_file,
+                ),
             )
     except RecursionError:
         pass
@@ -161,6 +212,46 @@ def analyze(
         model=SemanticModel(mode=mode),
         diagnostics=(recursion_limit_diagnostic(script),),
     )
+
+
+def name_uncallable_calls(
+    diagnostics: tuple[Diagnostic, ...], *scripts: Script, shared: bool = False
+) -> tuple[Diagnostic, ...]:
+    """Say that an unknown call names a constraint or derive of its own source
+    file, which cannot be called, in place of any other hint; keep code, span
+    and order. With ``shared`` the scripts' files are one callable namespace,
+    as a LEGACY_FLAT project's are, so the name may be declared in any of
+    them. The first declaration of a name in a file, or in the shared
+    namespace, holds it, as in the callable namespace. With no such call the
+    same tuple is returned, since readers may compare diagnostics by
+    identity."""
+
+    kinds: dict[tuple[str | None, str], str] = {}
+    for script in scripts:
+        for definition in script.definitions:
+            if type(definition) in (ConstraintDef, DeriveDef):
+                kinds.setdefault(
+                    (None if shared else definition.span.path, definition.name),
+                    "constraint" if type(definition) is ConstraintDef else "derive",
+                )
+    named = list(diagnostics)
+    for position, diagnostic in enumerate(diagnostics):
+        # The called name, before any hint for it.
+        name = diagnostic.message.removeprefix(_UNKNOWN_FUNCTION).partition(";")[0]
+        kind = kinds.get((None if shared else diagnostic.location.path, name))
+        if (
+            diagnostic.code == "PIE-S2103"
+            and diagnostic.message.startswith(_UNKNOWN_FUNCTION)
+            and kind is not None
+        ):
+            named[position] = replace(
+                diagnostic,
+                message=f"{_UNKNOWN_FUNCTION}{name}; {name} is a {kind}, which "
+                "cannot be called; write a `def` instead",
+            )
+    if all(new is old for new, old in zip(named, diagnostics, strict=True)):
+        return diagnostics
+    return tuple(named)
 
 
 def _expression_levels(script: Script) -> int:
@@ -220,7 +311,7 @@ def _nesting_depth(script: Script) -> int:
     return deepest
 
 
-def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
+def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticResult:
     """Implement semantic analysis inside the public recursion boundary."""
 
     type_symbols: dict[str, Definition] = {}
@@ -298,6 +389,11 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         type_nullability=type_nullability,
     )
     diagnostics.extend(source_diagnostics)
+    if not single_file:
+        source_row_schemas = {
+            source: _enum_alias_fields_as_enums(schema, type_expansions)
+            for source, schema in source_row_schemas.items()
+        }
     from_resolutions, relation_diagnostics = resolve_relation_inputs(
         script,
         relation_symbols,
@@ -324,6 +420,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
         type_expansions=type_expansions,
+        single_file=single_file,
     )
     diagnostics.extend(schema_diagnostics)
     diagnostics.extend(
@@ -366,11 +463,12 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     diagnostics.extend(check_relation_limits(script))
     connector_diagnostics = check_source_connectors(script, expression_value_types)
     diagnostics.extend(connector_diagnostics)
-    diagnostics.extend(
-        check_table_names(
-            script, (*connector_expression_diagnostics, *connector_diagnostics)
+    if single_file:
+        diagnostics.extend(
+            check_table_names(
+                script, (*connector_expression_diagnostics, *connector_diagnostics)
+            )
         )
-    )
     result_predicates, satisfying_diagnostics = check_satisfying_clauses(
         script,
         from_resolutions=from_resolutions,
@@ -451,10 +549,157 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
                         for name, definition in relation_symbols.items()
                         if isinstance(definition, (SourceDef, TableDef, QueryDef))
                     },
-                ),
+                )
+                if single_file
+                else _without_relations_only_projects_type(script, diagnostics),
                 key=_diagnostic_order,
             )
         ),
+    )
+
+
+def _without_relations_only_projects_type(
+    script: Script,
+    diagnostics: list[Diagnostic],
+) -> list[Diagnostic]:
+    """Drop the diagnostics of the relations a project types and this cannot.
+
+    This analysis has no JOIN binding fields, no computed `let:` group key and
+    no aggregate of a `let:` name in a grouped relation, so the diagnostics
+    inside a table or query that reads a field of one of its JOIN bindings or
+    reads a `let:` name in a GROUP BY key or an aggregate of a relation with
+    GROUP BY, or that reads such a relation with FROM or a JOIN, directly or
+    through others, are dropped. So is the PIE-S2315 of a `min` or `max` whose
+    argument is a `let:` name in a relation without GROUP BY, which only
+    single-file SQL refuses.
+    """
+
+    relations = [
+        definition
+        for definition in script.definitions
+        if isinstance(definition, (TableDef, QueryDef))
+    ]
+    readers: dict[str, list[DerivedRelation]] = {}
+    for relation in relations:
+        for name in {
+            relation.from_clause.source_name,
+            *(clause.target_relation_name for clause in relation.join_clauses),
+        }:
+            readers.setdefault(name, []).append(relation)
+    pending = [
+        relation
+        for relation in relations
+        if _reads_join_binding(relation) or _groups_by_let(relation)
+    ]
+    dropped: dict[int, Span] = {}
+    while pending:
+        relation = pending.pop()
+        if id(relation) not in dropped:
+            dropped[id(relation)] = relation.span
+            pending.extend(readers.get(relation.name, ()))
+    # The dropped spans by path and line, so each diagnostic is one lookup.
+    lines: dict[tuple[str | None, int], list[Span]] = {}
+    for span in dropped.values():
+        for line in range(span.line, span.end_line + 1):
+            lines.setdefault((span.path, line), []).append(span)
+    extrema = {
+        (span.path, span.line, span.column)
+        for relation in relations
+        for span in _let_extrema(relation)
+    }
+    return [
+        diagnostic
+        for diagnostic in diagnostics
+        if not any(
+            _within(diagnostic.location, span)
+            for span in lines.get(
+                (diagnostic.location.path, diagnostic.location.line), ()
+            )
+        )
+        and not (
+            diagnostic.code == "PIE-S2315"
+            and (
+                diagnostic.location.path,
+                diagnostic.location.line,
+                diagnostic.location.column,
+            )
+            in extrema
+        )
+    ]
+
+
+def _reads_join_binding(relation: DerivedRelation) -> bool:
+    bindings = {clause.target_binding_name for clause in relation.join_clauses}
+    pending: list[object] = [relation] if bindings else []
+    while pending:
+        value = pending.pop()
+        if type(value) is tuple:
+            pending.extend(value)
+        elif type(value) is DottedNameExpr:
+            if value.parts[0] in bindings:
+                return True
+        elif isinstance(value, Node):
+            pending.extend(getattr(value, field.name) for field in fields(value))
+    return False
+
+
+def _groups_by_let(relation: DerivedRelation) -> bool:
+    if relation.let_clause is None or relation.group_by_clause is None:
+        return False
+    names = {binding.name for binding in relation.let_clause.bindings}
+    # Each value with whether it lies in a GROUP BY key or an aggregate.
+    pending: list[tuple[object, bool]] = [(relation, False)]
+    while pending:
+        value, grouped = pending.pop()
+        if type(value) is tuple:
+            pending.extend((item, grouped) for item in value)
+        elif type(value) is NameExpr:
+            if grouped and value.name in names:
+                return True
+        elif isinstance(value, Node):
+            grouped = (
+                grouped
+                or type(value) is GroupByClause
+                or (isinstance(value, Expression) and is_semantic_aggregate_call(value))
+            )
+            pending.extend(
+                (getattr(value, field.name), grouped) for field in fields(value)
+            )
+    return False
+
+
+def _let_extrema(relation: DerivedRelation) -> list[Span]:
+    """The spans of the `min` and `max` calls whose argument is a `let:` name
+    in a relation without GROUP BY."""
+
+    if relation.let_clause is None or relation.group_by_clause is not None:
+        return []
+    names = {binding.name for binding in relation.let_clause.bindings}
+    spans: list[Span] = []
+    pending: list[object] = [relation]
+    while pending:
+        value = pending.pop()
+        if type(value) is tuple:
+            pending.extend(value)
+        elif isinstance(value, Node):
+            if (
+                type(value) is CallExpr
+                and semantic_aggregate_call_name(value)
+                in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
+                and len(value.arguments) == 1
+                and type(value.arguments[0]) is NameExpr
+                and value.arguments[0].name in names
+            ):
+                spans.append(value.span)
+            pending.extend(getattr(value, field.name) for field in fields(value))
+    return spans
+
+
+def _within(location: SourceLocation, span: Span) -> bool:
+    start = (span.line, span.column)
+    end = (span.end_line, span.end_column)
+    return (
+        location.path == span.path and start <= (location.line, location.column) < end
     )
 
 
@@ -723,6 +968,7 @@ def _analyze_relation_schema_expressions(
     source_row_schemas: Mapping[SourceDef, RowSchema],
     cyclic_relations: set[DerivedRelation],
     type_expansions: Mapping[TypeExpr, ResolvedType],
+    single_file: bool,
 ) -> tuple[
     dict[DerivedRelation, RowSchema],
     list[Diagnostic],
@@ -778,6 +1024,7 @@ def _analyze_relation_schema_expressions(
                 from_resolutions=from_resolutions,
                 source_row_schemas=source_row_schemas,
                 relation_row_schemas=relation_row_schemas,
+                allow_unaliased_selected_let_outputs=not single_file,
                 type_expansions=type_expansions,
             )
             relation_value_types, _, _, _ = type_relation_expressions(
@@ -791,6 +1038,8 @@ def _analyze_relation_schema_expressions(
                 },
                 type_expansions=type_expansions,
                 let_diagnostics=temporary_let_diagnostics,
+                single_file=single_file,
+                let_part_types=temporary_let_value_types,
             )
             relation_value_types.update(temporary_let_value_types)
             typed[definition] = tuple(relation_value_types)
@@ -841,6 +1090,7 @@ def _analyze_relation_schema_expressions(
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
+        allow_unaliased_selected_let_outputs=not single_file,
         type_expansions=type_expansions,
     )
     (
@@ -858,12 +1108,15 @@ def _analyze_relation_schema_expressions(
         },
         type_expansions=type_expansions,
         let_diagnostics=let_diagnostics,
+        single_file=single_file,
+        let_part_types=let_value_types,
     )
     relation_value_types.update(let_value_types)
     relation_expression_diagnostics.extend(let_diagnostics)
     expansion_diagnostics = [
         diagnostic
         for definition, scope in let_scopes.items()
+        if single_file
         for diagnostic in let_expansion_diagnostics(definition, scope.value_types)
     ]
     # A key over the let inlining limit already has that error: no PIE-S2380.
@@ -882,6 +1135,7 @@ def _analyze_relation_schema_expressions(
         cyclic_relations=cyclic_relations,
         expression_value_types=relation_value_types,
         type_expansions=type_expansions,
+        reported_errors=frozenset(relation_expression_diagnostics),
     )
     if stabilized:
         relation_row_schemas = final_schemas
@@ -895,6 +1149,29 @@ def _analyze_relation_schema_expressions(
         window_expression_analyses,
         named_window_namespaces,
     )
+
+
+def _enum_alias_fields_as_enums(
+    schema: RowSchema,
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+) -> RowSchema:
+    """Type each field of an alias of an enum as that enum, as a project does."""
+
+    fields: dict[str, RowField] = {}
+    for name, row_field in schema.fields.items():
+        definition = row_field.resolved_type.definition
+        expanded = (
+            type_expansions.get(definition.base)
+            if row_field.resolved_type.kind is TypeKind.TYPE_ALIAS
+            and isinstance(definition, TypeDef)
+            else None
+        )
+        fields[name] = (
+            replace(row_field, resolved_type=expanded)
+            if expanded is not None and expanded.kind is TypeKind.ENUM
+            else row_field
+        )
+    return replace(schema, fields=fields)
 
 
 def _schema_fingerprint(

@@ -27,6 +27,7 @@ from pietto._metadata.serializer import (
 )
 from pietto._metadata.text import render_semantic_metadata_text
 from pietto._project.check import (
+    check_legacy_flat_semantics,
     check_project_parse_only,
     project_recursion_limit_diagnostic,
 )
@@ -622,11 +623,14 @@ def _project_check_semantics(
 def _project_semantic_boundary(
     semantic_result: ProjectSemanticResult,
 ) -> tuple[tuple[Diagnostic, ...], bool]:
-    """Select the completed boundary only for explicit-module Project checks."""
+    """Select the completed boundary for explicit-module Project checks and the
+    legacy-flat semantic checks for legacy-flat ones."""
 
     if semantic_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
         completed = build_project_completed_semantic_result(semantic_result)
         return completed.diagnostics, completed.ok
+    if semantic_result.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
+        return check_legacy_flat_semantics(semantic_result)
     return semantic_result.diagnostics, semantic_result.ok
 
 

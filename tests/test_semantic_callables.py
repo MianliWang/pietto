@@ -6,6 +6,7 @@ from dataclasses import fields, is_dataclass
 
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
+import pytest
 
 from pietto.ast_nodes import ConstraintDef, DeriveDef, Script
 from pietto.errors import Severity
@@ -192,6 +193,47 @@ def test_user_defined_callable_calls_remain_unsupported() -> None:
         ("PIE-S2103", "Unknown function: unknown_derive"),
     ]
     assert len(result.model.expression_value_types) == 4
+
+
+# A declared name says so even where a SQL habit has a hint of its own.
+@pytest.mark.parametrize(
+    ("constraint", "derive"),
+    (("valid", "normalized"), ("length", "mean")),
+    ids=("own_names", "habit_names"),
+)
+def test_a_call_of_a_constraint_or_derive_says_it_cannot_be_called(
+    constraint: str, derive: str
+) -> None:
+    result = analyze(
+        _parse(
+            'shape Item:\n    label: Text not null\nsource items: Item is postgres.table("items")\n'
+            f"constraint {constraint}(x: Text not null) -> Bool not null:\n"
+            "    x like '%a%'\n"
+            f"derive {derive}(x: Text not null) -> Text not null:\n    lower(x)\n"
+            f"query q:\n    from items\n    where {constraint}(label)\n"
+            f"    select:\n        n = {derive}(label)\n"
+        )
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2103",
+            10,
+            11,
+            f"Unknown function: {constraint}; {constraint} is a constraint, which "
+            "cannot be called; write a `def` instead",
+        ),
+        (
+            "PIE-S2103",
+            12,
+            13,
+            f"Unknown function: {derive}; {derive} is a derive, which cannot be "
+            "called; write a `def` instead",
+        ),
+    ]
 
 
 def test_callable_signature_validation_does_not_mutate_input_ast() -> None:

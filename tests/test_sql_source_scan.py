@@ -8,10 +8,14 @@ import pytest
 
 import _pietto_sql_emission as probe
 from pietto._project.project_sql_emission import (
+    EmissionOutcome,
     emit_project_sql,
     serialize_project_sql_emission,
 )
-from pietto._project.project_sql_emission_contract import prepare_project_sql_emission
+from pietto._project.project_sql_emission_contract import (
+    Blocker,
+    prepare_project_sql_emission,
+)
 from pietto._project.project_sql_emission_verification import (
     verify_project_sql_emission,
 )
@@ -665,6 +669,25 @@ def test_whole_project_error_and_malformed_input_both_remain_visible(tmp_path):
         malformed.status == "INPUT_REJECTED"
         and malformed.diagnostics is result.diagnostics
     )
+
+
+def test_a_blocked_document_lists_each_blocker_once_at_its_first_position():
+    """Producers that refuse the same subject at the same place for the same
+    reason, such as the WHERE and a SELECT item of one JOIN query that both
+    test a shape field for null, publish one blocker. Before, the document
+    repeated it."""
+    repeated = ("PIE-B1003", "expression_evidence_unavailable")
+    other = Blocker("PIE-B1001", "source_mapping_missing")
+    outcome = EmissionOutcome(
+        "BLOCKED",
+        (),
+        blockers=(Blocker(*repeated), other, Blocker(*repeated), other),
+    )
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
+        repeated,
+        ("PIE-B1001", "source_mapping_missing"),
+    ]
 
 
 def test_malformed_root_is_handled_without_traceback(built):

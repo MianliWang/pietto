@@ -108,7 +108,10 @@ from pietto.ast_nodes import (
     ValuesRelationDef,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.analyzer import _duplicate_enum_member_diagnostics
+from pietto.semantic.analyzer import (
+    _duplicate_enum_member_diagnostics,
+    name_uncallable_calls,
+)
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.source_connectors import check_source_connectors
 from pietto._project.project_single_match import (
@@ -283,6 +286,22 @@ def _non_concrete_reason(
     return None
 
 
+def _named_calls(
+    semantic_result: ProjectSemanticResult,
+    diagnostics: tuple[Diagnostic, ...],
+) -> tuple[Diagnostic, ...]:
+    """Name a call of a module's own constraint or derive as a single file does."""
+
+    return name_uncallable_calls(
+        diagnostics,
+        *(
+            module.parsed_input.script
+            for module in semantic_result.modules
+            if module.parsed_input is not None
+        ),
+    )
+
+
 def _source_connector_diagnostics(
     semantic_result: ProjectSemanticResult,
 ) -> tuple[Diagnostic, ...]:
@@ -344,7 +363,9 @@ class ProjectNonConcreteCompletedSemanticResult:
                 *diagnostics,
                 *_source_connector_diagnostics(self.semantic_result),
             )
-        object.__setattr__(self, "diagnostics", diagnostics)
+        object.__setattr__(
+            self, "diagnostics", _named_calls(self.semantic_result, diagnostics)
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -439,7 +460,6 @@ class _ProjectCompletedSemanticRoots:
                         verification.root.join_regions.uses.index.guarantees.conditions.diagnostics
                     ),
                 ),
-                *operative.diagnostics,
                 *source_diagnostics,
                 *query_parameter_semantic_diagnostics(
                     self.semantic_result.module_relation_resolutions,
@@ -522,7 +542,9 @@ class ProjectConcreteCompletedSemanticResult:
         object.__setattr__(self, "verification", verification)
         object.__setattr__(self, "completion", completion)
         object.__setattr__(self, "effective_outputs", effective_outputs)
-        object.__setattr__(self, "diagnostics", diagnostics)
+        object.__setattr__(
+            self, "diagnostics", _named_calls(semantic_result, diagnostics)
+        )
         object.__setattr__(
             self,
             "ok",
@@ -1396,7 +1418,19 @@ def _fanout_clause(
     joins = region.region.joins
     final_grain = risky[0].final_grain
     final = frozenset(final_grain.active)
-    seeds = tuple(frozenset(linkage.combined_seed.factors) for linkage in risky)
+    # Each refused aggregate's seed with the dependencies only it may use.
+    seeds = tuple(
+        (
+            frozenset(linkage.combined_seed.factors),
+            tuple(
+                (frozenset(fact.determinants), frozenset(fact.dependents))
+                for fact in project_joined_aggregation.orphan_free_dependencies(
+                    linkage.aggregate
+                )
+            ),
+        )
+        for linkage in risky
+    )
 
     def closure(factors: _Factors, extra: tuple[_Dependency, ...] = ()) -> _Factors:
         current = factors
@@ -1523,9 +1557,11 @@ def _fanout_clause(
         return tuple(item for key in chosen for item in keys[key][1])
 
     chosen: tuple[object, ...] | None = ()
-    for seed in seeds:
-        while chosen is not None and not final <= closure(seed, with_keys(chosen)):
-            reached = closure(seed, with_keys(chosen))
+    for seed, own in seeds:
+        while chosen is not None and not final <= closure(
+            seed, (*own, *with_keys(chosen))
+        ):
+            reached = closure(seed, (*own, *with_keys(chosen)))
             step = next(
                 (
                     key
@@ -1541,13 +1577,13 @@ def _fanout_clause(
             chosen = None if step is None else (*chosen, step)
     for key in chosen or ():
         rest = tuple(other for other in chosen or () if other != key)
-        if all(final <= closure(seed, with_keys(rest)) for seed in seeds):
+        if all(final <= closure(seed, (*own, *with_keys(rest))) for seed, own in seeds):
             chosen = rest
     declared = tuple(key for key in keys if key in (chosen or ()))
 
     def grouped(picked: tuple[str, ...]) -> bool:
         protected = frozenset().union(*(inputs[name][1] for name in picked))
-        return all(final <= closure(seed | protected) for seed in seeds)
+        return all(final <= closure(seed | protected, own) for seed, own in seeds)
 
     picked = tuple(
         name
@@ -1577,8 +1613,8 @@ def _fanout_clause(
         if source
         and target
         and any(
-            (source <= (reached := closure(seed))) != (target <= reached)
-            for seed in seeds
+            (source <= (reached := closure(seed, own))) != (target <= reached)
+            for seed, own in seeds
         )
     )
     remedies = []
@@ -1670,6 +1706,12 @@ def _final_diagnostics(
     retained.extend(shapes)
     retained.extend(relationships)
     retained_ids = {id(diagnostic) for diagnostic in retained}
+    # Module resolution reports a relation whose own name or FROM does not
+    # resolve (a duplicate, unknown or ambiguous name); it gets no fallback
+    # beside that error, as in a single file.
+    resolution_reported = any(
+        diagnostic.severity is Severity.ERROR for diagnostic in retained
+    )
     semantic_facts = semantic_result.module_semantic_facts
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
@@ -1688,11 +1730,12 @@ def _final_diagnostics(
             raise TypeError("Final diagnostics require exact effective entries.")
         # A JOIN reader or a reader of a set completes its row without its
         # facts, so the diagnostics of its scalar reads are retained here.
+        owner_facts = (
+            () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
+        )
         reads = (
             item.diagnostic
-            for facts in (
-                () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
-            )
+            for facts in owner_facts
             for item in facts.scalar_reads
             if item.diagnostic is not None
         )
@@ -1701,7 +1744,10 @@ def _final_diagnostics(
             for diagnostic in (
                 *(() if completed else _entry_error_diagnostics(entry)),
                 *reads,
-                *project_final_outputs.joined_let_unreached_diagnostics(entry),
+                *project_final_outputs.joined_let_unreached_diagnostics(
+                    entry,
+                    owner_facts[0].scalar_read_types if len(owner_facts) == 1 else None,
+                ),
             )
             if id(diagnostic) not in retired_ids
         )
@@ -1717,7 +1763,12 @@ def _final_diagnostics(
                 if _infers(clause)
             ),
         )
-        if not errors and not completed:
+        unresolved = (
+            type(entry) is ProjectEffectiveOutputTerminal
+            and entry.fragment.semantic_facts.base_row_fact.state.reason
+            is ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED
+        )
+        if not errors and not completed and not (unresolved and resolution_reported):
             errors = (
                 _fallback_diagnostic(
                     entry,
@@ -1731,9 +1782,13 @@ def _final_diagnostics(
                 continue
             retained.append(diagnostic)
             retained_ids.add(id(diagnostic))
+    # The JOIN condition diagnostics follow the relations' own.
+    if conditions is not None:
+        retained.extend(conditions.diagnostics)
     # Producers may restate one diagnostic for the same source occurrence (an
-    # unknown direct field, for one); the public result reports each value once,
-    # in first-occurrence order.
+    # unknown direct field, or a JOIN condition error that its relation also
+    # reports, for one); the public result reports each value once, in
+    # first-occurrence order.
     return tuple(dict.fromkeys(retained))
 
 
@@ -2615,8 +2670,16 @@ def derive_compiled_semantics(root, values, parameters=None):
                     else:
                         signature = BUILTIN_FUNCTIONS.get(token)
                         special = token in {"sign", "year", "month", "day"}
+                        # `abs` keeps an Int or Float argument's type.
+                        kept = (
+                            token == "abs"
+                            and len(arguments) == 1
+                            and arguments[0].resolved_type.name in {"Int", "Float"}
+                        )
                         error = (
                             None
+                            if kept
+                            else None
                             if token == "sign"
                             and len(arguments) == 1
                             and arguments[0].resolved_type.name in {"Int", "Decimal"}
@@ -2639,6 +2702,8 @@ def derive_compiled_semantics(root, values, parameters=None):
                             ResolvedType(
                                 "Int"
                                 if special
+                                else arguments[0].resolved_type.name
+                                if kept
                                 else "<unknown>"
                                 if signature is None
                                 else signature.return_type,
@@ -3647,8 +3712,16 @@ def verify_compiled_semantics(value):
                     else:
                         signature = BUILTIN_FUNCTIONS.get(token)
                         special = token in {"sign", "year", "month", "day"}
+                        # `abs` keeps an Int or Float argument's type.
+                        kept = (
+                            token == "abs"
+                            and len(arguments) == 1
+                            and arguments[0].resolved_type.name in {"Int", "Float"}
+                        )
                         problem = (
                             None
+                            if kept
+                            else None
                             if token == "sign"
                             and len(arguments) == 1
                             and arguments[0].resolved_type.name in {"Int", "Decimal"}
@@ -3671,6 +3744,8 @@ def verify_compiled_semantics(value):
                             ResolvedType(
                                 "Int"
                                 if special
+                                else arguments[0].resolved_type.name
+                                if kept
                                 else "<unknown>"
                                 if signature is None
                                 else signature.return_type,

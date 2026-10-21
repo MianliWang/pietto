@@ -284,6 +284,9 @@ def test_q1_empty_membership_is_a_checked_boolean_constant(
             _call("year", _field("happened_at")),
             'CAST(EXTRACT(YEAR FROM "happened_at") AS bigint)',
         ),
+        # PostgreSQL resolves no EXTRACT of an untyped NULL.
+        (_call("year", _literal(None)), "CAST(NULL AS bigint)"),
+        (_call("minute", _literal(None)), "CAST(NULL AS bigint)"),
     ],
 )
 def test_q1_closed_function_rendering(expression: ExpressionIR, expected: str) -> None:

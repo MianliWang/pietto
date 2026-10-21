@@ -26,6 +26,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
+    RowSchema,
     TypeKind,
     ValueType,
     ValueTypeKind,
@@ -345,8 +346,10 @@ def is_supported_semantic_aggregate_argument_expression(
     value_type: ValueType,
     *,
     let_expansions: Mapping[str, Expression] | None = None,
+    form_only: bool = False,
 ) -> bool:
-    """Return whether an aggregate accepts this argument expression."""
+    """Return whether an aggregate accepts this argument expression; with
+    ``form_only``, whether it accepts its form (`accepts_argument_form`)."""
 
     expression = effective_semantic_aggregate_argument_expression(
         function_name,
@@ -356,7 +359,9 @@ def is_supported_semantic_aggregate_argument_expression(
     if is_direct_field_argument(expression):
         return is_supported_semantic_aggregate_argument(function_name, value_type)
     if function_name == COUNT_AGGREGATE_NAME:
-        return _is_supported_count_expression_shape(expression, value_type)
+        return _is_supported_count_expression_shape(
+            expression, value_type, null_operands=form_only
+        )
     if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
         return _is_builtin(value_type, "Text") and _is_lower_trim_text_transform_chain(
             expression
@@ -386,6 +391,7 @@ def accepts_argument_form(
         if function_name == COUNT_DISTINCT_AGGREGATE_NAME
         else INT_NULLABLE_VALUE_TYPE,
         let_expansions=let_expansions,
+        form_only=True,
     )
 
 
@@ -423,6 +429,31 @@ def aggregate_argument_can_use_let_scope(
         and let_expansions is not None
         and expression.name in let_expansions
     )
+
+
+def extremum_reads_let(
+    function_name: str,
+    expression: Expression,
+    let_expansions: Mapping[str, Expression] | None,
+    input_schema: RowSchema,
+) -> bool:
+    """Whether a `min` or `max` argument reads a `let:` name over an input row
+    of known shape: a single file keeps their direct-field surface, so the
+    name is no direct field there and the argument is otherwise checked with
+    the name's binding type. Over an unknown input row, unread `let:` names
+    are checked separately."""
+
+    if function_name not in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
+        return False
+    if not let_expansions or input_schema.is_unknown:
+        return False
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, NameExpr) and node.name in let_expansions:
+            return True
+        pending.extend(child_expressions(node))
+    return False
 
 
 def _expand_let_references(
@@ -595,16 +626,26 @@ def is_supported_count_distinct_argument(value_type: ValueType) -> bool:
 def _is_supported_count_expression_shape(
     expression: Expression,
     value_type: ValueType,
+    *,
+    null_operands: bool,
 ) -> bool:
     if not is_supported_count_argument(value_type):
         return False
 
-    is_valid, has_field = _count_expression_shape(expression)
+    is_valid, has_field = _count_expression_shape(
+        expression, null_operands=null_operands
+    )
     return is_valid and has_field
 
 
-def _count_expression_shape(expression: Expression) -> tuple[bool, bool]:
-    """Return (valid shape, has direct field leaf) for count expressions."""
+def _count_expression_shape(
+    expression: Expression, *, null_operands: bool
+) -> tuple[bool, bool]:
+    """Return (valid shape, has direct field leaf) for count expressions.
+
+    Without ``null_operands`` an arithmetic `null` operand (`n + null`) is no
+    valid shape: it takes the other operand's type, but emission needs a type
+    at every part of the argument."""
 
     if isinstance(expression, (NameExpr, DottedNameExpr)):
         return True, True
@@ -613,12 +654,25 @@ def _count_expression_shape(expression: Expression) -> tuple[bool, bool]:
     if isinstance(expression, UnaryExpr):
         if expression.operator not in {"+", "-"}:
             return False, False
-        return _count_expression_shape(expression.operand)
+        return _count_expression_shape(expression.operand, null_operands=null_operands)
     if isinstance(expression, BinaryExpr):
         if expression.operator not in {"+", "-", "*", "%", "and", "or"}:
             return False, False
-        left_valid, left_has_field = _count_expression_shape(expression.left)
-        right_valid, right_has_field = _count_expression_shape(expression.right)
+        if (
+            not null_operands
+            and expression.operator in {"+", "-", "*", "%"}
+            and any(
+                isinstance(operand, LiteralExpr) and operand.value is None
+                for operand in (expression.left, expression.right)
+            )
+        ):
+            return False, False
+        left_valid, left_has_field = _count_expression_shape(
+            expression.left, null_operands=null_operands
+        )
+        right_valid, right_has_field = _count_expression_shape(
+            expression.right, null_operands=null_operands
+        )
         return left_valid and right_valid, left_has_field or right_has_field
     if isinstance(expression, CallExpr):
         if not isinstance(expression.callee, NameExpr):
@@ -627,7 +681,9 @@ def _count_expression_shape(expression: Expression) -> tuple[bool, bool]:
             return False, False
         if len(expression.arguments) != 1:
             return False, False
-        return _count_expression_shape(expression.arguments[0])
+        return _count_expression_shape(
+            expression.arguments[0], null_operands=null_operands
+        )
     return False, False
 
 

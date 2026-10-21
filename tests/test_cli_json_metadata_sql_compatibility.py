@@ -310,7 +310,7 @@ def test_emit_sql_output_writes_only_expanded_sql(
             "        gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
-            "PIE-S2102",
+            "PIE-S2315",
         ),
         (
             "    from orders\n"
@@ -318,7 +318,7 @@ def test_emit_sql_output_writes_only_expanded_sql(
             "        gross = amount + tax\n"
             "    select:\n"
             "        largest = max(gross)\n",
-            "PIE-S2102",
+            "PIE-S2315",
         ),
         (
             "    from orders\n"
@@ -450,7 +450,7 @@ def test_failed_emit_sql_json_output_does_not_write_file(
     assert document["ok"] is False
     assert document["artifacts"] == []
     assert document["output"] == {"path": str(missing_output), "written": False}
-    assert "PIE-S2102" in [diagnostic["code"] for diagnostic in diagnostics]
+    assert "PIE-S2315" in [diagnostic["code"] for diagnostic in diagnostics]
     assert not missing_output.exists()
     _assert_no_public_let_or_precision_surface(document)
 
@@ -567,6 +567,73 @@ def test_explain_lists_no_def_and_locates_each_argument_use_at_the_argument(
         )
         for leaf in lineage["field_leaves"]
     ] == [(13, 19, 13, 20)] * 2
+
+
+@pytest.mark.parametrize("qualified", [False, True])
+def test_reader_of_unknown_grouped_row_keeps_unknown_lineage(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    qualified: bool,
+) -> None:
+    field = "q.kind" if qualified else "kind"
+    path = _write_source(
+        tmp_path,
+        "unknown-grouped-reader.pietto",
+        "query q:\n    from items\n    group by: kind\n"
+        "    select:\n        kind\n        n = count()\n"
+        f"query r:\n    from q\n    select:\n        kind = {field}\n",
+        prefix='source items is postgres.table("shop.items")\n',
+    )
+    assert cli.main(["explain", str(path)]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == (
+        f"{path}:1:1 PIE-S2303 warning: Source items has no bound shape; "
+        "row schema is unknown\n"
+    )
+    reader_text = captured.out.rsplit("  - r (query)\n", 1)[1].split("types:\n", 1)[0]
+    assert reader_text == (
+        "    input: q (query)\n"
+        "    output fields:\n      - none\n"
+        "    query: where=no group_keys=none satisfying=no order_by=0 limit=none\n"
+        "    projections:\n"
+        "      - kind kind=field_ref type=unknown kind=unknown canonical=unknown "
+        "canonical_kind=unknown nullability=unknown support=unknown "
+        "status=unknown leaves=none\n"
+        "    order_by:\n      - none\n"
+        "    aggregates:\n      - none\n"
+        "    lineage:\n      - kind <- none\n"
+    )
+    assert cli.main(["explain", str(path), "--format", "json"]) == 0
+    document = _read_json(capsys)
+    assert tuple(document) == EXPLAIN_JSON_KEYS
+    metadata = cast(dict[str, Any], document["metadata"])
+    producer, reader = metadata["relations"]
+    assert producer["output_schema"] == {"fields": []}
+    assert reader["input_schema"] == reader["output_schema"] == {"fields": []}
+    assert reader["lineage"] == [{"output": "kind", "field_leaves": []}]
+    assert reader["projections"] == [
+        {
+            "name": "kind",
+            "expression_kind": "field_ref",
+            "type": {
+                "status": "unknown",
+                "name": None,
+                "kind": "unknown",
+                "canonical_name": None,
+                "canonical_kind": "unknown",
+                "nullability": "unknown",
+                "support_posture": "unknown",
+            },
+            "field_leaves": [],
+            "location": {
+                "path": str(path),
+                "line": 11,
+                "column": 9,
+                "end_line": 11,
+                "end_column": 16 + len(field),
+            },
+        }
+    ]
 
 
 def _write_source(

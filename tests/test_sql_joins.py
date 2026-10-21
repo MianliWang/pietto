@@ -395,13 +395,17 @@ DISTINCT_ENDPOINT_SQL = {
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("kind", ("inner", "left"))
 @pytest.mark.parametrize("side", ("source", "target"))
+@pytest.mark.parametrize("reads", ("other", "joined"))
 def test_a_relationship_only_via_over_a_distinct_endpoint_emits_its_on_form(
-    tmp_path, target, kind, side
+    tmp_path, target, kind, side, reads
 ):
     """Its relationship equality is the SQL of the equivalent explicit ON,
-    also when the JOIN leaves its source or VIA roles to be inferred."""
+    also when the JOIN leaves its source or VIA roles to be inferred and when
+    the endpoint reads the relation it is joined with."""
     left, right = ("d", "rhs") if side == "source" else ("lhs", "d")
-    producer = "lhs" if side == "source" else "rhs"
+    producer, other = ("lhs", "rhs") if side == "source" else ("rhs", "lhs")
+    if reads == "joined":
+        producer, other = other, producer
     block = f"    {kind} join {right} as r:\n        from {left}\n"
     docs = {
         route: public(
@@ -433,7 +437,11 @@ query result:
             ("inferred_roles", f"    {kind} join {right} as r: via near\n"),
         )
     }
-    expected = DISTINCT_ENDPOINT_SQL[side].replace(" INNER ", f" {kind.upper()} ")
+    expected = (
+        DISTINCT_ENDPOINT_SQL[side]
+        .replace(" INNER ", f" {kind.upper()} ")
+        .replace(f'"phase66 {other} é" AS "s0"', f'"phase66 {producer} é" AS "s0"')
+    )
     if target == "mysql":
         expected = expected.replace('"public"', '"phase66"').replace('"', "`")
     assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 5
@@ -441,6 +449,58 @@ query result:
     assert [
         requirement_kinds(doc)["relationship_equality"] for doc in docs.values()
     ] == [1, 1, 0, 1, 1]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_relationship_join_of_two_distinct_reads_of_one_source_emits(
+    tmp_path, target
+):
+    """Each input keeps its own DISTINCT grain, although both read one source."""
+    doc = public(
+        emit(
+            tmp_path,
+            target,
+            """query d1:
+    from rhs
+    select distinct:
+        id
+        key
+query d2:
+    from rhs
+    select distinct:
+        id
+        key
+relationship near:
+    endpoint l: d1
+    endpoint r: d2
+    on l.id == r.id
+query result:
+    from d1
+    inner join d2 as r:
+        from d1
+        via near: l -> r
+    select:
+        a = d1.id
+        b = r.key
+""",
+        )
+    )
+    expected = (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."order.id" AS "c0",'
+        ' "s0"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s0"),'
+        ' "p1" ("c0", "c1") AS (SELECT DISTINCT "t0"."c0" AS "c0", "t0"."c1" AS "c1"'
+        ' FROM "p0" AS "t0"), "p2" ("c0", "c1") AS (SELECT "s1"."order.id" AS "c0",'
+        ' "s1"."key value" AS "c1" FROM "public"."phase66 rhs é" AS "s1"),'
+        ' "p3" ("c0", "c1") AS (SELECT DISTINCT "t1"."c0" AS "c0", "t1"."c1" AS "c1"'
+        ' FROM "p2" AS "t1"), "p4" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."c0" AS'
+        ' "c0", "m0"."c1" AS "c1", "m1"."c0" AS "c2", "m1"."c1" AS "c3"'
+        ' FROM "p1" AS "m0" INNER JOIN "p3" AS "m1" ON ("m0"."c0" = "m1"."c0"))'
+        ' SELECT "t0"."c0" AS "a", "t0"."c3" AS "b" FROM "p4" AS "t0"'
+    )
+    if target == "mysql":
+        expected = expected.replace('"public"', '"phase66"').replace('"', "`")
+    assert doc["status"] == "VERIFIED"
+    assert doc["sql"] == expected
 
 
 # --------------------------------------------------------------------------
@@ -1188,20 +1248,23 @@ def test_a_nullable_bool_on_conjunct_is_blocked_and_its_where_form_emits(
     ] == [("PIE-B1002", "join_output_nullability_drift", None)]
 
 
-# An enum field is outside the initial representation domain of project SQL
-# emission, so a source declaring one is BLOCKED whether or not a JOIN reads it,
-# whatever the field's nullability modifier.
+# An enum or shape field is outside the initial representation domain of
+# project SQL emission, so a source declaring one is BLOCKED whether or not a
+# JOIN reads it, whatever the field's nullability modifier.
 ENUM_TEXT_DOMAIN = {
     "postgres": ({"kind": "pg_text"}, "UTF8", "C"),
     "mysql": ({"kind": "my_varchar", "length": 64}, "utf8mb4", "utf8mb4_0900_bin"),
 }
+ENUM_STATUS = ("enum Status:\n    active\n    closed\n", "Status")
+SHAPE_PAYLOAD = ("shape Payload:\n    a: Int not null\n", "Payload")
 
 
-def enum_field_document(directory, target, body, modifier):
+def enum_field_document(directory, target, body, modifier, declared=ENUM_STATUS):
     item = probe.join_witness(target, body)
-    source = "enum Status:\n    active\n    closed\n" + item["source"].replace(
+    declaration, type_name = declared
+    source = declaration + item["source"].replace(
         "    key: Int nullable\n",
-        f"    key: Int nullable\n    state: Status{modifier}\n",
+        f"    key: Int nullable\n    state: {type_name}{modifier}\n",
     )
     storage, encoding, collation = ENUM_TEXT_DOMAIN[target]
     contract = json.loads(item["contract"])
@@ -1320,3 +1383,128 @@ def test_a_window_value_of_an_enum_field_blocks_as_any_window_of_its_source(
         assert [
             (b["code"], b["subject"], b["location"]) for b in published["blockers"]
         ] == blocked
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_window_value_of_a_shape_field_blocks_as_any_window_of_its_source(
+    tmp_path, target
+):
+    """`lag` and `first_value` of a shape field, and a later relation's
+    `first_value` of that column, are typed as the shape and blocked as a
+    window over the source that reads no shape field is: by the stage input
+    and the shape field's source port. Before, `check --project` refused each
+    shape window with PIE-S2104 `value type must be concrete`."""
+    window = "window:\n            order by:\n                id\n"
+    field = {"path": "main.pietto", "line": 6, "column": 5}
+    field |= {"end_line": 6, "end_column": 28}
+    blocked = [
+        (
+            "PIE-B1001",
+            {
+                "detail": "stage_input_not_bound",
+                "reference": {"kind": "stage_port", "position": 2},
+            },
+            None,
+        ),
+        (
+            "PIE-B1003",
+            {
+                "detail": "representation_not_in_initial_domain",
+                "reference": {"kind": "source_port", "position": 2},
+            },
+            field,
+        ),
+    ]
+    for name, body in (
+        ("integer", f"        p = lag(id) {window}"),
+        ("shape", f"        p = lag(state) {window}"),
+        ("first", f"        p = first_value(state) {window}"),
+        (
+            "later",
+            f"        p = lag(state) {window}query result:\n    from navigated\n"
+            f"    select:\n        id\n        f = first_value(p) {window}",
+        ),
+    ):
+        relation = "table navigated" if name == "later" else "query result"
+        published = enum_field_document(
+            tmp_path / name,
+            target,
+            f"{relation}:\n    from lhs\n    select:\n        id\n{body}",
+            " not null",
+            SHAPE_PAYLOAD,
+        )
+        assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
+        assert [
+            (b["code"], b["subject"], b["location"]) for b in published["blockers"]
+        ] == blocked
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_window_of_a_join_relation_computed_column_emits(tmp_path, target):
+    """A later relation's `last_value` and `lag` of a JOIN relation's computed
+    columns, `v = r.id + 1` and `w = k + 1` with `k = r.id`, whose
+    nullability is unknown, emit verified PostgreSQL; MySQL blocks the
+    integer window result, as for any computed integer value. Before,
+    `check --project` refused both windows with PIE-S2104 `value type must
+    be concrete`."""
+    window = "window:\n            order by:\n                id\n"
+    item = probe.join_witness(
+        target,
+        "table joined:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
+        "        on lhs.key == r.key\n    let:\n        k = r.id\n    select:\n"
+        "        id = lhs.id\n        v = r.id + 1\n        w = k + 1\n"
+        "query result:\n    from joined\n    select:\n        id\n"
+        f"        last = last_value(v) {window}"
+        f"        previous = lag(w) {window}",
+    )
+    contract = json.loads(item["contract"])
+    for declared in contract["sources"]:
+        for field in declared["fields"]:
+            # A 32-bit carrier proves `+ 1` inside the 64-bit result.
+            field["representation"]["storage"] = {
+                "kind": "pg_int4" if target == "postgres" else "my_int"
+            }
+            field["representation"]["domain"] = {
+                "kind": "int_range",
+                "min": "-1000",
+                "max": "1000",
+            }
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], probe.encoded(contract).decode(), item["policy"]
+    )
+    published = public(outcome)
+
+    if target == "mysql":
+        assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
+        assert [
+            (b["code"], b["subject"]["detail"], b["location"]["line"])
+            for b in published["blockers"]
+        ] == [
+            (
+                "PIE-B1002",
+                "mysql_window_integer_result_origin_not_supported_in_phase66",
+                21,
+            )
+        ]
+        return
+    assert published["status"] == "VERIFIED"
+    assert published["sql"] == (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."order.id" AS "c0", '
+        '"m0"."key value" AS "c1", "m1"."order.id" AS "c2", "m1"."key value" AS '
+        '"c3" FROM "public"."phase66 lhs é" AS "m0" INNER JOIN "public"."phase66 '
+        'rhs é" AS "m1" ON ("m0"."key value" = "m1"."key value")), "p1" ("c0", '
+        '"c1", "c2", "c3", "c4") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", '
+        '"t0"."c2" AS "c2", "t0"."c3" AS "c3", "t0"."c2" AS "c4" FROM "p0" AS '
+        '"t0"), "p2" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", ("t1"."c2" '
+        '+ CAST(1 AS pg_catalog.int8)) AS "c1", ("t1"."c4" + CAST(1 AS '
+        'pg_catalog.int8)) AS "c2" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2", '
+        '"c3", "c4") AS (SELECT "s2"."c0" AS "c0", "s2"."c1" AS "c1", "s2"."c2" AS '
+        '"c2", LAST_VALUE("s2"."c1") OVER (ORDER BY "s2"."c0" ASC RANGE BETWEEN '
+        'UNBOUNDED PRECEDING AND CURRENT ROW) AS "c3", LAG("s2"."c2") OVER (ORDER '
+        'BY "s2"."c0" ASC) AS "c4" FROM "p2" AS "s2") SELECT "t3"."c0" AS "id", '
+        '"t3"."c3" AS "last", "t3"."c4" AS "previous" FROM "p3" AS "t3"'
+    )
+    assert [
+        (column["label"], column["logical_type"]["name"], column["nullable"])
+        for column in published["columns"]
+    ] == [("id", "Int", False), ("last", "Int", True), ("previous", "Int", True)]

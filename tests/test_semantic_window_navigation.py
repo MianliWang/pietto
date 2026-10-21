@@ -535,13 +535,71 @@ def test_value_original_or_three_part_qualifier_reports_PIE_S2104(case: int) -> 
     _failure(f"{identity}({expression})", "PIE-S2104")
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_value_nonconcrete_unknown_nullability_and_type_alias_fail_closed(
-    case: int,
-) -> None:
-    identity = IDENTITIES[case // 3]
-    field = ("unknown_type", "unknown_nullability", "alias_value")[case % 3]
+@pytest.mark.parametrize("case", range(4))
+def test_value_nonconcrete_type_and_type_alias_fail_closed(case: int) -> None:
+    identity = IDENTITIES[case // 2]
+    field = ("unknown_type", "alias_value")[case % 2]
     _failure(f"{identity}({field})", "PIE-S2104")
+
+
+def test_an_unknown_nullability_is_read_only_where_the_result_does_not_read_it() -> (
+    None
+):
+    """A value or default of known type whose nullability is unknown, such as
+    an earlier relation's computed column, is accepted where the result's
+    nullability does not depend on it: `first_value`, `last_value`,
+    `nth_value`, and `lag` or `lead` without a default or with a nullable
+    one, at an offset other than 0. Where it does, as at offset 0 or beside a
+    non-null default, the call stays PIE-S2104, after the offset and type
+    checks every value has. Before, every call was PIE-S2104 at the value."""
+    accepted = {
+        "lag(unknown_nullability)": EffectiveNullability.NULLABLE,
+        "lead(unknown_nullability, 2)": EffectiveNullability.NULLABLE,
+        "lag(unknown_nullability, 1, nullable_id)": EffectiveNullability.NULLABLE,
+        "lead(unknown_nullability, 1, null)": EffectiveNullability.NULLABLE,
+        "lag(nullable_id, 1, unknown_nullability)": EffectiveNullability.NULLABLE,
+        "lead(id, 0, unknown_nullability)": EffectiveNullability.NON_NULL,
+        "first_value(unknown_nullability)": EffectiveNullability.NULLABLE,
+        "last_value(unknown_nullability)": EffectiveNullability.NULLABLE,
+        "nth_value(unknown_nullability, 2)": EffectiveNullability.NULLABLE,
+    }
+    refused = {
+        "lag(unknown_nullability, 0)": "lag: value type must be concrete",
+        "lead(unknown_nullability, 1, id)": "lead: value type must be concrete",
+        "lag(id, 1, unknown_nullability)": "lag: default type must be concrete",
+        "lead(unknown_nullability, -1)": (
+            "lead: offset must be a nonnegative integer literal"
+        ),
+        "lag(unknown_nullability, 1, label)": (
+            "lag: value and default must have the same exact type"
+        ),
+    }
+    outcomes: dict[str, object] = {}
+    for call in (*accepted, *refused):
+        result, diagnostics, _, _, _ = _analysis(call)
+        if type(result) is WindowExpressionAnalysis:
+            assert diagnostics == []
+            outcomes[call] = result.semantic_fact.result.value_type
+        else:
+            assert type(result) is WindowExpressionUnsupported
+            outcomes[call] = [
+                (item.code, item.message, item.location.line, item.location.column)
+                for item in diagnostics
+            ]
+
+    assert outcomes == {
+        **{
+            call: ValueType(
+                resolved_type=ResolvedType(name="Int", kind=TypeKind.BUILTIN),
+                nullability=nullability,
+            )
+            for call, nullability in accepted.items()
+        },
+        **{
+            call: [("PIE-S2104", f"Invalid arguments for function {message}", 21, 28)]
+            for call, message in refused.items()
+        },
+    }
 
 
 @pytest.mark.parametrize("case", range(2))
@@ -747,6 +805,70 @@ def test_an_enum_result_keeps_its_declaration_for_later_readers(call: str) -> No
     assert schema.fields["previous"].resolved_type == ResolvedType(
         name="Status", kind=TypeKind.ENUM, definition=enum
     )
+
+
+def test_a_computed_column_of_an_earlier_relation_is_a_window_value() -> None:
+    """A computed column such as `v = m + 1` has a known type and an unknown
+    nullability; a later relation's `lag`, `lead`, `first_value`,
+    `last_value` and `nth_value` of it give a nullable column of that type.
+    `lag(v, 0)` and `lag(v, 1, 0)`, whose result would have the column's
+    unknown nullability, stay PIE-S2104. Before, every one was PIE-S2104
+    `value type must be concrete`."""
+    window = "window:\n            order by:\n                id\n"
+    source = (
+        "shape Row:\n    id: Int not null\n    m: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table computed:\n    from rows\n    select:\n        id\n        v = m + 1\n"
+        "query later:\n    from computed\n    select:\n        id\n"
+        f"        previous = lag(v) {window}"
+        f"        following = lead(v, 2) {window}"
+        f"        first = first_value(v) {window}"
+        f"        last = last_value(v) {window}"
+        f"        nth = nth_value(v, 2) {window}"
+        "query refused:\n    from computed\n    select:\n        id\n"
+        f"        same = lag(v, 0) {window}"
+        f"        defaulted = lag(v, 1, 0) {window}"
+    )
+    parsed = parse_source(source, path="computed.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    lines = source.splitlines()
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid arguments for function lag: value type must be concrete",
+            lines.index("        same = lag(v, 0) window:") + 1,
+            16,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid arguments for function lag: value type must be concrete",
+            lines.index("        defaulted = lag(v, 1, 0) window:") + 1,
+            21,
+        ),
+    ]
+    later = parsed.ast.definitions[3]
+    assert type(later) is QueryDef
+    assert {
+        name: (field.resolved_type, field.nullability)
+        for name, field in semantic.model.relation_row_schemas[later].fields.items()
+    } == {
+        "id": (
+            ResolvedType(name="Int", kind=TypeKind.BUILTIN),
+            EffectiveNullability.NON_NULL,
+        ),
+        **{
+            name: (
+                ResolvedType(name="Int", kind=TypeKind.BUILTIN),
+                EffectiveNullability.NULLABLE,
+            )
+            for name in ("previous", "following", "first", "last", "nth")
+        },
+    }
 
 
 @pytest.mark.parametrize("case", range(2, 6))

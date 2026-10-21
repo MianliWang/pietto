@@ -45,6 +45,7 @@ from pietto.sql.mysql_render import (
 from pietto.sql.window_strategy import (
     WindowTargetDialect,
     decide_inline_window_target,
+    range_offset_refusal,
 )
 
 _COMPARISON_OPERATORS = {
@@ -396,7 +397,7 @@ def _render_mysql_window_frame(frame: WindowFrameIR) -> str:
         }
     )
     if frame.unit is WindowFrameUnitIR.RANGE and offset_bounds:
-        raise MySqlRenderError("MySQL RANGE offsets require Phase 64 evidence")
+        raise MySqlRenderError(range_offset_refusal("MySQL"))
     if any(
         type(bound.offset) is not LiteralIR
         or type(bound.offset.value) is not int

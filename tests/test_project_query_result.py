@@ -391,25 +391,111 @@ def test_final_diagnostics_report_an_equal_restated_error_once(
     assert not any(diagnostic.code == "PIE-S2333" for diagnostic in result.diagnostics)
 
 
+RESTATED_JOIN_HEAD = (
+    "shape Row:\n    id: Int not null\n    uid: Int not null\n    unique pk on id\n"
+    'source rows: Row is postgres.table("rows")\n'
+    "shape U:\n    id: Int not null\n    name: Text not null\n    unique uk on id\n"
+    'source users: U is postgres.table("users")\n'
+    "query per_user:\n    from rows\n    group by:\n        uid\n    select:\n"
+    "        uid\n        n = count()\n"
+    "relationship pu:\n    endpoint p: per_user\n    endpoint u: users\n"
+    "    on p.uid == u.id\n"
+)
+JOIN_LOCAL_ON = (
+    "JOIN-local ON is available only when an EXPLICIT_MODULES project "
+    "(schema version 2) completes it."
+)
+PRE_MATCH = "JOIN pre-match input or relationship authority is unavailable."
+MINUS = "Invalid operands for operator -: expected numeric operands"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        pytest.param(
+            "query q:\n    from per_user\n    right join users as x:\n"
+            "        from per_user\n        via pu: p -> u\n"
+            "    select:\n        uid = per_user.uid\n",
+            [
+                (
+                    "PIE-S2334",
+                    24,
+                    5,
+                    "RIGHT JOIN is available only when an EXPLICIT_MODULES "
+                    "project (schema version 2) completes it.",
+                ),
+                ("PIE-S2335", 24, 5, PRE_MATCH),
+            ],
+            id="right_join_via",
+        ),
+        pytest.param(
+            "query q:\n    from per_user\n    inner join users as x:\n"
+            "        from per_user\n        via pu: p -> u\n"
+            "    inner join users as y:\n        from per_user\n"
+            "        on per_user.uid == y.id\n"
+            "    select:\n        uid = per_user.uid\n        nm = y.name\n",
+            [
+                ("PIE-S2334", 29, 9, JOIN_LOCAL_ON),
+                ("PIE-S2335", 27, 5, PRE_MATCH),
+                ("PIE-S2335", 29, 12, "JOIN ON reference is unavailable."),
+            ],
+            id="via_then_on",
+        ),
+        pytest.param(
+            "query q:\n    from rows\n    left join users as c:\n        from rows\n"
+            "        on rows.uid == c.id and c.name - 1 > 0\n"
+            "    select:\n        id = rows.id\n",
+            [("PIE-S2334", 26, 9, JOIN_LOCAL_ON), ("PIE-S2105", 26, 33, MINUS)],
+            id="on_error",
+        ),
+        # The body reads its argument twice, so the ON condition holds the
+        # argument's error twice, at its one position.
+        pytest.param(
+            "def twice(x: Int nullable) -> Bool nullable: return x + x > 0\n"
+            "query q:\n    from rows\n    left join users as c:\n        from rows\n"
+            "        on rows.uid == c.id and twice(c.name - 1)\n"
+            "    select:\n        id = rows.id\n",
+            [("PIE-S2334", 27, 9, JOIN_LOCAL_ON), ("PIE-S2105", 27, 39, MINUS)],
+            id="on_error_from_a_def",
+        ),
+    ),
+)
+def test_final_diagnostics_report_a_restated_join_condition_error_once(
+    tmp_path: Path,
+    body: str,
+    expected: list[tuple[str, int, int, str]],
+) -> None:
+    """A relation whose JOIN fails restates the errors of the JOIN's
+    condition; the public result reports each of them once (before: twice,
+    and three times through the def)."""
+
+    result = _build(tmp_path, RESTATED_JOIN_HEAD + body).completed
+    assert not result.ok
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == expected
+
+
 def test_missing_terminal_errors_receive_one_ordered_public_fallback_each(
     tmp_path: Path,
 ) -> None:
     built = _build(tmp_path / "fallback", FALLBACK_FAILURE_SOURCE)
     result = built.completed
     assert not result.ok
+    # `bad`, whose FROM does not resolve, reports only that, as in a single
+    # file; before, a PIE-S2333 at `bad` followed.
     assert tuple(diagnostic.code for diagnostic in result.diagnostics) == (
         "PIE-S2301",
         "PIE-S2333",
-        "PIE-S2333",
     )
     assert tuple(diagnostic.message for diagnostic in result.diagnostics[1:]) == (
-        "Project relation semantic completion is unavailable: bad",
         "Project relation semantic completion is unavailable: downstream",
     )
     assert tuple(
         (diagnostic.location.path, diagnostic.location.line, diagnostic.location.column)
         for diagnostic in result.diagnostics[1:]
-    ) == (("main.pietto", 1, 1), ("main.pietto", 5, 1))
+    ) == (("main.pietto", 5, 1),)
     rendered = " ".join(diagnostic.message for diagnostic in result.diagnostics)
     for private in (
         "HISTORICAL_NON_CONCRETE",
@@ -419,6 +505,41 @@ def test_missing_terminal_errors_receive_one_ordered_public_fallback_each(
         "object id",
     ):
         assert private not in rendered
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            'source sa: Row is postgres.table("a")\n'
+            'source sa: Row is postgres.table("b")\n',
+            [("PIE-S2001", "Duplicate symbol name in relation namespace: sa", 4, 1)],
+        ),
+        (
+            'source sa: Row is postgres.table("a")\n'
+            'source sa: Row is postgres.table("b")\nexport:\n    source sa\n',
+            [("PIE-S2704", "Ambiguous local export declaration: source sa", 6, 12)],
+        ),
+        (
+            "query q:\n    from nowhere\n    select:\n        id\n",
+            [("PIE-S2301", "Unknown relation: nowhere", 4, 5)],
+        ),
+    ),
+    ids=("duplicate", "exported_duplicate", "unknown_from"),
+)
+def test_a_relation_whose_name_or_from_does_not_resolve_reports_only_why(
+    tmp_path: Path,
+    body: str,
+    expected: list[tuple[str, str, int, int]],
+) -> None:
+    """A source, table or query whose own name or FROM does not resolve gets
+    only the error that says why, as in a single file. Before, each such
+    declaration also reported a bare PIE-S2333."""
+    built = _build(tmp_path, "shape Row:\n    id: Int not null\n" + body)
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in built.completed.diagnostics
+    ] == expected
 
 
 _DEFERRED_JOIN_INPUT_SOURCE = """shape Sale:
@@ -924,21 +1045,18 @@ def test_explicit_project_cli_renders_completed_failure_in_text_and_json(
     assert cli.main(["check", "--project", str(root)]) == 1
     text = capsys.readouterr()
     assert text.out == ""
-    assert text.err.count("PIE-S2333") == 2
-    assert "Project relation semantic completion is unavailable: bad" in text.err
-    assert "Project relation semantic completion is unavailable: downstream" in text.err
-    assert "Project check OK" not in text.out
+    assert text.err == (
+        "main.pietto:2:5 PIE-S2301 error: Unknown relation: missing\n"
+        "main.pietto:5:1 PIE-S2333 error: Project relation semantic completion "
+        "is unavailable: downstream\n"
+    )
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
     document = _read_json(capsys)
     assert tuple(document) == PROJECT_JSON_KEYS
     assert document["ok"] is False
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert tuple(item["code"] for item in diagnostics) == (
-        "PIE-S2301",
-        "PIE-S2333",
-        "PIE-S2333",
-    )
+    assert tuple(item["code"] for item in diagnostics) == ("PIE-S2301", "PIE-S2333")
     assert document["result"] == {
         "check": {
             "files_total": 1,
@@ -1152,6 +1270,64 @@ def test_explicit_project_select_read_of_an_untyped_let_is_not_an_unknown_field(
     assert text.err == expected
 
 
+_SPEC_JOIN = "    inner join oth as p:\n        from src\n        on src.id == p.ref\n"
+_UNSUPPORTED_WINDOW = "PIE-S2103 error: Unsupported window computation for function"
+
+
+def test_explicit_project_window_specification_read_of_a_computed_let(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A PARTITION BY or ORDER BY name of a `let:` binding whose value is not
+    a field is refused as that value written in its place is, at the window
+    call, with or without JOIN inputs, grouped and in QUALIFY; a binding that
+    names a field stays a field (`alias`)."""
+
+    root = _project(
+        tmp_path / "windows",
+        "shape S:\n    id: Int not null\n    t: Text nullable\n    u: Text not null\n"
+        "    unique s_key on id\n"
+        "shape O:\n    oid: Int not null\n    ref: Int nullable\n"
+        "    label: Text nullable\n    unique o_key on oid\n"
+        'source src: S is postgres.table("app.src")\n'
+        'source oth: O is postgres.table("app.oth")\n'
+        "table plain:\n    from src\n    let:\n        k = lower(t)\n    select:\n"
+        "        id\n        r = first_value(u) window:\n            order by:\n"
+        "                k\n"
+        "table joined:\n    from src\n" + _SPEC_JOIN + "    let:\n"
+        "        k = lower(p.label)\n    select:\n        id = src.id\n"
+        "        r = first_value(src.u) window:\n            partition by:\n"
+        "                k\n            order by:\n                src.id\n"
+        "table alias:\n    from src\n" + _SPEC_JOIN + "    let:\n        k = p.label\n"
+        "    select:\n        id = src.id\n        r = first_value(src.u) window:\n"
+        "            order by:\n                k\n"
+        "query grouped:\n    from src\n    let:\n        k = lower(t)\n    group by:\n"
+        "        k\n    select:\n        k\n        n = count()\n"
+        "        r = rank() window:\n            order by:\n                k\n"
+        "query hidden:\n    from src\n    let:\n        k = lower(t)\n    select:\n"
+        "        id\n    qualify:\n        row_number() window:\n"
+        "            order by:\n                k\n        <= 3\n"
+        "query hidden_joined:\n    from src\n" + _SPEC_JOIN + "    let:\n"
+        "        k = lower(src.t)\n    select:\n        id = src.id\n    qualify:\n"
+        "        row_number() window:\n            order by:\n                k\n"
+        "        <= 3\n",
+    )
+
+    # Before: PIE-S2102 "Unknown field: k" at each read of `k`.
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    order = "window order expression must be a direct field"
+    assert text.err == (
+        f"main.pietto:19:13 {_UNSUPPORTED_WINDOW} first_value: {order}\n"
+        f"main.pietto:31:13 {_UNSUPPORTED_WINDOW} first_value: window partition "
+        "expression must be a direct field\n"
+        f"main.pietto:57:13 {_UNSUPPORTED_WINDOW} rank: {order}\n"
+        f"main.pietto:67:9 {_UNSUPPORTED_WINDOW} row_number: {order}\n"
+        f"main.pietto:81:9 {_UNSUPPORTED_WINDOW} row_number: {order}\n"
+    )
+
+
 _NEVER_TRUE = "comparison with null is never true"
 
 
@@ -1299,6 +1475,163 @@ def _public_facts(items: object) -> list[tuple[object, ...]]:
         )
         for item in cast(list[dict[str, object]], items)
     ]
+
+
+def test_project_and_single_file_checks_refuse_range_offsets_alike(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Before: neither check refused a RANGE offset that is not a nonnegative
+    # Int literal, which no target emits. Both check one in a JOIN relation,
+    # and a project also one in a QUALIFY window, which a single file does not
+    # analyze.
+    root = _project(
+        tmp_path / "range-offsets",
+        "shape Order:\n"
+        "    id: Int not null\n"
+        "    customer_id: Int not null\n"
+        "    amount: Int nullable\n"
+        "shape Customer:\n"
+        "    id: Int not null\n"
+        "    name: Text not null\n"
+        'source orders: Order is postgres.table("orders")\n'
+        'source customers: Customer is postgres.table("customers")\n'
+        "relationship order_customer: orders.customer_id == customers.id\n"
+        "query named:\n"
+        "    from orders\n"
+        "    let:\n"
+        "        k = 2\n"
+        "    select:\n"
+        "        id\n"
+        "        a = last_value(amount) window:\n"
+        "            order by: id\n"
+        "            range nonexistent preceding\n"
+        "        b = last_value(amount) window:\n"
+        "            order by: id\n"
+        '            range "abc" preceding\n'
+        "        c = last_value(amount) window:\n"
+        "            order by: id\n"
+        "            range between k preceding and 2 following\n"
+        "query joined:\n"
+        "    from orders\n"
+        "    inner join customers as customer\n"
+        "    select:\n"
+        "        order_id = orders.id\n"
+        "        d = last_value(orders.amount) window:\n"
+        "            order by: orders.id\n"
+        "            range -1 preceding\n"
+        "query qualified:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        id\n"
+        "        rn = row_number() window:\n"
+        "            order by: id\n"
+        "    qualify:\n"
+        "        coalesce(last_value(amount) window:\n"
+        "            order by: id\n"
+        "            range 1.5 preceding\n"
+        "        , 0) > rn\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    project = _public_facts(_read_json(capsys)["diagnostics"])
+    assert cli.main(["check", str(root / "main.pietto"), "--format", "json"]) == 1
+    single_file = _public_facts(_read_json(capsys)["diagnostics"])
+    message = (
+        "Invalid window frame for function last_value: RANGE offsets must be "
+        "nonnegative integer literals up to 9223372036854775807"
+    )
+    expected = [
+        ("PIE-S2104", "error", message, line, column)
+        for line, column in ((17, 13), (20, 13), (31, 13))
+    ]
+    assert single_file == expected
+    assert project == [*expected, ("PIE-S2104", "error", message, 41, 18)]
+
+
+def test_project_and_single_file_checks_refuse_decimal_quotient_uses_alike(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Before: a single file passed every query, and the project passed
+    # `where a / 2` and gave a bare PIE-S2333 for the SELECT uses. A quotient
+    # with a Decimal operand has no type yet but is a number, so a use that
+    # takes no number is refused alike, and a use beside numbers passes.
+    root = _project(
+        tmp_path / "decimal-quotient",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    a: Decimal(10, 2) not null\n"
+        'source rows: Row is postgres.table("app.rows")\n'
+        "query by_where:\n"
+        "    from rows\n"
+        "    where a / 2\n"
+        "    select:\n"
+        "        id\n"
+        "query by_let:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        q = a / 2 + 1\n"
+        "    where q\n"
+        "    select:\n"
+        "        id\n"
+        "query by_select:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        '        p = a / 2 - "x"\n'
+        "        l = lower(a / 2)\n"
+        '        c = a / 2 == "x"\n'
+        '        i = a / 2 in ("x", "y")\n'
+        '        o = coalesce("x", a / 2)\n'
+        '        z = coalesce("x", a / 2, null)\n'
+        "query accepted:\n"
+        "    from rows\n"
+        "    where a / 2 > 1 and (a / 2) % 2.5 > 0\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    project = _public_facts(_read_json(capsys)["diagnostics"])
+    assert cli.main(["check", str(root / "main.pietto"), "--format", "json"]) == 1
+    single_file = _public_facts(_read_json(capsys)["diagnostics"])
+    where = "Expected Bool expression in where clause"
+    operands = "Invalid operands for operator {}: expected {} operands"
+    expected = [
+        ("PIE-S2202", "error", where, 7, 11),
+        ("PIE-S2202", "error", where, 14, 11),
+        ("PIE-S2105", "error", operands.format("-", "numeric"), 21, 13),
+        (
+            "PIE-S2104",
+            "error",
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got numeric",
+            22,
+            13,
+        ),
+        ("PIE-S2105", "error", operands.format("==", "comparable"), 23, 13),
+        (
+            "PIE-S2105",
+            "error",
+            operands.format("in", "same canonical membership"),
+            24,
+            13,
+        ),
+        *(
+            (
+                "PIE-S2104",
+                "error",
+                "Invalid argument types for function coalesce: expected same "
+                "canonical type",
+                line,
+                13,
+            )
+            for line in (25, 26)
+        ),
+    ]
+    assert project == expected
+    assert single_file == expected
 
 
 def test_project_and_single_file_checks_refuse_satisfying_without_group_by(

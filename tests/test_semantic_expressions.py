@@ -322,6 +322,336 @@ def test_q1_all_null_and_unknown_names_do_not_gain_contextual_types() -> None:
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
 
 
+def test_a_case_coalesce_or_nullif_of_only_nulls_takes_the_type_beside_it() -> None:
+    # Before: each such value was of unknown type, so `v` and the operands of
+    # `+`, `==` and `in` were too, and check accepted all of them; PostgreSQL
+    # types the inner CASE, COALESCE or NULLIF as text and rejected
+    # `"v" + 1` (operator does not exist: text + integer). The wrong `nullif`
+    # arity was reported only by emission (PIE-B1000).
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        count\n"
+            "        v = name if active else (null if active else null)\n"
+            "query reader:\n"
+            "    from projected\n"
+            "    let:\n"
+            "        k = null if count > 1 else null\n"
+            "    select:\n"
+            "        r = v + 1\n"
+            "        s = (v if count > 1 else (null if count > 1 else null)) + 1\n"
+            "        x = coalesce(v, coalesce(null, null)) == 1\n"
+            "        y = nullif(v, k) + 1\n"
+            '        z = count in (1, "x", nullif(null, null))\n'
+            "        a = nullif(count, coalesce(null, null), 1)\n"
+        )
+    )
+    numeric = (
+        "Invalid operands for operator +: expected numeric operands; "
+        "string concatenation is not supported yet"
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2105", numeric, 16, 13),
+        ("PIE-S2105", numeric, 17, 13),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: expected comparable operands",
+            18,
+            13,
+        ),
+        ("PIE-S2105", numeric, 19, 13),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator in: expected same canonical "
+            "membership operands",
+            20,
+            13,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid arguments for function nullif: expected 2, got 3",
+            21,
+            13,
+        ),
+    ]
+    value = _table(result).select_items[1].expression
+    assert isinstance(value, ConditionalExpr)
+    for expression in (value, value.when_false):
+        value_type = result.model.expression_value_types[expression]
+        assert value_type.resolved_type.name == "Text"
+        assert value_type.nullability is EffectiveNullability.NULLABLE
+
+
+def test_null_value_reads_bound_shared_dags_by_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pietto.semantic import expressions
+    from pietto.semantic.model import RowSchema
+
+    depth = 18
+    script = _parse(
+        Q1_SOURCE
+        + "table projected:\n    from users\n    let:\n        a0 = null\n"
+        + "".join(
+            f"        a{i} = coalesce(a{i - 1}, a{i - 1})\n"
+            for i in range(1, depth + 1)
+        )
+        + "    select:\n        count\n"
+    )
+    table = script.definitions[-1]
+    assert isinstance(table, TableDef) and table.let_clause is not None
+    bindings = {item.name: item.expression for item in table.let_clause.bindings}
+    types = dict.fromkeys(bindings, expressions._UNKNOWN_VALUE_TYPE)
+    visited: set[int] = set()
+    original = expressions._callee_name
+
+    def counted(call: CallExpr) -> str:
+        assert id(call) not in visited, "NULL traversal expanded a shared call twice"
+        visited.add(id(call))
+        return original(call)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(expressions, "_callee_name", counted)
+        assert expressions._null_reads(
+            (bindings[f"a{depth}"], bindings[f"a{depth - 1}"]),
+            RowSchema(),
+            types,
+            bindings,
+            values=True,
+        ) == (True, True)
+    assert len(visited) == depth
+    assert analyze(script).diagnostics == ()
+
+
+def test_null_value_reads_terminate_composite_self_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pietto.semantic import expressions
+    from pietto.semantic.model import RowSchema
+
+    script = _parse(
+        "shape Row:\n    id: Int not null\n"
+        'source items: Row is postgres.table("items")\n'
+        "table projected:\n    from items\n    let:\n"
+        "        a = coalesce(a, a)\n"
+        "    select:\n        v = coalesce(a, 0)\n"
+    )
+    table = script.definitions[-1]
+    assert isinstance(table, TableDef) and table.let_clause is not None
+    binding = table.let_clause.bindings[0].expression
+    original = expressions._callee_name
+    visits = 0
+
+    def bounded(call: CallExpr) -> str:
+        nonlocal visits
+        visits += 1
+        assert visits <= 2, "NULL traversal did not terminate its composite cycle"
+        return original(call)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(expressions, "_callee_name", bounded)
+        assert expressions._null_reads(
+            (binding,),
+            RowSchema(),
+            {"a": expressions._UNKNOWN_VALUE_TYPE},
+            {"a": binding},
+            values=True,
+        ) == (False,)
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(script).diagnostics
+    ] == [
+        ("PIE-S2330", "Let binding cannot reference itself: a", 7, 22),
+        ("PIE-S2330", "Let binding cannot reference itself: a", 7, 25),
+    ]
+
+
+def test_null_value_reads_keep_alias_visibility_and_binding_scope() -> None:
+    from pietto.semantic import expressions
+    from pietto.semantic.model import RowField, RowSchema
+
+    script = _parse(
+        Q1_SOURCE + "table projected:\n    from users\n"
+        "    let:\n        a = null\n        b = a\n    select:\n        v = b\n"
+    )
+    table = script.definitions[-1]
+    assert isinstance(table, TableDef) and table.let_clause is not None
+    bindings = {item.name: item.expression for item in table.let_clause.bindings}
+    value = table.select_items[0].expression
+    unknown = expressions._UNKNOWN_VALUE_TYPE
+    field = RowField(
+        name="a", resolved_type=unknown.resolved_type, nullability=unknown.nullability
+    )
+    for schema, visible, lets, expected in (
+        (RowSchema(), {"b": unknown}, bindings, True),
+        (RowSchema(), {}, bindings, False),
+        (RowSchema(fields={"a": field}), {"b": unknown}, bindings, False),
+        (
+            RowSchema(),
+            {"b": unknown},
+            expressions.LetValues(bindings, erroneous={"a"}),
+            False,
+        ),
+        (RowSchema(), {"b": unknown}, bindings, True),
+    ):
+        assert expressions._null_reads(
+            (value,), schema, visible, lets, values=True
+        ) == (expected,)
+
+
+@pytest.mark.parametrize("bound", [False, True], ids=["inline", "let"])
+@pytest.mark.parametrize(
+    "context",
+    [
+        "coalesce({value}, 1)",
+        "nullif({value}, 1)",
+        "{value} if true else 1",
+        "1 in ({value}, 1)",
+        "coalesce({value}, amount / 2)",
+        "coalesce({value}, {value}, 1)",
+    ],
+    ids=[
+        "coalesce",
+        "nullif",
+        "conditional",
+        "membership",
+        "numeric-coalesce",
+        "repeated",
+    ],
+)
+def test_null_context_preserves_error_suppression(bound: bool, context: str) -> None:
+    source = (
+        "shape Row:\n    id: Int not null\n    amount: Decimal(10, 2) not null\n"
+        'source items: Row is postgres.table("items")\n'
+        "table projected:\n    from items\n"
+    )
+    erroneous = "null if missing else null"
+    if bound:
+        source += f"    let:\n        k = {erroneous}\n"
+    value = "k" if bound else f"({erroneous})"
+    source += (
+        "    select:\n"
+        f"        v = lower({context.format(value=value)})\n"
+        "        independent = lower(1)\n"
+    )
+    lines = source.splitlines()
+    unknowns = [
+        ("PIE-S2102", "Unknown field: missing", line_number, column + 1)
+        for line_number, line in enumerate(lines, 1)
+        for column in range(len(line))
+        if line.startswith("missing", column)
+    ]
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(_parse(source)).diagnostics
+    ] == unknowns + [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected Text, got Int",
+            len(lines),
+            23,
+        ),
+    ]
+
+
+def test_null_context_preserves_known_types_beside_child_errors() -> None:
+    result = analyze(
+        _parse(
+            "shape Row:\n    id: Int not null\n"
+            'source items: Row is postgres.table("items")\n'
+            "table projected:\n    from items\n    select:\n"
+            "        conditional = lower(1 if (missing is null) else 2)\n"
+            "        membership = lower((absent is null) in (true, false))\n"
+            "        branch_mismatch = true if (nosuch is null) else 1\n"
+            "        sibling = lower(coalesce(null, unknown_sibling is null))\n"
+            "        nullable_branch = lower(null if (other is null) else 1)\n"
+            "        erroneous_null = lower(coalesce(null if (bad is null) else null, 1))\n"
+        )
+    )
+    wrong_type = (
+        "Invalid argument type for function lower at position 1: expected Text, got {}"
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2104", wrong_type.format("Int"), 7, 23),
+        ("PIE-S2102", "Unknown field: missing", 7, 35),
+        ("PIE-S2104", wrong_type.format("Bool"), 8, 22),
+        ("PIE-S2102", "Unknown field: absent", 8, 29),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator conditional: expected same canonical branch types",
+            9,
+            27,
+        ),
+        ("PIE-S2102", "Unknown field: nosuch", 9, 36),
+        ("PIE-S2104", wrong_type.format("Bool"), 10, 19),
+        ("PIE-S2102", "Unknown field: unknown_sibling", 10, 40),
+        ("PIE-S2104", wrong_type.format("Int"), 11, 27),
+        ("PIE-S2102", "Unknown field: other", 11, 42),
+        ("PIE-S2102", "Unknown field: bad", 12, 50),
+    ]
+    table = _table(result)
+    sibling = table.select_items[3].expression
+    branch = table.select_items[4].expression
+    assert isinstance(sibling, CallExpr) and isinstance(branch, CallExpr)
+    coalesce = sibling.arguments[0]
+    conditional = branch.arguments[0]
+    assert isinstance(coalesce, CallExpr) and isinstance(conditional, ConditionalExpr)
+    assert (
+        result.model.expression_value_types[coalesce.arguments[0]].resolved_type.name
+        == "Bool"
+    )
+    assert (
+        result.model.expression_value_types[conditional.when_true].resolved_type.name
+        == "Int"
+    )
+
+
+@pytest.mark.parametrize(
+    "erroneous", [False, True], ids=["valid-null", "binding-error"]
+)
+def test_null_binding_name_suppression_is_not_error_evidence(erroneous: bool) -> None:
+    from pietto.errors import Diagnostic
+    from pietto.semantic import expressions
+    from pietto.semantic.model import RowSchema
+
+    script = _parse(
+        Q1_SOURCE + "table projected:\n    from users\n"
+        "    let:\n        k = null\n    select:\n        v = coalesce(k, 1)\n"
+    )
+    table = script.definitions[-1]
+    assert isinstance(table, TableDef) and table.let_clause is not None
+    bindings = expressions.LetValues(
+        {"k": table.let_clause.bindings[0].expression},
+        erroneous={"k"} if erroneous else set(),
+    )
+    diagnostics: list[Diagnostic] = []
+    value_type = expressions.infer_row_expression(
+        table.select_items[0].expression,
+        RowSchema(),
+        {},
+        diagnostics,
+        report_unknown_name=True,
+        bare_value_types={"k": expressions._UNKNOWN_VALUE_TYPE},
+        bare_value_expressions=bindings,
+        suppressed_unknown_names={"k"},
+    )
+    assert diagnostics == []
+    assert value_type.kind is (
+        ValueTypeKind.UNKNOWN if erroneous else ValueTypeKind.KNOWN
+    )
+    if not erroneous:
+        assert value_type.resolved_type.name == "Int"
+        assert value_type.nullability is EffectiveNullability.NON_NULL
+
+
 def test_q1_new_type_checks_expand_source_aliases_without_changing_child_identity() -> (
     None
 ):
@@ -628,7 +958,8 @@ _SUBSTR_BOUNDS_MESSAGE = (
         ("substr(price / 2, 0, 2)", "PIE-S2104", _SUBSTR_BOUNDS_MESSAGE),
         ("cast(price / 2 as Float)", None, None),
         ("lower(null)", None, None),
-        ("substr(price / 2, 1, 2)", None, None),
+        # A quotient fits no `Text` parameter, whatever number it is.
+        ("substr(coalesce(null, null), 1, 2)", None, None),
     ],
 )
 def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
@@ -647,8 +978,8 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
         )
     )
 
-    # Decimal division has no result type yet, so `price / 2` is a silent
-    # unknown operand.
+    # Decimal division has no result type yet, so `price / 2` is an operand
+    # of unknown type, which these checks do not read.
     assert [
         (diagnostic.code, diagnostic.message, diagnostic.location.column)
         for diagnostic in result.diagnostics
@@ -904,6 +1235,12 @@ COMPARISON_SOURCE = (
     "type Age = Int not null\n"
     "enum Status:\n"
     "    active\n"
+    "enum Phase:\n"
+    "    active\n"
+    "    done\n"
+    "type Stage = Status not null\n"
+    "shape Point:\n"
+    "    x: Int not null\n"
     "shape Item:\n"
     "    count: Int not null\n"
     "    ratio: Float not null\n"
@@ -915,7 +1252,12 @@ COMPARISON_SOURCE = (
     "    created_at: Timestamp not null\n"
     "    token: UUID not null\n"
     "    payload: Json nullable\n"
+    "    blob: Bytes nullable\n"
+    "    anything: Any nullable\n"
+    "    home: Point nullable\n"
     "    status: Status not null\n"
+    "    phase: Phase not null\n"
+    "    stage: Stage not null\n"
     "    age: Age not null\n"
     'source items: Item is postgres.table("items")\n'
     "table projected:\n"
@@ -941,6 +1283,29 @@ COMPARISON_WHERE_LINE = COMPARISON_SOURCE.count("\n") + 1
         # One null bound leaves the other to check (before: not checked).
         ('count between null and "z"', "between", 11),
         ('count between "z" and null', "between", 11),
+        # Before: an enum, a shape, `Bytes` or `Json` operand was not
+        # checked, and PostgreSQL rejected `"status" = 1` (operator does not
+        # exist: status = integer). An enum compares with its own enum and
+        # its labels, and a shape with its shape.
+        ("status == 1", "==", 11),
+        ("count != status", "!=", 11),
+        ("stage < 1", "<", 11),
+        ("status == phase", "==", 11),
+        ('status == "done"', "==", 11),
+        ("status == name", "==", 11),
+        ('status between "active" and 1', "between", 11),
+        ("home == 1", "==", 11),
+        ('home == "x"', "==", 11),
+        ("blob == 1", "==", 11),
+        ("payload > count", ">", 11),
+        # Before: any Text operand, not only a literal, was accepted against
+        # a type whose only constant form is a Text literal, and PostgreSQL
+        # rejected `"born" = "name"` (operator does not exist: date = text).
+        ("born == name", "==", 11),
+        ("created_at >= lower(name)", ">=", 11),
+        ("token == email", "==", 11),
+        ("blob == name", "==", 11),
+        ("payload == name", "==", 11),
     ],
 )
 def test_comparison_operands_of_different_families_report_s2105(
@@ -1072,8 +1437,17 @@ def test_null_operands_that_can_be_false_or_match_are_not_refused(
         'created_at >= "2024-01-01"',
         'token == "00000000-0000-0000-0000-000000000000"',
         "token != token",
-        "payload == 1",
+        "payload == payload",
+        'payload == "{}"',
+        'blob != "x"',
+        "anything == anything",
+        "anything == 1",
+        'anything == "x"',
+        "home == home",
         'status == "active"',
+        "status == stage",
+        'stage != "active"',
+        'status between "active" and "active"',
         "age > 18",
         "email == name",
         'coalesce(email, null) == "x"',
@@ -1425,7 +1799,10 @@ def test_an_expression_nested_past_450_levels_is_s2006_wherever_it_is(
     script = _parse(_nested_source(position, 451))
     refused = analyze(script)
 
-    assert accepted.diagnostics == ()
+    # A computed RANGE offset is refused (PIE-S2104), but not past the bound.
+    assert [diagnostic.code for diagnostic in accepted.diagnostics] == (
+        ["PIE-S2104"] if position == "frame" else []
+    )
     assert [
         (
             diagnostic.code,
@@ -1506,8 +1883,8 @@ def test_every_command_treats_an_expression_past_the_bound_alike(
     for command in (["check"], ["emit-sql", "--dialect", "postgres"], ["explain"]):
         status = cli.main([*command, str(accepted)])
         assert "PIE-S2006" not in capsys.readouterr().err
-        # PostgreSQL emission refuses a RANGE offset as PIE-B1000.
-        assert status == int(position == "frame" and command[0] == "emit-sql")
+        # A computed RANGE offset is refused (PIE-S2104).
+        assert status == int(position == "frame")
 
 
 def test_expression_value_types_mapping_is_readonly() -> None:

@@ -75,6 +75,13 @@ The `UNKNOWN` in `Bool UNKNOWN` is Pietto `EffectiveNullability.UNKNOWN`: the
 value type is known to be `Bool`, but compile-time nullability is not proven.
 It is not a SQL runtime truth value.
 
+A later change proves more in one place: when typing does not prove a `def`
+body with a `not null` result non-null, the body check types it again, and
+there a comparison or `between` whose operands are all `NON_NULL` returns
+`Bool NON_NULL`, while `and` and `or` still return `Bool UNKNOWN` (see the
+[operator and comparison matrix](operator-comparison-matrix-contract-v1.md)).
+Every other typing, a def call's arguments included, records the facts above.
+
 ## Predicate Contexts
 
 Slice 4 formalizes four current predicate contexts:
@@ -120,19 +127,27 @@ type it expands to in these checks: a `where`, shape `check`, index `when` or
 `satisfying:` predicate whose type is an alias of `Bool`, and a `satisfying:`
 `and` / `or` operand of such an alias, count as known `Bool`.
 
-A later defect fix reads a predicate of unknown value type that is a built-in
-call whose signature fixes its result type (every scalar function but
-`coalesce` and `nullif`), also as the value of a `let:` name, as that type,
+A later defect fix reads a predicate of unknown value type that is a call of
+any built-in scalar function but `coalesce` and `nullif`, also as the value of
+a `let:` name, as the result type its signature gives it (a number for `abs`),
 because the call has that type or fails wherever it runs: over a source
 without a shape `where len(t)` and `where lower(t)` report `PIE-S2202`, unless
 an error of the predicate's own, or of a `let:` binding it reads, explains
-the unknown type. The same reading applies to an `and` / `or` / `not` operand
-and to a conditional's condition, which report existing `PIE-S2105` when they
-are such a call or of a known non-Bool type beside an operand of unknown type
+the unknown type. It reads a quotient with a `Decimal` operand, which has no
+type yet, as a number, also as the value of a `let:` name, with arithmetic
+over it or in a `coalesce`, `nullif` or conditional of such numbers, where a
+`null` takes their type, so `where amount / 2` reports `PIE-S2202`. The same reading applies to
+an `and` / `or` / `not` operand and to a conditional's condition, which report
+existing `PIE-S2105` when they are such a call or quotient or of a known
+non-Bool type beside an operand of unknown type
 that reported no error of its own and reads no `let:` binding with one
 (`t and 5`). Over a source without a shape a `count()` output is a known
 `Int` to `satisfying:`. Any other predicate of unknown value type still
-receives no Bool-cascade diagnostic.
+receives no Bool-cascade diagnostic. Another later defect fix gives such a
+call that type wherever it is read, not only as a predicate, so a predicate
+built on it, such as `where len(t) + 1`, is of a known type too, and over a
+source without a shape a `count` or `count_distinct` output whose argument
+reads a field is a known `Int` to `satisfying:` as well.
 
 These codes and messages are existing repo behavior. Slice 4 introduces no new
 diagnostic code and does not change diagnostic ordering, spans, severity,

@@ -419,6 +419,100 @@ def test_grouped_direct_and_chained_field_lets_match_selected_group_key_outputs(
     _assert_grouped_let_success(case)
 
 
+def _computed_let_window(
+    lets: tuple[str, ...], spec: str, *, call: str = "row_number()", tail: str = ""
+) -> str:
+    return (
+        SOURCE_PREFIX
+        + "query local_window:\n    from rows\n    let:\n"
+        + "".join(f"        {line}\n" for line in lets)
+        + f"    select:\n        id\n        window_value = {call} window"
+        + spec
+        + tail
+    )
+
+
+_KEY_ORDER = ":\n            order by:\n                key\n"
+_COMPUTED_ORDER = "window order expression must be a direct field"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        pytest.param(
+            _computed_let_window(("key = lower(category)",), _KEY_ORDER),
+            ("PIE-S2103", 15, 24, f"row_number: {_COMPUTED_ORDER}"),
+            id="order",
+        ),
+        pytest.param(
+            _computed_let_window(
+                ("key = lower(category)",),
+                ":\n            partition by:\n                key\n"
+                "            order by:\n                id\n",
+            ),
+            (
+                "PIE-S2103",
+                15,
+                24,
+                "row_number: window partition expression must be a direct field",
+            ),
+            id="partition",
+        ),
+        pytest.param(
+            _computed_let_window(("base = amount + 1", "key = base"), _KEY_ORDER),
+            ("PIE-S2103", 16, 24, f"row_number: {_COMPUTED_ORDER}"),
+            id="through_another_binding",
+        ),
+        pytest.param(
+            _computed_let_window(("key = 3",), _KEY_ORDER, call="rank()"),
+            ("PIE-S2103", 15, 24, f"rank: {_COMPUTED_ORDER}"),
+            id="literal",
+        ),
+        pytest.param(
+            _computed_let_window(
+                ("key = lower(category)",),
+                " ordered\n",
+                call="rank()",
+                tail="    window ordered:\n        order by:\n            key\n",
+            ),
+            ("PIE-S2103", 15, 24, f"rank: {_COMPUTED_ORDER}"),
+            id="named_window",
+        ),
+        pytest.param(
+            SOURCE_PREFIX + "query grouped_let:\n    from rows\n    let:\n"
+            "        key = lower(category)\n    group by:\n        category\n"
+            "    select:\n        category\n        total = count()\n"
+            "        window_value = rank() window:\n            order by:\n"
+            "                key\n",
+            ("PIE-S2103", 18, 24, f"rank: {_COMPUTED_ORDER}"),
+            id="grouped",
+        ),
+    ),
+)
+def test_a_computed_let_in_a_window_specification_is_no_direct_field(
+    source: str,
+    expected: tuple[str, int, int, str],
+) -> None:
+    """A PARTITION BY or ORDER BY name of a `let:` binding whose value is not
+    a field is refused as that value written in its place is, at the window
+    call (before: PIE-S2102 `Unknown field: key` at the name)."""
+
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    code, line, column, message = expected
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in analyze(parsed.ast).diagnostics
+    ] == [
+        (
+            code,
+            line,
+            column,
+            f"Unsupported window computation for function {message}",
+        )
+    ]
+
+
 @pytest.mark.parametrize("case", range(4))
 def test_window_dependency_target_result_role_matrix_is_exact(case: int) -> None:
     kinds = tuple(ProjectRowDependencyNodeKind)

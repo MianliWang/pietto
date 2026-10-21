@@ -224,7 +224,8 @@ def test_invalid_computed_alias_preserves_alias_and_s2105() -> None:
     assert _errors(semantic) == [
         (
             "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands",
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
         )
     ]
     assert semantic.model.relation_row_schemas[relation].is_unknown is False

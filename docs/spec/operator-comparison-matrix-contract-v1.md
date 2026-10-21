@@ -76,6 +76,14 @@ Operator result `UNKNOWN` below means Pietto
 `EffectiveNullability.UNKNOWN`: the value type is known, but compile-time
 nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 
+A later change proves more in one place: when typing does not prove a `def`
+body with a `not null` result non-null, the body check types it again, and
+there binary `+`, `-` and `*`, a comparison and `between` whose operands are
+all `NON_NULL` record `NON_NULL`, while `/`, `%`, `and` and `or` keep the
+results below (see Result under Inline functions in the
+[language reference](../language.md)). Every other typing, a def call's
+arguments included, records the results below and in the comparison matrix.
+
 | Operator area | Operand area | Current result / status |
 |---|---|---|
 | Unary `+` / `-` | `Int` | currently accepted; preserves `Int` and operand nullability |
@@ -92,11 +100,11 @@ nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 | Modulo `%` | all other known operand pairs | currently rejected with existing `PIE-S2105`; `%` requires Int operands |
 | Division `/` | `Int` / `Int` | currently accepted as `Int UNKNOWN`: SQL division truncating toward zero; PostgreSQL emits `a / b` and MySQL emits `a DIV b` |
 | Division `/` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN`; a bare `/` on both targets, with no inserted cast |
-| Division `/` | `Decimal` with `Decimal`, `Int` or `Float`, either side | currently deferred/unknown, unchanged pending a Decimal division decision: records `ValueTypeKind.UNKNOWN`, emits a bare `/` and does not emit `PIE-S2105` |
+| Division `/` | `Decimal` with `Decimal`, `Int` or `Float`, either side | currently deferred/unknown, unchanged pending a Decimal division decision: records `ValueTypeKind.UNKNOWN`, emits a bare `/` and does not emit `PIE-S2105`; the quotient is a number, as are arithmetic over it and numbers and a `coalesce`, `nullif` or conditional of such numbers, where a `null` takes their type, so a use that takes no number is refused as for an operand of each numeric type (`PIE-S2202`, `PIE-S2105`, `PIE-S2104`), and where a number fits it is accepted beside numbers of any type |
 | Division `/` | any other known operand type: `Text`, `Bool`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`, `Any`, an Enum or a shape | currently rejected with existing `PIE-S2105` (`expected numeric operands`), as for `+`, `-` and `*` |
 | Bool `and` / `or` | `Bool` / `Bool` | currently accepted as `Bool UNKNOWN` |
 | Bool `and` / `or` | known non-Bool operands | currently rejected with existing `PIE-S2105`; Bool operators require Bool operands |
-| Bool `and` / `or` | unknown operands | currently deferred/unknown without an extra invalid-operand cascade, except, after a later defect fix, beside an operand of unknown type that reported no error of its own and reads no `let:` binding with one: an operand of a known type that is not `Bool`, or a built-in call whose signature fixes a result type that is not `Bool`, is then rejected with existing `PIE-S2105`, as unary `not` of such a call and a conditional's condition are (see `bool-predicate-semantics-contract-v1.md`) |
+| Bool `and` / `or` | unknown operands | currently deferred/unknown without an extra invalid-operand cascade, except, after a later defect fix, beside an operand of unknown type that reported no error of its own and reads no `let:` binding with one: an operand of a known type that is not `Bool`, or a built-in call whose signature gives it a result type that is not `Bool`, is then rejected with existing `PIE-S2105`, as unary `not` of such a call and a conditional's condition are (see `bool-predicate-semantics-contract-v1.md`); so is a quotient with a `Decimal` operand, a number of unknown type (see the Division row) |
 
 Every row above reads a type alias operand, including an alias chain, as the
 builtin type it expands to, and records that base type, not the alias, as the
@@ -111,10 +119,12 @@ concatenation operator and must remain rejected under current numeric-operand
 rules.
 
 A binary arithmetic operand that is the null literal, or a `let:` name bound to
-it, takes the other operand's type for the rows above: `n + null` with an
-`Int` field records `ValueTypeKind.UNKNOWN` without a diagnostic, while
-`label + null` with a `Text` field reports `PIE-S2105` (`expected numeric
-operands`), as `label + label` does. With both operands null, or unary `-` of
+it, takes the other operand's type for the rows above, and the result, always
+null, is of the type the row gives two operands of that type: `n + null` with
+an `Int` field is a nullable `Int` without a diagnostic, as `n + n` is an
+`Int` (and `null / d` with a `Decimal` field is a number of unknown type, as
+`d / d` is), while `label + null` with a `Text` field reports `PIE-S2105`
+(`expected numeric operands`), as `label + label` does. With both operands null, or unary `-` of
 null, the expression records `ValueTypeKind.UNKNOWN` without a diagnostic, and
 single-file PostgreSQL emission refuses it with `PIE-B1000`, as PostgreSQL
 finds no operator for operands that are all an untyped NULL.
@@ -146,26 +156,35 @@ replaced it with an operand family check:
 - a `ComparisonExpr` types its left and right child expressions;
 - a type alias operand, including an alias chain, is checked as the type it
   expands to;
-- known built-in operands of one registry family record `Bool UNKNOWN`:
+- known operands of one family record `Bool UNKNOWN`: the registry families
   numeric (`Int`, `Float`, `Decimal`), `Text`, `Bool`, temporal (`Date`,
-  `Timestamp`), or `UUID`;
-- known built-in operands of two of those families report `PIE-S2105`
+  `Timestamp`), identifier (`UUID`), binary (`Bytes`) and json (`Json`); and
+  each enum and each shape declaration, which compares only with itself (a
+  later defect fix; before, `Bytes`, `Json`, Enum and shape operands were not
+  checked);
+- known operands of two of those families report `PIE-S2105`
   (`expected comparable operands`) and record `ValueTypeKind.UNKNOWN`, in
-  every check mode;
-- `Text` against `Date`, `Timestamp`, or `UUID` stays accepted until typed
-  constants are decided, because a text literal is the only constant form for
-  those types; the deferral also accepts non-literal `Text` operands (fields,
-  calls, and `let` values) against those types, which are not yet checked;
+  every check mode, with two exceptions that record `Bool UNKNOWN`;
+- a `Text` literal, or a `let:` name bound to one, against `Date`,
+  `Timestamp`, `UUID`, `Bytes`, or `Json` stays accepted until typed constants
+  are decided, because a text literal is the only constant form for those
+  types; its value is not checked against the type. A non-literal `Text`
+  operand (a field, a call, or a `let` value that is not a literal) against
+  them reports `PIE-S2105`, as PostgreSQL has no such operator
+  (`date = text`); before a later defect fix it was accepted too;
+- an enum against a `Text` literal, or a `let:` name bound to one, that is one
+  of the enum's labels stays accepted; any other `Text` operand, a literal
+  that is not a label included, reports `PIE-S2105`;
 - an operand that is the null literal, or a `let:` name bound to it, reports
   `PIE-S2105` (`comparison with null is never true`, adding ``write `is null`
   instead`` for `==` and ``write `is not null` instead`` for `!=` unless both
   operands are null) and records `ValueTypeKind.UNKNOWN`, because SQL evaluates
   the comparison to NULL for every row;
-- other unknown children and `Any`, `Bytes`, `Json`, Enum, and shape operands
-  are not checked and record `Bool UNKNOWN`;
+- other unknown children and `Any` operands are not checked and record
+  `Bool UNKNOWN`;
 - the check adds no casts, collation, temporal comparison rules, UUID
-  comparison guarantees, Enum comparison behavior, Bytes/Json comparison
-  behavior, or SQL lowering changes.
+  comparison guarantees, Enum ordering behavior, Bytes/Json comparison
+  behavior beyond the family check, or SQL lowering changes.
 
 `BetweenExpr` applies the same check to its value and each bound:
 
@@ -198,7 +217,8 @@ UUID, Enum, Bytes, Json, and Any keep their Slice 2 boundaries:
 - Slice 7 adds no UUID comparison, cast, literal, storage, DDL, wider SQL, or
   public API behavior;
 - `Enum` remains a non-builtin semantic type kind and has no SQL/comparison
-  behavior in Slice 7;
+  behavior in Slice 7; a later defect fix checks its comparison operands as
+  above (its own enum and its labels) and adds no other Enum behavior;
 - `Bytes` and `Json` remain deferred/unsupported behavior built-ins;
 - `Any` must not hide unsupported behavior or create implicit compatibility.
 
@@ -215,7 +235,11 @@ Current scalar function calls remain exact built-ins:
 
 A later defect fix reads a type alias argument of these functions, an alias
 chain included, as the builtin type it expands to, as the operators above do;
-an alias of an Enum or shape is not expanded.
+an alias of an Enum or shape is not expanded. Another later defect fix gives
+such a call the result type of its signature also beside an argument of
+unknown type that no error explains, such as a field of a source without a
+shape, and checks its arguments of known type there: `lower(t) + 1` reports
+`PIE-S2105` and `matches(t, 1)` `PIE-S2104`.
 
 Slice 7 records these functions only as current expression-typing facts that
 can feed operator and comparison operands. It does not add scalar functions,

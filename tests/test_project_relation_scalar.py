@@ -310,12 +310,6 @@ REFUSED = {
         "        id\n",
         [
             ("PIE-S2301", "Unknown relation: nowhere", 7, 5),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: t",
-                6,
-                1,
-            ),
             _later("t.rid", 12, 17),
         ],
     ),

@@ -167,6 +167,62 @@ def test_hidden_paths_require_hidden_pattern_segments(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("side", ("include", "exclude"))
+def test_a_thousand_double_star_parts_select_as_one_does(
+    tmp_path: Path, side: str
+) -> None:
+    stars = "**/" * 1000
+    root = _project_root(
+        tmp_path,
+        include=(f"{stars}*.pietto" if side == "include" else "**/*.pietto",),
+        exclude=(f"{stars}skip.pietto",) if side == "exclude" else (),
+    )
+    _write(root, "root.pietto")
+    _write(root, "models/a.pietto")
+    _write(root, "models/.hidden/b.pietto")
+    _write(root, "models/skip.pietto")
+
+    result = select_project_sources(root, load_project_config(root))
+
+    kept = ("models/a.pietto", "root.pietto")
+    if side == "include":
+        kept = ("models/a.pietto", "models/skip.pietto", "root.pietto")
+    assert result.errors == ()
+    assert result.inputs == tuple(
+        ProjectInput(path=path, status="selected") for path in kept
+    )
+
+
+def test_a_thousand_level_source_tree_selects_as_a_shallow_one_does(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(
+        tmp_path,
+        include=("**/*.pietto",),
+        exclude=("a/**/a/skip.pietto", "**/b/*.pietto"),
+    )
+    deep = "/".join(("a",) * 1000)
+    (root / ".a").mkdir()
+    for top in (root, root / ".a"):
+        # One level at a time: mkdir(parents=True) recurses once per level.
+        directory = top
+        for _ in range(1000):
+            directory /= "a"
+            directory.mkdir()
+    _write(root, "root.pietto")
+    _write(root, f"{deep}/deep.pietto")
+    _write(root, f"{deep}/skip.pietto")
+    _write(root, f".a/{deep}/hidden.pietto")
+
+    result = select_project_sources(root, load_project_config(root))
+
+    assert result.errors == ()
+    assert result.inputs == (
+        ProjectInput(path=f"{deep}/deep.pietto", status="selected"),
+        ProjectInput(path="root.pietto", status="selected"),
+    )
+
+
 def test_uses_custom_selection_without_path_glob_or_source_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

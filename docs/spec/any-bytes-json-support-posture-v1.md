@@ -102,7 +102,13 @@ Any/Bytes/Json semantics.
 
 Comparison, ordering, `order by`, `group by`, and `satisfying` examples for
 Any / Bytes / Json are current generic accepted/risky shared paths, not newly
-authorized stable type-specific semantics.
+authorized stable type-specific semantics. A later defect fix checks the
+family of `Bytes` and `Json` comparison and `between` operands: each compares
+with its own type and with a `Text` literal or a `let:` name bound to one, and
+any other known operand reports `PIE-S2105` (see
+`operator-comparison-matrix-contract-v1.md`), while `Any` operands stay
+unchecked. That fail-closed check defines none of the comparison policy listed
+under Future Prerequisites.
 
 These paths travel through shared expression, predicate, grouping, result
 predicate, IR, and SQL emit behavior. Slice 7 records their current posture but

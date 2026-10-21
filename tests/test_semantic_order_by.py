@@ -442,6 +442,33 @@ def test_postgresql_implicit_column_name_of_an_unaliased_item_is_not_bound(
     )
 
 
+def test_mysql_unaliased_true_false_null_item_names_capture_the_key() -> None:
+    query = (
+        "shape Row:\n    id: Int not null\n    TRUE: Int not null\n"
+        "    False: Int not null\n    NULL: Int not null\n    Amount: Int not null\n"
+        'source rows: Row is mysql.table("sales.rows")\n'
+        "query q:\n    from rows\n    select:\n        id\n        true\n"
+        '        false\n        null\n        "amount"\n        1\n'
+        "    order by:\n        TRUE\n        False\n        NULL\n"
+        "        Amount\n        id\n"
+    )
+
+    mysql = emit_mysql_sql(_compile_ir(query))
+
+    # Before: the bare `TRUE`, `False` and `NULL` keys stayed bare, and MySQL
+    # bound them to the unaliased TRUE, FALSE and NULL items, which it names
+    # by that text, so the rows were sorted by constants. An unaliased Int
+    # literal is named `1` and captures no key.
+    assert mysql.diagnostics == ()
+    assert mysql.artifacts[0].sql == (
+        "SELECT\n    `id` AS `id`,\n    TRUE,\n    FALSE,\n    NULL,\n"
+        "    'amount',\n    1\n"
+        "FROM `sales`.`rows`\nORDER BY\n    `rows`.`TRUE` ASC,\n"
+        "    `rows`.`False` ASC,\n    `rows`.`NULL` ASC,\n"
+        "    `rows`.`Amount` ASC,\n    `id` ASC"
+    )
+
+
 def test_captured_key_uses_the_name_from_already_gives_the_input() -> None:
     def source(connector: str, name: str, first: str) -> str:
         return (
@@ -506,6 +533,50 @@ def test_input_field_key_of_an_ungrouped_aggregate_query_is_refused(
             "PIE-S2380",
             "ORDER BY key reads an input field outside an aggregate in a query "
             "with aggregates and no GROUP BY, which SQL targets reject",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("let_lines", "key", "line"),
+    [
+        ((), "amount", 6),
+        ((), "n", 6),
+        (("k = amount + 1",), "k", 8),
+        ((), "raw.amount desc", 6),
+    ],
+)
+def test_input_field_key_of_an_ungrouped_aggregate_query_without_a_shape_fails(
+    let_lines: tuple[str, ...],
+    key: str,
+    line: int,
+) -> None:
+    let_clause = "".join(f"        {item}\n" for item in let_lines)
+    source = (
+        'source raw is postgres.table("raw")\n'
+        "query q:\n"
+        "    from raw\n"
+        + ("    let:\n" + let_clause if let_clause else "")
+        + "    select:\n"
+        "        n = count()\n"
+        f"    order by: {key}\n"
+    )
+
+    result = analyze(_parse(source))
+
+    # Before: the key went unchecked over a row of unknown type; there any
+    # name no `let:` binds is an input field.
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == [
+        (
+            "PIE-S2380",
+            "ORDER BY key reads an input field outside an aggregate in a query "
+            "with aggregates and no GROUP BY, which SQL targets reject",
+            line,
+            15,
         )
     ]
 

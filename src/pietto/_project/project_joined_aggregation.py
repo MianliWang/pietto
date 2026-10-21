@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from pietto._project import project_multifact as multifact
+from pietto._project.model import ProjectRowFieldNullability
+from pietto._project.project_current_joins import (
+    ProjectCurrentJoinRegion,
+    compiled_forward_at_most_one,
+    current_forward_at_most_one,
+)
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
+    ProjectGrainDependencyFact,
+    ProjectGrainDependencyIndex,
     ProjectGrainFactorIdentity,
     ProjectGrainFactorSet,
+    _compile_grain_dependency_index,
     grain_dependency_closure,
 )
 from pietto._project.project_ir import ProjectIRJoinInputUseOccurrence
@@ -53,33 +63,46 @@ from pietto._project.project_scalar_references import (
     ProjectScalarReferenceResolution,
     scalar_field_reference_leaves,
 )
+from pietto._project.project_relationship_match_guarantees import (
+    resolved_matching_keys,
+)
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
+    BetweenExpr,
     BinaryExpr,
     CallExpr,
+    CastExpr,
     ComparisonExpr,
+    ConditionalExpr,
     DottedNameExpr,
     Expression,
     GroupByItem,
+    IsNullExpr,
     LiteralExpr,
+    MembershipExpr,
     ParameterRefExpr,
     NameExpr,
     QueryDef,
     SelectItem,
+    SourceDef,
     TableDef,
+    UnaryExpr,
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.semantic import catalog as semantic_catalog
 from pietto.semantic import group_by as semantic_group_by
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic import aggregates as semantic_aggregates
 from pietto.semantic.expressions import (
     _check_inlined_argument,
     checks_inlined_arguments,
+    comparison_literals,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
-from pietto.semantic.model import TypeKind, ValueType, ValueTypeKind
+from pietto.semantic.model import RowSchema, TypeKind, ValueType, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
 
@@ -1570,6 +1593,500 @@ def _argument_factors(
     )
 
 
+_NULL_PROPAGATING_CALLS = frozenset(
+    {*semantic_catalog.BUILTIN_FUNCTIONS, "sign", "year", "month", "day"}
+)
+
+
+def operation_null_when(role: str, token: object, operands: tuple[bool, ...]) -> bool:
+    """Whether an operation (compiled operator names) is NULL in every row in
+    which some inputs are all NULL-extended, from whether each operand is:
+    ``and``, ``or`` and ``coalesce`` when every operand is, a conditional when
+    its else branch is and its other branch is or its condition is never TRUE
+    (the condition's operand says whether it never is), ``between`` when its
+    value or both bounds are, ``in`` and ``not in`` when their value is and
+    their list is not empty (``in ()`` is FALSE, ``not in ()`` TRUE),
+    ``nullif`` when its first operand is, another operator or builtin that
+    passes NULL on when one operand is, and nothing else (``is null``, a
+    literal)."""
+
+    call = role == "scalar_call"
+    if (role == "binary" and token in {"and", "or"}) or (call and token == "coalesce"):
+        return bool(operands) and all(operands)
+    if role == "conditional":  # when_true, condition, when_false
+        return operands[2] and (operands[0] or operands[1])
+    if role == "between":  # value, lower, upper
+        return operands[0] or (operands[1] and operands[2])
+    if role == "membership":  # value, options
+        return len(operands) > 1 and operands[0]
+    if call and token == "nullif":
+        return bool(operands) and operands[0]
+    return (
+        role in {"unary", "not", "binary", "comparison", "cast"}
+        or (call and token in _NULL_PROPAGATING_CALLS)
+    ) and any(operands)
+
+
+def _expression_answer(expression: Expression, truth: bool | None, nulls, leaf) -> bool:
+    """Evaluate the existing NULL/truth laws without nesting WHERE and LET stacks."""
+    pending: list[tuple[Any, ...]] = [(expression, truth, None, None, 0)]
+    answers: list[bool] = []
+    while pending:
+        node, question, role, token, count = pending.pop()
+        if role is not None:
+            operands = tuple(answers[-count:]) if count else ()
+            if count:
+                del answers[-count:]
+            if role == "truth":
+                conjunction = (token == "and") == question
+                answers.append(any(operands) if conjunction else all(operands))
+            else:
+                answers.append(operation_null_when(role, token, operands))
+            continue
+        if isinstance(node, (NameExpr, DottedNameExpr)):
+            answers.append(leaf(node, nulls, question))
+            continue
+        if question is not None:
+            if isinstance(node, BinaryExpr) and node.operator in {"and", "or"}:
+                role, token = "truth", node.operator
+                children = ((node.left, question), (node.right, question))
+            elif isinstance(node, UnaryExpr) and node.operator == "not":
+                pending.append((node.operand, not question, None, None, 0))
+                continue
+            elif isinstance(node, IsNullExpr):
+                if node.negated == question:
+                    pending.append((node.value, None, None, None, 0))
+                else:
+                    answers.append(False)
+                continue
+            elif isinstance(node, MembershipExpr) and not node.options:
+                answers.append(node.negated != question)
+                continue
+            else:
+                pending.append((node, None, None, None, 0))
+                continue
+        else:
+            if isinstance(node, UnaryExpr):
+                role, operands = "unary", (node.operand,)
+            elif isinstance(node, BinaryExpr):
+                role, token = "binary", node.operator
+                operands = (node.left, node.right)
+            elif isinstance(node, ComparisonExpr):
+                role, operands = "comparison", (node.left, node.right)
+            elif isinstance(node, CastExpr):
+                role, operands = "cast", (node.value,)
+            elif isinstance(node, ConditionalExpr):
+                role = "conditional"
+                operands = (node.when_true, node.condition, node.when_false)
+            elif isinstance(node, BetweenExpr):
+                role, operands = "between", (node.value, node.lower, node.upper)
+            elif isinstance(node, MembershipExpr):
+                role, operands = "membership", (node.value, *node.options)
+            elif isinstance(node, CallExpr) and type(node.callee) is NameExpr:
+                role, token, operands = "scalar_call", node.callee.name, node.arguments
+            else:
+                answers.append(False)
+                continue
+            children = tuple(
+                (operand, True if role == "conditional" and i == 1 else None)
+                for i, operand in enumerate(operands)
+            )
+        pending.append((None, question, role, token, len(children)))
+        pending.extend((child, q, None, None, 0) for child, q in reversed(children))
+    return answers[0]
+
+
+def _null_when(expression: Expression, nulls: frozenset, leaf) -> bool:
+    """Whether the expression is NULL whenever these inputs are NULL-extended."""
+    return _expression_answer(expression, None, nulls, leaf)
+
+
+def _never(expression: Expression, truth: bool, nulls: frozenset, leaf) -> bool:
+    """Whether the condition is never this truth under these NULL extensions."""
+    return _expression_answer(expression, truth, nulls, leaf)
+
+
+def _namespace_leaf(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    namespace: ProjectJoinedScalarNamespace,
+    answers: dict[tuple[int, frozenset, bool | None], bool] | None = None,
+):
+    """Names of one joined namespace: a field is NULL with its JOIN input, a
+    LET value as its expression. A LET value and the values it reads, directly
+    or through others, are answered in declaration order for the input set and
+    every question, so each reads only answers already known and a LET chain
+    needs no recursion."""
+
+    known = {} if answers is None else answers
+
+    def leaf(
+        expression: NameExpr | DottedNameExpr, nulls: frozenset, truth: bool | None
+    ) -> bool:
+        resolution = resolve_project_joined_namespace_reference(
+            namespace,
+            ProjectScalarReferenceOccurrence(
+                environment=namespace.binding_environment.scalar_environment,
+                expression=expression,
+            ),
+        )
+        if type(resolution) is ProjectJoinedLetReferenceResolution:
+            target = resolution.target
+            if (id(target), nulls, truth) not in known:
+                read, pending = {id(target)}, [target]
+                while pending:
+                    for item in pending.pop().resolutions:
+                        if type(item) is ProjectJoinedLetReferenceResolution and (
+                            id(item.target) not in read
+                        ):
+                            read.add(id(item.target))
+                            pending.append(item.target)
+                for value in (*target.namespace.let_values, target):
+                    if id(value) not in read or (id(value), nulls, None) in known:
+                        continue
+                    inner = _namespace_leaf(input_filter, value.namespace, known)
+                    written = value.occurrence.expression
+                    known[id(value), nulls, None] = _null_when(written, nulls, inner)
+                    for question in (True, False):
+                        known[id(value), nulls, question] = _never(
+                            written, question, nulls, inner
+                        )
+            return known[id(target), nulls, truth]
+        if (
+            type(resolution) is ProjectScalarReferenceResolution
+            and resolution.target is not None
+        ):
+            field_semantics = _field_semantics(input_filter, resolution.target)
+            return field_semantics.introduction_use in nulls
+        return False
+
+    return leaf
+
+
+class _RegionJoin(NamedTuple):
+    """One JOIN of an aggregate's region: its kind, whether each left row
+    matches at most one right row, its left and right inputs (grain,
+    introduction), the inputs of its left side, its right input, whether its
+    condition is never TRUE where some inputs are all NULL-extended, and the
+    earlier inputs it pins: its relationship or its `on` equalities match a
+    key of each one, so a right row matches at most one row of it."""
+
+    kind: str
+    forward_one: bool
+    left: tuple[Any, Any]
+    right: tuple[Any, Any]
+    left_inputs: frozenset
+    target: object
+    rejects: Callable[[frozenset], bool]
+    pins: frozenset
+    # Introducing use, exact source domains, complete field pairs, and no extra ON.
+    source_match: tuple | None = None
+
+
+def resolved_orphan_free_dependencies(final_grain, joins, unread, grouped_holder):
+    """The left-to-right dependency of each RIGHT or FULL JOIN that holds on
+    the rows one aggregate reads; ``project_ir_joins._grain`` leaves it out.
+
+    Such a JOIN with an at-most-one match keeps each right row that matches no
+    left row (an orphan) beside a left side NULL-extended in every input, so
+    its left side determines its right input everywhere but on orphans.
+    ``unread(nulls)`` is whether the aggregate reads no row in which every
+    input of ``nulls`` is NULL-extended (its argument is NULL there, or WHERE
+    is not TRUE). A later JOIN whose condition is never TRUE on an orphan
+    drops it (INNER, SEMI, RIGHT) or NULL-extends its right input there (LEFT,
+    FULL). An aggregate that reads no orphan gets the dependency back. One
+    that reads only orphans holding a row of a later JOIN reached from the
+    right input through JOINs that each pin the input they match from gets it
+    with that JOIN's input added to the determinants: on an orphan that row
+    pins the right input. A complete reverse match into the same direct source
+    also eliminates the first JOIN's orphans when that JOIN has no extra ON.
+    A grouped, final non-null nullable key may fix that exact holder within
+    the group; then only the original left-to-right dependency is restored,
+    never a generic holder factor. Each dependency keeps the whole left side
+    among its determinants.
+    """
+
+    def factors(side):
+        grain, introduction = side
+        return multifact._localized_input_factors(
+            grain=grain, introduction_use=introduction, final_grain=final_grain
+        )
+
+    def unread_orphans(position, nulls, holder=None):
+        # Orphans of JOIN `position`, those with JOIN `holder`'s input NULL.
+        for index in range(position + 1, len(joins)):
+            join = joins[index]
+            first_match, later_match = joins[position].source_match, join.source_match
+            if (
+                position == 0
+                and join.kind in {"inner", "semi"}
+                and first_match is not None
+                and later_match is not None
+                and first_match[4]
+                and later_match[0] == joins[position].target
+                and later_match[1:3] == first_match[1:3][::-1]
+                and Counter(later_match[3])
+                == Counter((b, a) for a, b in first_match[3])
+            ):
+                # A reversed match in the same source cannot exist on its orphan.
+                return True
+            if index == holder:
+                if join.kind in {"inner", "right"}:
+                    return True
+                nulls |= {join.target}
+            elif join.rejects(nulls):
+                if join.kind in {"inner", "semi", "right"}:
+                    return True
+                if join.kind in {"left", "full"}:
+                    nulls |= {join.target}
+        return unread(nulls)
+
+    dependencies = []
+    for position, join in enumerate(joins):
+        if join.kind not in {"right", "full"} or not join.forward_one:
+            continue
+        determinants, dependents = factors(join.left), factors(join.right)
+        if not (determinants and dependents):
+            continue
+        if unread_orphans(position, join.left_inputs):
+            dependencies.append(
+                ProjectGrainDependencyFact(
+                    determinants=determinants, dependents=dependents
+                )
+            )
+            continue
+        reached = {join.target}
+        for index in range(position + 1, len(joins)):
+            later = joins[index]
+            if later.kind not in {"inner", "left", "right", "full"} or not (
+                later.pins & reached
+            ):
+                continue
+            reached.add(later.target)
+            holder = factors(later.right)
+            if holder and unread_orphans(position, join.left_inputs, index):
+                dependencies.append(
+                    ProjectGrainDependencyFact(
+                        determinants=(
+                            determinants
+                            if grouped_holder(later.target)
+                            else _ordered_factors(
+                                final_grain.active, (*determinants, *holder)
+                            )
+                        ),
+                        dependents=dependents,
+                    )
+                )
+    return tuple(dependencies)
+
+
+def _holds_key(properties, matched) -> bool:
+    """Whether matched value classes of an input cover one of its keys."""
+
+    return bool(matched) and bool(resolved_matching_keys(properties.keys, matched))
+
+
+def _current_source_match(guarantee, source, unconditional):
+    """Complete equality match between exact direct source declaration domains."""
+    direction = guarantee.direction
+    endpoints = (direction.source.target, direction.target.target)
+    if any(
+        endpoint is None or type(endpoint.target_occurrence.definition) is not SourceDef
+        for endpoint in endpoints
+    ):
+        return None
+    pairs = tuple(
+        zip(
+            guarantee.source_matched_classes,
+            guarantee.target_matched_classes,
+            strict=True,
+        )
+    )
+    if any(len(a.members) != 1 or len(b.members) != 1 for a, b in pairs):
+        return None
+    return (
+        source,
+        endpoints[0].target_occurrence,
+        endpoints[1].target_occurrence,
+        tuple(
+            (a.members[0].field_position, b.members[0].field_position) for a, b in pairs
+        ),
+        unconditional,
+    )
+
+
+def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
+    """One JOIN of a current region for `resolved_orphan_free_dependencies`."""
+
+    target = join.input_uses[1]
+    left = (join.left_input.grain, join.input_uses[0])
+    right = (join.right_input.grain, target)
+    if not isinstance(join, multifact.ProjectCurrentBinaryJoin):
+        # One relationship hop: its equalities read one source input.
+        sources = frozenset(pair.left.introduction_use for pair in join.matches)
+        guarantee = join.guarantee
+        return _RegionJoin(
+            join.kind.value,
+            False,
+            left,
+            right,
+            frozenset(),
+            target,
+            lambda nulls: not sources.isdisjoint(nulls),
+            sources
+            if _holds_key(guarantee.source_output, guarantee.source_matched_classes)
+            else frozenset(),
+            _current_source_match(guarantee, next(iter(sources)), True)
+            if len(sources) == 1
+            else None,
+        )
+    condition = join.condition
+    references = {
+        id(reference.expression): reference.target
+        for reference in condition.references
+        if reference.target is not None
+    }
+
+    def leaf(
+        expression: NameExpr | DottedNameExpr, nulls: frozenset, _truth: object
+    ) -> bool:
+        field = references.get(id(expression))
+        return field is not None and region.introduction(field.binding) in nulls
+
+    # A relationship's field equalities read its one source input.
+    base = condition.base_guarantee
+    sources = condition.environment.source_candidates
+    source = (
+        region.introduction(sources[0])
+        if base is not None and len(sources) == 1
+        else None
+    )
+    expression = condition.expression
+
+    def rejects(nulls: frozenset) -> bool:
+        return source in nulls or (
+            expression is not None and _never(expression, True, nulls, leaf)
+        )
+
+    pins = set()
+    if (
+        base is not None
+        and source is not None
+        and _holds_key(base.source_output, base.source_matched_classes)
+    ):
+        pins.add(source)
+    # `on` equalities of the right input's fields with another input's.
+    equated: dict[int, tuple[Any, list[Any]]] = {}
+    target_binding = condition.use.target_binding
+    for conjunct in condition.conjuncts:
+        if type(conjunct) is not ComparisonExpr or conjunct.operator != "==":
+            continue
+        sides = (references.get(id(conjunct.left)), references.get(id(conjunct.right)))
+        for own, other in (sides, sides[::-1]):
+            if (
+                own is not None
+                and other is not None
+                and own.binding is target_binding
+                and other.binding is not target_binding
+            ):
+                binding = other.binding
+                equated.setdefault(id(binding), (binding, []))[1].append(
+                    other.input_field
+                )
+    for binding, fields in equated.values():
+        properties = binding.output
+        if properties is not None and _holds_key(
+            properties,
+            tuple(
+                c
+                for c in properties.value_classes
+                if any(member is item for member in c.members for item in fields)
+            ),
+        ):
+            pins.add(region.introduction(binding))
+    return _RegionJoin(
+        join.kind.value,
+        current_forward_at_most_one(condition),
+        left,
+        right,
+        frozenset(
+            field.introduction_use
+            for field in join.output.row_shape.fields[: len(join.left_input.fields)]
+        ),
+        target,
+        rejects,
+        frozenset(pins),
+        _current_source_match(base, source, expression is None)
+        if base is not None and source is not None
+        else None,
+    )
+
+
+def orphan_free_dependencies(
+    aggregate: ProjectJoinedAggregateOccurrence,
+) -> tuple[ProjectGrainDependencyFact, ...]:
+    input_filter = aggregate.input_filter
+    region = input_filter.joined_semantics.multifact_region
+    if (
+        not aggregate.call.arguments
+        or type(region) is not multifact.ProjectCurrentMultiFactRegion
+        or not any(
+            isinstance(join, multifact.ProjectCurrentBinaryJoin)
+            and join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+            for join in region.region.joins
+        )
+    ):
+        return ()
+    leaf = _namespace_leaf(input_filter, input_filter.namespace)
+    argument, where = aggregate.call.arguments[0], input_filter.where_clause
+    groups = None
+
+    def grouped_holder(target):
+        nonlocal groups
+        if groups is None:
+            groups = _protection_members(
+                tuple(
+                    key
+                    for key in _build_group_keys(input_filter)
+                    if type(key) is ProjectJoinedGroupKeyOccurrence
+                )
+            )
+        return any(
+            use is target
+            and _grouped_nullable_key(
+                properties,
+                tuple(
+                    _value_class_for_input_field(properties, key.field_semantics)
+                    for key in keys
+                ),
+                _current_non_null_classes(input_filter, properties, use),
+            )
+            for properties, use, keys, _ in groups
+        )
+
+    return resolved_orphan_free_dependencies(
+        region.final_properties.relational.grain,
+        tuple(_region_join(region.region, join) for join in region.region.joins),
+        lambda nulls: (
+            _null_when(argument, nulls, leaf)
+            or (where is not None and _never(where.expression, True, nulls, leaf))
+        ),
+        grouped_holder,
+    )
+
+
+def aggregate_grain_index(
+    index: ProjectGrainDependencyIndex,
+    dependencies: tuple[ProjectGrainDependencyFact, ...],
+) -> ProjectGrainDependencyIndex:
+    """The region's dependency index with one aggregate's own dependencies."""
+
+    if not dependencies:
+        return index
+    return _compile_grain_dependency_index(
+        index.universe, (*index.facts, *dependencies)
+    )
+
+
 def resolved_argument_factors(final_grain, has_arguments, dependencies):
     if not has_arguments:
         return final_grain.active
@@ -1703,7 +2220,10 @@ class ProjectJoinedAggregateGrainLinkage:
             (*self.argument_factors, *self.group_protection_factors),
         )
         expected_closure = grain_dependency_closure(
-            self.multifact_region.grain_index,
+            aggregate_grain_index(
+                self.multifact_region.grain_index,
+                orphan_free_dependencies(self.aggregate),
+            ),
             self.combined_seed,
         )
         if (
@@ -1831,7 +2351,9 @@ def _build_grain_linkages(
             (*argument_factors, *protection_factors),
         )
         seed = multifact._factor_set(index, combined)
-        closure = grain_dependency_closure(index, seed)
+        closure = grain_dependency_closure(
+            aggregate_grain_index(index, orphan_free_dependencies(aggregate)), seed
+        )
         contextual = multifact.ProjectFactContextualGrain(
             authority=final_grain,
             state=(
@@ -2454,7 +2976,13 @@ def _infer_satisfying_predicate(
         if left.kind is ValueTypeKind.UNKNOWN or right.kind is ValueTypeKind.UNKNOWN:
             value_type = semantic_satisfying._UNKNOWN_VALUE_TYPE
         else:
-            value_type, expected = resolved_comparison_value_type(left, right)
+            value_type, expected = resolved_comparison_value_type(
+                left,
+                right,
+                literals=comparison_literals(
+                    expression.left, expression.right, RowSchema(), None
+                ),
+            )
             if expected is not None:
                 diagnostics.append(
                     semantic_satisfying._invalid_operands_diagnostic(
@@ -3271,6 +3799,42 @@ def build_project_joined_aggregations(
     )
 
 
+def _current_non_null_classes(input_filter, properties, introduction_use):
+    """Input classes whose exact final joined occurrence is proved non-null."""
+    fields = {
+        field.input_field
+        for field in input_filter.fields
+        if field.input_properties is properties
+        and field.introduction_use is introduction_use
+        and field.effective_nullability is ProjectRowFieldNullability.NON_NULL
+    }
+    return tuple(
+        value_class
+        for value_class in properties.value_classes
+        if any(member in fields for member in value_class.members)
+    )
+
+
+def _grouped_nullable_key(properties, classes, non_null_classes):
+    """A fixed non-null key for one orphan holder, never a generic grain seed."""
+    keys = tuple(
+        key
+        for key in properties.keys
+        if key.strength is ProjectRowUniquenessStrength.LAX
+        and all(value_class in non_null_classes for value_class in key.determinants)
+    )
+    if not keys:
+        return False
+    seed = _value_class_set(properties, classes)
+    return any(
+        strictly_determines_output(
+            properties.fd_index, seed, _value_class_set(properties, key.determinants)
+        ).status
+        is ProjectIROutputDeterminationStatus.PROVEN
+        for key in keys
+    )
+
+
 def resolved_group_protection(properties, introduction_use, final_grain, classes):
     """Original complete STRICT-key proof law after field/use resolution."""
     seed = _value_class_set(properties, classes)
@@ -3382,6 +3946,7 @@ def compiled_field_dependencies(ir, region, arguments):
     from pietto._project.project_compiled_schema import Address, MAX_RECORDS
 
     records, refs = ir.completed.root.records, ir.references
+    joins = {join.record.address for join in region.joins}
     retained, visits = [], 0
     for argument in arguments:
         pending: list[tuple[Address, tuple[Address, ...]]] = [(argument, ())]
@@ -3394,7 +3959,10 @@ def compiled_field_dependencies(ir, region, arguments):
             path = (*path, address)
             if address.kind == "read":
                 use_address = record.get("use")
-                if use_address in region.uses:
+                if (
+                    use_address in region.uses
+                    and records[use_address].get("producer") not in joins
+                ):
                     use = region.uses[use_address]
                     properties = use.producer.properties.relational
                     port = records[record.get("port")]
@@ -3418,6 +3986,238 @@ def compiled_field_dependencies(ir, region, arguments):
             elif address.kind not in ("literal", "null_literal"):
                 raise ValueError("COMPILED_AGGREGATE_DEPENDENCY")
     return tuple(retained)
+
+
+def compiled_orphan_free_dependencies(ir, region, stage, arguments):
+    """`orphan_free_dependencies` over compiled records: a read is followed
+    through the region's JOIN outputs to the input that introduced it, and
+    WHERE is the predicate of each row stage between the JOINs and ``stage``."""
+    from pietto._project.project_compiled_schema import MAX_RECORDS
+
+    records = ir.completed.root.records
+    joins = {join.record.address: join for join in region.joins}
+    known: dict[tuple[Any, frozenset, bool | None], bool] = {}
+    visits = 0
+
+    def introductions(use):
+        join = joins.get(records[use].get("producer"))
+        if join is None:
+            return frozenset((use,))
+        inputs = join.record.get("inputs")
+        if join.record.get("kind") in ("semi", "anti"):
+            inputs = inputs[:1]
+        return frozenset().union(*map(introductions, inputs))
+
+    def origin(address):
+        # The introducing input and its field ordinal one read takes.
+        record = records[address]
+        if address.kind == "read":
+            use = record.get("use")
+            if use in region.uses and records[use].get("producer") not in joins:
+                return use, records[record.get("port")].get("ordinal")
+            return origin(record.get("port"))
+        if address.kind in ("port", "join_value"):
+            return origin(record.get("source" if address.kind == "port" else "input"))
+        return None
+
+    def ask(address, nulls, truth=None):
+        # `_null_when` for ``truth`` None, else `_never`, over compiled records.
+        nonlocal visits
+        if (address, nulls, truth) in known:
+            return known[address, nulls, truth]
+        visits += 1
+        if visits > MAX_RECORDS:
+            raise ValueError("COMPILED_AGGREGATE_DEPENDENCY_EXPANSION")
+        record = records[address]
+        if address.kind == "read":
+            use = record.get("use")
+            if use in region.uses and records[use].get("producer") not in joins:
+                result = use in nulls
+            else:
+                result = ask(record.get("port"), nulls, truth)
+        elif address.kind in ("port", "join_value"):
+            source = record.get("source" if address.kind == "port" else "input")
+            result = ask(source, nulls, truth)
+        elif address.kind == "operation":
+            (role, token), operands = record.get("operator"), record.get("operands")
+            if truth is not None and role == "binary" and token in ("and", "or"):
+                left, right = (ask(a, nulls, truth) for a in operands)
+                conjunction = (token == "and") == truth
+                result = (left or right) if conjunction else (left and right)
+            elif truth is not None and role == "not":
+                result = ask(operands[0], nulls, not truth)
+            elif truth is not None and role == "null_test":
+                result = (token == "is_not_null") == truth and ask(operands[0], nulls)
+            elif truth is not None and role == "membership" and len(operands) == 1:
+                result = (token == "not_in") != truth
+            else:
+                result = operation_null_when(
+                    role,
+                    token,
+                    tuple(
+                        ask(
+                            a, nulls, True if role == "conditional" and i == 1 else None
+                        )
+                        for i, a in enumerate(operands)
+                    ),
+                )
+        else:
+            result = False
+        known[address, nulls, truth] = result
+        return result
+
+    if not arguments or not any(
+        join.record.get("kind") in ("right", "full") for join in region.joins
+    ):
+        return ()
+    entries = []
+    for join in region.joins:
+        kind = join.record.get("kind")
+        left_address, right_address = join.record.get("inputs")
+        left, right = region.uses[left_address], region.uses[right_address]
+        right_properties = right.producer.properties.relational
+        equalities = tuple(
+            records[a].get("left") for a in join.record.get("equalities")
+        )
+        predicate = join.record.get("predicate")
+        # The fields each other input's equalities with the right input match.
+        equated: dict[Any, set[int]] = {}
+        reads = [read for read in map(origin, equalities) if read is not None]
+        if len(reads) == len(equalities) and len({use for use, _ in reads}) == 1:
+            equated[reads[0][0]] = {ordinal for _, ordinal in reads}
+        pending = [] if predicate is None else [predicate]
+        while pending:
+            address = pending.pop()
+            if address.kind != "operation":
+                continue
+            operator, operands = (
+                records[address].get("operator"),
+                records[address].get("operands"),
+            )
+            if tuple(operator) == ("binary", "and"):
+                pending.extend(operands)
+            elif tuple(operator) == ("comparison", "=="):
+                sides = tuple(origin(a) for a in operands)
+                for own, other in (sides, sides[::-1]):
+                    if (
+                        own is not None
+                        and other is not None
+                        and own[0] == right_address
+                        and other[0] != right_address
+                    ):
+                        equated.setdefault(other[0], set()).add(other[1])
+        pins = set()
+        for use, ordinals in equated.items():
+            properties = region.uses[use].producer.properties.relational
+            if _holds_key(
+                properties,
+                tuple(
+                    c
+                    for c in properties.value_classes
+                    if any(m.field_position in ordinals for m in c.members)
+                ),
+            ):
+                pins.add(use)
+        source_match = None
+        correspondence = tuple(
+            (origin(records[a].get("left")), origin(records[a].get("right")))
+            for a in join.record.get("equalities")
+        )
+        pairs = tuple(
+            (a, b) for a, b in correspondence if a is not None and b is not None
+        )
+        if (
+            pairs
+            and len(pairs) == len(correspondence)
+            and len({a[0] for a, _ in pairs}) == 1
+            and all(b[0] == right_address for _, b in pairs)
+        ):
+            source_use = pairs[0][0][0]
+            producers = tuple(
+                records[records[u].get("producer")] for u in (source_use, right_address)
+            )
+            if all(p.address.kind == "source" for p in producers):
+                source_match = (
+                    source_use,
+                    producers[0].get("declaration"),
+                    producers[1].get("declaration"),
+                    tuple((a[1], b[1]) for a, b in pairs),
+                    predicate is None,
+                )
+        entries.append(
+            _RegionJoin(
+                kind,
+                kind in ("right", "full")
+                and compiled_forward_at_most_one(
+                    records, join.record, right_properties
+                ),
+                (left.producer.properties.relational.grain, left),
+                (right_properties.grain, right),
+                introductions(left_address),
+                right_address,
+                lambda nulls, equalities=equalities, predicate=predicate: (
+                    any(ask(a, nulls) for a in equalities)
+                    or (predicate is not None and ask(predicate, nulls, True))
+                ),
+                frozenset(pins),
+                source_match,
+            )
+        )
+    predicates = []
+    producer = stage.record.get("input")
+    while producer.kind == "row" and records[producer].get("owner") == (
+        stage.record.get("owner")
+    ):
+        if records[producer].get("predicate") is not None:
+            predicates.append(records[producer].get("predicate"))
+        producer = records[producer].get("input")
+    groups = None
+
+    def grouped_holder(target):
+        nonlocal groups
+        if groups is None:
+            groups, _ = _compiled_protection_inputs(ir, stage, region)
+        return any(
+            use is region.uses[target]
+            and bool(keys)
+            and _grouped_nullable_key(
+                properties,
+                classes,
+                _compiled_non_null_classes(ir, region, properties, use),
+            )
+            for properties, use, keys, classes, _ in groups
+        )
+
+    return resolved_orphan_free_dependencies(
+        region.final_properties.grain,
+        tuple(entries),
+        lambda nulls: (
+            ask(arguments[0], nulls) or any(ask(p, nulls, True) for p in predicates)
+        ),
+        grouped_holder,
+    )
+
+
+def _compiled_non_null_classes(ir, region, properties, use):
+    from pietto._project.project_compiled_schema import Address
+
+    fields = set()
+    for final_field in region.joins[-1].fields:
+        if final_field.effective_nullability is not ProjectRowFieldNullability.NON_NULL:
+            continue
+        dependencies = compiled_field_dependencies(
+            ir, region, (Address(final_field.ref.kind, final_field.ref.position),)
+        )
+        fields.update(
+            original
+            for _, _, incoming, introduction, original in dependencies
+            if incoming is properties and introduction is use
+        )
+    return tuple(
+        value_class
+        for value_class in properties.value_classes
+        if any(member in fields for member in value_class.members)
+    )
 
 
 def _compiled_protection_inputs(ir, stage, region):
@@ -3518,7 +4318,10 @@ def build_compiled_aggregate_evidence(ir):
         computed_factors = computed_key_factors(grain, computed_reads)
         for properties, use, keys, classes, computed in groups:
             seed, strict_keys, determinations, factors = resolved_group_protection(
-                properties, use, grain, classes
+                properties,
+                use,
+                grain,
+                classes,
             )
             protections.append(
                 CompiledGroupProtection(
@@ -3567,7 +4370,13 @@ def build_compiled_aggregate_evidence(ir):
             )
             combined = _ordered_factors(grain.active, (*argument_factors, *protected))
             seed = multifact._factor_set(index, combined)
-            closure = grain_dependency_closure(index, seed)
+            closure = grain_dependency_closure(
+                aggregate_grain_index(
+                    index,
+                    compiled_orphan_free_dependencies(ir, region, stage, arguments),
+                ),
+                seed,
+            )
             contextual = multifact.ProjectFactContextualGrain(
                 authority=grain,
                 state=ProjectGrainBasisState.FACTORIZED
@@ -3695,9 +4504,9 @@ def verify_compiled_aggregate_evidence(
                 "GROUP_PROTECTION_ROOT",
             )
             strict_keys = tuple(
-                k
-                for k in properties.keys
-                if k.strength is ProjectRowUniquenessStrength.STRICT
+                key
+                for key in properties.keys
+                if key.strength is ProjectRowUniquenessStrength.STRICT
             )
             need(
                 same(protection.strict_keys, strict_keys)
@@ -3790,7 +4599,15 @@ def verify_compiled_aggregate_evidence(
                 and linkage.final_grain is grain,
                 "AGGREGATE_LINKAGE_ROOT",
             )
-            closure = grain_dependency_closure(index, linkage.combined_seed)
+            closure = grain_dependency_closure(
+                aggregate_grain_index(
+                    index,
+                    compiled_orphan_free_dependencies(
+                        ir, region, stage, record.get("arguments")
+                    ),
+                ),
+                linkage.combined_seed,
+            )
             need(
                 linkage.closure.universe is index.universe
                 and same(linkage.closure.factors, closure.factors)

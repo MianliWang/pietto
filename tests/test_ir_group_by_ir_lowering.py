@@ -106,6 +106,47 @@ def test_unknown_group_key_is_not_lowered_into_precise_group_key_ir() -> None:
     )
 
 
+@pytest.mark.parametrize("order_key", ["kind", "n desc"])
+def test_grouped_window_over_a_source_without_a_shape_fails_closed_as_before(
+    order_key: str,
+) -> None:
+    parse_result = parse_source(
+        'source items is postgres.table("shop.items")\n'
+        "query q:\n"
+        "    from items\n"
+        "    group by: kind\n"
+        "    select:\n"
+        "        kind\n"
+        "        n = count()\n"
+        "        r = rank() window:\n"
+        "            order by:\n"
+        f"                {order_key}\n"
+    )
+    assert parse_result.ast is not None
+    semantic_result = analyze(parse_result.ast)
+    ir_result = build_ir(parse_result.ast, semantic_result.model)
+
+    # As in 0.1.4: check passes, and lowering fails closed, as the grouped row
+    # of such a relation has no field that would type the window.
+    assert _errors(semantic_result) == []
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in ir_result.diagnostics
+    ] == [
+        (
+            "PIE-I1000",
+            "Missing semantic fact required for IR lowering: expression value type",
+            8,
+            13,
+        )
+    ]
+
+
 def test_grouped_aggregate_projections_and_row_schema_survive_ir_lowering() -> None:
     script_ir, _semantic_result = _compile_grouped_ir(
         _grouped_source(

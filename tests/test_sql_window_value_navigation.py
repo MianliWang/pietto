@@ -582,6 +582,35 @@ def test_backend_modifier_and_frame_limits_fail_closed() -> None:
 
 
 @pytest.mark.parametrize(
+    ("connector", "target"),
+    (("postgres.table", "PostgreSQL"), ("mysql.table", "MySQL")),
+)
+def test_range_offset_refusal_names_the_forms_that_emit(
+    connector: str, target: str
+) -> None:
+    range_offset, _ = _compile(
+        "first_value(value)", frame="range 1 preceding", connector=connector
+    )
+    emit = emit_postgres_sql if target == "PostgreSQL" else emit_mysql_sql
+
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in emit(range_offset).diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            6,
+            1,
+            f"{target} SQL emission is not implemented for RelationIR: result. "
+            f"{target} RANGE offsets are not supported in single-file emit-sql; "
+            "use ROWS, RANGE without an offset, or emit-sql --project with a "
+            "nonnegative Int literal offset and one non-null Int ORDER key stored "
+            "in at most 32 bits",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
     "call",
     ("ntile({n})", "lag(value, {n})", "lead(value, {n})", "nth_value(value, {n})"),
 )
@@ -638,6 +667,53 @@ def test_postgresql_casts_a_text_literal_value_that_nothing_else_types(
     assert postgres_sql.diagnostics == () and mysql_sql.diagnostics == ()
     assert f"{postgresql} OVER" in postgres_sql.artifacts[0].sql
     assert f"{mysql} OVER" in mysql_sql.artifacts[0].sql
+
+
+def test_a_window_of_an_earlier_relation_computed_column_emits_sql() -> None:
+    """A later relation's `lag` and `last_value` of a computed column, whose
+    nullability is unknown, emit as over a field. Before, `check` refused
+    both with PIE-S2104 `value type must be concrete`."""
+    window = "window:\n            order by:\n                id\n"
+    for connector, emitter, q, frame in (
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            '"',
+            "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS",
+        ),
+        (
+            "mysql.table",
+            emit_mysql_sql,
+            "`",
+            "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+        ),
+    ):
+        parsed = parse_source(
+            "shape Row:\n    id: Int not null\n    m: Int not null\n"
+            f'source rows: Row is {connector}("rows")\n'
+            "table computed:\n    from rows\n    select:\n        id\n"
+            "        v = m + 1\n"
+            "query later:\n    from computed\n    select:\n        id\n"
+            f"        previous = lag(v) {window}"
+            f"        last = last_value(v) {window}",
+            path="computed.pietto",
+        )
+        assert parsed.ast is not None
+        semantic = analyze(parsed.ast)
+        assert semantic.diagnostics == ()
+        lowered = build_ir(parsed.ast, semantic.model)
+        assert lowered.diagnostics == () and lowered.ir is not None
+        emitted = emitter(lowered.ir)
+
+        assert emitted.diagnostics == ()
+        assert [artifact.sql for artifact in emitted.artifacts] == [
+            f"SELECT\n    {q}id{q} AS {q}id{q},\n    {q}m{q} + 1 AS {q}v{q}\n"
+            f"FROM {q}rows{q}",
+            f"SELECT\n    {q}id{q} AS {q}id{q},\n"
+            f"    LAG({q}v{q}) OVER (ORDER BY {q}id{q} ASC) AS {q}previous{q},\n"
+            f"    LAST_VALUE({q}v{q}) OVER (ORDER BY {q}id{q} ASC {frame}) "
+            f"AS {q}last{q}\nFROM {q}computed{q}",
+        ]
 
 
 def test_let_bound_frame_offset_emits_its_inlined_literal() -> None:

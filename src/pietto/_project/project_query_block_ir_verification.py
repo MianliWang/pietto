@@ -3315,6 +3315,10 @@ def assess_project_query_block_ir_invalidation(
     )
 
 
+# The image of a historical factor that two composed inputs image differently.
+_NO_IMAGE = object()
+
+
 def _verify_composed_joins(
     root: ProjectIRQueryBlockSnapshot,
     issues: list[ProjectIRQueryBlockVerificationIssue],
@@ -3452,7 +3456,11 @@ def _verify_composed_joins(
             and entry.source_properties.output is prefix.final_join.output
         )
         expected_pairs: list[tuple[object, object]] = []
+        # Each input's images, and the one image across the inputs: two inputs
+        # may share one historical factor that their producers no longer share,
+        # so a factor a JOIN introduces at an input is imaged through that input.
         factor_images: dict[int, object] = {}
+        input_images: dict[int, dict[int, object]] = {}
         for joined in prefix.joins:
             for image in joined.inputs:
                 if image.producer is not None:
@@ -3467,6 +3475,7 @@ def _verify_composed_joins(
                         producer_entry.active_properties.relational.grain.factors
                     )
                     valid = valid and len(old_factors) == len(new_factors)
+                    scoped = input_images.setdefault(id(image.source.ref), {})
                     # A JOIN factor's image also images its nested base and
                     # source factors: a grouped factor two JOIN hops back is
                     # reachable only through them.
@@ -3476,10 +3485,14 @@ def _verify_composed_joins(
                     ]
                     while pending:
                         old, new = pending.pop()
-                        prior = factor_images.get(id(old))
+                        prior = scoped.get(id(old))
                         if prior is not None and prior is not new:
                             valid = False
-                        factor_images[id(old)] = new
+                        scoped[id(old)] = new
+                        prior = factor_images.get(id(old))
+                        factor_images[id(old)] = (
+                            new if prior is None or prior is new else _NO_IMAGE
+                        )
                         if isinstance(
                             old, ProjectJoinGrainFactorIdentity
                         ) and isinstance(new, ProjectJoinGrainFactorIdentity):
@@ -3490,13 +3503,16 @@ def _verify_composed_joins(
                             ):
                                 pending.append((old.source_factor, new.source_factor))
 
-        def factor_matches(old, new):
-            known = factor_images.get(id(old))
+        def factor_matches(old, new, scope=None):
+            known = None if scope is None else scope.get(id(old))
+            if known is None:
+                known = factor_images.get(id(old))
             if known is not None:
                 return known is new
             if isinstance(old, ProjectJoinGrainFactorIdentity):
                 if not isinstance(new, ProjectJoinGrainFactorIdentity):
                     return False
+                inner = input_images.get(id(old.introduction_use))
                 introduction = ref_images.get(
                     id(old.introduction_use),
                     old.introduction_use
@@ -3513,12 +3529,12 @@ def _verify_composed_joins(
                 return (
                     new.introduction_use is introduction
                     and _same_objects(new.nulling_joins, nulling)
-                    and factor_matches(old.base, new.base)
+                    and factor_matches(old.base, new.base, inner)
                     and (
                         (old.source_factor is None and new.source_factor is None)
                         or old.source_factor is not None
                         and new.source_factor is not None
-                        and factor_matches(old.source_factor, new.source_factor)
+                        and factor_matches(old.source_factor, new.source_factor, inner)
                     )
                 )
             return old is new
@@ -4988,7 +5004,14 @@ def verify_compiled_join_grain(root, operator, built):
             for f in left.grain.active
             if f.introduction_use is refs[introduction]
         )
-    if not left_only and forward and source_active and right_active:
+    # No left-to-right edge when the JOIN NULL-extends its left side.
+    if (
+        not left_only
+        and forward
+        and not left_nulling
+        and source_active
+        and right_active
+    ):
         edges.append((source_active, right_active))
     if (
         not left_only

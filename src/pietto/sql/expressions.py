@@ -44,6 +44,7 @@ from pietto.sql.render import (
 from pietto.sql.window_strategy import (
     WindowTargetDialect,
     decide_inline_window_target,
+    range_offset_refusal,
 )
 
 _COMPARISON_OPERATORS = {
@@ -99,6 +100,10 @@ _FUNCTION_ARITIES = {
     "hour": 1,
     "minute": 1,
 }
+# Functions whose PostgreSQL form takes no text argument.
+_NON_TEXT_FUNCTIONS = frozenset(
+    {"abs", "sign", "year", "month", "day", "hour", "minute"}
+)
 _NUMERIC_AGGREGATE_NAMES = {
     "sum": "SUM",
     "avg": "AVG",
@@ -236,6 +241,10 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         sql = _render_call(expression)
         return f"({sql})" if nested and expression.callee in _COMPOUND_CALLS else sql
     if isinstance(expression, ConditionalIR):
+        refuse_text_null_condition(expression.condition)
+        _refuse_text_null_beside_typed(
+            "a conditional", expression.when_true, expression.when_false
+        )
         sql = (
             "CASE WHEN "
             f"{_render_expression_sql(expression.condition, nested=True)} THEN "
@@ -247,6 +256,11 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         if not expression.options:
             return "TRUE" if expression.negated else "FALSE"
         operator = "NOT IN" if expression.negated else "IN"
+        _refuse_text_null_beside_typed(
+            "operator not in" if expression.negated else "operator in",
+            expression.value,
+            *expression.options,
+        )
         options = ", ".join(
             _render_expression_sql(option, nested=True) for option in expression.options
         )
@@ -270,6 +284,10 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
             expression.operator,
             "comparison",
         )
+        if expression.operator not in {"like", "not like"}:
+            _refuse_text_null_beside_typed(
+                f"operator {expression.operator}", expression.left, expression.right
+            )
         sql = (
             f"{_render_expression_sql(expression.left, nested=True)} {operator} "
             f"{_render_expression_sql(expression.right, nested=True)}"
@@ -280,6 +298,9 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         operator = "IS NOT NULL" if expression.negated else "IS NULL"
         sql = f"{_render_expression_sql(expression.value, nested=True)} {operator}"
     elif isinstance(expression, BetweenIR):
+        _refuse_text_null_beside_typed(
+            "operator between", expression.value, expression.lower, expression.upper
+        )
         sql = (
             f"{_render_expression_sql(expression.value, nested=True)} BETWEEN "
             f"{_render_expression_sql(expression.lower, nested=True)} AND "
@@ -293,6 +314,7 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         )
         if expression.operator == "-":
             _refuse_untyped_null_arithmetic(expression.operator, expression.operand)
+        _refuse_text_null_operand(f"operator {expression.operator}", expression.operand)
         sql = f"{operator}{_render_expression_sql(expression.operand, nested=True)}"
     elif isinstance(expression, BinaryIR):
         operator = _supported_operator(
@@ -304,6 +326,9 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
             _refuse_untyped_null_arithmetic(
                 expression.operator, expression.left, expression.right
             )
+        _refuse_text_null_operand(
+            f"operator {expression.operator}", expression.left, expression.right
+        )
         sql = (
             f"{_render_expression_sql(expression.left, nested=True)} {operator} "
             f"{_render_expression_sql(expression.right, nested=True)}"
@@ -325,6 +350,72 @@ def _refuse_untyped_null_arithmetic(operator: str, *operands: ExpressionIR) -> N
         raise ValueError(
             f"PostgreSQL cannot type operator {operator} when every operand is NULL"
         )
+
+
+def is_untyped_null(expression: ExpressionIR) -> bool:
+    """Whether PostgreSQL gives ``expression`` no type of its own, as every
+    value it takes is an untyped NULL: the null literal, or a CASE, COALESCE
+    or NULLIF of only such values, which PostgreSQL types as text."""
+
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if type(node) is ConditionalIR:
+            pending.extend((node.when_true, node.when_false))
+        elif type(node) is CallIR and node.callee in {"coalesce", "nullif"}:
+            pending.extend(node.arguments)
+        elif not (type(node) is LiteralIR and node.value is None):
+            return False
+    return True
+
+
+def _is_text_null(expression: ExpressionIR) -> bool:
+    """Whether ``expression`` is a CASE, COALESCE or NULLIF of only untyped
+    NULLs, which PostgreSQL types as text, unlike the NULL itself, which takes
+    the type its context gives it."""
+
+    return type(expression) is not LiteralIR and is_untyped_null(expression)
+
+
+_TEXT_NULL = "PostgreSQL types a CASE, COALESCE or NULLIF of only NULL values as text"
+
+
+def _refuse_text_null_operand(taker: str, *operands: ExpressionIR) -> None:
+    """``taker``, an arithmetic, logical or sign operator, a condition or a
+    numeric or temporal function, takes no text."""
+
+    if any(_is_text_null(operand) for operand in operands):
+        raise ValueError(f"{_TEXT_NULL}, which {taker} does not take")
+
+
+def refuse_text_null_condition(expression: ExpressionIR) -> None:
+    """A condition must be a boolean, which text is not."""
+
+    _refuse_text_null_operand("a condition", expression)
+
+
+def _refuse_text_null_beside_typed(construct: str, *operands: ExpressionIR) -> None:
+    """PostgreSQL resolves ``operands`` to one type, which text and a type
+    other than text are not. An untyped NULL takes either, and an operand of
+    unknown type or of `Any` may be text, as may an enum column, which a
+    table may store as text."""
+
+    if not any(_is_text_null(operand) for operand in operands):
+        return
+    for operand in operands:
+        value_type = operand.value_type
+        if (
+            not (type(operand) is LiteralIR and operand.value is None)
+            and value_type.canonical_kind not in {TypeKindIR.UNKNOWN, TypeKindIR.ENUM}
+            and not (
+                value_type.canonical_kind is TypeKindIR.BUILTIN
+                and value_type.canonical_name in {"Text", "Any"}
+            )
+        ):
+            raise ValueError(
+                f"{_TEXT_NULL}, and {construct} has no common type for text and "
+                f"{value_type.canonical_name}"
+            )
 
 
 def render_window_call_sql(
@@ -491,7 +582,7 @@ def _render_window_frame(frame: WindowFrameIR) -> str:
         }
     )
     if frame.unit is WindowFrameUnitIR.RANGE and offset_bounds:
-        raise ValueError("PostgreSQL RANGE offsets require Phase 64 evidence")
+        raise ValueError(range_offset_refusal("PostgreSQL"))
     if any(
         type(bound.offset) is not LiteralIR
         or type(bound.offset.value) is not int
@@ -872,6 +963,7 @@ def _render_call(expression: CallIR) -> str:
             raise ValueError(
                 "PostgreSQL function coalesce expects at least 2 argument(s)"
             )
+        _refuse_text_null_beside_typed("coalesce", *expression.arguments)
         return (
             "COALESCE("
             + ", ".join(
@@ -889,6 +981,10 @@ def _render_call(expression: CallIR) -> str:
             f"{expected_arity} argument(s)"
         )
 
+    if expression.callee in _NON_TEXT_FUNCTIONS:
+        _refuse_text_null_operand(
+            f"function {expression.callee}", *expression.arguments
+        )
     arguments = tuple(
         _render_expression_sql(argument, nested=True)
         for argument in expression.arguments
@@ -896,6 +992,7 @@ def _render_call(expression: CallIR) -> str:
     if expression.callee == "matches":
         return f"{arguments[0]} ~ {arguments[1]}"
     if expression.callee == "nullif":
+        _refuse_text_null_beside_typed("nullif", *expression.arguments)
         return f"NULLIF({arguments[0]}, {arguments[1]})"
     if expression.callee == "substr":
         if any(
@@ -917,6 +1014,10 @@ def _render_call(expression: CallIR) -> str:
     if expression.callee == "date_of":
         return f"CAST({arguments[0]} AS date)"
     if expression.callee in _DATE_PARTS:
+        argument = expression.arguments[0]
+        if type(argument) is LiteralIR and argument.value is None:
+            # PostgreSQL resolves no EXTRACT of an untyped NULL; the part is NULL.
+            return "CAST(NULL AS bigint)"
         return (
             f"CAST(EXTRACT({expression.callee.upper()} FROM {arguments[0]}) AS bigint)"
         )

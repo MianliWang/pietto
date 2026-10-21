@@ -6,7 +6,7 @@ from pietto import ast_nodes as ast
 from pietto.ast_nodes import SetRelationDef
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from pietto.ast_nodes import (
     BinaryExpr,
@@ -136,9 +136,13 @@ def build_ir(
         try:
             lowered = _lower_definition(definition, semantic_model)
         except _MissingSemanticFact as error:
-            diagnostics.append(
-                missing_semantic_fact_diagnostic(error.node, error.message)
-            )
+            diagnostic = missing_semantic_fact_diagnostic(error.node, error.message)
+            if error.suggestion is not None:
+                # A form that project emission lowers is named in user terms.
+                diagnostic = replace(
+                    diagnostic, message=error.message, suggestion=error.suggestion
+                )
+            diagnostics.append(diagnostic)
             continue
         if lowered is not None:
             definitions.append(lowered)
@@ -450,7 +454,10 @@ def _lower_relation(
     if definition.qualify_clause is not None:
         raise _MissingSemanticFact(
             definition.qualify_clause,
-            "QUALIFY lowering",
+            "Single-file explain and emit-sql cannot lower QUALIFY; it is lowered "
+            "only in EXPLICIT_MODULES projects (schema version 2)",
+            "Put the query in an EXPLICIT_MODULES project (schema version 2) and "
+            "emit it with `pietto emit-sql --project`.",
         )
 
     target = semantic_model.from_resolutions.get(definition.from_clause)
@@ -1278,9 +1285,13 @@ def _symbol(namespace: SymbolNamespace, name: str) -> SymbolId:
 
 
 class _MissingSemanticFact(Exception):
-    """Internal control flow for expected IR prerequisite failures."""
+    """Internal control flow for expected IR prerequisite failures.
 
-    def __init__(self, node: Node, message: str) -> None:
+    With a ``suggestion``, ``message`` is the whole diagnostic message.
+    """
+
+    def __init__(self, node: Node, message: str, suggestion: str | None = None) -> None:
         super().__init__(message)
         self.node = node
         self.message = message
+        self.suggestion = suggestion

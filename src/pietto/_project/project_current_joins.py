@@ -38,6 +38,7 @@ from pietto._project.project_ir_joins import (
     _image_key,
     _ordered_classes,
     _build_join,
+    _reverse_guarantee,
 )
 from pietto._project.project_ir_properties import (
     ProjectIRJoinedRowField,
@@ -334,6 +335,31 @@ class ProjectCurrentBinaryJoin:
             (id(proof.field.binding), id(proof.field.input_field))
             for proof in condition.null_rejections
         }
+        base = condition.base_guarantee
+        candidates = condition.environment.source_candidates
+        if (
+            base is not None
+            and len(candidates) == 1
+            and len(condition.base_conditions) == 1
+        ):
+            for binding, endpoint in (
+                (candidates[0], base.direction.source),
+                (condition.use.target_binding, base.direction.target),
+            ):
+                rejected.update(
+                    (id(binding), id(original))
+                    for correspondence in condition.base_conditions[0].correspondences
+                    for reference in (
+                        correspondence.endpoint_zero,
+                        correspondence.endpoint_one,
+                    )
+                    if reference.endpoint is endpoint
+                    for own, original in origins
+                    if own is binding
+                    and original.evidence is reference.semantic_field
+                    and original.field_position
+                    == reference.field_identity.field_position
+                )
         fields: list[ProjectIRJoinedRowField] = []
         left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
         right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
@@ -463,6 +489,15 @@ def resolved_join_field_nullability(kind, incoming, null_extended, rejected):
     )
 
 
+def current_forward_at_most_one(condition: ProjectJoinCondition) -> bool:
+    """Whether each left row matches at most one right row (refinement first)."""
+    base, refined = condition.base_guarantee, condition.refinement_guarantee
+    bound = refined if refined is not None else base
+    return bound is not None and (
+        bound.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    )
+
+
 def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProperties:
     if join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}:
         return _left_subset_properties(join)
@@ -501,18 +536,10 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         for key in right.keys
     )
     base = join.condition.base_guarantee
-    refined = join.condition.refinement_guarantee
     forward_at_most_one = (
-        (
-            refined is not None
-            and refined.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-        )
-        or (
-            refined is None
-            and base is not None
-            and base.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-        )
-    ) or right.grain.state is ProjectGrainBasisState.GLOBAL
+        current_forward_at_most_one(join.condition)
+        or right.grain.state is ProjectGrainBasisState.GLOBAL
+    )
     source_is_key = False
     reverse_at_most_one = left.grain.state is ProjectGrainBasisState.GLOBAL
     if base is not None and len(join.condition.environment.source_candidates) == 1:
@@ -540,18 +567,10 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         source_is_key = bool(source_classes) and any(
             set(key.determinants) == set(source_classes) for key in left_keys
         )
-        reverse = tuple(
-            item
-            for item in join.condition.root.uses.index.by_declaration.get(
-                base.direction.declaration, ()
-            )
-            if item.source_output is base.target_output
-            and item.target_output is base.source_output
-        )
         reverse_at_most_one |= (
             source_is_key
-            and len(reverse) == 1
-            and reverse[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+            and _reverse_guarantee(join.condition.root.uses, base).maximum
+            is ProjectRelationshipMaximumBound.AT_MOST_ONE
         )
     return resolved_join_properties(
         kind=kind,
@@ -1077,6 +1096,32 @@ class CompiledPropertyInputUse:
     ref: object
 
 
+def _compiled_matched_classes(records, record, incoming, side):
+    """The value classes of one input that a compiled JOIN's equalities match."""
+    positions = tuple(
+        records[
+            records[records[a].get("left" if side == 0 else "right")].get("port")
+        ].get("ordinal")
+        for a in record.get("equalities")
+    )
+    return tuple(
+        c
+        for c in incoming.value_classes
+        if any(m.field_position in positions for m in c.members)
+    )
+
+
+def compiled_forward_at_most_one(records, record, right) -> bool:
+    """`current_forward_at_most_one` for a compiled JOIN: a key of its right
+    input is matched by the JOIN's equalities."""
+    from pietto._project.project_relationship_match_guarantees import (
+        resolved_matching_keys,
+    )
+
+    matched = _compiled_matched_classes(records, record, right, 1)
+    return bool(matched) and bool(resolved_matching_keys(right.keys, matched))
+
+
 def compiled_join_properties(completed, record, output, built, origin, references):
     """Bind compiled inputs to the existing current or relationship JOIN kernel."""
     from pietto._project.project_compiled_schema import CompiledError
@@ -1106,21 +1151,8 @@ def compiled_join_properties(completed, record, output, built, origin, reference
             named_left_input=named_left,
         )
 
-    def matched_classes(side):
-        incoming = (left, right)[side]
-        positions = tuple(
-            records[
-                records[records[a].get("left" if side == 0 else "right")].get("port")
-            ].get("ordinal")
-            for a in record.get("equalities")
-        )
-        return tuple(
-            c
-            for c in incoming.value_classes
-            if any(m.field_position in positions for m in c.members)
-        )
-
-    matched_left, matched_right = matched_classes(0), matched_classes(1)
+    matched_left = _compiled_matched_classes(records, record, left, 0)
+    matched_right = _compiled_matched_classes(records, record, right, 1)
     forward_keys = (
         resolved_matching_keys(right.keys, matched_right) if matched_right else ()
     )

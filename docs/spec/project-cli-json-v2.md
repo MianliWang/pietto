@@ -296,6 +296,10 @@ Project `emit-sql` does not produce this schema. Its output is the closed
 or the v2 document below; the `mode: "project"` JSON v2 envelope applies to
 `check` only.
 
+A `BLOCKED` document lists each blocker once, at its first position: a
+blocker equal to an earlier one in code, reason, subject, location and related
+locations is not repeated.
+
 `pietto.sql-emission.v1` stays frozen. Only a `VERIFIED` document whose
 selected query declares header parameters is tagged
 `"format": "pietto.sql-emission.v2"` (D70.02, D70.08); every other document,

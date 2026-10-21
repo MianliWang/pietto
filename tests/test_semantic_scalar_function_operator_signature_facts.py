@@ -174,6 +174,8 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         ("Text", "starts_with", ("Text", "Bool", "unknown")),
         ("Text", "ends_with", ("Text", "Bool", "unknown")),
         ("Decimal", "abs", ("Decimal", "unknown")),
+        ("Int", "abs", ("Int", "unknown")),
+        ("Float", "abs", ("Float", "unknown")),
         ("Timestamp", "date_of", ("Date", "unknown")),
         ("Timestamp", "hour", ("Int", "unknown")),
         ("Timestamp", "minute", ("Int", "unknown")),

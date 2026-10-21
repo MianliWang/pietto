@@ -423,6 +423,112 @@ def test_bounded_field_and_constant_arithmetic_is_admitted(tmp_path, target):
     assert "2" in public["sql"] and "3" in public["sql"]
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_abs_keeps_the_unary_range_proof_and_its_argument_carrier(tmp_path, target):
+    """`abs` of an Int has the range unary `-` proves, in the same integer
+    type; of a Float or a Decimal it keeps the argument's carrier."""
+    source = row_source(
+        target,
+        "    from rows\n    select:\n"
+        "        widened = abs(id + 0)\n"
+        "        ratio_size = abs(ratio)\n"
+        "        money_size = abs(money)\n",
+    )
+    _, outcome = probe.build_case(
+        tmp_path, source, stage_contract(target), "preserve_literals"
+    )
+    assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    pg = target == "postgres"
+    assert [
+        (c["logical_type"]["name"], c["representation"]) for c in public["columns"]
+    ] == [
+        (
+            "Int",
+            {
+                "storage": {"kind": "pg_int8" if pg else "my_signed_int"},
+                "nullable": "unknown",
+                "domain": {"kind": "int_range", "min": "0", "max": "2147483648"},
+            },
+        ),
+        (
+            "Float",
+            {
+                "storage": {"kind": "pg_float8" if pg else "my_double"},
+                "nullable": False,
+                "domain": {"kind": "finite_float", "format": "binary64"},
+            },
+        ),
+        (
+            "Decimal",
+            {
+                "storage": {
+                    "kind": "pg_numeric" if pg else "my_decimal",
+                    "precision": 9,
+                    "scale": 2,
+                },
+                "nullable": False,
+                "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+            },
+        ),
+    ]
+    assert public["sql"] == (
+        'SELECT abs(("s0"."order.id" + CAST(0 AS pg_catalog.int8))) AS "widened", '
+        'abs("s0"."ratio value") AS "ratio_size", '
+        'abs("s0"."amount value") AS "money_size" '
+        'FROM "public"."phase66 safe int source" AS "s0"'
+        if pg
+        else "SELECT ABS((`s0`.`order.id` + CAST(0 AS SIGNED))) AS `widened`, "
+        "ABS(`s0`.`ratio value`) AS `ratio_size`, "
+        "ABS(`s0`.`amount value`) AS `money_size` "
+        "FROM `phase66`.`phase66 safe int source` AS `s0`"
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_abs_of_an_int_is_blocked_exactly_where_unary_minus_is(tmp_path, target):
+    """PostgreSQL `abs` and `-` of an int4 stay int4, which cannot hold the
+    smallest value's magnitude; MySQL computes both as signed 64-bit, which
+    a signed 64-bit source overflows on both targets."""
+    source = row_source(
+        target,
+        "    from rows\n    select:\n        negated = -id\n        magnitude = abs(id)\n",
+    )
+    _, outcome = probe.build_case(
+        tmp_path / "int4", source, stage_contract(target), "preserve_literals"
+    )
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    if target == "postgres":
+        assert outcome.status == "BLOCKED" and public["artifact"] is None
+        assert [
+            (b["code"], b["subject"]["detail"], b["location"]["line"])
+            for b in public["blockers"]
+        ] == [
+            ("PIE-B1002", "unary_result_outside_physical_range", 11),
+            ("PIE-B1002", "abs_result_outside_physical_range", 12),
+        ]
+        assert {b["location"]["column"] for b in public["blockers"]} == {9}
+    else:
+        assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+        assert [c["representation"]["domain"] for c in public["columns"]] == [
+            {"kind": "int_range", "min": "-2147483647", "max": "2147483648"},
+            {"kind": "int_range", "min": "0", "max": "2147483648"},
+        ]
+    item = probe.fixture(target, "V_row_blocked", "unary_overflow")
+    wide = item["source"].replace("negated = -id", "magnitude = abs(id)")
+    assert wide != item["source"]
+    _, outcome = probe.build_case(
+        tmp_path / "int8", wide, item["contract"], item["policy"]
+    )
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert outcome.status == "BLOCKED" and public["artifact"] is None
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"])
+        for b in public["blockers"]
+    ] == [("PIE-B1002", "abs_result_outside_physical_range", 11)]
+    assert public["blockers"][0]["location"]["column"] == 9
+
+
 # --------------------------------------------------------------------------
 # Repeated reads, omitted-but-required values and comparison premises
 # --------------------------------------------------------------------------

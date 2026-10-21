@@ -47,7 +47,8 @@ Later work widened the Current Decimal Scalar Behavior below: `Decimal` with
 `Decimal` under `+`, `-` and `*`, and `Decimal` with `Int` under `+` and `-`,
 now return logical `Decimal UNKNOWN`. The
 [operator and comparison matrix](operator-comparison-matrix-contract-v1.md)
-records the current accepted, refused and deferred Decimal pairs.
+records the current accepted, refused and deferred Decimal pairs, and the
+`def` body check that proves such a result of `NON_NULL` operands `NON_NULL`.
 
 ## Trusted Baseline
 

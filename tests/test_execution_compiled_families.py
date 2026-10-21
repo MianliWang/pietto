@@ -8,7 +8,7 @@ from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
 from _pietto_execution_rows_cases import CASES, build
 from _pietto_execution_guard_cases import manifest, case_preparation
-from pietto._project.project_compiled_build import build_compiled
+from pietto._project.project_compiled_build import CompiledBuild, build_compiled
 from pietto._project.project_compiled_loading import load_compiled
 from pietto._project.project_compiled_lowering import emit_compiled
 from pietto._project.project_execution_template import BindingError
@@ -61,6 +61,24 @@ def test_loaded_null_test_rehydrates_non_null_bool(tmp_path, target, operator):
     assert (" IS NOT NULL" if operator == "is not null" else " IS NULL") in (
         candidate.rendered.sql.decode()
     )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_abs_replays_from_compiled_input(tmp_path, target):
+    """`abs` of an Int, a Float and a Decimal keeps its type and realization."""
+    item = emission.fixture(target, "T_row_direct", "table_preserve")
+    source = item["source"].split("table result:", 1)[0] + (
+        "table result:\n    from rows\n    select:\n"
+        "        widened = abs(id + 0)\n"
+        "        ratio_size = abs(ratio)\n"
+        "        money_size = abs(money)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    # The R2 refinement page verifier reads no scalar call yet (fails closed).
+    _compare(original.artifact, refinement=False)
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -185,6 +203,159 @@ def test_joined_field_free_let_extrema_replay_from_compiled_input(
     _compare(original.artifact)
 
 
+_RIGHT_R = (
+    "relationship link:\n    endpoint many: agg\n    endpoint one: agg\n"
+    "    on many.key == one.rid\n"
+    "query result:\n    from agg\n    right join agg as r:\n        from agg\n"
+    "        via link: many -> one\n"
+)
+
+
+def _right_case(tmp_path, target, body):
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    source = emission.AGGREGATE_HEADER.format(target=target) + _RIGHT_R + body
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    built = build_compiled(original.artifact)
+    plan = emit_compiled(
+        built.root, tuple(v.value for v in original.artifact.fixed_values)
+    ).request.plan
+    (evidence,) = plan.aggregate_evidence
+    return original.artifact, built, evidence
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    select:\n        n = count(agg.rid)\n",
+        "    inner join agg as p:\n        from agg\n        via link: one -> many\n"
+        "    select:\n        n = count(p.rid)\n",
+    ),
+    ids=("left_argument", "matched_input"),
+)
+def test_right_join_match_replays_only_for_aggregates_skipping_unmatched_rows(
+    tmp_path, target, body
+):
+    """A RIGHT JOIN's at-most-one match gives no left-to-right grain dependency
+    in the replay either, and an aggregate that never reads a right row that
+    matches no left row (its argument is NULL there, or it reads an input
+    matched from the left side) gets it back the same way: the replayed fan-out
+    evidence equals the original and repeats no row."""
+
+    artifact, built, evidence = _right_case(tmp_path, target, body)
+    _compare(artifact, built=built)
+    (right,) = (j for j in evidence.region.joins if j.record.get("kind") == "right")
+    introduced = evidence.region.uses[right.record.get("inputs")[1]].ref
+    assert not any(
+        factor.introduction_use is introduced
+        for dependency in right.properties.relational.grain.dependencies
+        for factor in (*dependency.determinants, *dependency.dependents)
+    )
+    (linkage,) = evidence.grain_linkages
+    assert linkage.closure.factors == evidence.region.final_properties.grain.active
+    assert not linkage.multiplicity_exposures
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("nullable_key", (False, True))
+def test_correlated_match_and_non_null_group_key_replay(tmp_path, target, nullable_key):
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    header = emission.AGGREGATE_HEADER.format(target=target)
+    body = _RIGHT_R
+    if nullable_key:
+        header = header.replace(
+            "    unique agg_row on rid",
+            "    unique agg_match on key\n    unique agg_row on rid",
+        )
+        body += "        on r.flag\n"
+    body += (
+        f"    {'inner' if nullable_key else 'semi'} join agg as p:\n"
+        "        from r\n        via link: one -> many\n        on p.rid > 0\n"
+        "    cross join agg as x: from agg\n"
+        "    group by: agg.rid"
+        + (", p.key" if nullable_key else "")
+        + "\n    select:\n        n = count(x.rid)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, header + body, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    built = build_compiled(original.artifact)
+    _compare(original.artifact, built=built)
+    plan = emit_compiled(
+        built.root, tuple(v.value for v in original.artifact.fixed_values)
+    ).request.plan
+    (evidence,) = plan.aggregate_evidence
+    if nullable_key:
+        from dataclasses import replace
+        from pietto._project.project_compiled_schema import CompiledError
+        from pietto._project.project_joined_aggregation import (
+            verify_compiled_aggregate_evidence,
+        )
+        from pietto._project.project_row_keys import ProjectRowUniquenessStrength
+
+        assert all(
+            key.strength is ProjectRowUniquenessStrength.STRICT
+            for protection in evidence.group_protections
+            for key in protection.strict_keys
+        )
+        (protection,) = (
+            protection
+            for protection in evidence.group_protections
+            if any(
+                member.field_position == 0
+                for value_class in protection.seed.classes
+                for member in value_class.members
+            )
+        )
+        assert not protection.protected_factors
+        (nullable,) = (
+            key
+            for key in protection.input_properties.keys
+            if key.strength is ProjectRowUniquenessStrength.LAX
+        )
+        forged = replace(protection, strict_keys=(*protection.strict_keys, nullable))
+        supplied = (
+            replace(
+                evidence,
+                group_protections=tuple(
+                    forged if p is protection else p for p in evidence.group_protections
+                ),
+            ),
+        )
+        with pytest.raises(CompiledError, match="^COMPILED_GROUP_PROTECTION_KEYS$"):
+            verify_compiled_aggregate_evidence(plan.ir, supplied)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_reordered_composite_reverse_match_replays_with_authored_order(
+    tmp_path, target
+):
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    source = emission.AGGREGATE_HEADER.format(target=target) + (
+        "relationship forward_match:\n    endpoint many: agg\n    endpoint one: agg\n"
+        "    on many.key == one.rid and many.value == one.rid\n"
+        "relationship reverse_match:\n    endpoint one: agg\n    endpoint many: agg\n"
+        "    on one.rid == many.value and one.rid == many.key\n"
+        "query result:\n    from agg\n    right join agg as r:\n"
+        "        from agg\n        via forward_match: many -> one\n"
+        "    semi join agg as p:\n        from r\n        via reverse_match: one -> many\n"
+        "    cross join agg as x: from agg\n    group by: agg.rid\n"
+        "    select:\n        n = count(x.rid)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    _compare(original.artifact)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_joined_single_read_computed_key_replays_as_computed(tmp_path, target):
     """`r.rid + 0` reads one field through an operation: replay keeps it a
@@ -247,10 +418,11 @@ def test_joined_single_read_computed_key_replays_as_computed(tmp_path, target):
             )
 
 
-def _compare(artifact, *, refinement=True):
+def _compare(artifact, *, refinement=True, built: CompiledBuild | None = None):
     assert artifact is not None
     reference = prepare_output(artifact)
-    built = build_compiled(artifact)
+    if built is None:
+        built = build_compiled(artifact)
     loaded = load_compiled(
         built.payload,
         expected_pin=built.pin,

@@ -248,6 +248,197 @@ def test_projection_alias_is_not_a_min_max_argument() -> None:
     assert field.nullability is EffectiveNullability.UNKNOWN
 
 
+_DIRECT_FIELD_ONLY = (
+    "requires a direct field argument; expression arguments are not supported yet"
+)
+_TEXT_EXTREMUM = (
+    "expects Int, Float, Decimal, Date, or Timestamp field argument, got Text"
+)
+
+
+@pytest.mark.parametrize(
+    ("binding", "projection", "grouped", "expected"),
+    (
+        pytest.param(
+            "w = amount",
+            "o = max(w)",
+            False,
+            [("PIE-S2315", 19, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            id="field_value",
+        ),
+        pytest.param(
+            "w = amount",
+            "o = max(not w)",
+            False,
+            [("PIE-S2315", 19, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            id="inside_an_expression",
+        ),
+        pytest.param(
+            "w = amount",
+            "o = min(w + 1)",
+            False,
+            [("PIE-S2315", 19, 13, f"Aggregate function min {_DIRECT_FIELD_ONLY}")],
+            id="arithmetic",
+        ),
+        pytest.param(
+            "w = status",
+            "o = max(w)",
+            False,
+            [("PIE-S2314", 19, 13, f"Aggregate function max {_TEXT_EXTREMUM}")],
+            id="unsupported_type",
+        ),
+        pytest.param(
+            "w = lower(status)",
+            "o = min(w)",
+            False,
+            [("PIE-S2314", 19, 13, f"Aggregate function min {_TEXT_EXTREMUM}")],
+            id="computed_unsupported_type",
+        ),
+        pytest.param(
+            "w = null",
+            "o = max(w)",
+            False,
+            [("PIE-S2315", 19, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            id="null",
+        ),
+        pytest.param(
+            "w = nosuch",
+            "o = max(w)",
+            False,
+            [("PIE-S2102", 17, 13, "Unknown field: nosuch")],
+            id="binding_error_alone",
+        ),
+        pytest.param(
+            "w = w",
+            "o = max(w)",
+            False,
+            [("PIE-S2330", 17, 13, "Let binding cannot reference itself: w")],
+            id="cyclic_binding_error_alone",
+        ),
+        pytest.param(
+            "w = amount",
+            "o = max(w)",
+            True,
+            [("PIE-S2315", 22, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            id="grouped",
+        ),
+    ),
+)
+def test_single_file_min_max_argument_reading_a_let_name_reports_its_value_written_in(
+    binding: str,
+    projection: str,
+    grouped: bool,
+    expected: list[tuple[str, int, int, str]],
+) -> None:
+    """A single file keeps the direct-field surface of `min` and `max`, so a
+    `let:` name in their argument is no direct field (PIE-S2315); otherwise
+    the argument is checked as the binding's value written in its place:
+    `max(w)` with `w = status` is PIE-S2314 as `max(status)` is, and a binding
+    with an error of its own reports only that error. Before: PIE-S2102
+    `Unknown field: w` at the name."""
+
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "table order_extremes:\n"
+            "    from orders\n"
+            f"    let:\n        {binding}\n"
+            + (
+                "    group by:\n        status\n    select:\n        status\n"
+                if grouped
+                else "    select:\n"
+            )
+            + f"        {projection}\n"
+        )
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == expected
+
+
+def test_single_file_min_max_reads_a_let_name_by_the_shape_of_its_input_row() -> None:
+    """Over a known input row, a min/max LET read is PIE-S2315 even when its
+    value is a field of unknown type. Over an unknown input row, each local
+    LET name is PIE-S2102. The direct field read `max(z)` stays accepted even
+    when the field's type is unknown."""
+
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + 'source raw is postgres.table("raw")\n'
+            "table shapeless:\n"
+            "    from raw\n"
+            "    let:\n        w = 3\n        v = x\n"
+            "    select:\n        o = max(w)\n        p = min(v)\n"
+            "table untyped:\n"
+            "    from orders\n"
+            "    select:\n        status\n        z = null\n"
+            "table untyped_through_let:\n"
+            "    from untyped\n"
+            "    let:\n        w = z\n"
+            "    select:\n        o = max(w)\n        p = max(z)\n"
+        )
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2303", 14, 1, "Source raw has no bound shape; row schema is unknown"),
+        ("PIE-S2102", 21, 17, "Unknown field: w"),
+        ("PIE-S2102", 22, 17, "Unknown field: v"),
+        ("PIE-S2315", 33, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}"),
+    ]
+
+
+def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_place() -> (
+    None
+):
+    """A grouped single-file window reads the `min` of a `let:` name as the
+    output schema does, refused, so a relation reading it reports what it
+    reports over `min(amount + 1)` written in place. Before: PIE-S2102 for the
+    name and for `w0`; then PIE-S2103 in place of the `w0` PIE-S2102."""
+
+    def diagnostics(let_clause: str, argument: str) -> list[tuple[str, int, int, str]]:
+        result = analyze(
+            _parse(
+                SOURCE_PREFIX + "table t1:\n"
+                "    from orders\n"
+                f"{let_clause}"
+                "    group by:\n        status\n"
+                "    select:\n"
+                "        status\n"
+                f"        a1 = min({argument})\n"
+                "        w0 = rank() window:\n"
+                "            order by:\n"
+                "                status\n"
+                "table t2:\n"
+                "    from t1\n"
+                "    select:\n"
+                "        a1\n"
+                "        r1 = percent_rank() window:\n"
+                "            partition by:\n"
+                "                w0\n"
+                "            order by:\n"
+                "                a1 desc\n"
+            )
+        )
+        return [
+            (d.code, d.location.line, d.location.column, d.message)
+            for d in result.diagnostics
+        ]
+
+    refused = f"Aggregate function min {_DIRECT_FIELD_ONLY}"
+    assert diagnostics("    let:\n        k2 = amount + 1\n", "k2") == [
+        ("PIE-S2315", 22, 14, refused),
+        ("PIE-S2102", 32, 17, "Unknown field: w0"),
+    ]
+    assert diagnostics("", "amount + 1") == [
+        ("PIE-S2315", 20, 14, refused),
+        ("PIE-S2102", 30, 17, "Unknown field: w0"),
+    ]
+
+
 def test_min_max_in_invalid_context_is_rejected() -> None:
     result = analyze(
         _parse(

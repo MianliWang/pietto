@@ -19,6 +19,7 @@ from pietto.parser_api import parse_source
 from pietto.semantic import (
     EffectiveNullability,
     SemanticResult,
+    TypeKind,
     ValueTypeKind,
     analyze,
 )
@@ -189,7 +190,8 @@ def test_invalid_arithmetic_reports_s2105() -> None:
     assert _diagnostics(semantic) == [
         (
             "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands",
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
         )
     ]
     _assert_diagnostic_span(semantic.diagnostics[0], expression)
@@ -285,6 +287,467 @@ def test_division_follows_sql_and_never_inserts_a_cast(
     )
 
 
+def test_division_of_a_call_over_an_unknown_row_is_typed_by_its_signature() -> None:
+    # Before: over a source without a shape `len(t)` was of unknown type, so
+    # MySQL emitted a bare `/`, which keeps the fraction PostgreSQL drops.
+    def source(connector: str) -> str:
+        return (
+            f'source raw is {connector}.table("raw")\n'
+            "table divided:\n    from raw\n    select:\n        value = len(t) / 2\n"
+        )
+
+    script, semantic, postgres_ir = _compile(source("postgres"))
+    _, _, mysql_ir = _compile(source("mysql"))
+    value_type = semantic.model.expression_value_types[_select_expression(script, 0)]
+
+    assert [(d.code, d.severity) for d in semantic.diagnostics] == [
+        ("PIE-S2303", Severity.WARNING)
+    ]
+    assert (value_type.kind, value_type.resolved_type.name) == (
+        ValueTypeKind.KNOWN,
+        "Int",
+    )
+    assert emit_postgres_sql(postgres_ir).artifacts[0].sql == (
+        'SELECT\n    length("t") / 2 AS "value"\nFROM "raw"'
+    )
+    assert emit_mysql_sql(mysql_ir).artifacts[0].sql == (
+        "SELECT\n    CHAR_LENGTH(`t`) DIV 2 AS `value`\nFROM `raw`"
+    )
+
+
+def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
+    # Before: an arithmetic `null` operand took the other operand's type only
+    # to be checked, and the result stayed of unknown type, so check passed
+    # `trim(null % f1)`, `lower(null + n)`, `(null + n) == "x"` and
+    # `where null + n`, whose SQL PostgreSQL rejects (`trim(bigint)` does not
+    # exist), and MySQL divided `(null + n) / 2` with `/`. The result, always
+    # null, is now of the type the operator gives two operands of that type,
+    # as for its typed twin `f1 % f1`, and with a `Decimal` operand a quotient
+    # is a number of unknown type (`got numeric`). A scalar error caused by
+    # that typed NULL stays specific inside count; bare NULL arithmetic still
+    # has the unsupported aggregate shape, PIE-S2315.
+    head = (
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    n: Int nullable\n"
+        "    f1: Int not null\n"
+        "    d: Decimal(10, 2) nullable\n"
+        'source rows: Row is mysql.table("rows")\n'
+    )
+    refused = analyze(
+        _parse(
+            head + "table refused:\n    from rows\n    where null + n\n    select:\n"
+            "        id\n"
+            "        a = trim(null % f1)\n"
+            "        b = lower(null / d)\n"
+            '        c = (null + n) == "x"\n'
+            "table counted:\n    from rows\n    select:\n"
+            "        e = count(trim(null % f1))\n"
+            "        f = count(null + n)\n"
+        )
+    )
+    script, semantic, script_ir = _compile(
+        head + "table typed:\n    from rows\n    select:\n"
+        "        v = (null + n) / 2\n"
+        "        w = null % f1\n"
+    )
+    w_type = semantic.model.expression_value_types[_select_expression(script, 1)]
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in refused.diagnostics
+    ] == [
+        ("PIE-S2202", 9, 11, "Expected Bool expression in where clause"),
+        (
+            "PIE-S2104",
+            12,
+            13,
+            "Invalid argument type for function trim at position 1: "
+            "expected Text, got Int",
+        ),
+        (
+            "PIE-S2104",
+            13,
+            13,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got numeric",
+        ),
+        (
+            "PIE-S2105",
+            14,
+            13,
+            "Invalid operands for operator ==: expected comparable operands",
+        ),
+        (
+            "PIE-S2104",
+            18,
+            19,
+            "Invalid argument type for function trim at position 1: expected Text, got Int",
+        ),
+        (
+            "PIE-S2315",
+            19,
+            13,
+            "Aggregate function count requires a direct field argument; "
+            "expression arguments are not supported yet",
+        ),
+    ]
+    assert semantic.diagnostics == ()
+    assert (w_type.resolved_type.name, w_type.nullability) == (
+        "Int",
+        EffectiveNullability.NULLABLE,
+    )
+    assert emit_mysql_sql(script_ir).artifacts[0].sql == (
+        "SELECT\n    (NULL + `n`) DIV 2 AS `v`,\n    NULL % `f1` AS `w`\nFROM `rows`"
+    )
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+@pytest.mark.parametrize(
+    ("argument", "function", "position", "actual"),
+    [
+        ("trim(null + n)", "trim", 1, "Int"),
+        ("trim(-(null + n))", "trim", 1, "Int"),
+        ("trim(abs(null + n))", "trim", 1, "Int"),
+        ("lower(null % age)", "lower", 1, "Int"),
+        ('replace("x", null + n, "y")', "replace", 2, "Int"),
+        ("trim(null + d)", "trim", 1, "Decimal"),
+        ("trim(null / d)", "trim", 1, "numeric"),
+        ("trim(abs(null / d))", "trim", 1, "numeric"),
+        ('replace(null / d, "x", "y")', "replace", 1, "numeric"),
+        ('replace(d / 2, null + n, "y")', "replace", 2, "Int"),
+    ],
+)
+def test_aggregate_keeps_the_scalar_error_from_typed_null_arithmetic(
+    grouped: bool, argument: str, function: str, position: int, actual: str
+) -> None:
+    source = (
+        "type Age = Int not null\n"
+        "shape Row:\n    id: Int not null\n    n: Int nullable\n    age: Age not null\n"
+        "    d: Decimal(10, 2) not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table selected:\n    from rows\n"
+        + ("    group by: id\n" if grouped else "")
+        + f"    select:\n        v = count({argument})\n"
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(_parse(source)).diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            f"Invalid argument type for function {function} at position {position}: expected Text, got {actual}",
+            12 if grouped else 11,
+            19,
+        )
+    ]
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+@pytest.mark.parametrize(
+    ("argument", "scalar_error", "shape_error"),
+    [
+        ("trim(null / 2.5) + x", True, False),
+        ("trim(x / 2.5)", False, True),
+        ("trim(1 / 2.5) + x", True, True),
+    ],
+    ids=["typed-null", "unknown-field", "non-null"],
+)
+def test_unknown_row_aggregate_keeps_the_actual_typed_null_error(
+    grouped: bool, argument: str, scalar_error: bool, shape_error: bool
+) -> None:
+    source = (
+        'source rows is postgres.table("rows")\n'
+        "table selected:\n    from rows\n"
+        + ("    group by: x\n" if grouped else "")
+        + f"    select:\n        v = count({argument})\n        field = x\n"
+    )
+    script = _parse(source)
+    result = analyze(script)
+    line = 6 if grouped else 5
+    expected = []
+    if shape_error:
+        expected.append(
+            (
+                "PIE-S2315",
+                "Aggregate function count requires a direct field argument; expression arguments are not supported yet",
+                line,
+                13,
+            )
+        )
+    if scalar_error:
+        expected.append(
+            (
+                "PIE-S2104",
+                "Invalid argument type for function trim at position 1: expected Text, got Float",
+                line,
+                19,
+            )
+        )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == expected
+    # The invalid aggregate stays unknown and adds no mixed-projection error.
+    assert (
+        result.model.expression_value_types[_select_expression(script, 0)].kind
+        is ValueTypeKind.UNKNOWN
+    )
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+def test_unknown_row_aggregate_null_error_follows_its_whole_let_argument(
+    grouped: bool,
+) -> None:
+    source = (
+        'source rows is postgres.table("rows")\n'
+        "table selected:\n    from rows\n    let:\n"
+        "        bad = trim(null / 2.5) + x\n        value = bad\n"
+        + ("    group by: x\n" if grouped else "")
+        + "    select:\n        v = count(value)\n        field = x\n"
+    )
+    script = _parse(source)
+    result = analyze(script)
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function trim at position 1: expected Text, got Float",
+            5,
+            15,
+        )
+    ]
+    assert (
+        result.model.expression_value_types[_select_expression(script, 0)].kind
+        is ValueTypeKind.UNKNOWN
+    )
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+def test_unknown_row_null_arithmetic_checks_only_the_aggregate_form(
+    grouped: bool,
+) -> None:
+    source = (
+        'source rows is postgres.table("rows")\n'
+        "table selected:\n    from rows\n"
+        + ("    group by: x\n" if grouped else "")
+        + "    select:\n        v = count(x + null)\n"
+    )
+    script = _parse(source)
+    result = analyze(script)
+    assert [d for d in result.diagnostics if d.severity is Severity.ERROR] == []
+    # The check-only field assignments do not give the output row a type.
+    schema = result.model.relation_row_schemas[_relation(script)]
+    if grouped:
+        assert schema.is_unknown and not schema.fields
+    else:
+        assert schema.fields["v"].resolved_type.kind is TypeKind.UNKNOWN
+        assert schema.fields["v"].nullability is EffectiveNullability.UNKNOWN
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "lower(n)",
+        "null + n",
+        'substr("x", null + n, "x")',
+        'substr("x", null + n, 1)',
+        'replace(n, null + n, "x")',
+        "trim(null + n, n)",
+        'abs("x" if (null + n is null) else "y")',
+        "trim(d / 2)",
+        "trim(abs(d / 2))",
+        'replace(null / d, n, "x")',
+        "substr(null / d, null + n, 1)",
+        "trim((null / d) if lower(1) is null else (d / 2))",
+        'replace(null / d, (null + n) if lower(1) is null else n, "x")',
+    ],
+)
+def test_unrelated_null_arithmetic_keeps_aggregate_shape_diagnostics(
+    grouped: bool, argument: str
+) -> None:
+    source = (
+        "shape Row:\n    id: Int not null\n    n: Int nullable\n"
+        "    d: Decimal(10, 2) not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table selected:\n    from rows\n"
+        + ("    group by: id\n" if grouped else "")
+        + f"    select:\n        v = count({argument})\n"
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(_parse(source)).diagnostics
+    ] == [
+        (
+            "PIE-S2315",
+            "Aggregate function count requires a direct field argument; expression arguments are not supported yet",
+            10 if grouped else 9,
+            13,
+        )
+    ]
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+def test_aggregate_null_division_error_follows_its_admitted_let_chain(
+    grouped: bool,
+) -> None:
+    source = (
+        "shape Row:\n    id: Int not null\n    d: Decimal(10, 2) not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table selected:\n    from rows\n    let:\n"
+        "        q = null / d\n        a = abs(q)\n        b = a\n        bad = trim(b)\n"
+        + ("    group by: id\n" if grouped else "")
+        + "    select:\n        v = count(bad)\n"
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(_parse(source)).diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function trim at position 1: expected Text, got numeric",
+            11,
+            15,
+        )
+    ]
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
+@pytest.mark.parametrize("mode", ["alias", "arity", "def"])
+def test_null_arithmetic_preserves_aggregate_alias_arity_and_def_diagnostics(
+    grouped: bool, mode: str
+) -> None:
+    projection = {
+        "alias": "count(trim(null + n))",
+        "arity": "v = count(trim(null + n), n)",
+        "def": "v = count(nn(n + null))",
+    }[mode]
+    source = (
+        "shape Row:\n    id: Int not null\n    n: Int nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "def nn(x: Int not null) -> Int not null: return x\n"
+        "table selected:\n    from rows\n"
+        + ("    group by: id\n" if grouped else "")
+        + f"    select:\n        {projection}\n"
+    )
+    line = 10 if grouped else 9
+    scalar = (
+        "Invalid argument type for function trim at position 1: expected Text, got Int"
+    )
+    expected = {
+        "alias": [
+            (
+                "PIE-S2313",
+                "Aggregate count() projection requires an explicit alias",
+                line,
+                9,
+            ),
+            ("PIE-S2104", scalar, line, 15),
+        ],
+        "arity": [("PIE-S2104", scalar, line, 19)],
+        "def": [
+            (
+                "PIE-S2395",
+                "Invalid argument for def nn at position 1 (x): expected Int not null, got null",
+                line,
+                19,
+            )
+        ],
+    }[mode]
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(_parse(source)).diagnostics
+    ] == expected
+
+
+@pytest.mark.parametrize("depth", [0, 4, 8, 16])
+def test_nested_null_arithmetic_errors_need_no_semantic_replay(
+    monkeypatch: pytest.MonkeyPatch, depth: int
+) -> None:
+    from typing import Any
+
+    from pietto.semantic import expressions
+    from pietto.semantic.model import ValueType
+
+    value = "trim(null / d)"
+    for _ in range(depth):
+        value = f"trim((null / d) if ({value} is null) else d / 2)"
+    source = (
+        "shape Row:\n    d: Decimal(10, 2) not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        f"table selected:\n    from rows\n    select:\n        v = count({value})\n"
+    )
+    inferred = 0
+    original = expressions._infer
+
+    def counted(*args: Any, **kwargs: Any) -> ValueType:
+        nonlocal inferred
+        inferred += 1
+        return original(*args, **kwargs)
+
+    def replayed(*args: object, **kwargs: object) -> bool:
+        raise AssertionError("Aggregate diagnostics must use the actual typing errors")
+
+    monkeypatch.setattr(expressions, "_infer", counted)
+    monkeypatch.setattr(expressions, "_has_own_error", replayed)
+    semantic = analyze(_parse(source))
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function trim at position 1: expected Text, got numeric",
+            7,
+            source.splitlines()[-1].index("trim(null / d)") + 1,
+        )
+    ]
+    # Two walks of the 5 + 9*depth value nodes, plus one connector literal.
+    assert inferred <= 11 + 18 * depth
+
+
+def test_null_arithmetic_fact_requires_the_reported_diagnostic() -> None:
+    from dataclasses import replace
+
+    from pietto.ast_nodes import CallExpr
+    from pietto.semantic import expressions
+    from pietto.semantic.model import RowSchema
+
+    script = _parse(
+        "shape Row:\n    d: Decimal(10, 2) not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table selected:\n    from rows\n    select:\n        v = count(trim(null / d))\n"
+    )
+    semantic = analyze(script)
+    count = _select_expression(script, 0)
+    assert isinstance(count, CallExpr)
+    actual = tuple(semantic.diagnostics)
+    assert len(actual) == 1 and actual[0].code == "PIE-S2104"
+    unrelated = replace(actual[0], message="Unrelated scalar error")
+    for reported, expected in (
+        (frozenset(), ()),
+        (frozenset((unrelated,)), ()),
+        (frozenset(actual), actual),
+        (frozenset(), ()),
+    ):
+        assert (
+            expressions.null_arithmetic_argument_diagnostics(
+                count.arguments[0],
+                RowSchema(),
+                semantic.model.expression_value_types,
+                None,
+                None,
+                reported_errors=reported,
+            )
+            == expected
+        )
+
+
 def test_decimal_division_keeps_its_deferred_type_and_bare_sql() -> None:
     # Byte-identical to main; Decimal division awaits a decision.
     body = (
@@ -371,6 +834,369 @@ def test_division_with_a_decimal_alias_operand_stays_deferred() -> None:
     semantic = analyze(_parse(_DIVISION_OPERANDS + "        value = d / n\n"))
 
     assert _diagnostics(semantic) == []
+
+
+def test_a_decimal_quotient_is_refused_where_no_number_fits() -> None:
+    # Before: a quotient with a Decimal operand, of unknown type, passed every
+    # check below, and PostgreSQL rejects the SQL. It is a number whatever its
+    # type, so a use that takes no number is refused, also through a `let:`
+    # name, after arithmetic or in a `coalesce` or conditional, where a null
+    # takes its type; a use beside numbers passes.
+    semantic = analyze(
+        _parse(
+            "shape Row:\n"
+            "    id: Int not null\n"
+            "    a: Decimal(10, 2) not null\n"
+            "    f: Float not null\n"
+            "    t: Text not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            "table refused:\n"
+            "    from rows\n"
+            "    let:\n"
+            "        q = a / 2\n"
+            "    where a / 2\n"
+            "    select:\n"
+            "        id\n"
+            '        p = a / 2 - "x"\n'
+            "        l = lower(a / 2)\n"
+            '        c = id / a == "x"\n'
+            '        g = f / a like "x%"\n'
+            "        w = not (a / 2)\n"
+            "        y = year(q / 3)\n"
+            '        m = q % "x"\n'
+            '        n = -q * 2 like "x%"\n'
+            '        i = q in ("x", "y")\n'
+            '        e = q between "a" and "z"\n'
+            "        h = t if id > 1 else q\n"
+            "        o = coalesce(t, q)\n"
+            '        u = nullif(q, "x")\n'
+            "        v = lower(coalesce(q, 0))\n"
+            "        z = coalesce(t, q, null)\n"
+            '        r = (q if id > 1 else null) == "x"\n'
+            "table accepted:\n"
+            "    from rows\n"
+            "    let:\n"
+            "        q = a / 2\n"
+            "    where a / 2 > f and coalesce(q, 0) > 1\n"
+            "    select:\n"
+            "        id\n"
+            "        k = a / 2 + 1\n"
+            "        b = abs(a / 2)\n"
+            "        r = (a / 2) % 2\n"
+            "        s = q % 2.5\n"
+            "        j = q in (1, 2.5)\n"
+            "        z = 1 if id > 1 else q\n"
+            "        x = cast(a / 2 as Float)\n"
+            "        n = (q if id > 1 else null) + coalesce(q, null)\n"
+        )
+    )
+
+    operands = "Invalid operands for operator {}: expected {} operands"
+    argument = (
+        "Invalid argument type for function {} at position 1: expected {}, got numeric"
+    )
+    arguments = "Invalid argument types for function {}: expected same canonical {}"
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [
+        ("PIE-S2202", "Expected Bool expression in where clause", 11, 11),
+        ("PIE-S2105", operands.format("-", "numeric"), 14, 13),
+        ("PIE-S2104", argument.format("lower", "Text"), 15, 13),
+        ("PIE-S2105", operands.format("==", "comparable"), 16, 13),
+        ("PIE-S2105", operands.format("like", "Text"), 17, 13),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator not: expected Bool operand",
+            18,
+            13,
+        ),
+        ("PIE-S2104", argument.format("year", "Date or Timestamp"), 19, 13),
+        ("PIE-S2105", operands.format("%", "Int"), 20, 13),
+        ("PIE-S2105", operands.format("like", "Text"), 21, 13),
+        ("PIE-S2105", operands.format("in", "same canonical membership"), 22, 13),
+        ("PIE-S2105", operands.format("between", "comparable"), 23, 13),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator conditional: expected same canonical "
+            "branch types",
+            24,
+            13,
+        ),
+        ("PIE-S2104", arguments.format("coalesce", "type"), 25, 13),
+        ("PIE-S2104", arguments.format("nullif", "comparable type"), 26, 13),
+        ("PIE-S2104", argument.format("lower", "Text"), 27, 13),
+        ("PIE-S2104", arguments.format("coalesce", "type"), 28, 13),
+        ("PIE-S2105", operands.format("==", "comparable"), 29, 13),
+    ]
+
+
+def test_abs_of_a_number_of_unknown_type_is_one() -> None:
+    # Before: `abs` of a Decimal quotient, or of a field of a source without a
+    # shape, was of unknown type, so `lower(abs(a / 2))` and
+    # `abs(a / 2) + "x"` passed check, and PostgreSQL rejects their SQL as it
+    # rejects `lower(a / 2)`. `abs` keeps its argument's type, which is a
+    # number, so it is a number of unknown type there; a use beside numbers
+    # passes, and `abs` of a call typed by its signature has that type.
+    semantic = analyze(
+        _parse(
+            "shape Row:\n"
+            "    id: Int not null\n"
+            "    a: Decimal(10, 2) not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            'source raw is postgres.table("raw")\n'
+            "table refused:\n"
+            "    from rows\n"
+            "    let:\n"
+            "        q = abs(a / 2)\n"
+            "    select:\n"
+            "        id\n"
+            "        l = lower(abs(a / 2))\n"
+            '        p = abs(a / 2) + "x"\n'
+            '        c = q == "x"\n'
+            "        y = year(abs(abs(a / 2)))\n"
+            "table accepted:\n"
+            "    from rows\n"
+            "    select:\n"
+            "        id\n"
+            "        k = abs(a / 2) + 1\n"
+            "        r = abs(a / 2) % 2\n"
+            "        n = abs(-(a / 2)) > 1\n"
+            "table shapeless:\n"
+            "    from raw\n"
+            "    select:\n"
+            "        l = lower(abs(t))\n"
+            "        m = abs(t) * 2\n"
+            "        r = abs(t) % 2\n"
+            "        e = abs(len(t)) + 1\n"
+            '        c = abs(t) if b else "x"\n'
+            '        z = "x" if b else abs(t)\n'
+            "        compatible = abs(t) if b else 1\n"
+            '        unchecked = t if b else "x"\n'
+        )
+    )
+
+    argument = (
+        "Invalid argument type for function {} at position 1: expected {}, got numeric"
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2303",
+            "Source raw has no bound shape; row schema is unknown",
+            5,
+            1,
+        ),
+        ("PIE-S2104", argument.format("lower", "Text"), 12, 13),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
+            13,
+            13,
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: expected comparable operands",
+            14,
+            13,
+        ),
+        ("PIE-S2104", argument.format("year", "Date or Timestamp"), 15, 13),
+        ("PIE-S2104", argument.format("lower", "Text"), 26, 13),
+        *[
+            (
+                "PIE-S2105",
+                "Invalid operands for operator conditional: expected same canonical branch types",
+                line,
+                13,
+            )
+            for line in (30, 31)
+        ],
+    ]
+    shapeless = semantic.model.relation_symbols["shapeless"]
+    assert isinstance(shapeless, TableDef)
+    assert (
+        semantic.model.expression_value_types[shapeless.select_items[6].expression].kind
+        is ValueTypeKind.UNKNOWN
+    )
+
+
+def test_numeric_conditional_branches_preserve_condition_error_suppression() -> None:
+    semantic = analyze(
+        _parse(
+            "shape Row:\n    d: Decimal(10, 2) not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            "table selected:\n    from rows\n    select:\n"
+            '        suppressed = abs(d / 2) if missing else "x"\n'
+            '        known = abs(d / 2) if (other is null) else "x"\n'
+        )
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in semantic.diagnostics
+    ] == [
+        ("PIE-S2102", "Unknown field: missing", 7, 36),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator conditional: expected same canonical branch types",
+            8,
+            17,
+        ),
+        ("PIE-S2102", "Unknown field: other", 8, 32),
+    ]
+
+
+@pytest.mark.parametrize("operator", ["in", "not in"])
+@pytest.mark.parametrize("null", ["null", "k"], ids=["literal", "binding"])
+def test_numeric_membership_with_null_keeps_its_boolean_result(
+    operator: str, null: str
+) -> None:
+    source = (
+        "shape Row:\n    n: Int nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table selected:\n    from rows\n    let:\n        k = null\n    select:\n"
+    )
+    membership = f"1.5 {operator} ({null}, n)"
+    script, semantic, script_ir = _compile(source + f"        v = {membership}\n")
+    value_type = semantic.model.expression_value_types[_select_expression(script, 0)]
+    assert (value_type.resolved_type.name, value_type.nullability) == (
+        "Bool",
+        EffectiveNullability.NULLABLE,
+    )
+    assert emit_postgres_sql(script_ir).artifacts[0].sql == (
+        f'SELECT\n    1.5 {operator.upper()} (NULL, "n") AS "v"\nFROM "rows"'
+    )
+    rejected = analyze(
+        _parse(
+            source + f"        v = abs({membership})\n"
+            'query reader:\n    from selected\n    select:\n        w = v + "x"\n'
+        )
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in rejected.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function abs at position 1: expected Int, Float or Decimal, got Bool",
+            9,
+            13,
+        )
+    ]
+
+
+@pytest.mark.parametrize("connector", ["postgres", "mysql"])
+@pytest.mark.parametrize("operator", ["in", "not in"])
+@pytest.mark.parametrize(
+    ("field", "literal"),
+    [("d", '"2020-01-01"'), ("s", '"active"')],
+    ids=["date-text", "enum-label"],
+)
+def test_comparable_nonnumeric_null_membership_has_a_boolean_result(
+    connector: str, operator: str, field: str, literal: str
+) -> None:
+    from pietto.ast_nodes import CallExpr, MembershipExpr
+
+    predicate = f"{field} {operator} ({literal}, null)"
+    script = _parse(
+        "enum Status:\n    active\n    gone\n"
+        "shape Row:\n    d: Date nullable\n    s: Status nullable\n"
+        f'source rows: Row is {connector}.table("rows")\n'
+        "table selected:\n    from rows\n    select:\n"
+        f"        direct = {predicate}\n"
+        f"        lowered = lower({predicate})\n"
+        f"        absolute = abs({predicate})\n"
+    )
+    semantic = analyze(script)
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function lower at position 1: expected Text, got Bool",
+            12,
+            19,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function abs at position 1: expected Int, Float or Decimal, got Bool",
+            13,
+            20,
+        ),
+    ]
+    for selected in _relation(script).select_items:
+        expression = selected.expression
+        membership = (
+            expression.arguments[0] if isinstance(expression, CallExpr) else expression
+        )
+        assert isinstance(membership, MembershipExpr)
+        value_type = semantic.model.expression_value_types[membership]
+        assert (
+            value_type.kind,
+            value_type.resolved_type.name,
+            value_type.nullability,
+        ) == (ValueTypeKind.KNOWN, "Bool", EffectiveNullability.NULLABLE)
+
+
+@pytest.mark.parametrize("predicate", ["d in (label, null)", 's in ("other", null)'])
+def test_null_membership_keeps_unsupported_pairings_closed(predicate: str) -> None:
+    source = (
+        "enum Status:\n    active\n    gone\n"
+        "shape Row:\n    d: Date nullable\n    s: Status nullable\n    label: Text nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table selected:\n    from rows\n    select:\n"
+        f"        v = {predicate}\n"
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(_parse(source)).diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator in: expected same canonical membership operands",
+            12,
+            13,
+        )
+    ]
+
+
+def test_decimal_quotient_let_chains_check_as_their_int_twins() -> None:
+    # Before: the quotient check followed every `let:` name to its value again
+    # at each read, so a let doubling a quotient 30 times took exponential
+    # time, and 1000 unused lets each adding 1 to the last one exceeded the
+    # recursion limit (PIE-S2006), where the Int twin passed.
+    def checked(value: str, step: str, count: int, use: str) -> list[tuple[str, int]]:
+        lets = "".join(
+            f"        q{index} = {step.format(index - 1)}\n"
+            for index in range(1, count + 1)
+        )
+        source = (
+            "shape Row:\n"
+            "    id: Int not null\n"
+            "    a: Decimal(10, 2) not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            "table chained:\n"
+            "    from rows\n"
+            "    let:\n"
+            f"        q0 = {value}\n{lets}"
+            f"{use}"
+            "    select:\n"
+            "        id\n"
+        )
+        return [
+            (item.code, item.location.line)
+            for item in analyze(_parse(source)).diagnostics
+        ]
+
+    assert checked("a / 2", "q{0} + 1", 1000, "") == []
+    assert checked("id / 2", "q{0} + 1", 1000, "") == []
+    doubled = "q{0} + q{0}"
+    where = "    where q30 > 1\n"
+    assert checked("a / 2", doubled, 30, where) == [("PIE-S2328", 39)]
+    assert checked("id / 2", doubled, 30, where) == [("PIE-S2328", 39)]
 
 
 def test_existing_unqualified_sql_bytes_remain_stable() -> None:

@@ -6,7 +6,11 @@ from collections.abc import Mapping
 
 from pietto.ast_nodes import Expression, TypeExpr
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.expressions import _canonical_value_type, condition_value_type
+from pietto.semantic.expressions import (
+    _canonical_value_type,
+    condition_value_type,
+    is_unknown_number,
+)
 from pietto.semantic.model import ResolvedType, RowSchema, ValueType, ValueTypeKind
 
 
@@ -23,8 +27,9 @@ def _check_bool_expression(
     """Return a diagnostic when a predicate has a known non-Bool type, or,
     where no error explains its unknown type (``explained``, see
     `unknown_explained`), when it is a built-in call whose signature fixes a
-    type that is not Bool, also as the value of a `let:` name of ``lets``
-    (`condition_value_type`)."""
+    type that is not Bool (`condition_value_type`), also as the value of a
+    `let:` name of ``lets``, or a number of unknown type such as a quotient
+    with a `Decimal` operand (`is_unknown_number`)."""
 
     value_type = expression_value_types.get(expression)
     if value_type is None:
@@ -32,8 +37,11 @@ def _check_bool_expression(
     if not explained:
         value_type = condition_value_type(expression, value_type, row_schema, lets)
     if value_type.kind is ValueTypeKind.UNKNOWN:
-        return None
-    if _canonical_value_type(value_type, type_expansions).resolved_type.name == "Bool":
+        if explained or not is_unknown_number(value_type):
+            return None
+    elif (
+        _canonical_value_type(value_type, type_expansions).resolved_type.name == "Bool"
+    ):
         return None
 
     span = expression.span

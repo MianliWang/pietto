@@ -28,6 +28,7 @@ from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
+from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
 from pietto._project.window_semantics import (
     WindowDependencyRole,
     deduplicate_window_dependency_edges,
@@ -3246,12 +3247,13 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
     tmp_path: Path,
 ) -> None:
     """Beside a binding of unknown type (`k = null`) or with an error of its
-    own, a window that reads no binding is analyzed, the WHERE is typed and a
-    selected read of a binding of known type is typed, so each reports only
-    its own errors, as in a single file; a window that reads a binding then
-    leaves the relation to PIE-S2333. Before, every window there was
-    PIE-S2103 `relation context requires canonical window input scope
-    facts`, the WHERE was not checked and `v = h` was PIE-S2333."""
+    own, a window that reads no binding or only bindings of known type is
+    analyzed, the WHERE is typed and a selected read of a binding of known
+    type is typed, so each reports only its own errors, as in a single file;
+    a window that reads the binding of unknown type then leaves the relation
+    to PIE-S2333. Before, every window there was PIE-S2103 `relation context
+    requires canonical window input scope facts`, the WHERE was not checked,
+    `v = h` was PIE-S2333, and a window that read `f` was PIE-S2333 too."""
     window = (
         "        rn = row_number() window:\n            order by:\n                id\n"
     )
@@ -3264,6 +3266,10 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
         "reading": "    let:\n        k = null\n        f = id\n    select:\n"
         "        id\n        rn = row_number() window:\n"
         "            partition by:\n                f\n            order by:\n"
+        "                id\n",
+        "nulled": "    let:\n        k = null\n        f = id\n    select:\n"
+        "        id\n        rn = row_number() window:\n"
+        "            partition by:\n                k\n            order by:\n"
         "                id\n",
         "never": "    let:\n        k = null\n    where amount == k\n    select:\n"
         "        id\n",
@@ -3298,8 +3304,8 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
         (*lower, at("w = lower", "erroneous"), 13),
         (
             "PIE-S2333",
-            "Project relation semantic completion is unavailable: reading",
-            at("query reading", "reading"),
+            "Project relation semantic completion is unavailable: nulled",
+            at("query nulled", "nulled"),
             1,
         ),
         (
@@ -3311,6 +3317,49 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
         ),
         (*lower, at("w = lower", "filtered"), 13),
         (*lower, at("where w", "filtered"), 24),
+    ]
+    assert [
+        type(output.analysis)
+        for output in _relation(semantic, "main.pietto", "reading").window_outputs
+    ] == [WindowExpressionAnalysis]
+
+
+def test_a_repeated_output_name_is_pie_s2305_at_each_later_item(
+    tmp_path: Path,
+) -> None:
+    """A SELECT item of a relation without JOIN inputs that repeats an
+    earlier output name is PIE-S2305 at the item, as in a single file, also
+    for a computed, aggregate or window output and beside a `let:` binding of
+    unknown type. Before, such a relation reported only a bare PIE-S2333."""
+    window = "rank() window:\n            order by:\n                id\n"
+    queries = {
+        "direct": "    select:\n        id\n        id\n        id\n",
+        "renamed": "    select:\n        x = id\n        x = lower(category)\n",
+        "grouped": "    group by:\n        category\n    select:\n        category\n"
+        "        c = count()\n        c = max(id)\n",
+        "windowed": f"    select:\n        id\n        r = {window}        r = {window}",
+        "nulled": "    let:\n        k = null\n    select:\n        id\n        id\n",
+    }
+    text = _prefix() + "".join(
+        f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+    lines = text.splitlines()
+
+    def repeated(name: str, offset: int, output: str) -> tuple[str, str, int, int]:
+        line = lines.index(f"query {name}:") + 1 + offset
+        return ("PIE-S2305", f"Duplicate projection field: {output}", line, 9)
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        repeated("direct", 4, "id"),
+        repeated("direct", 5, "id"),
+        repeated("renamed", 4, "x"),
+        repeated("grouped", 7, "c"),
+        repeated("windowed", 7, "r"),
+        repeated("nulled", 6, "id"),
     ]
 
 
@@ -3487,6 +3536,242 @@ def test_a_window_value_of_an_enum_field_is_a_column_of_that_enum(
         ] * len(outputs)
 
 
+def test_a_window_of_a_join_relation_computed_column_completes(
+    tmp_path: Path,
+) -> None:
+    """A JOIN relation's computed column, `v4 = o.m + 1` or `v2 = k2 + 1` with
+    `k2 = o.m`, has a known type and an unknown nullability. A later
+    relation's `last_value` or `lag` of it completes with a nullable column of
+    that type, as without the JOIN; `lag(v4, 1, 0)`, whose result would have
+    the column's unknown nullability, stays PIE-S2104. Before, each window
+    was PIE-S2104 `value type must be concrete`."""
+    window = "window:\n            order by:\n                id\n"
+    text = (
+        "shape S:\n    id: Int not null\n    n: Int nullable\n    m: Int not null\n"
+        "    unique s_key on id\n"
+        'source src: S is postgres.table("app.src")\n'
+        "table t1:\n    from src\n    inner join src as o:\n        from src\n"
+        "        on src.n == o.n\n    let:\n        k2 = o.m\n    select:\n"
+        "        id = src.id\n        v2 = k2 + 1\n        v4 = o.m + 1\n"
+        "query q2:\n    from t1\n    select:\n        id\n"
+        f"        r0 = last_value(v2) {window}"
+        "query q4:\n    from t1\n    select:\n        id\n"
+        f"        r0 = last_value(v4) {window}"
+        f"        r1 = lag(v4) {window}"
+        "query refused:\n    from t1\n    select:\n        id\n"
+        f"        r0 = lag(v4, 1, 0) {window}"
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+    completed = build_project_completed_semantic_result(semantic)
+    effective = completed.effective_outputs
+    assert effective is not None
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in completed.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid arguments for function lag: value type must be concrete",
+            text.splitlines().index("        r0 = lag(v4, 1, 0) window:") + 1,
+            14,
+        )
+    ]
+    assert {
+        entry.owner.definition.name: [
+            (
+                name,
+                field.resolved_type.name,
+                field.resolved_type.kind,
+                field.nullability,
+                field.result_role,
+            )
+            for name, field in entry.schema.fields.items()
+        ]
+        for entry in effective.entries
+        if type(entry) is ProjectCompletedEffectiveOutput
+        and entry.owner.definition.name in {"q2", "q4"}
+    } == {
+        name: [
+            (
+                "id",
+                "Int",
+                ProjectResolvedTypeKind.BUILTIN,
+                ProjectRowFieldNullability.NON_NULL,
+                ProjectRowResultRole.ORDINARY_ROW_VALUE,
+            ),
+            *(
+                (
+                    output,
+                    "Int",
+                    ProjectResolvedTypeKind.BUILTIN,
+                    ProjectRowFieldNullability.NULLABLE,
+                    ProjectRowResultRole.WINDOW_RESULT,
+                )
+                for output in outputs
+            ),
+        ]
+        for name, outputs in (("q2", ("r0",)), ("q4", ("r0", "r1")))
+    }
+
+
+def test_a_window_value_of_a_shape_field_is_a_column_of_that_shape(
+    tmp_path: Path,
+) -> None:
+    """`lag`, `lead`, `first_value`, `last_value` and `nth_value` of a shape
+    field, nullable or not, also as the default beside a `null` value, give a
+    nullable column of that shape, as in a single file; `lag(id, 1, payload)`
+    is PIE-S2104 `value and default must have the same exact type`, as in a
+    single file. A partition or order by such a field stays PIE-S2103, also
+    beside a shape value. A later relation selects the column and windows it,
+    while a computed read of it, as of any shape column, fails closed with
+    PIE-S2333. Before, each window value was PIE-S2104 `value type must be
+    concrete` (`default type must be concrete` for a default)."""
+    window = "window:\n            order by:\n                id\n"
+    text = (
+        "shape Payload:\n    a: Int not null\n"
+        "shape Row:\n    id: Int not null\n    payload: Payload nullable\n"
+        "    q: Payload not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "table navigated:\n    from rows\n    select:\n        id\n        payload\n"
+        f"        previous = lag(payload) {window}"
+        f"        following = lead(q, 2) {window}"
+        f"        defaulted = lag(null, 1, payload) {window}"
+        f"        first = first_value(q) {window}"
+        f"        last = last_value(payload) {window}"
+        f"        nth = nth_value(q, 2) {window}"
+        "query mismatched:\n    from rows\n    select:\n        id\n"
+        f"        p = lag(id, 1, payload) {window}"
+        "query keyed:\n    from rows\n    select:\n        id\n"
+        "        ranked = rank() window:\n            partition by:\n"
+        "                payload\n            order by:\n                id\n"
+        "        ordered = lag(payload) window:\n            order by:\n"
+        "                q\n"
+        "query later:\n    from navigated\n    select:\n        id\n"
+        f"        previous\n        r = first_value(previous) {window}"
+        "query computed:\n    from navigated\n    select:\n        id\n"
+        "        c = coalesce(previous, payload)\n"
+    )
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+    lines = text.splitlines()
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid arguments for function lag: value and default must have the "
+            "same exact type",
+            lines.index("        p = lag(id, 1, payload) window:") + 1,
+            13,
+        ),
+        (
+            "PIE-S2103",
+            "Unsupported window computation for function rank: window partition "
+            "field type must be concrete",
+            lines.index("        ranked = rank() window:") + 1,
+            18,
+        ),
+        (
+            "PIE-S2103",
+            "Unsupported window computation for function lag: window order field "
+            "type must be concrete",
+            lines.index("        ordered = lag(payload) window:") + 1,
+            19,
+        ),
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: computed",
+            lines.index("query computed:") + 1,
+            1,
+        ),
+    ]
+    for name, outputs in (
+        (
+            "navigated",
+            ("previous", "following", "defaulted", "first", "last", "nth"),
+        ),
+        ("later", ("r",)),
+    ):
+        state = _relation(semantic, "main.pietto", name).state
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.schema is not None
+        assert [
+            (
+                field.resolved_type.name,
+                field.resolved_type.kind,
+                field.nullability,
+                field.result_role,
+            )
+            for output_name, field in state.schema.fields.items()
+            if output_name in outputs
+        ] == [
+            (
+                "Payload",
+                ProjectResolvedTypeKind.SHAPE,
+                ProjectRowFieldNullability.NULLABLE,
+                ProjectRowResultRole.WINDOW_RESULT,
+            )
+        ] * len(outputs)
+
+
+def test_a_window_value_finds_its_declaration_by_kind_and_name(
+    tmp_path: Path,
+) -> None:
+    """A window value of an enum or shape field takes the declaration of that
+    kind and name among the row's fields, so `lag` of an enum `Status` and of a
+    shape `Status` declared in another module each complete beside the other,
+    while a row with two shapes `Payload` from different modules fails closed
+    with PIE-S2333 at a window over either. Before, the shape windows were
+    PIE-S2104 `value type must be concrete`."""
+    window = "window:\n            order by:\n                id\n"
+    text = (
+        'import "b.pietto":\n    shape Status as Box\n    shape Payload as Other\n'
+        "enum Status:\n    active\n    paused\n"
+        "shape Payload:\n    a: Int not null\n"
+        "shape Row:\n    id: Int not null\n    state: Status nullable\n"
+        "    box: Box nullable\n    mine: Payload nullable\n"
+        "    other: Other nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query states:\n    from rows\n    select:\n        id\n"
+        f"        previous = lag(state) {window}"
+        f"        boxed = lag(box) {window}"
+        "query payloads:\n    from rows\n    select:\n        id\n"
+        f"        previous = lag(mine) {window}"
+    )
+    library = (
+        "shape Status:\n    b: Text not null\n"
+        "shape Payload:\n    b: Text not null\n"
+        "export:\n    shape Status\n    shape Payload\n"
+    )
+    _, semantic = _semantic_project(
+        tmp_path, {"main.pietto": text, "b.pietto": library}
+    )
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: payloads",
+            text.splitlines().index("query payloads:") + 1,
+            1,
+        )
+    ]
+    state = _relation(semantic, "main.pietto", "states").state
+    assert state.schema is not None
+    assert [
+        (field.resolved_type.name, field.resolved_type.kind, field.result_role)
+        for name, field in state.schema.fields.items()
+        if name in {"previous", "boxed"}
+    ] == [
+        ("Status", ProjectResolvedTypeKind.ENUM, ProjectRowResultRole.WINDOW_RESULT),
+        ("Status", ProjectResolvedTypeKind.SHAPE, ProjectRowResultRole.WINDOW_RESULT),
+    ]
+
+
 def test_a_lag_or_lead_of_an_enum_completes_where_its_relation_is_read(
     tmp_path: Path,
 ) -> None:
@@ -3594,11 +3879,15 @@ def test_a_window_result_that_no_project_column_carries_fails_closed(
 def test_a_window_reads_only_the_named_windows_it_uses(tmp_path: Path) -> None:
     """Beside a binding of unknown type (`k = null`), a window is analyzed
     when neither it, nor the named window it uses, nor that window's bases
-    read a binding, whatever another named window of the relation reads; one
-    whose named window or base reads a binding leaves the relation to
-    PIE-S2333. Before, any named window that read a binding made every named
-    use fail closed."""
-    lets = "    let:\n        k = null\n        w = coalesce(k, amount)\n"
+    read that binding, whatever another named window of the relation reads;
+    one whose named window or base reads it leaves the relation to
+    PIE-S2333. A base that reads `f = id`, a binding of known type, is
+    analyzed with it, as in a single file. Before, any named window that read
+    a binding made every named use fail closed, and a base that read `f`
+    left the relation to PIE-S2333."""
+    lets = (
+        "    let:\n        k = null\n        w = coalesce(k, amount)\n        f = id\n"
+    )
     split = "    window split:\n        partition by:\n            w\n"
     queries = {
         "other": "        rn = row_number() window ordered\n"
@@ -3609,7 +3898,10 @@ def test_a_window_reads_only_the_named_windows_it_uses(tmp_path: Path) -> None:
         "                id\n    window base:\n        partition by:\n"
         "            id\n" + split,
         "reading": "        rn = row_number() window child\n    window child = base\n"
-        "    window base:\n        partition by:\n            w\n"
+        "    window base:\n        partition by:\n            k\n"
+        "        order by:\n            id\n",
+        "aliased": "        rn = row_number() window child\n    window child = base\n"
+        "    window base:\n        partition by:\n            f\n"
         "        order by:\n            id\n",
     }
     text = _prefix() + "".join(
@@ -3631,9 +3923,9 @@ def test_a_window_reads_only_the_named_windows_it_uses(tmp_path: Path) -> None:
     ]
     assert [
         type(output.analysis)
-        for name in ("other", "based", "extended")
+        for name in ("other", "based", "extended", "aliased")
         for output in _relation(semantic, "main.pietto", name).window_outputs
-    ] == [WindowExpressionAnalysis] * 3
+    ] == [WindowExpressionAnalysis] * 4
 
 
 def test_navigation_offset_default_generic_and_nullability_formula_evidence_is_exact(

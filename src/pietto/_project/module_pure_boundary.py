@@ -1534,11 +1534,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
             _PureScopeRule(
+                # The ambiguity is the repeated identity, so a second occurrence
+                # answers for it. A loader-blocked module publishes that
+                # occurrence as blocked rather than ambiguous.
                 rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
                 scope="module",
                 child="declaration",
                 ancestor_scope="export",
-                fixed=(("availability", ("e:ambiguous",)),),
+                fixed=(
+                    ("availability", ("e:ambiguous", "e:blocked")),
+                    ("occurrence_index", ("i:1",)),
+                ),
                 ancestor_pairs=(
                     ("namespace", "namespace"),
                     ("declaration_kind", "declaration_kind"),

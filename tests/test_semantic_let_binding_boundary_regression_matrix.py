@@ -241,7 +241,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
             "        gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
-            "PIE-S2102",
+            "PIE-S2315",
             id="min-let-argument",
         ),
         pytest.param(
@@ -418,7 +418,7 @@ def test_unsupported_min_max_aggregate_let_stops_before_ir() -> None:
         "        smallest = min(gross)\n"
     )
 
-    assert "PIE-S2102" in _error_codes(semantic)
+    assert "PIE-S2315" in _error_codes(semantic)
     assert semantic.diagnostics != ()
 
 
@@ -468,7 +468,7 @@ def test_unsupported_matrix_emit_sql_json_and_output_fail_closed(
     assert document["ok"] is False
     assert document["artifacts"] == []
     assert document["output"] == {"path": str(missing_output), "written": False}
-    assert "PIE-S2102" in [diagnostic["code"] for diagnostic in diagnostics]
+    assert "PIE-S2315" in [diagnostic["code"] for diagnostic in diagnostics]
     assert "let_scopes" not in json.dumps(document)
     assert not missing_output.exists()
 
@@ -489,7 +489,7 @@ def test_unsupported_matrix_emit_sql_json_and_output_fail_closed(
         == 1
     )
     text_failure = capsys.readouterr()
-    assert "PIE-S2102" in text_failure.err
+    assert "PIE-S2315" in text_failure.err
     assert existing_output.read_text(encoding="utf-8") == "original SQL\n"
 
 

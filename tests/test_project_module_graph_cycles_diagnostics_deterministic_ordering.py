@@ -809,6 +809,76 @@ def test_pie_s2704_export_issue_mappings_and_duplicate_precedence(
     assert len(duplicate_fact.related_locations) == 1
 
 
+@pytest.mark.parametrize(
+    ("twice", "exported", "position"),
+    (
+        ('source sa: A is postgres.table("sa2")\n', "source sa", (9, 12)),
+        ("shape A:\n    id: Int not null\n", "shape A", (9, 11)),
+        (
+            "query q:\n    from sb\n    select:\n        id\n"
+            "query q:\n    from sb\n    select:\n        id\n",
+            "query q",
+            (17, 11),
+        ),
+    ),
+    ids=("source", "shape", "query"),
+)
+def test_an_ambiguous_export_in_an_import_cycle_reports_both_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    twice: str,
+    exported: str,
+    position: tuple[int, int],
+) -> None:
+    """A module of an import cycle that exports a name it declares twice gets
+    PIE-S2703 and PIE-S2704, as each one alone does. Before, the
+    inspection of the cycle-blocked module refused its own export issue and
+    `check --project` and `emit-sql --project` crashed with a ValueError."""
+
+    root = _configured_project(
+        tmp_path,
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    source sb\nshape A:\n    id: Int not null\n'
+                'source sa: A is postgres.table("sa")\n'
+                + twice
+                + "export:\n    shape A\n    source sa\n"
+                + ("" if exported in {"source sa", "shape A"} else f"    {exported}\n")
+            ),
+            "b.pietto": (
+                'import "a.pietto":\n    source sa\nshape B:\n    id: Int not null\n'
+                'source sb: B is postgres.table("sb")\nexport:\n    source sb\n'
+            ),
+        },
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert [
+        (
+            item["code"],
+            item["message"],
+            item["location"]["path"],
+            item["location"]["line"],
+            item["location"]["column"],
+        )
+        for item in document["diagnostics"]
+    ] == [
+        (
+            "PIE-S2703",
+            "Module import cycle detected: a.pietto -> b.pietto -> a.pietto",
+            "b.pietto",
+            1,
+            8,
+        ),
+        (
+            "PIE-S2704",
+            f"Ambiguous local export declaration: {exported}",
+            "a.pietto",
+            *position,
+        ),
+    ]
+
+
 def test_pie_s2705_unknown_private_import_mappings_are_exact(tmp_path: Path) -> None:
     _, semantic = _semantic_project(
         tmp_path,

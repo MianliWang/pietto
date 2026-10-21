@@ -23,6 +23,8 @@ from pietto.ir.model import (
 )
 from pietto.sql.expressions import (
     expression_uses_qualified_field,
+    is_untyped_null,
+    refuse_text_null_condition,
     render_expression_sql,
     render_window_call_sql,
     render_window_components_sql,
@@ -52,8 +54,7 @@ def render_relation_sql(
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
     if any(
-        type(projection.expression) is LiteralIR and projection.expression.value is None
-        for projection in relation.projections
+        is_untyped_null(projection.expression) for projection in relation.projections
     ) and any(other.source.target == relation.symbol for other in relations.values()):
         raise ValueError(
             "PostgreSQL types a NULL output that another relation reads as text, "
@@ -94,6 +95,7 @@ def render_relation_sql(
         f"FROM {_render_input(input_name, alias)}",
     ]
     if relation.filter is not None:
+        refuse_text_null_condition(relation.filter.expression)
         lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
     if relation.group_keys:
         lines.extend(
@@ -153,9 +155,8 @@ def qualify_alias_captured_order_fields(
     also names an unaliased computed item implicitly (`lower`, `coalesce`,
     `case`, ...), so there any unaliased computed item counts as a capture.
     MySQL names it by its expression text; of those names only an unaliased
-    Text literal's, its value, is counted. Whether MySQL names an unaliased
-    TRUE, FALSE or NULL item by that bare word is not verified, so those
-    items are not counted.
+    literal's can be a field name: a Text literal's value, or `TRUE`, `FALSE`
+    or `NULL`, as written.
     """
 
     def spelling(name: str) -> str:
@@ -168,11 +169,18 @@ def qualify_alias_captured_order_fields(
                 return False
             if not mysql:
                 return True
-            return (
-                isinstance(expression, LiteralIR)
-                and type(expression.value) is str
-                and spelling(expression.value) == spelling(key.name)
-            )
+            if not isinstance(expression, LiteralIR):
+                return False
+            value = expression.value
+            if type(value) is bool:
+                name = "TRUE" if value else "FALSE"
+            elif value is None:
+                name = "NULL"
+            elif type(value) is str:
+                name = value
+            else:
+                return False
+            return spelling(name) == spelling(key.name)
         return spelling(projection.name) == spelling(key.name) and not (
             isinstance(expression, FieldRefIR) and expression.field == key.field
         )

@@ -226,14 +226,12 @@ from pietto.ast_nodes import (
     OrderItem,
     QualifyClause,
     QueryDef,
-    RelationExistsExpr,
-    RelationMembershipExpr,
-    RelationScalarExpr,
     Script,
     SelectItem,
     SourceDef,
     TableDef,
     WindowExpr,
+    WindowFrameUnit,
     WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -243,7 +241,12 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
-from pietto.semantic.expressions import infer_row_expression, unknown_explained
+from pietto.semantic.expressions import (
+    _order_by_output_name_diagnostic,
+    _window_literal_range_diagnostics,
+    infer_row_expression,
+    unknown_explained,
+)
 from pietto._project.row_expression_type_facts import scalar_read_types_within
 from pietto.semantic.group_by import _grouped_order_by_unsupported_diagnostic
 from pietto.semantic.model import CheckMode, RowSchema, ValueType, ValueTypeKind
@@ -264,6 +267,7 @@ from pietto.semantic.window_input_analysis import (
     WindowInputScope,
     WindowInputScopeKind,
     build_window_input_scope,
+    computed_let_names,
 )
 from pietto.semantic.window_semantics import (
     NamedWindowResolutionFailure,
@@ -3705,29 +3709,37 @@ def _joined_final_fields(
     return tuple(completed), None, ()
 
 
-def joined_let_unreached_diagnostics(entry: object) -> tuple[Diagnostic, ...]:
+def joined_let_unreached_diagnostics(
+    entry: object,
+    read_types: Mapping[Expression, ValueType] | None = None,
+) -> tuple[Diagnostic, ...]:
     """`_joined_let_unreached_diagnostics` of a historical joined terminal."""
 
     if type(entry) is not ProjectEffectiveOutputTerminal or (
         type(entry.joined_completion) is not ProjectNonConcreteJoinedRowSemantics
     ):
         return ()
-    return _joined_let_unreached_diagnostics(entry.joined_completion, entry.owner)
+    return _joined_let_unreached_diagnostics(
+        entry.joined_completion, entry.owner, read_types
+    )
 
 
 def _joined_let_unreached_diagnostics(
     semantics: ProjectNonConcreteJoinedRowSemantics,
     owner: ProjectDeclarationOccurrence,
+    read_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[Diagnostic, ...]:
-    """The diagnostics of the WHERE and, in a relation without GROUP BY or
+    """The diagnostics of the WHERE, of each SELECT item that repeats an
+    earlier output name (PIE-S2305) and, in a relation without GROUP BY or
     aggregates, of each SELECT item outside a window, of a joined relation
     whose `let:` clause is not concrete and leaves them untyped, as a single
     file reports them: each is typed with the values the clause admits and the
     type every other binding without an error of its own has as written, one
-    bound to `null` (such as `k = null`) taking its type from where it stands.
-    One that reads a binding with an error of its own, a field that does not
-    resolve, or a relation, whose read types are not known here, is left to
-    those."""
+    bound to `null` (such as `k = null`) taking its type from where it stands,
+    and with ``read_types``, the owner's typed relation reads. A read of a
+    binding with an error of its own is of unknown type, and a field that does
+    not resolve is an unknown field, as without the error. One that reads a
+    field of several bindings, or a captured field, is left to those."""
 
     namespaces = semantics.namespaces
     if type(namespaces) is not ProjectNonConcreteJoinedLetNamespaces:
@@ -3742,43 +3754,46 @@ def _joined_let_unreached_diagnostics(
         **namespaces.unadmitted_value_types,
     }
     names = {occurrence.binding.name for occurrence in namespaces.occurrences}
-    clauses: list[tuple[Expression, bool]] = []
+    clauses: list[tuple[Expression, SelectItem | None]] = []
     if definition.where_clause is not None:
-        clauses.append((definition.where_clause.expression, True))
-    items = tuple(
-        item.expression
-        for item in definition.select_items
-        if type(item.expression) is not WindowExpr
-    )
-    if _mode(definition) is ProjectJoinedAggregationMode.ABSENT:
-        clauses.extend((item, False) for item in items)
+        clauses.append((definition.where_clause.expression, None))
+    clauses.extend((item.expression, item) for item in definition.select_items)
+    absent = _mode(definition) is ProjectJoinedAggregationMode.ABSENT
+    outputs: set[str] = set()
     found: list[Diagnostic] = []
-    for expression, where in clauses:
+    for expression, selected in clauses:
+        where = selected is None
+        if selected is not None:
+            found.extend(_repeated_output_name(selected, outputs))
+            if not absent or type(expression) is WindowExpr:
+                continue
         if where and contains_semantic_aggregate(expression):
             found.append(invalid_context_diagnostic(expression, context="where clause"))
         pending = [expression]
-        reads_relation = False
-        while pending and not reads_relation:
+        captured = False
+        while pending and not captured:
             node = pending.pop()
-            reads_relation = type(node) in _RELATION_READS
+            captured = type(node) is CapturedFieldExpr
             pending.extend(child_expressions(node))
-        if reads_relation:
+        if captured:
             continue
-        value_types: dict[Expression, ValueType] = {}
+        value_types = scalar_read_types_within(expression, read_types)
+        unresolved = False
         for leaf in scalar_field_reference_leaves(expression):
             if type(leaf) is NameExpr and leaf.name in names:
-                if leaf.name in known:
-                    continue
-                break
+                continue
             resolution = resolve_project_joined_scalar_reference(
                 environment,
                 ProjectScalarReferenceOccurrence(
                     environment=environment.scalar_environment, expression=leaf
                 ),
             )
-            if resolution.target is None:
+            if resolution.target is not None:
+                value_types[leaf] = resolution.target.value_type
+            elif resolution.status is ProjectModuleCandidateBucketStatus.ABSENT:
+                unresolved = True
+            else:
                 break
-            value_types[leaf] = resolution.target.value_type
         else:
             local: list[Diagnostic] = []
             value_type = infer_row_expression(
@@ -3787,8 +3802,12 @@ def _joined_let_unreached_diagnostics(
                 value_types,
                 local,
                 report_unknown_name=True,
+                # As `analyze_project_joined_namespace_expression` reports one.
+                field_qualifier="" if unresolved else None,
                 bare_value_types=known,
                 bare_value_expressions=namespaces.written_lets,
+                suppressed_unknown_names=names - set(known),
+                relation_columns=read_types,
             )
             found.extend(local)
             if (
@@ -3813,24 +3832,15 @@ def _joined_let_unreached_diagnostics(
     return tuple(found)
 
 
-_RELATION_READS = frozenset(
-    {
-        RelationScalarExpr,
-        RelationExistsExpr,
-        RelationMembershipExpr,
-        CapturedFieldExpr,
-    }
-)
-
-
 def _unreached_joined_select_diagnostics(
     completion: ProjectCompletion,
     result: ProjectNonConcreteJoinedQualify,
 ) -> tuple[Diagnostic, ...]:
     """The errors of a joined relation's WHERE that is not concrete, then those
-    of each of its SELECT items, which that WHERE leaves untyped, typed as the
-    outputs would be; in a relation with GROUP BY or aggregates the items are
-    the aggregation's. Every other stage keeps its own diagnostics."""
+    of each of its SELECT items, which that WHERE leaves unreached: a repeated
+    output name (PIE-S2305) and, in a relation without GROUP BY or aggregates,
+    the errors of the item outside a window, typed as the output would be.
+    Every other stage keeps its own diagnostics."""
 
     aggregation = result.window_stage.input_aggregation
     row_filter = aggregation.input_filter
@@ -3838,20 +3848,34 @@ def _unreached_joined_select_diagnostics(
         return ()
     owner = row_filter.entry.owner
     definition = _derived_definition(owner)
-    if _mode(definition) is not ProjectJoinedAggregationMode.ABSENT:
-        return ()
+    absent = _mode(definition) is ProjectJoinedAggregationMode.ABSENT
     read_types = _semantic_facts(completion, owner).scalar_read_types
-    return (
-        *row_filter.diagnostics,
-        *(
-            diagnostic
-            for item in definition.select_items
-            if type(item.expression) is not WindowExpr
-            for diagnostic in analyze_project_joined_namespace_expression(
-                row_filter.namespace, item.expression, read_types=read_types
-            ).diagnostics
-        ),
-    )
+    found = list(row_filter.diagnostics)
+    outputs: set[str] = set()
+    for item in definition.select_items:
+        found.extend(_repeated_output_name(item, outputs))
+        if absent and type(item.expression) is not WindowExpr:
+            found.extend(
+                analyze_project_joined_namespace_expression(
+                    row_filter.namespace, item.expression, read_types=read_types
+                ).diagnostics
+            )
+    return tuple(found)
+
+
+def _repeated_output_name(
+    item: SelectItem, outputs: set[str]
+) -> tuple[Diagnostic, ...]:
+    """PIE-S2305 when ``item`` repeats one of ``outputs``, the output names of
+    the items before it, which it joins, as `_output_names` reports it once
+    the stages before the projection complete."""
+
+    output = _projection_output_name(item)
+    if output is None:
+        return ()
+    repeated = output in outputs
+    outputs.add(output)
+    return (_duplicate_projection_diagnostic(item, output),) if repeated else ()
 
 
 def _order_direction(item: OrderItem) -> ProjectRelationOrderDirection:
@@ -4014,6 +4038,31 @@ def _joined_relation_ordering(
                     else ()
                 )
                 if len(selected_candidates) != 1:
+                    # A key that names only a SELECT output, not a window
+                    # result, is reported as a single file reports it.
+                    outputs = tuple(
+                        selected.expression
+                        for selected in definition.select_items
+                        if type(expression) is NameExpr
+                        and _projection_output_name(selected) == expression.name
+                    )
+                    if (
+                        type(expression) is NameExpr
+                        and outputs
+                        and not selected_candidates
+                        and _joined_fallback_is_absent(analysis)
+                    ):
+                        analysis = replace(
+                            analysis,
+                            diagnostics=(
+                                _order_by_output_name_diagnostic(
+                                    expression,
+                                    outputs,
+                                    RowSchema(),
+                                    aggregation.input_filter.namespace.written_lets,
+                                ),
+                            ),
+                        )
                     return ProjectNonConcreteRelationOrdering(
                         owner=owner,
                         clause=clause,
@@ -4308,6 +4357,9 @@ def _hidden_no_join_window(
         prepare_inputs=prepare_inputs,
         bare_value_types=scope.bare_value_types,
         allow_qualified_fields=scope.allows_qualified_fields,
+        computed_let_names=computed_let_names(
+            input_context.let_scope.binding_expressions
+        ),
         admission_failure=(
             _WindowComputationAdmissionFailure(
                 reason=(
@@ -4320,6 +4372,24 @@ def _hidden_no_join_window(
             else None
         ),
     )
+    if type(analysis) is WindowComputationAnalysis:
+        # A RANGE offset is checked as in a single file (PIE-S2104).
+        refused = _window_literal_range_diagnostics(
+            expression,
+            analysis,
+            scope.row_schema,
+            input_context.let_scope.binding_expressions,
+            set(),
+            units=frozenset({WindowFrameUnit.RANGE}),
+            counts=False,
+        )
+        if refused:
+            diagnostics.extend(refused)
+            analysis = WindowComputationUnsupported(
+                expression=expression,
+                identity=expression.identity,
+                reason="window RANGE offset is not a nonnegative Int literal",
+            )
     return ProjectNoJoinHiddenWindowComputation(
         scope=scope,
         expression=expression,
@@ -4840,8 +4910,11 @@ def _validate_distinct_projection(
             value_type = _window_output_value_type(source)
         else:
             raise ValueError("DISTINCT field requires an exact completed source.")
+        # A selected window reads its input with shapes typed (`_window_output_facts`).
         actual = project_row_field_to_semantic_value_type(
-            row_field, row_field.nullability
+            row_field,
+            row_field.nullability,
+            shapes=isinstance(source, ProjectModuleWindowOutputFact),
         )
         if (
             row_field.field_def is not None
@@ -6507,7 +6580,11 @@ class _CurrentJoinBuild:
             raise TypeError("Current row source lost its exact semantic result.")
         self.readiness.append(readiness)
         if isinstance(readiness, ProjectNonConcreteJoinedRowSemantics):
-            unreached = _joined_let_unreached_diagnostics(readiness, base_entry.owner)
+            unreached = _joined_let_unreached_diagnostics(
+                readiness,
+                base_entry.owner,
+                _semantic_facts(self.completion, base_entry.owner).scalar_read_types,
+            )
             return _terminal(
                 base_entry=base_entry,
                 reason=ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_TAIL_NON_CONCRETE,

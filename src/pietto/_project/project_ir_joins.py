@@ -1097,7 +1097,16 @@ def _grain(
         if source_factors is None
         else tuple(left_images[item] for item in source_factors)
     )
-    if forward_at_most_one and effective_source_factors and right_active:
+    # A JOIN that NULL-extends its left side (RIGHT, FULL) keeps every right row
+    # that matches no left row beside one NULL left part, so with NULL as a value
+    # the left side determines nothing; an aggregate that never reads such a row
+    # gets this dependency back (`project_joined_aggregation`).
+    if (
+        forward_at_most_one
+        and not left_nulling
+        and effective_source_factors
+        and right_active
+    ):
         dependencies.append(
             ProjectGrainDependencyFact(
                 determinants=effective_source_factors,

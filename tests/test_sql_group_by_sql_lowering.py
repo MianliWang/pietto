@@ -428,6 +428,184 @@ def test_postgres_group_keys_render_in_ir_source_order_with_qualified_alias() ->
     )
 
 
+_DIALECTS = (
+    ("postgres.table", emit_postgres_sql, "PostgreSQL"),
+    ("mysql.table", emit_mysql_sql, "MySQL"),
+)
+
+
+def _dialect_sql(sql: str, target: str) -> str:
+    return sql if target == "PostgreSQL" else sql.replace('"', "`")
+
+
+@pytest.mark.parametrize(("connector", "emitter", "target"), _DIALECTS)
+def test_relation_over_a_source_without_a_shape_counting_its_rows_fails_closed(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    target: str,
+) -> None:
+    result = emitter(
+        _compile_source(
+            f'source items is {connector}("shop.items")\n'
+            "query total:\n"
+            "    from items\n"
+            "    select:\n"
+            "        n = count()\n"
+            "    limit 1\n"
+            "table kinds:\n"
+            "    from items\n"
+            "    group by:\n"
+            "        kind\n"
+            "        items.shop\n"
+            "    select:\n"
+            "        kind\n"
+            "        n = count()\n"
+            "    satisfying:\n"
+            "        n > 1 and n < 10\n"
+            "query per_kind:\n"
+            "    from kinds\n"
+            "    group by: kind\n"
+            "    select:\n"
+            "        k = kinds.kind\n"
+            "        c = count()\n"
+        )
+    )
+
+    assert result.artifacts == ()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            f"{target} SQL emission is not implemented for RelationIR: {name}. "
+            + reason,
+            line,
+            1,
+        )
+        for name, reason, line in (
+            ("total", f"Unsupported {target} function identity: count", 2),
+            ("kinds", f"{target} result predicate requires a known Bool type", 7),
+            ("per_kind", f"Unsupported {target} function identity: count", 17),
+        )
+    ]
+
+
+@pytest.mark.parametrize(("connector", "emitter", "target"), _DIALECTS)
+@pytest.mark.parametrize("grouped", [False, True])
+def test_reader_of_unknown_count_output_does_not_enable_aggregate_emission(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    target: str,
+    grouped: bool,
+) -> None:
+    result = emitter(
+        _compile_source(
+            f'source items is {connector}("shop.items")\n'
+            "query q:\n    from items\n"
+            + ("    group by: kind\n" if grouped else "")
+            + "    select:\n        n = count()\n"
+            "query r:\n    from q\n    where n\n"
+            "    select:\n        m = len(n)\n"
+        )
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            f"{target} SQL emission is not implemented for RelationIR: q. "
+            f"Unsupported {target} function identity: count",
+            2,
+            1,
+        )
+    ]
+    # The partial reader artifact remains available, but q prevents success.
+    length = 'length("n")' if target == "PostgreSQL" else 'CHAR_LENGTH("n")'
+    assert [(a.name, a.sql) for a in result.artifacts] == [
+        (
+            "r",
+            _dialect_sql(f'SELECT\n    {length} AS "m"\nFROM "q"\nWHERE "n"', target),
+        )
+    ]
+
+
+@pytest.mark.parametrize(("connector", "emitter", "target"), _DIALECTS)
+def test_relation_over_a_source_without_a_shape_reading_its_fields_fails_as_before(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    target: str,
+) -> None:
+    result = emitter(
+        _compile_source(
+            f'source items is {connector}("shop.items")\n'
+            "def f(v: Text not null) -> Int not null: return len(v)\n"
+            "query a:\n"
+            "    from items\n"
+            "    where f(x) > 1\n"
+            "    select:\n"
+            "        n = count()\n"
+            "query b:\n"
+            "    from items\n"
+            "    let:\n"
+            "        x = 1\n"
+            "    where len(items.x) > x\n"
+            "    select:\n"
+            "        n = count(items.x + 1)\n"
+            "query q:\n"
+            "    from items\n"
+            "    select:\n"
+            "        o3 = sum(y - 2)\n"
+            "query r:\n"
+            "    from q\n"
+            "    select:\n"
+            "        k = count(len(o3))\n"
+            "query counted:\n"
+            "    from items\n"
+            "    group by: kind\n"
+            "    select:\n"
+            "        kind\n"
+            "        c = count(x)\n"
+            "        s = sum(x)\n"
+            "query ok:\n"
+            "    from items\n"
+            "    group by: kind\n"
+            "    select:\n"
+            "        kind\n"
+            "        n = count()\n"
+        )
+    )
+
+    # Check passes; all aggregates retain the original emission refusal.
+    def refused(name: str, function: str, line: int) -> tuple[str, str, int, int]:
+        return (
+            "PIE-B1000",
+            f"{target} SQL emission is not implemented for RelationIR: {name}. "
+            f"Unsupported {target} function identity: {function}",
+            line,
+            1,
+        )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [
+        refused("a", "count", 3),
+        refused("b", "count", 8),
+        refused("q", "sum", 15),
+        refused("r", "count", 19),
+        refused("counted", "count", 23),
+        refused("ok", "count", 30),
+    ]
+    assert result.artifacts == ()
+
+
 def _compile(path: Path) -> ScriptIR:
     return _compile_path(REPO_ROOT / path)
 
@@ -460,7 +638,10 @@ def _compile_source(source: str) -> ScriptIR:
         for diagnostic in semantic_result.diagnostics
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    # As the CLI does: the script with each `def` call inlined.
+    ir_result = build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

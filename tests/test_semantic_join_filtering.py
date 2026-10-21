@@ -356,9 +356,13 @@ def test_where_visibility_blockers_remain_complete_and_fail_closed(
     analysis = result.expression_analysis
     assert type(analysis) is namespaces.ProjectNonConcreteJoinedNamespaceExpression
     assert analysis.value_type is None
-    assert analysis.kernel_value_type is None
     assert len(analysis.blocking_resolutions) == 1
     assert analysis.blocking_resolutions[0].status is status
+    # A read of no field is an unknown field, typed around as in a single
+    # file; an ambiguous read keeps only its lookup facts.
+    ambiguous = status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+    assert (analysis.kernel_value_type is None) is ambiguous
+    assert _error_codes(result) == (() if ambiguous else ("PIE-S2102",))
     assert result.post_filter is result.preservation is None
     assert result.fields == ()
 
@@ -635,8 +639,7 @@ def test_equivalent_single_input_where_decisions_remain_compatible(
         assert public_errors == _error_codes(joined) == ()
     else:
         assert expected_code in public_errors
-        if expected_code != "PIE-S2102":
-            assert _error_codes(joined) == (expected_code,)
+        assert _error_codes(joined) == (expected_code,)
 
 
 def test_scope_dependency_spec_and_inventory_are_exact() -> None:

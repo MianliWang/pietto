@@ -9,6 +9,9 @@ from types import MappingProxyType
 from typing import cast
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
+from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleCandidateBucketStatus,
+)
 from pietto._project.project_scalar_bindings import (
     ProjectJoinedScalarBindingEnvironment,
     ProjectVisibleJoinedBinding,
@@ -500,12 +503,32 @@ class ProjectNonConcreteJoinedNamespaceExpression:
             self.reason
             is ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
         ):
+            # Reads that resolve to no field are typed around and reported by
+            # the kernel; an ambiguous read retains only its lookup facts.
+            absent = all(
+                resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
+                for resolution in expected
+            )
             if (
                 not expected
                 or self.blocking_resolutions != expected
-                or self.kernel_value_type is not None
-                or self.value_types
-                or self.diagnostics
+                or (
+                    (
+                        type(self.kernel_value_type) is not ValueType
+                        or self.value_types.get(self.expression)
+                        is not self.kernel_value_type
+                        or not any(
+                            diagnostic.severity is Severity.ERROR
+                            for diagnostic in self.diagnostics
+                        )
+                    )
+                    if absent
+                    else (
+                        self.kernel_value_type is not None
+                        or self.value_types
+                        or self.diagnostics
+                    )
+                )
             ):
                 raise ValueError(
                     "Joined reference blocker must retain only exact lookup facts."
@@ -567,7 +590,10 @@ def analyze_project_joined_namespace_expression(
         if type(resolution) is ProjectScalarReferenceResolution
         and resolution.target is None
     )
-    if blockers:
+    if any(
+        resolution.status is not ProjectModuleCandidateBucketStatus.ABSENT
+        for resolution in blockers
+    ):
         return ProjectNonConcreteJoinedNamespaceExpression(
             namespace=namespace,
             expression=expression,
@@ -580,11 +606,10 @@ def analyze_project_joined_namespace_expression(
 
     value_types = scalar_read_types_within(expression, read_types)
     for resolution in resolutions:
-        if type(resolution) is ProjectScalarReferenceResolution:
-            target = resolution.target
-            if target is None:
-                raise AssertionError("concrete joined reference lost its target")
-            value_types[resolution.reference.expression] = target.value_type
+        if type(resolution) is ProjectScalarReferenceResolution and (
+            resolution.target is not None
+        ):
+            value_types[resolution.reference.expression] = resolution.target.value_type
     diagnostics: list[Diagnostic] = []
     root_value_type = infer_row_expression(
         expression,
@@ -592,6 +617,10 @@ def analyze_project_joined_namespace_expression(
         value_types,
         diagnostics,
         report_unknown_name=True,
+        # A field read that resolves to no field stays untyped and is an
+        # unknown field, as in a relation without JOIN inputs; no binding
+        # qualifies a field here, so a dotted one is reported as a bare one is.
+        field_qualifier="" if blockers else None,
         bare_value_types={
             value.occurrence.binding.name: value.value_type
             for value in namespace.let_values
@@ -603,6 +632,19 @@ def analyze_project_joined_namespace_expression(
         relation_columns=read_types,
     )
     retained_diagnostics = tuple(diagnostics)
+    if blockers:
+        return ProjectNonConcreteJoinedNamespaceExpression(
+            namespace=namespace,
+            expression=expression,
+            resolutions=resolutions,
+            reason=(
+                ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
+            ),
+            blocking_resolutions=blockers,
+            kernel_value_type=root_value_type,
+            value_types=value_types,
+            diagnostics=retained_diagnostics,
+        )
     if root_value_type.kind is ValueTypeKind.UNKNOWN or any(
         diagnostic.severity is Severity.ERROR for diagnostic in retained_diagnostics
     ):
@@ -921,13 +963,22 @@ def build_project_joined_let_namespaces(
         blocking_resolutions.extend(local_blockers)
 
         root_type: ValueType | None = None
-        if not blocked and not local_blockers:
+        # A read that resolves to no field is an unknown field, as in
+        # `analyze_project_joined_namespace_expression`; the binding then has
+        # an error of its own and is not admitted. A read of a binding with
+        # an error of its own is of unknown type.
+        if not blocked and all(
+            resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
+            for resolution in local_blockers
+        ):
             root_type = infer_row_expression(
                 occurrence.expression,
                 RowSchema(),
                 value_types,
                 local_diagnostics,
                 report_unknown_name=True,
+                field_qualifier="" if local_blockers else None,
+                suppressed_unknown_names=all_names,
                 bare_value_types={
                     **{
                         value.occurrence.binding.name: value.value_type
@@ -941,7 +992,11 @@ def build_project_joined_let_namespaces(
         has_error = any(
             diagnostic.severity is Severity.ERROR for diagnostic in local_diagnostics
         )
-        if root_type is not None and root_type.kind is ValueTypeKind.UNKNOWN:
+        if (
+            not local_blockers
+            and root_type is not None
+            and root_type.kind is ValueTypeKind.UNKNOWN
+        ):
             unknown_types.append(occurrence)
         if (
             occurrence.binding.name not in invalid_names

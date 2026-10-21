@@ -1,4 +1,4 @@
-"""Private parse-only project check orchestration."""
+"""Private project check orchestration."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from pietto._project.model import (
     ProjectParsedInput,
     ProjectParseCheckResult,
     ProjectRoot,
+    ProjectSemanticResult,
 )
 from pietto._project.path_trust import ProjectPinnedRoot
 from pietto._project.selected_input_index import ProjectSelectedInputEntry
@@ -37,7 +38,11 @@ from pietto._project.trusted_source import (
     _load_trusted_source,
 )
 from pietto.errors import Diagnostic, Severity
-from pietto.semantic.analyzer import recursion_limit_diagnostic
+from pietto.semantic.analyzer import (
+    analyze_project_namespace,
+    name_uncallable_calls,
+    recursion_limit_diagnostic,
+)
 from pietto.semantic.inline_functions import inline_functions
 
 _PROJECT_ROOT_PATH = "."
@@ -140,6 +145,43 @@ def project_recursion_limit_diagnostic(
     )
 
 
+def check_legacy_flat_semantics(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[tuple[Diagnostic, ...], bool]:
+    """Complete a legacy-flat project check with the semantic checks.
+
+    The selected sources share one namespace, so they are analyzed as one
+    script in module order, after the project model's diagnostics, none of
+    which is repeated. A project is not held to the single-file expression
+    bound, so analysis that reaches it (PIE-S2006) adds nothing.
+    """
+
+    model = semantic_result.model
+    if model is None or not model.inputs:
+        return semantic_result.diagnostics, semantic_result.ok
+    scripts = tuple(parsed.script for parsed in model.inputs)
+    flat = replace(
+        scripts[0],
+        header=None,
+        definitions=tuple(item for script in scripts for item in script.definitions),
+        relationships=tuple(
+            item for script in scripts for item in script.relationships
+        ),
+        module_statements=tuple(
+            item for script in scripts for item in script.module_statements
+        ),
+    )
+    analyzed = analyze_project_namespace(flat).diagnostics
+    if any(diagnostic.code == "PIE-S2006" for diagnostic in analyzed):
+        return semantic_result.diagnostics, semantic_result.ok
+    reported = set(semantic_result.diagnostics)
+    diagnostics = (
+        *semantic_result.diagnostics,
+        *(diagnostic for diagnostic in analyzed if diagnostic not in reported),
+    )
+    return diagnostics, not _has_errors(diagnostics)
+
+
 def _parse_selected_input(
     pinned_root: ProjectPinnedRoot,
     selected_input: ProjectSelectedInputEntry,
@@ -218,6 +260,7 @@ def _parse_selected_input(
             # Every later reader, and the capture and header checks, see each
             # module-local def call inlined.
             script, inlined = inline_functions(script)
+            inlined = name_uncallable_calls(inlined, parse_result.ast)
         admission = inlined or (
             # Capture refusals are pre-admission diagnostics: one source
             # order with the gate's, then the header checks.

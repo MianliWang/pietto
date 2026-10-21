@@ -135,7 +135,8 @@ def test_unknown_and_invalid_computed_aliases_do_not_fake_downstream_precision()
         (
             "PIE-S2105",
             Severity.ERROR,
-            "Invalid operands for operator +: expected numeric operands",
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
         ),
     ]
     assert [diagnostic.code for diagnostic in semantic.diagnostics].count(
@@ -233,7 +234,8 @@ def test_diagnostics_keep_source_order_and_refinement_diagnostics_are_not_duplic
         (
             14,
             "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands",
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
         ),
         (15, "PIE-S2305", "Duplicate projection field: value"),
     ]

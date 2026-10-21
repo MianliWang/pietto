@@ -274,6 +274,80 @@ def test_a_built_in_call_of_null_values_is_a_condition_of_its_result_type() -> N
     ]
 
 
+def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() -> None:
+    """Over a source without a shape a built-in call whose signature fixes its
+    result type has that type wherever it is read, and each of its arguments
+    of known type is checked. Before, the call was of unknown type outside a
+    condition and an argument of unknown type hid the others: `lower(t) + 1`
+    and `matches(t, 1)` passed and PostgreSQL rejected the SQL, `where len(t)
+    + 1` passed, `substr(t, "a", 1)` reported only its bounds, and a `count`
+    output with an argument was of unknown type to `satisfying`;
+    `coalesce(t, 1, "x")` passed too, whose arguments of known type do not
+    compare. Arguments of unknown type alone stay accepted (`contains(t, u)`,
+    `year(t) + 1`, `coalesce(t, null, 1)`), and so do arguments of known type
+    that compare (`coalesce(t, 1, 2.5)`), and a read of a binding whose error
+    is reported where it is bound adds nothing."""
+    source = (
+        'source raw is postgres.table("raw")\n'
+        "table a:\n    from raw\n    where len(t) + 1\n    select:\n        id\n"
+        "table b:\n    from raw\n    select:\n"
+        "        x = lower(t) + 1\n"
+        "        y = matches(t, 1)\n"
+        '        z = substr(t, "a", 1)\n'
+        "        w = contains(t, u)\n"
+        "        v = year(t) + 1\n"
+        '        s = sign(t) + "x"\n'
+        "        r = len(t) / 2\n"
+        '        q = coalesce(t, 1, "x")\n'
+        "        o = coalesce(t, null, 1)\n"
+        "        n = coalesce(t, 1, 2.5)\n"
+        "table c:\n    from raw\n    group by: g\n    select:\n        g\n"
+        "        n = count(t)\n        m = count_distinct(t)\n"
+        "    satisfying: n and m > 1\n"
+        "table d:\n    from raw\n    let:\n        j = lower(k)\n        k = t\n"
+        "    select:\n        p = j + 1\n"
+    )
+
+    plus = (
+        "Invalid operands for operator +: expected numeric operands; "
+        "string concatenation is not supported yet"
+    )
+    assert _errors(source) == [
+        ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
+        ("PIE-S2202", 4, 11, EXPECTED_BOOL),
+        ("PIE-S2105", 10, 13, plus),
+        (
+            "PIE-S2104",
+            11,
+            13,
+            "Invalid argument type for function matches at position 2: "
+            "expected Text, got Int",
+        ),
+        (
+            "PIE-S2104",
+            12,
+            13,
+            "Invalid argument type for function substr at position 2: "
+            "expected Int, got Text",
+        ),
+        ("PIE-S2105", 15, 13, plus),
+        (
+            "PIE-S2104",
+            17,
+            13,
+            "Invalid argument types for function coalesce: expected same "
+            "canonical type",
+        ),
+        (
+            "PIE-S2105",
+            27,
+            17,
+            "Invalid operands for operator and: expected Bool operands",
+        ),
+        ("PIE-S2330", 31, 19, "Let binding cannot reference a later binding: k"),
+    ]
+
+
 def test_where_validation_does_not_mutate_input_ast() -> None:
     script = _parse(
         SOURCE + "table filtered:\n"

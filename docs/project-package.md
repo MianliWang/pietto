@@ -44,12 +44,43 @@ The modes are explicit compatibility boundaries. A newer branch does not
 silently fall back to an older catalog or source-selection path, and private
 facts do not automatically become public CLI/JSON/IR/SQL fields.
 
-A legacy-flat (`schema_version = 1`) project check does not run all the
-expression checks of explicit-module projects and single-file `check`: for
-example `Int + Text`, an invalid cast, an `Int` field compared with a text
-literal, or an unknown field of a JOIN binding can pass it. It does not check
-relationship declarations yet either. Use `schema_version = 2` for complete
-checking.
+A legacy-flat (`schema_version = 1`) project check runs the semantic checks of
+single-file `check` over its selected files, read as one file in selected
+order, so a declaration can use one of another file: `Int + Text`, an invalid
+cast, an unknown field, an invalid relationship declaration or a repeated enum
+member gets the diagnostic that a single file gets. These follow the
+diagnostics of the legacy-flat project model, which they do not repeat.
+Legacy-flat projects do not emit SQL, so the check types as an explicit-module
+check does and skips the refusals that only single-file SQL needs: a field of
+an alias of an enum is typed as that enum (so `lag` over it passes); a `let:`
+name selected unaliased (`lo` for `lo = lower(t)`), an expression past the let
+inline expansion limit (PIE-S2328), a ROWS or GROUPS frame offset other than a
+nonnegative Int literal up to 9223372036854775807, a window count literal
+above that value, an ungrouped ORDER BY key that is a bare constant other
+than an integer literal, such as `-1` or `"a"`, and a `min` or `max` whose
+argument is a `let:` name in a relation without GROUP BY (`m = max(w)` with
+`w = amount`) all pass it (the key `1` is PIE-P1000 in every check); and a
+source connector gets the diagnostics of an
+explicit-module check, without the single-file table-name checks, so
+`postgres.table("app.src.x")` and `postgres.table(app.src)` pass it while
+`postgres.table(1)` and `postgres.table("a", "b")` are PIE-S2306. As in a
+single file, an ungrouped ORDER BY key reads input fields and `let:` bindings
+but no SELECT output other than a selected window result named alone, so with
+`x = n + 1` and a window result `w` selected the key `w` passes, while
+`w + 1`, `-w`, `x` and `x + 1` are PIE-S2102. The check does not yet type what
+only explicit-module projects type: JOIN binding fields, a computed `let:`
+group key and an aggregate of a `let:` name in a relation with GROUP BY. It
+reports nothing more inside a table or query that reads a field of one of its
+JOIN bindings or reads a `let:` name in a GROUP BY key or in an aggregate of a
+relation with GROUP BY, or that reads such a relation with `from` or a JOIN,
+directly or through others, so an error there, such as `r.t + 1`, passes it.
+Analysis that reaches the single-file bound (PIE-S2006), such as an expression
+nested past 450 levels in any selected file, leaves only the project model's
+diagnostics, without PIE-S2006, as a project is not held to that bound. The
+diagnostics that a check mode selects (PIE-S2005, PIE-S2303 for a source
+without a shape, and PIE-S2304) are not reported, as project commands take no
+check mode. `emit-sql --project` and the forms that only explicit modules
+admit need `schema_version = 2`.
 
 Schema v4 has no implicit or default target or compiler profile. Package
 manifest v2 capability requirements remain owned by their declaring packages;

@@ -774,6 +774,7 @@ _REPEATED_ENUM_MEMBER_SOURCES = {
 
 def test_project_check_reports_repeated_enum_members_like_a_single_file(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     _, explicit = _semantic_project(
         tmp_path / "explicit", _REPEATED_ENUM_MEMBER_SOURCES
@@ -828,7 +829,9 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
             and item.message.startswith("Duplicate member name")
         ]
 
-    # LEGACY_FLAT checks report neither them nor shape item errors.
+    # A LEGACY_FLAT check reports them, the shape item and the relationship
+    # errors with the single-file checks of its files, after its project
+    # model's one diagnostic.
     _, legacy = _semantic_project(
         tmp_path / "legacy", _REPEATED_ENUM_MEMBER_SOURCES, schema_version=1
     )
@@ -836,6 +839,40 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
     assert _diagnostic_pairs(legacy) == (
         ("PIE-S2001", "Duplicate symbol name in type namespace: Kind"),
     )
+    command = ["check", "--project", str(tmp_path / "legacy"), "--format", "json"]
+    assert cli.main(command) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert [
+        (
+            item["code"],
+            item["message"],
+            item["location"]["path"],
+            item["location"]["line"],
+            item["location"]["column"],
+        )
+        for item in document["diagnostics"]
+    ] == [
+        (
+            "PIE-S2001",
+            "Duplicate symbol name in type namespace: Kind",
+            "b.pietto",
+            4,
+            1,
+        ),
+        ("PIE-S2001", "Duplicate member name in enum Status: active", "a.pietto", 1, 1),
+        ("PIE-S2001", "Duplicate member name in enum Status: held", "a.pietto", 1, 1),
+        ("PIE-S2502", "Unknown target field in shape C: nosuch", "a.pietto", 10, 5),
+        (
+            "PIE-S2601",
+            "Unknown relationship endpoint relation: nowhere",
+            "a.pietto",
+            13,
+            5,
+        ),
+        ("PIE-S2001", "Duplicate member name in enum Kind: x", "b.pietto", 1, 1),
+        ("PIE-S2001", "Duplicate member name in enum Kind: y", "b.pietto", 4, 1),
+        ("PIE-S2503", "Duplicate target field in unique k: id", "b.pietto", 9, 5),
+    ]
 
 
 def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(

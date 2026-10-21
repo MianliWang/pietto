@@ -37,6 +37,7 @@ from pietto.semantic.expressions import (
     _check_inlined_argument,
     _is_canonical_builtin,
     checks_inlined_arguments,
+    comparison_literals,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
@@ -421,7 +422,10 @@ def _infer_predicate(
             value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
         value_type, expected = resolved_comparison_value_type(
-            left_type, right_type, type_expansions
+            left_type,
+            right_type,
+            type_expansions,
+            comparison_literals(expression.left, expression.right, input_schema, None),
         )
         if expected is not None:
             diagnostics.append(_invalid_operands_diagnostic(expression, expected))

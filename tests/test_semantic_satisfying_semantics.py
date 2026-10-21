@@ -495,6 +495,45 @@ def test_comparison_operands_of_different_families_reuse_operator_diagnostic() -
     ]
 
 
+def test_satisfying_compares_an_enum_key_only_with_its_enum_and_labels() -> None:
+    """Before: an enum operand was not checked, so `satisfying: status == 1`
+    passed and emitted `HAVING "status" = 1`, which PostgreSQL rejects
+    (operator does not exist: status = integer)."""
+    predicates = (
+        'status == "active"',
+        'status == "gone"',
+        "status == 1",
+        "n == status",
+        "status == status",
+    )
+    result = analyze(
+        _parse(
+            "enum Status:\n    active\n    suspended\n"
+            "shape Account:\n    id: Int not null\n    status: Status not null\n"
+            'source accounts: Account is postgres.table("accounts")\n'
+            + "".join(
+                f"query q{index}:\n    from accounts\n    group by: status\n"
+                "    select:\n        status\n        n = count()\n"
+                f"    satisfying: {predicate}\n"
+                for index, predicate in enumerate(predicates)
+            )
+        )
+    )
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: expected comparable operands",
+            line,
+            17,
+        )
+        for line in (21, 28, 35)
+    ]
+
+
 def test_emit_sql_text_invalid_satisfying_fails_before_ir_and_sql(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -7016,9 +7016,15 @@ def _decode_fixed_public(document, limits):
                 }
             if name == "abs" and len(operands) == 1:
                 _need(
-                    operands[0]["tag"] == "Decimal" and not operands[0].get("null"),
+                    operands[0]["tag"] in {"Int", "Float", "Decimal"}
+                    and not operands[0].get("null"),
                     "abs operand",
                 )
+                if operands[0]["tag"] == "Int":
+                    low, high = row_interval(operands[0])
+                    return row_int(
+                        [operands[0]], max(low, -high, 0), max(-low, high), nullable
+                    )
                 return {
                     "tag": operands[0]["tag"],
                     "storage": operands[0]["storage"],

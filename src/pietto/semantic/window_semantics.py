@@ -4364,15 +4364,11 @@ class NavigationDefaultFact:
             if self.value_type.kind is not ValueTypeKind.UNKNOWN:
                 raise ValueError("NULL default must retain an unknown value type")
             return
+        # Its nullability may be unknown where the result's does not read it.
         if (
             self.value_type.kind is not ValueTypeKind.KNOWN
             or self.value_type.resolved_type.kind
             not in {TypeKind.BUILTIN, TypeKind.ENUM, TypeKind.SHAPE}
-            or self.value_type.nullability
-            not in {
-                EffectiveNullability.NON_NULL,
-                EffectiveNullability.NULLABLE,
-            }
         ):
             raise ValueError("non-NULL default value type must be concrete")
 
@@ -4554,11 +4550,6 @@ class NavigationWindowSemanticFact:
             self.value_type.kind is not ValueTypeKind.KNOWN
             or self.value_type.resolved_type.kind
             not in {TypeKind.BUILTIN, TypeKind.ENUM, TypeKind.SHAPE}
-            or self.value_type.nullability
-            not in {
-                EffectiveNullability.NON_NULL,
-                EffectiveNullability.NULLABLE,
-            }
         ):
             raise ValueError("non-NULL navigation value type must be concrete")
 

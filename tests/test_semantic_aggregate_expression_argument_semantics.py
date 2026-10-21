@@ -271,6 +271,285 @@ def test_unknown_field_leaf_suppresses_aggregate_cascade() -> None:
     assert field.nullability is EffectiveNullability.UNKNOWN
 
 
+_SHAPELESS_PREFIX = (
+    'source items is postgres.table("shop.items")\nquery q:\n    from items\n'
+)
+_COUNT_ARGUMENT_ERROR = (
+    "PIE-S2315",
+    "Aggregate function count requires a direct field argument; "
+    "expression arguments are not supported yet",
+)
+
+
+def test_counts_over_a_source_without_a_shape_keep_unknown_output_schemas() -> None:
+    result = analyze(
+        _parse(
+            'source items is postgres.table("shop.items")\n'
+            "query total:\n    from items\n    select:\n        n = count()\n"
+            "query per_kind:\n    from items\n    group by: kind\n"
+            "    select:\n        kind\n        n = count()\n"
+            "query mixed:\n    from items\n    select:\n        n = count()\n"
+            "        c = count(x)\n        d = count_distinct(lower(t))\n"
+            "        s = sum(x * 2)\n        m = min(x)\n"
+            "query grouped_mixed:\n    from items\n    group by: kind\n"
+            "    select:\n        kind\n        n = count()\n        c = count(x)\n"
+        )
+    )
+    schemas = {
+        relation.name: schema
+        for relation, schema in result.model.relation_row_schemas.items()
+    }
+
+    assert _errors(result) == []
+    assert all(schema.is_unknown for schema in schemas.values())
+    assert list(schemas["total"].fields) == ["n"]
+    assert list(schemas["mixed"].fields) == ["n", "c", "d", "s", "m"]
+    for name in ("total", "mixed"):
+        for field in schemas[name].fields.values():
+            assert field.resolved_type.kind is TypeKind.UNKNOWN
+            assert field.nullability is EffectiveNullability.UNKNOWN
+    assert schemas["per_kind"].fields == {}
+    assert schemas["grouped_mixed"].fields == {}
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> None:
+    result = analyze(
+        _parse(
+            _SHAPELESS_PREFIX
+            + "    let:\n        k = x + 1\n"
+            + ("    group by: kind\n" if grouped else "")
+            + "    select:\n"
+            + ("        kind\n" if grouped else "")
+            + '        a = min("a" == k)\n'
+            + "        b = max(k == k)\n"
+            + "        c = min(k)\n"
+            + "        d = max(len(k))\n"
+        )
+    )
+    line = 9 if grouped else 7
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == [
+        (
+            "PIE-S2314",
+            "Aggregate function min expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Bool",
+            line,
+            13,
+        ),
+        ("PIE-S2102", "Unknown field: k", line, 24),
+        (
+            "PIE-S2314",
+            "Aggregate function max expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Bool",
+            line + 1,
+            13,
+        ),
+        ("PIE-S2102", "Unknown field: k", line + 1, 17),
+        ("PIE-S2102", "Unknown field: k", line + 1, 22),
+        ("PIE-S2102", "Unknown field: k", line + 2, 17),
+        ("PIE-S2102", "Unknown field: k", line + 3, 21),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    select:\n        m = min(x + 1)\n",
+            (
+                "PIE-S2315",
+                "Aggregate function min requires a direct field argument; "
+                "expression arguments are not supported yet",
+                5,
+                13,
+            ),
+        ),
+        (
+            "    let:\n        y = x\n    select:\n        a = max(y)\n",
+            ("PIE-S2102", "Unknown field: y", 7, 17),
+        ),
+        (
+            "    let:\n        y = t\n    select:\n        a = count_distinct(lower(y))\n",
+            ("PIE-S2102", "Unknown field: y", 7, 34),
+        ),
+        (
+            "    select:\n        kind\n        m = max(x)\n",
+            (
+                "PIE-S2312",
+                "Aggregate projections cannot be mixed with non-aggregate "
+                "projections without GROUP BY",
+                6,
+                13,
+            ),
+        ),
+        (
+            "    select:\n        c = count(x, y)\n",
+            (
+                "PIE-S2309",
+                "Aggregate function count expects 0 or 1 arguments, got 2",
+                5,
+                13,
+            ),
+        ),
+        (
+            "    let:\n        y = x\n    select:\n        m = min(y, 1)\n",
+            ("PIE-S2309", "Aggregate function min expects 1 arguments, got 2", 7, 13),
+        ),
+        (
+            "    group by: kind\n    select:\n        kind\n"
+            "        d = count_distinct(x, t)\n",
+            (
+                "PIE-S2309",
+                "Aggregate function count_distinct expects 1 arguments, got 2",
+                7,
+                13,
+            ),
+        ),
+        # An argument with an error of its own has no PIE-S2309 beside it.
+        (
+            "    select:\n        c = count(other.x, y)\n",
+            ("PIE-S2102", "Unknown field: other.x", 5, 19),
+        ),
+        # A part of known type is checked as over a known row: no field type
+        # makes these arguments typed, so they are PIE-S2315 as over any.
+        (
+            '    select:\n        c = count(x + "a")\n',
+            _COUNT_ARGUMENT_ERROR + (5, 13),
+        ),
+        (
+            "    select:\n        c = count(x % 2.5)\n",
+            _COUNT_ARGUMENT_ERROR + (5, 13),
+        ),
+        (
+            "    group by: kind\n    select:\n        kind\n"
+            "        c = count(t + true)\n",
+            _COUNT_ARGUMENT_ERROR + (7, 13),
+        ),
+        (
+            '    let:\n        y = x - "a"\n    select:\n        c = count(y)\n',
+            _COUNT_ARGUMENT_ERROR + (7, 13),
+        ),
+        (
+            "    select:\n        c = count(lower(x + 1))\n",
+            _COUNT_ARGUMENT_ERROR + (5, 13),
+        ),
+        (
+            "    select:\n        c = count((x + 1) and y)\n",
+            _COUNT_ARGUMENT_ERROR + (5, 13),
+        ),
+        # A field has one type in all its reads, also through `let:` values
+        # and a qualified name: none is both the `Text` that `len` takes and
+        # a number.
+        (
+            "    select:\n        c = count(len(x) + x)\n",
+            _COUNT_ARGUMENT_ERROR + (5, 13),
+        ),
+        (
+            "    select:\n        c = count((x + 1) % len(items.x))\n",
+            _COUNT_ARGUMENT_ERROR + (5, 13),
+        ),
+        (
+            "    group by: kind\n    select:\n        kind\n"
+            "        c = count(len(t) + t)\n",
+            _COUNT_ARGUMENT_ERROR + (7, 13),
+        ),
+        (
+            "    let:\n        y = len(x) + x\n    select:\n        c = count(y)\n",
+            _COUNT_ARGUMENT_ERROR + (7, 13),
+        ),
+        (
+            "    let:\n        z = x\n        y = len(z) * z\n"
+            "    select:\n        c = count(y)\n",
+            _COUNT_ARGUMENT_ERROR + (8, 13),
+        ),
+    ],
+)
+def test_aggregate_over_a_source_without_a_shape_checks_its_argument_form(
+    body: str,
+    expected: tuple[str, str, int, int],
+) -> None:
+    result = analyze(_parse(_SHAPELESS_PREFIX + body))
+
+    # Before: each passed check and failed to emit with PIE-B1000; now each is
+    # refused as over a known row whose field types the argument's form allows.
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [expected]
+
+
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "x + 1",
+        "-x * 2.5",
+        "x % 2",
+        "x - y",
+        "x and true",
+        "len(t) + 1",
+        "lower(t)",
+        "x * x - items.x",
+        "len(t) * len(t) + x",
+        # A null has no type and takes the one its operator takes, as the
+        # database types it from the other operand.
+        "x + null",
+    ],
+)
+def test_count_over_a_source_without_a_shape_takes_literals_its_operators_take(
+    argument: str,
+) -> None:
+    result = analyze(
+        _parse(_SHAPELESS_PREFIX + f"    select:\n        n = count({argument})\n")
+    )
+    schema = result.model.relation_row_schemas[_relation(result)]
+
+    # Such a form passes as over a row of some field types; its output keeps no
+    # type, as emission refuses it as before (PIE-B1000).
+    assert _errors(result) == []
+    assert schema.fields["n"].resolved_type.kind is TypeKind.UNKNOWN
+
+
+def test_aggregate_over_a_source_without_a_shape_keeps_an_argument_error() -> None:
+    result = analyze(
+        _parse(
+            _SHAPELESS_PREFIX
+            + "    select:\n        kind\n        c = count(x and 1)\n"
+        )
+    )
+    schema = result.model.relation_row_schemas[_relation(result)]
+
+    # The argument's own error explains it, as before: no PIE-S2315 beside it,
+    # and no aggregate to mix with `kind` (PIE-S2312).
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator and: expected Bool operands",
+            6,
+            19,
+        )
+    ]
+    assert schema.fields["c"].resolved_type.kind is TypeKind.UNKNOWN
+
+
 def test_projection_alias_is_not_an_aggregate_argument_leaf() -> None:
     result = analyze(
         _parse(

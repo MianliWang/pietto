@@ -234,6 +234,133 @@ def test_unsupported_grouped_order_by_items_emit_s2321(order_item: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    select:\n        kind\n        name\n        n = count()\n",
+            ("PIE-S2318", "Grouped projection is not a GROUP BY key: name", 7, 9),
+        ),
+        (
+            "    select:\n        kind\n        u = lower(kind)\n        n = count()\n",
+            (
+                "PIE-S2319",
+                "Grouped scalar projection expressions are not supported yet",
+                7,
+                13,
+            ),
+        ),
+        (
+            "    select:\n        kind\n",
+            (
+                "PIE-S2320",
+                "Grouped output without an aggregate is not supported yet",
+                4,
+                5,
+            ),
+        ),
+        (
+            "    select:\n        kind\n        m = min(x + 1)\n",
+            (
+                "PIE-S2315",
+                "Aggregate function min requires a direct field argument; "
+                "expression arguments are not supported yet",
+                7,
+                13,
+            ),
+        ),
+    ],
+)
+def test_grouped_relation_over_a_source_without_a_shape_checks_by_field_name(
+    body: str,
+    expected: tuple[str, str, int, int],
+) -> None:
+    result = analyze(
+        _parse(
+            'source items is postgres.table("shop.items")\n'
+            "query q:\n"
+            "    from items\n"
+            "    group by: kind\n" + body
+        )
+    )
+
+    # Before: no grouping rule was checked over a row of unknown type, and SQL
+    # dropped GROUP BY (`select: kind` emitted every row) or every aggregate.
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [expected]
+
+
+@pytest.mark.parametrize("key", ["n", "name", "kind desc"])
+def test_grouped_order_by_over_a_source_without_a_shape_is_refused_whole(
+    key: str,
+) -> None:
+    result = analyze(
+        _parse(
+            'source items is postgres.table("shop.items")\n'
+            "query q:\n"
+            "    from items\n"
+            "    group by: kind\n"
+            "    select:\n        kind\n        n = count()\n"
+            f"    order by: {key}\n"
+        )
+    )
+
+    # As before, whatever the key: emission does not take such a relation.
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [
+        (
+            "PIE-S2321",
+            "Unsupported grouped ORDER BY item; expected a supported select "
+            "output name",
+            8,
+            5,
+        )
+    ]
+
+
+def test_duplicate_group_key_over_a_source_without_a_shape_is_refused() -> None:
+    result = analyze(
+        _parse(
+            'source items is postgres.table("shop.items")\n'
+            "query q:\n"
+            "    from items\n"
+            "    group by:\n"
+            "        kind\n"
+            "        items.kind\n"
+            "    select:\n"
+            "        kind\n"
+            "        n = count()\n"
+        )
+    )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [("PIE-S2317", "Duplicate GROUP BY key: items.kind", 6, 9)]
+
+
+@pytest.mark.parametrize(
     ("projection", "expected"),
     [
         (

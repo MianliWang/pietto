@@ -22,6 +22,9 @@ from pietto._project.project_joined_aggregation import (
 )
 from pietto._project.project_joined_qualify import ProjectConcreteJoinedQualify
 from pietto._project.project_join_conditions import ProjectJoinConditionCompletion
+from pietto._project.project_relationship_match_guarantees import (
+    ProjectRelationshipMaximumBound,
+)
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto._project.project_completion import ProjectEffectiveOutputTerminal
 from pietto._project.project_query_block_ir import (
@@ -380,6 +383,40 @@ def test_relationship_bounds_transfer_keys_with_exact_side_strength(
         ProjectRowUniquenessStrength.STRICT
         if kind == "right"
         else ProjectRowUniquenessStrength.LAX
+    )
+
+
+@pytest.mark.parametrize("kind", ("right", "full"))
+def test_left_nulling_match_gives_no_left_to_right_grain_dependency(
+    tmp_path: Path, kind: str
+) -> None:
+    """Each right row that matches no left row is kept beside one NULL left
+    part, so with NULL as a value the left side determines no right row: the
+    at-most-one match keeps its keys but gives no left-to-right grain
+    dependency. RIGHT keeps the reverse one, which FULL never had."""
+
+    completed = _completed(tmp_path, _unique_source(kind, None))
+    assert completed.ok, completed.diagnostics
+    (join,) = completed.effective_outputs.current_regions[0].joins
+    assert isinstance(join, ProjectCurrentBinaryJoin)
+    assert join.condition.base_guarantee is not None
+    assert (
+        join.condition.base_guarantee.maximum
+        is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    )
+    grain = join.properties.relational.grain
+    left, right = (
+        tuple(
+            factor
+            for factor in grain.active
+            if isinstance(factor, ProjectJoinGrainFactorIdentity)
+            and factor.introduction_use == use.ref
+        )
+        for use in join.input_uses
+    )
+    assert len(left) == len(right) == 1 and grain.active == (*left, *right)
+    assert [(item.determinants, item.dependents) for item in grain.dependencies] == (
+        [(right, left)] if kind == "right" else []
     )
 
 
@@ -1119,3 +1156,105 @@ def test_project_explain_keeps_schema4_and_does_not_observe_new_current_ir(
     assert cli.main(["explain", "--project", str(tmp_path)]) == 2
     captured = capsys.readouterr()
     assert "schema version 4" in captured.err
+
+
+@pytest.mark.parametrize("outer_after", (False, True))
+def test_inner_relationship_with_extra_on_retains_complete_non_null_facts(
+    tmp_path: Path, outer_after: bool
+) -> None:
+    source = (
+        "shape Row:\n    id: Int not null\n    key: Int nullable\n    unique row_key on id\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "relationship link:\n    endpoint many: rows\n    endpoint one: rows\n"
+        "    on many.key == one.id\n"
+        "query result:\n    from rows\n    inner join rows as matched:\n"
+        "        from rows\n        via link: one -> many\n        on matched.id > 0\n"
+    )
+    if outer_after:
+        source += "    right join rows as later:\n        from matched\n        via link: many -> one\n"
+    source += "    select:\n        value = matched.key\n"
+    completed = _completed(tmp_path, source)
+    assert completed.ok, completed.diagnostics
+    (region,) = completed.effective_outputs.current_regions
+    inner = region.joins[0]
+    assert isinstance(inner, ProjectCurrentBinaryJoin)
+    assert (
+        inner.right_input.fields[1].effective_nullability
+        is ProjectRowFieldNullability.NULLABLE
+    )
+    matched = inner.output.row_shape.fields[len(inner.left_input.fields) + 1]
+    assert matched.evidence.nullability is ProjectRowFieldNullability.NULLABLE
+    assert matched.effective_nullability is ProjectRowFieldNullability.NON_NULL
+    final = region.joins[-1].output.row_shape.fields[matched.field_position]
+    assert final.introduction_use is matched.introduction_use
+    assert final.effective_nullability is (
+        ProjectRowFieldNullability.NULLABLE
+        if outer_after
+        else ProjectRowFieldNullability.NON_NULL
+    )
+
+
+def test_relationship_non_null_facts_keep_exact_equivalent_field_occurrences(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "shape Row:\n    id: Int not null\n    key: Int nullable\n    unique row_key on id\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query aliased:\n    from rows\n    select:\n        id\n        key\n        sibling = key\n"
+        "relationship link:\n    endpoint many: aliased\n    endpoint one: rows\n"
+        "    on many.key == one.id\n"
+        "query result:\n    from rows\n    inner join aliased as matched:\n"
+        "        from rows\n        via link: one -> many\n        on matched.id > 0\n"
+        "    select:\n        value = matched.key\n        sibling = matched.sibling\n"
+    )
+    completed = _completed(tmp_path, source)
+    assert completed.ok, completed.diagnostics
+    (region,) = completed.effective_outputs.current_regions
+    (join,) = region.joins
+    assert isinstance(join, ProjectCurrentBinaryJoin)
+    assert any(
+        len(value_class.members) == 2 for value_class in join.right_input.value_classes
+    )
+    fields = join.output.row_shape.fields[len(join.left_input.fields) :]
+    assert tuple(field.effective_nullability for field in fields) == (
+        ProjectRowFieldNullability.NON_NULL,
+        ProjectRowFieldNullability.NON_NULL,
+        ProjectRowFieldNullability.NULLABLE,
+    )
+
+
+@pytest.mark.parametrize("unique_match", (False, True))
+def test_self_relationship_reverse_grain_uses_endpoint_identity(
+    tmp_path: Path, unique_match: bool
+) -> None:
+    source = (
+        "shape Row:\n    id: Int not null\n    key: Int nullable\n    flag: Bool not null\n"
+        "    unique row_key on id\n"
+        + ("    unique match_key on key\n" if unique_match else "")
+        + 'source agg: Row is postgres.table("agg")\n'
+        + "relationship link:\n    endpoint many: agg\n    endpoint one: agg\n"
+        "    on many.key == one.id\n"
+        "query result:\n    from agg\n    right join agg as r:\n"
+        "        from agg\n        via link: many -> one\n        on r.flag\n"
+        "    inner join agg as p:\n        from r\n        via link: one -> many\n"
+        "        on p.id > 0\n    select:\n        n = count()\n"
+    )
+    completed = _completed(tmp_path, source)
+    assert completed.ok, completed.diagnostics
+    (region,) = completed.effective_outputs.current_regions
+    right, inner = region.joins
+    assert isinstance(right, ProjectCurrentBinaryJoin)
+    assert isinstance(inner, ProjectCurrentBinaryJoin)
+    for join, expected in (
+        (right, (((1,), (0,)),)),
+        (inner, (((1,), (0,)), ((0, 1), (2,)), ((2,), (0, 1)))),
+    ):
+        grain = join.properties.relational.grain
+        positions = {factor.identity: i for i, factor in enumerate(grain.factors)}
+        assert tuple(
+            (
+                tuple(positions[f] for f in fact.determinants),
+                tuple(positions[f] for f in fact.dependents),
+            )
+            for fact in grain.dependencies
+        ) == (expected if unique_match else ())

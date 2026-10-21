@@ -151,8 +151,12 @@ def build_window_input_scope(
     let_value_types: Mapping[str, ValueType] | None = None,
     let_expressions: Mapping[str, Expression] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_extrema: bool = True,
 ) -> WindowInputScope:
-    """Build the exact transient input scope for one relation's window stage."""
+    """Build the exact transient input scope for one relation's window stage.
+
+    ``let_extrema`` is ``project_grouped_schema``'s, for a grouped relation.
+    """
 
     if type(definition) not in {TableDef, QueryDef}:
         raise TypeError("definition must be an exact TableDef or QueryDef")
@@ -176,6 +180,7 @@ def build_window_input_scope(
         let_value_types=let_value_types,
         let_expressions=let_expressions,
         type_expansions=type_expansions,
+        let_extrema=let_extrema,
     )
 
 
@@ -234,6 +239,7 @@ def _build_grouped_scope(
     let_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    let_extrema: bool,
 ) -> WindowInputScope:
     scratch_types = dict(value_types)
     _populate_aggregate_value_types(
@@ -251,6 +257,7 @@ def _build_grouped_scope(
         expression_value_types=scratch_types,
         let_expansions=let_expressions,
         type_expansions=type_expansions,
+        let_extrema=let_extrema,
     )
     output_names = tuple(
         _projection_output_name(item) for item in definition.select_items
@@ -425,6 +432,33 @@ def _group_key_identities(
         is not None
     }
     return frozenset(identities)
+
+
+def computed_let_names(let_expressions: Mapping[str, Expression]) -> frozenset[str]:
+    """The `let:` names whose value, after the bindings it names, is not a
+    field reference: a window specification that names one reads that value
+    written in its place, which is no direct field."""
+
+    # Each name is resolved once; an alias chain shares its end's answer, and
+    # a chain that meets itself again ends at no value.
+    computed: dict[str, bool] = {}
+    for name in let_expressions:
+        chain: dict[str, None] = {}
+        current = name
+        while current not in computed and current not in chain:
+            chain[current] = None
+            expression = let_expressions[current]
+            if (
+                type(expression) is not NameExpr
+                or expression.name not in let_expressions
+            ):
+                computed[current] = type(expression) not in {NameExpr, DottedNameExpr}
+                break
+            current = expression.name
+        value = computed.get(current, False)
+        for link in chain:
+            computed[link] = value
+    return frozenset(name for name, value in computed.items() if value)
 
 
 def _resolve_field_backed_let(

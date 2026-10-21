@@ -449,6 +449,17 @@ def _offset_bounds(call: WindowCallIR):
     )
 
 
+def range_offset_refusal(target_name: str) -> str:
+    """Why single-file SQL renders no RANGE frame with an offset, and the way out."""
+
+    return (
+        f"{target_name} RANGE offsets are not supported in single-file emit-sql; "
+        "use ROWS, RANGE without an offset, or emit-sql --project with a "
+        "nonnegative Int literal offset and one non-null Int ORDER key stored in "
+        "at most 32 bits"
+    )
+
+
 def _frame_is_supported(
     call: WindowCallIR,
     dialect: WindowTargetDialect,
@@ -459,7 +470,7 @@ def _frame_is_supported(
     offsets = _offset_bounds(call)
     target_name = "PostgreSQL" if dialect is WindowTargetDialect.POSTGRESQL else "MySQL"
     if frame.unit is WindowFrameUnitIR.RANGE and offsets:
-        return False, f"{target_name} RANGE offsets require Phase 64 evidence"
+        return False, range_offset_refusal(target_name)
     if dialect is WindowTargetDialect.MYSQL and frame.unit is WindowFrameUnitIR.GROUPS:
         return False, "MySQL does not support GROUPS frames"
     if any(

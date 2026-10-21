@@ -295,7 +295,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "        key = status\n"
             "    select:\n"
             "        smallest = min(key)\n",
-            "PIE-S2102",
+            "PIE-S2314",
         ),
         (
             "    from orders\n"
@@ -303,7 +303,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "        key = status\n"
             "    select:\n"
             "        largest = max(key)\n",
-            "PIE-S2102",
+            "PIE-S2314",
         ),
     ],
 )
@@ -409,7 +409,11 @@ UNAVAILABLE = (
             "    group by:\n        bucket\n    select:\n        bucket\n"
             "        total = count()\n        r = row_number() window:\n"
             "            order by:\n                bucket asc\n",
-            ("PIE-S2102", "Unknown field: bucket"),
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window order expression must be a direct field",
+            ),
         ),
         (
             "",
@@ -417,7 +421,11 @@ UNAVAILABLE = (
             "        total = count()\n        r = row_number() window:\n"
             "            partition by:\n                bucket\n"
             "            order by:\n                total asc\n",
-            ("PIE-S2102", "Unknown field: bucket"),
+            (
+                "PIE-S2103",
+                "Unsupported window computation for function row_number: "
+                "window partition expression must be a direct field",
+            ),
         ),
         (
             "        alias = bucket\n",

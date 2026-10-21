@@ -925,12 +925,7 @@ def build_row_value(
             if (expression.expression.operator == "-")
             else bounds
         )
-        storage = _arithmetic_storage(family, inner, inner)
-        checked = _checked_int(storage, low, high, nullable)
-        if checked is None and inner.binding:
-            checked = deferred_int(storage, nullable)
-        elif checked is not None:
-            checked = replace(checked, binding=inner.binding)
+        checked = _unary_int(family, inner, low, high, nullable)
         if checked is None:
             return None, ("PIE-B1002", "unary_result_outside_physical_range")
         return SQLOperation(expression, "sign", (operand,), checked), None
@@ -1045,6 +1040,17 @@ def _checked_int(storage, low, high, nullable) -> Realization | None:
         {"kind": "int_range", "min": str(low), "max": str(high)},
         (low, high),
     )
+
+
+def _unary_int(family, inner, low, high, nullable) -> Realization | None:
+    """A one-operand Int result of range ``low``..``high`` in the operand's
+    own signed integer type (unary `+`/`-` and `abs`), proved per binding
+    for a query parameter operand."""
+    storage = _arithmetic_storage(family, inner, inner)
+    checked = _checked_int(storage, low, high, nullable)
+    if checked is None and inner.binding:
+        return deferred_int(storage, nullable)
+    return None if checked is None else replace(checked, binding=inner.binding)
 
 
 def _decimal_parameters(family: str, value: Realization) -> tuple[int, int] | None:
@@ -1665,7 +1671,18 @@ def resolved_scalar_call_realization(family, symbol, tag, nullable, values):
             and tag == carrier.tag
         ):
             return Realization(tag, carrier.storage, nullable, carrier.domain), None
-    if name == "abs" and len(values) == 1 and value.tag == tag == "Decimal":
+    if name == "abs" and len(values) == 1 and value.tag == tag == "Int":
+        bounds = proven_int_bounds(value)
+        if bounds is None:
+            return None, ("PIE-B1004", "int_range_proof_missing")
+        low, high = bounds
+        checked = _unary_int(
+            family, value, max(low, -high, 0), max(-low, high), nullable
+        )
+        if checked is None:
+            return None, ("PIE-B1002", "abs_result_outside_physical_range")
+        return checked, None
+    if name == "abs" and len(values) == 1 and value.tag == tag in {"Decimal", "Float"}:
         return Realization(tag, value.storage, nullable, value.domain), None
     if (
         name == "date_of"

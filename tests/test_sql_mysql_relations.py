@@ -98,6 +98,37 @@ def test_decimal_int_membership_renders_as_written() -> None:
     assert result.diagnostics == ()
 
 
+def test_abs_of_every_numeric_type_renders_as_written() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "shape Acct:\n"
+            "    n: Int not null\n"
+            "    f: Float nullable\n"
+            "    d: Decimal(10, 2) not null\n"
+            'source accts: Acct is mysql.table("accts")\n'
+            "table q:\n"
+            "    from accts\n"
+            "    where abs(n - 1) < 3\n"
+            "    select:\n"
+            "        an = abs(n)\n"
+            "        af = abs(f)\n"
+            "        ad = abs(d)\n"
+            "        al = abs(-2)\n"
+        )
+    )
+
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n"
+        "    ABS(`n`) AS `an`,\n"
+        "    ABS(`f`) AS `af`,\n"
+        "    ABS(`d`) AS `ad`,\n"
+        "    ABS((-2)) AS `al`\n"
+        "FROM `accts`\n"
+        "WHERE ABS((`n` - 1)) < 3"
+    ]
+    assert result.diagnostics == ()
+
+
 def test_relation_reference_and_artifact_order_are_stable() -> None:
     result = emit_mysql_sql(
         _compile(

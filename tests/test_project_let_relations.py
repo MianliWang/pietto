@@ -49,43 +49,21 @@ def _check(tmp_path: Path, body: str, *, config: str = probe.CONFIG):
 LET = "    let a:\n        from lhs\n        select:\n            id\n"
 JOIN_ON = "JOIN pre-match input or relationship authority is unavailable."
 DIAGNOSTICS = {
+    # A relation whose FROM does not resolve reports only why, as in a single
+    # file; before, a PIE-S2333 at the relation followed.
     "duplicate_let": (
         "query q:\n" + LET + LET + "    from a\n    select:\n        id\n",
-        [
-            ("PIE-S2001", "Duplicate symbol name in relation namespace: a", 11, 5),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
-        ],
+        [("PIE-S2001", "Duplicate symbol name in relation namespace: a", 11, 5)],
     ),
     "module_relation": (
         "query q:\n    let lhs:\n        from rhs\n        select:\n            id\n"
         "    from lhs\n    select:\n        id\n",
-        [
-            ("PIE-S2001", "Duplicate symbol name in relation namespace: lhs", 7, 5),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
-        ],
+        [("PIE-S2001", "Duplicate symbol name in relation namespace: lhs", 7, 5)],
     ),
     "own_declaration": (
         "query q:\n    let q:\n        from rhs\n        select:\n            id\n"
         "    from q\n    select:\n        id\n",
-        [
-            ("PIE-S2001", "Duplicate symbol name in relation namespace: q", 7, 5),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
-        ],
+        [("PIE-S2001", "Duplicate symbol name in relation namespace: q", 7, 5)],
     ),
     # Only relation reads of the name resolve to nothing; the JOIN binding
     # still qualifies its own input.
@@ -102,15 +80,7 @@ DIAGNOSTICS = {
     "outside_its_declaration": (
         "query q:\n" + LET + "    from a\n    select:\n        id\n"
         "query r:\n    from a\n    select:\n        id\n",
-        [
-            ("PIE-S2301", "Unknown relation: a", 15, 5),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: r",
-                14,
-                1,
-            ),
-        ],
+        [("PIE-S2301", "Unknown relation: a", 15, 5)],
     ),
     # Another declaration's let issue never stands in for this read's own.
     "other_declarations_let_issue": (
@@ -413,12 +383,6 @@ ELSEWHERE = {
             *_unknown_to_readers("zz"),
             (
                 "PIE-S2333",
-                "Project relation semantic completion is unavailable: a",
-                18,
-                5,
-            ),
-            (
-                "PIE-S2333",
                 "Project relation semantic completion is unavailable: q",
                 17,
                 1,
@@ -473,25 +437,17 @@ def _imported(tmp_path: Path, imports: str, let: str):
         (
             "    source lhs\n    query q as other\n",
             "other",
-            [("PIE-S2001", "main.pietto", 5), ("PIE-S2333", "main.pietto", 4)],
+            [("PIE-S2001", "main.pietto", 5)],
         ),
         (
             "    source lhs\n    query nothere\n",
             "nothere",
-            [
-                ("PIE-S2705", "main.pietto", 3),
-                ("PIE-S2001", "main.pietto", 5),
-                ("PIE-S2333", "main.pietto", 4),
-            ],
+            [("PIE-S2705", "main.pietto", 3), ("PIE-S2001", "main.pietto", 5)],
         ),
         (
             "    source lhs\n    query q as x\n    source lhs as x\n",
             "x",
-            [
-                ("PIE-S2706", "main.pietto", 3),
-                ("PIE-S2001", "main.pietto", 6),
-                ("PIE-S2333", "main.pietto", 5),
-            ],
+            [("PIE-S2706", "main.pietto", 3), ("PIE-S2001", "main.pietto", 6)],
         ),
     ),
     ids=("resolved", "unknown", "ambiguous"),

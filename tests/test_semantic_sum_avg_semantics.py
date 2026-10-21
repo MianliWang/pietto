@@ -251,7 +251,11 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             "    from orders\n"
             "    select:\n"
             "        median_amount = median(amount)\n",
-            ("PIE-S2103", "Unknown function: median"),
+            (
+                "PIE-S2103",
+                "Unknown function: median; the available aggregates are avg, "
+                "count, count_distinct, max, min and sum",
+            ),
         ),
     ],
 )

@@ -1,4 +1,498 @@
-# Post-Phase70 public alpha release notes — 0.1.4
+# Pietto release notes
+
+## Unreleased: fix batch 7 following 0.1.4
+
+This unpublished addendum covers the compiler fixes following 0.1.4. It does not
+assign a new version or replace the published 0.1.4 release notes.
+
+### Checking and supported results
+
+- Known function results are checked even when an argument's type is unknown.
+  Decimal quotients and arithmetic with a NULL operand retain their numeric
+  information, so incompatible scalar calls, comparisons and conditions receive
+  specific diagnostics.
+- The existing accepted NULL-containing IN/NOT IN compatibility branch now has
+  type Bool nullable, including its supported numeric, Date/Text-literal and
+  enum-label cases. Calls such as LOWER or ABS apply the existing Bool rules.
+  Some previously accepted MySQL uses relying on implicit conversion are newly
+  refused; the owner explicitly approved that compatibility change. Operand
+  compatibility rules and unrelated Unknown operators are unchanged.
+- A specific scalar error is retained inside an aggregate when the failing
+  argument contains qualifying typed NULL arithmetic. For example,
+  `count(trim(null % n))` reports the TRIM type error rather than only an
+  unsupported-aggregate-expression error. Existing arity, bounds, def-argument
+  and independent-error precedence remains.
+- ABS accepts Int and Float as well as Decimal. Int-to-Float casts can use newly
+  known Int results. Supported non-null def bodies and value windows with a
+  provably nullable result can also be accepted in cases that previously lacked
+  enough type information.
+- Invalid qualifiers, grouped projections, aggregate forms and ORDER BY uses
+  over sources without a shape are checked earlier. The unpublished aggregate
+  emission expansion was removed: shapeless aggregate SQL, grouped-window
+  lowering and downstream output-schema/lineage remain at the 0.1.4 boundary.
+
+### JOIN proofs and metadata
+
+RIGHT/FULL unmatched rows no longer receive an unconditional grain dependency
+that can hide repeated aggregate inputs. Some programs that 0.1.4 accepted now
+receive `PIE-S2333` with a more accurate repeating-JOIN explanation and remedy.
+
+Correct existing COUNT cases retain narrowly justified proofs: an exact reverse
+INNER/SEMI match can remove the original unmatched rows, and a grouped nullable
+key can serve only the specific bounded unmatched-row proof whose full final
+non-null and cardinality premises hold. It does not become a generic group key
+for unrelated or unbounded JOINs.
+
+INNER relationship equalities retain their actual matched-field non-null facts
+even with an additional ON. Self-relationship directions use exact endpoint
+roles, and compiled field ancestry preserves the original introducing input
+through internal JOINs. Current and compiled key, FD and grain evidence follow
+the same identity rules. These metadata corrections are not limited to queries
+containing RIGHT/FULL.
+
+Composed WHERE/LET proof traversal avoids adding the two expression depths while
+preserving the values actually visited and existing short-circuit behavior.
+Project source selection and cyclic-import inspection also retain diagnostics
+instead of their documented recursion/inspection crashes.
+
+### SQL and compatibility
+
+MySQL integer division uses `DIV` where the dividend is now known Int, and
+ORDER BY fields are qualified when an unaliased TRUE/FALSE/NULL output would
+capture them. PostgreSQL's supported NULL temporal calls use a typed NULL
+instead of an unresolved EXTRACT. These are generated-SQL changes, not claims
+of new native database execution.
+
+A semantic error still prevents emission of a single file or every relation of
+an EXPLICIT_MODULES project. Newly detected errors can therefore remove partial
+or otherwise-valid sibling output.
+
+The documented conservative **D-11** fanout refusals and **D-12** typed-NULL
+refusals remain for this release, including specified programs whose old SQL was
+database-correct. Their relaxation is required after the JOIN demo; it has been
+deferred, not dropped. The restored COUNT and composed-depth cases are not
+additional exceptions under those decisions.
+
+The detailed compatibility changes follow.
+
+### Compatibility with 0.1.4: fix batch 7
+
+This is the compatibility text for the unpublished fixes following 0.1.4.
+Examples describe compiler checks, metadata and generated SQL. They do not claim
+new execution against PostgreSQL or MySQL. This batch does not introduce the
+single-file JOIN MVP or new aggregate emission over sources without a shape.
+
+#### Effect of an error on emission
+
+A new semantic error prevents SQL emission for the whole single file. Where
+0.1.4 refused one relation but still printed another relation's SQL or returned
+partial artifacts with `ok: false`, that partial output is no longer produced
+once the program fails checking.
+
+In an EXPLICIT_MODULES project, an error in any relation blocks
+`emit-sql --project` for every relation, including otherwise valid siblings.
+For example, rejecting `id in (1, "x", null)` in one query also blocks a sibling
+table that 0.1.4 could emit. This follows the existing project policy; it is an
+intentional compatibility effect, not a new project execution policy.
+
+LEGACY_FLAT projects still do not emit SQL. Their checking changes are described
+below.
+
+#### Comparisons, membership and COALESCE
+
+The same semantic type rules apply to both dialects. Programs relying on MySQL
+implicit conversion can therefore be newly refused even when their old SQL ran.
+
+- Enum values and enum aliases cannot be compared with Int, Float or Bool, a
+  different enum family, an invalid or differently cased label, or a non-literal
+  Text expression. Examples include `st == 1`, `st == other_enum`,
+  `st == "bogus"`, `st == name` and `st > upper(name)`. These report
+  `PIE-S2105`. Valid labels such as `st == "active"` and valid enum-label
+  BETWEEN bounds remain accepted; a Text conditional is not a literal label.
+- Date, Timestamp, UUID, Bytes and Json cannot be compared with non-literal Text
+  fields, calls or bindings, including BETWEEN bounds. Literal forms such as
+  `d == "2020-01-01"` retain their existing admission rules.
+- Bytes and Json comparisons with unrelated families, and shape values compared
+  with a different family or shape, report `PIE-S2105`. The existing permitted
+  Text-literal comparisons, same-shape comparisons and gradual `Any` cases remain.
+- A NULL option no longer hides an incompatible IN/NOT IN option:
+  `id in (1, "x", null)` and `id not in ("x", null, null)` report
+  `PIE-S2105`, “expected same canonical membership operands.”
+  Numeric-looking or Bool-looking Text is not automatically converted:
+  `id in ("5", null)` and `b in ("true", null)` are also refused.
+  Existing compatible lists such as `amount in (2.5, null)`,
+  `id in (2.5, null)`, `d in ("2020-01-01", null)` and valid enum-label
+  lists retain their admission rules.
+- In the existing NULL-containing membership compatibility branch, once the
+  remaining operands are accepted by the existing pairing rules, IN and NOT IN
+  now have type **Bool nullable**, rather than Unknown. This covers the accepted
+  numeric, Date/Text-literal and enum-label cases. Direct expression metadata,
+  and direct outputs on the supported typed-row path, reflect that type.
+  Surrounding calls apply the existing Bool
+  rules: `lower(d in ("2020-01-01", null))` and
+  `abs(1.5 in (null, n))` report `PIE-S2104`. This includes newly refused
+  MySQL uses that previously relied on implicit conversion, as explicitly
+  approved by the owner. Unsupported operand pairings are not admitted, and
+  unrelated Unknown operators are not retyped by this change.
+- On an unknown row, known incompatible COALESCE arguments are checked even
+  beside an unknown argument: `coalesce(t, 1, "x")` and
+  `coalesce(t, true, 1)` report `PIE-S2104`. The existing gradual case
+  `coalesce(t, 1, 2.5)` remains accepted.
+- EXPLICIT_MODULES projects apply the comparison rules to query header
+  parameters, JOIN predicates and joined result predicates as well as ordinary
+  scalar expressions. A Text header parameter is not an enum label or temporal
+  literal. Supported header parameter families remain Bool, Int, Float and Text;
+  other families retain `PIE-S2353`.
+- A def that compares a Date, Timestamp or UUID parameter with a Text parameter
+  is checked at its declaration even if every call passes a Text literal.
+  A def-body error still prevents the later call analysis.
+
+The owner retained the documented dialect-independent comparison and
+typed-result refusals for this release, including cases for which a database
+would supply a conversion.
+
+#### Fixed-signature results and numeric expressions
+
+A fixed-signature call can have a known result even when its argument's type is
+unknown: `len(t)`, `year(t)` and `count(t)` have Int results, and
+`lower(t)` has a Text result. This affects expression checking; it does not
+introduce type propagation through an unsupported shapeless relation output.
+
+Consequently, `lower(t) + 1`, `-lower(t)`, `len(t) like "a%"`,
+`lower(len(t))` and mismatched known parameters of `matches`, `contains` or
+`replace` are refused with `PIE-S2104` or `PIE-S2105`.
+A numeric result used as WHERE reports `PIE-S2202`. These checks also apply
+when the argument is an all-NULL expression or a Decimal quotient on a shaped
+row.
+
+Known result types also receive Pietto's existing stricter rules:
+`year(t) == "2020"`, `len(t) in (1.5, 2.5)`,
+`coalesce(len(t), 1.5)` and `nullif(year(t), 2.5)` can now be refused.
+A def expecting Text rejects `len(t)` with `PIE-S2395`. Unknown
+nullability alone remains gradual; it is not treated as proven NULL.
+
+Some refusals move earlier from emission to checking. These include a Text-to-
+Float cast whose argument is now known to be Text, invalid arity for `nullif`,
+unsupported aggregate expressions, and invalid uses of a COUNT result in
+`satisfying`. Their original unsupported emission capability is not added.
+
+A Decimal quotient is recognized as numeric even where its concrete numeric type
+is unknown. The rule follows direct expressions, LET bindings, COALESCE, NULLIF
+and conditionals:
+
+- A quotient in WHERE, satisfying, a shape check or an index predicate must
+  satisfy the Bool rule. Quotients used with `and`, `or`, `not` or as a
+  conditional condition are likewise checked.
+- Mixing a quotient with Text, Bool, an enum or another incompatible family in
+  arithmetic, comparison, LIKE, membership, BETWEEN or a conditional reports the
+  corresponding `PIE-S2104` or `PIE-S2105`.
+  Numeric-looking Text literals do not receive an implicit conversion.
+- Text and temporal functions reject a numeric quotient at the offending
+  parameter: for example `lower(a / 2)` and `year(a / 2)`.
+  Existing supported numeric uses of `abs`, `sign` and COALESCE remain.
+  `substr(t, a / 2, 1)` remains refused because its start is not a positive
+  Int literal; this is not a new refusal.
+- The same checks apply inside def expansions and to a field's `derive`.
+  A def call can report the expanded body's scalar errors at the call, rather
+  than one `PIE-S2395`; this existing diagnostic distinction is retained.
+- A branch known only to be numeric, with unknown concrete numeric type, can
+  no longer be combined with Text merely because the condition has silent
+  Unknown type. This includes an unknown-argument ABS result or a Decimal quotient.
+  `abs(t) if b else "x"` reports `PIE-S2105` in that situation.
+  Compatible numeric branches retain Unknown when the condition remains Unknown.
+  Ordinary cases such as `1 if b else "x"` with silent Unknown `b` retain
+  their existing gradual behavior; this is not a general conditional migration.
+
+`abs` accepts Int and Float in addition to Decimal and preserves a concrete
+argument's type and nullability. An unknown argument or Decimal quotient can
+remain numeric with unknown concrete type, so numeric contexts continue to work
+while Text and temporal calls reject it. The intermediate typing-lane refusals of
+`abs(len(t))`, `abs(t) % 2 == 1`, `abs(t) + 1.5`,
+`nn(abs(t))` and `nn(abs(amount / n))` are not retained.
+
+#### NULL-only values and typed NULL arithmetic
+
+A conditional, COALESCE or NULLIF made only of NULL values behaves like NULL
+when combined with a known typed value. For example, a Text branch beside an
+all-NULL branch yields nullable Text, and a not-null def parameter can reject
+that nullable result with `PIE-S2395`. A known incompatible type is no longer
+hidden by the all-NULL expression.
+
+PostgreSQL emission refuses an all-NULL output when another relation reads its
+relation, including a plain read, an IS NULL test or a reader that does not use
+that column, as it already did for a literal NULL output. It also refuses all-NULL
+CASE/COALESCE/NULLIF values in unsupported numeric, Bool or temporal uses within
+one relation. The diagnostic is `PIE-B1000` and explains the text typing.
+Text uses and the MySQL emission boundary retain their existing behavior;
+`nullif(null, 1)` is typed and is not an all-NULL expression.
+
+Arithmetic with one NULL operand and a known numeric operand is now typed as the
+operator's typed twin and is nullable. This includes `+`, `-`, `*`, `/`
+and `%`, and a NULL supplied by an allowed LET or inlined def value.
+Thus `null + n` is nullable Int, `null + fl` nullable Float and
+`null + d` nullable Decimal; division beside Decimal retains the existing
+numeric-but-concrete-type-unknown rule.
+
+The resulting compatibility changes include:
+
+- `lower(null + n)`, `trim(null % n)`, `len(null + n)`,
+  `year(null + n)` and `lower(null / d)` now report the scalar
+  `PIE-S2104` type error. Mixing those results with Text in COALESCE also
+  reports `PIE-S2104`.
+- Arithmetic, comparison, LIKE, IN, BETWEEN or a conditional with an
+  incompatible partner reports `PIE-S2105`. A numeric NULL expression as
+  WHERE reports `PIE-S2202`.
+- The typed twin's existing rules also reject some SQL that a database would
+  evaluate: Decimal/Float or Decimal/Int combinations outside Pietto's supported
+  rule, numeric-looking Text, incompatible canonical COALESCE/NULLIF arguments,
+  and nonmatching def parameters. Def argument messages now name the inferred
+  nullable numeric type where it is available.
+- A declared def result can now be checked against the typed NULL arithmetic
+  body. For example, an Int body declared as Text reports `PIE-S2402`.
+  Conversely, nullable-Int bodies such as `coalesce(x + null, x)`,
+  `(x + null) if x > 0 else x` and `x if x > 0 else x + null` can be
+  accepted where their result was previously unknown.
+- When a valid-arity scalar call has an actual type error caused by NULL
+  arithmetic in its failing argument, an enclosing aggregate retains that
+  specific error. `count(trim(null % n))` reports `PIE-S2104` at
+  `trim` instead of the generic aggregate-form `PIE-S2315`.
+  `count(null + n)` still reports `PIE-S2315`;
+  `count(nn(n + null))` retains its def-argument error.
+  Arity errors, substr bounds, prior independent errors, ordinary quotients and
+  unrelated NULL siblings keep their existing precedence and multiplicity.
+- The rules apply to readers of supported typed outputs and to known JOIN
+  fields. In projects, a newly exposed semantic error also blocks otherwise
+  valid siblings under the normal project policy.
+
+**D-12 is retained for this release.** It includes the documented newly refused
+uses whose old PostgreSQL or MySQL SQL was database-correct, including MySQL
+implicit conversions. The owner requires those specified database-correct
+classes to be accepted again after the JOIN demo; that work is deferred, not
+dropped.
+
+In the documented project LET/JOIN cases, typing can instead remove a check-time
+`PIE-S2333` while emission still refuses the affected relation with
+`PIE-B1003 expression_evidence_unavailable`. This covers a grouped
+null-arithmetic LET key, an ungrouped SELECT reading such a LET or LET chain,
+and null arithmetic over either a joined binding's field or the FROM binding's
+field in an ON JOIN. Valid sibling relations can then emit again.
+The direct no-LET/no-JOIN SELECT form retains its separate `PIE-S2333` boundary.
+
+`null + null` and `-null` retain their unknown-type boundary.
+PostgreSQL still refuses their unsupported emission; fix7 does not make every
+NULL-valued expression lowerable.
+
+#### Sources without a shape
+
+The retained change is earlier checking, while the released aggregate emission
+and output-schema boundaries remain.
+
+- A qualifier other than the FROM binding, or a field path with three or more
+  parts, reports `PIE-S2102` in WHERE, SELECT, ORDER BY and read LET values,
+  including a stale upstream qualifier used by a downstream relation.
+- An invalid reference in an unread LET is also reported. Dropping that LET from
+  emitted SQL no longer hides its error.
+- Grouped unknown rows are checked for a missing aggregate, a non-key projection,
+  unsupported scalar projection and duplicate keys, using the existing
+  `PIE-S2318`, `PIE-S2319`, `PIE-S2320` and `PIE-S2317` families.
+  A GROUP BY is no longer silently discarded while row-level SQL is emitted.
+- Aggregate arity, form and known argument types are checked even on an unknown
+  row. This can move a failure from `PIE-B1000` emission to checking:
+  examples include `count(x, y)`, `min(x + 1)`, `count(x + "a")`,
+  non-grouped fields beside an aggregate, and an aggregate ORDER BY input.
+  Unsupported computed LET arguments retain name/form errors. A known Bool
+  min/max error remains visible beside independent unread-name errors, with
+  their original locations, order and repeated occurrences.
+- Aggregate modulo cases such as `count(x % 2.5)` and
+  `count((x * 1.5) % 2)` remain subject to the aggregate form/type boundary;
+  a plain unknown-field `x % 2.5` is not newly refused solely for being unknown.
+- Grouped ORDER BY retains the released whole-clause `PIE-S2321` boundary.
+  Grouped windows do not gain a new lowering path.
+- Reading a single-file JOIN binding still requires the separate single-file
+  JOIN capability; this batch retains its refusal.
+
+The unpublished emission expansion was removed, including its later
+count-only/grouped subset. There is no new shapeless COUNT/COUNT DISTINCT,
+MIN/MAX/SUM/AVG, HAVING, grouped ORDER BY or grouped-window emission in this
+batch. Unknown-input ungrouped relation outputs remain unknown; grouped
+unknown-input outputs and downstream explain/lineage remain at their released
+empty/unknown boundary. Restoring these boundaries is not a new refusal
+relative to 0.1.4.
+
+#### JOIN aggregation and relation identity
+
+In projects, a RIGHT or FULL JOIN with an at-most-one match no longer supplies
+an unconditional left-to-right grain dependency over its unmatched right rows.
+An aggregate with an argument is refused with `PIE-S2333` when it can read
+repeated rows that the available key/grain proofs do not protect. A unique key
+on the NULL-extended left input alone does not fix its NULL group.
+
+Affected forms include a subsequent LEFT/CROSS JOIN from the preserved side;
+an argument such as `orders.rush or true` that is not NULL on unmatched rows;
+WHERE conditions such as `orders.amount > 0 or c.vip` or
+`orders.id is null`; and ANTI or unrelated SEMI conditions that retain those
+rows. Empty-list conditions keep their actual TRUE/FALSE behavior, including
+through LETs and NOT.
+
+Accepted proofs include an argument that is NULL on those rows, a WHERE or
+later INNER/SEMI/RIGHT match that excludes them, and the existing narrowly
+qualified later-input proof. In addition:
+
+- For the initial RIGHT/FULL over direct sources with no extra ON, a later
+  INNER/SEMI reverse match over the exact same source domain can eliminate all
+  original unmatched rows. Complete paired equalities are compared without
+  treating authored conjunct order as meaning, while their multiplicity and
+  field pairing are retained. A stricter later ON is allowed. ANTI, an extra
+  earlier ON, a different source declaration sharing a physical table name, or
+  a filtered source does not establish this proof.
+- Generic group protection remains **source STRICT-key only**. A grouped nullable
+  unique key can be used only for the exact later input that supplies the
+  existing bounded RIGHT/FULL unmatched-row proof, when every key determinant
+  is non-null in the final rows and the original pinning/cardinality premises
+  hold. It restores only that original dependency; it adds no general group
+  seed. An unrelated unbounded JOIN cannot borrow this capability.
+  Missing composite-key evidence and later outer NULL extension defeat it.
+- INNER relationship equalities contribute complete non-NULL facts even with an
+  extra ON. These facts refer to the actual matched field occurrences, not an
+  unwritten equivalent sibling; source declarations remain unchanged. A later
+  outer JOIN can NULL-extend them again.
+- A self-relationship's reverse guarantee is selected by its exact opposite
+  endpoint roles, not by the shared output object. Current and compiled keys,
+  FDs and grain retain the legitimate inverse dependencies. Compiled field
+  ancestry follows internal JOIN outputs to the original introducing use while
+  respecting named-producer boundaries.
+
+The last two corrections also affect metadata outside a RIGHT/FULL aggregate,
+including the applicable INNER/LEFT relationship paths.
+
+**D-11 is retained for this release.** Some safe programs remain conservatively
+refused because the proof does not simplify values, constants, contradictions,
+vacuous conditions or every correlation. Examples include the documented
+`where r.id is null` on a non-null CROSS input, contradictory comparisons,
+and value-dependent COALESCE/conditional/NULLIF or empty-membership forms.
+Some previously had correct VERIFIED SQL; other examples already failed
+emission. Correlated ANTI/LEFT emptiness is distinct from a value-only proof.
+
+`min`, `max` and `count_distinct` receive no general fanout exemption,
+even when repetition would leave their value unchanged. The documented
+database-correct D-11 classes remain scheduled for relaxation after the JOIN
+demo, not silently reclassified as wrong SQL.
+
+For already refused programs, `PIE-S2333` can name different repeating JOINs
+or a different remedy while keeping its code and declaration location.
+`count()` without an argument counts the joined rows and retains its separate
+rule.
+
+Composed WHERE/LET NULL proofs no longer stack the two expression depths or
+evaluate unrelated LETs speculatively. Existing short-circuit visitation is
+preserved. Very deep programs still have the existing `PIE-S2006` boundary;
+historical recursion thresholds and timing samples are not public guarantees.
+
+#### Windows and project checks
+
+- RANGE offsets must be nonnegative Int literals no greater than
+  `9223372036854775807` after permitted LET inlining. Unknown names, Text,
+  Float, NULL, fields, computed offsets and out-of-range literals report
+  `PIE-S2104`. Zero, the maximum literal and an allowed literal LET remain
+  accepted. The check applies to named/selected windows and project JOIN and
+  QUALIFY contexts.
+- Value windows can accept a known value type with unknown nullability when the
+  result is nevertheless known nullable: first/last/nth value and the admitted
+  lag/lead cases. The existing limits for offset zero or a non-null default
+  remain. Project emission still requires its target contract.
+- Project windows over supported shape-valued inputs/aliases can pass checking
+  without gaining shape SQL emission. JOIN/hidden-QUALIFY shape windows,
+  shape partition/order keys, unsupported shape LET reads and the documented
+  unknown-result-nullability cases retain their refusal boundaries.
+- An unrelated unknown-typed LET no longer blocks a project window whose actual
+  reads are supported. Some such relations still fail emission with
+  `expression_evidence_unavailable`, while valid siblings can emit.
+- LEGACY_FLAT checking reports the single-file semantic diagnostics after its
+  model diagnostics. This includes type, predicate, field, aggregate, window,
+  constraint/derive and relationship errors. SELECT-output ORDER BY keys outside
+  grouped queries receive the existing `PIE-S2102` hint to restate the
+  expression or bind it with LET. LEGACY_FLAT still refuses `def` with
+  `PIE-S2379` and emits no SQL.
+- Relationship JOIN routes through supported DISTINCT endpoints in
+  EXPLICIT_MODULES projects can plan and emit again, including inferred/explicit
+  routes and their readers, rather than failing with unavailable planning roots.
+
+#### SQL, diagnostics and metadata changes
+
+For programs accepted before and after, these generated SQL changes are
+intentional:
+
+- MySQL uses `DIV` rather than `/` where the dividend is now known Int:
+  `len(t) / 2`, admitted temporal/sign calls, a typed branch beside all-NULL
+  values, and `(null + n) / 2`. This does not introduce missing type
+  propagation through an upstream relation.
+- MySQL qualifies an ORDER BY field that an unaliased TRUE, FALSE or NULL SELECT
+  item would otherwise capture.
+- PostgreSQL emits a typed NULL for `year(null)` and the corresponding
+  month/day/hour/minute forms, including permitted LET/def NULL values, instead
+  of an unresolved EXTRACT over NULL.
+
+Other supported outcomes include Int-to-Float casts of newly known Int results,
+such as `cast(len(t) as Float)` and `cast(null + n as Float)`.
+Float-to-Float casts remain unsupported and can now fail at check rather than
+emission. Proven non-null def bodies over the supported operators can be
+accepted; `/`, `%`, `and`, `or`, `nullif` and `matches` remain
+outside that non-null proof. An all-NULL branch can establish a compatible
+nullable def result without making PostgreSQL's unsupported all-NULL emission
+valid.
+
+Project Int/Float ABS uses retain physical range requirements. A range that
+cannot establish safety blocks emission; public details include
+`abs_result_outside_physical_range` and `int_range_proof_missing`.
+A query header parameter is not newly admitted as an ABS argument.
+
+Diagnostics become more specific in several already refused cases:
+
+- Computed window partition/order LETs report the window-computation
+  `PIE-S2103` rather than a spurious unknown name. Value-window offsets,
+  defaults, unknown fields and unsupported shape equivalence keep their
+  specific existing diagnostic families.
+- Unsupported min/max LET arguments on known rows receive their actual
+  argument/type/binding diagnostic rather than an unconditional unknown name.
+- Known function results expose their own outer type errors; prior independent
+  errors and duplicate authored occurrences are retained.
+- Projects report scalar/name/duplicate-projection errors in place of a bare
+  `PIE-S2333` where those facts are available. Redundant relation-level
+  cascades and repeated reporting of the same JOIN issue are removed.
+  Identical BLOCKED entries are deduplicated in text, JSON and `compile_query`.
+- QUALIFY's single-file refusal and project configuration errors have clearer
+  suggestions. Clause-header hints are no longer added in inapplicable parser
+  contexts. ABS and def-result messages describe the supported types/proof
+  limits more accurately.
+
+Metadata reflects known fixed-signature expression results, typed nullable NULL
+arithmetic, the accepted membership branch's Bool nullable result, and the
+corrected JOIN nullability/identity facts. This does not restore the removed
+shapeless output-schema or lineage expansion.
+
+#### Retained limitations and stability
+
+Unknown types alone remain gradual. These changes do not introduce arbitrary
+casts, implicit canonical-type conversion, general computed aggregate arguments
+or unrestricted window/shape lowering.
+
+A value known only as numeric with unknown concrete type can still lose that
+numeric marker at an existing relation-output boundary. The batch does not
+introduce general propagation through those boundaries. The documented
+known-row unknown-field aggregate forms remain separately limited; removing the
+unpublished shapeless capability does not make those forms newly lowerable.
+
+Project selection with deeply nested include/exclude patterns or paths no longer
+ends in RecursionError, and ambiguous declarations in an import cycle retain
+their diagnostics instead of crashing inspection. The new NULL analysis
+preserves established LET-cycle diagnostics and shared-DAG behavior.
+
+Development-tool and CI pin updates do not define new SQL, diagnostic, JSON or
+golden behavior.
+
+---
+
+## Post-Phase70 public alpha release notes — 0.1.4
 
 **Status:** These notes cover the `0.1.4` public-alpha candidate. A release is
 established only when the accepted wheel and sdist are available from both the
@@ -15,7 +509,7 @@ or mean something else; see
 [Compatibility and retained data](#compatibility-and-retained-data). Pietto
 remains an alpha; the CLI does not execute database queries.
 
-## Highlights
+### Highlights
 
 - **Python-style layout.** `select:`, `select distinct:`, `group by:`,
   `order by:`, `partition by:`, the row `let:` and `enum NAME:` take their
@@ -67,7 +561,7 @@ remains an alpha; the CLI does not execute database queries.
   and expansion size), PIE-S2380 (an ORDER BY key a target would misread) and
   PIE-S2604 (a relationship `on` operand error).
 
-## Compatibility and retained data
+### Compatibility and retained data
 
 - Bundles and saved jobs made by 0.1.3 or earlier are rejected by the 0.1.4
   code identity. Pietto neither migrates nor rewrites those bytes; use their
@@ -296,7 +790,7 @@ remains an alpha; the CLI does not execute database queries.
   Repeated or abbreviated `--format` and `--project` options are resolved as
   argparse resolves them, so `--form json` is no longer ignored.
 
-## Included repairs
+### Included repairs
 
 Compiler:
 
@@ -368,7 +862,7 @@ CLI:
 - Windows: trusted project reads no longer refuse unchanged files because of
   ctime, and directory junctions are refused like symbolic links.
 
-## Known limitations
+### Known limitations
 
 - The release target is compiler and package coverage on CPython 3.12 and
   3.13 for Linux x86-64; the support boundary is established by formal
@@ -477,7 +971,7 @@ CLI:
   bits or its ACL entries; the write check uses the real user, so root can
   still replace a read-only output.
 
-## Support and release boundary
+### Support and release boundary
 
 The [language guide](language.md) is the reference for the forms above; its
 [Layout](language.md#layout) and
@@ -487,7 +981,7 @@ is addressed in a later version; any PyPI yank remains an owner action.
 
 ---
 
-# Phase70 public alpha release notes — 0.1.3
+## Phase70 public alpha release notes — 0.1.3
 
 **Status:** These notes describe `0.1.3`, published and byte-verified on the
 versioned GitHub pre-release and PyPI channels.
@@ -496,7 +990,7 @@ versioned GitHub pre-release and PyPI channels.
 projects (`schema_version = 2`). Pietto remains an alpha; the CLI still has no
 database-execution command.
 
-## New capabilities
+### New capabilities
 
 - **Relation lets.** `let NAME:` at the start of a table or query body declares
   a local relation whose body is FROM-based, a set operation or a typed VALUES
@@ -682,7 +1176,7 @@ database-execution command.
   table function before any workspace access (`PIE-R1004`,
   `PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS`).
 
-## Refusals and limits
+### Refusals and limits
 
 The new forms are available only in EXPLICIT_MODULES projects. Single-file
 analysis and LEGACY_FLAT projects keep refusing them with the temporary
@@ -734,7 +1228,7 @@ Known limitations of this release:
   emission contract that also describes a source the query does not read,
   which `emit-sql --project` accepts; describe only the query's sources.
 
-## Included repairs
+### Included repairs
 
 - A module import cycle in an explicit-module project no longer crashes the
   project check, `emit-sql --project` or `compile_query`; it is reported as
@@ -761,7 +1255,7 @@ Known limitations of this release:
   limit with `PIE-R1004` (`REFINEMENT_RESOURCE_LIMIT`) before workspace access
   or a connection.
 
-## Compatibility and retained data
+### Compatibility and retained data
 
 Bundles and saved jobs produced by `0.1.2` are refused under `0.1.3` by code
 identity. Pietto neither migrates nor rewrites them; keep the matching old
@@ -780,7 +1274,7 @@ extension's owner, and this release adds no stable editor API.
 Target-conformance receipt v3 stores each public emission document once. It is
 test and CI evidence only, not a query, bundle or saved-job format.
 
-## Support and release boundary
+### Support and release boundary
 
 The release target is compiler and package coverage on CPython 3.12 and 3.13
 for Linux x86-64. That support boundary is established only by acceptance of
@@ -793,13 +1287,13 @@ GitHub pre-release.
 
 ---
 
-# Phase69 public alpha release notes — 0.1.2
+## Phase69 public alpha release notes — 0.1.2
 
 These notes describe `0.1.2`. Its versioned GitHub pre-release and PyPI listing
 determine release availability. The historical `0.1.1` wheel and `v0.1.1`
 assets are not replaced.
 
-## Public alpha API
+### Public alpha API
 
 - `pietto.execution` exposes explicit `postgres_rows` for PostgreSQL 18.6,
   `mysql_rows` for MySQL 8.4.12, and `postgres_adbc` for PostgreSQL 18.6.
@@ -824,7 +1318,7 @@ assets are not replaced.
   in later alpha releases; existing compiler and CLI contracts remain separate.
   The CLI still has no database-execution command.
 
-## Compatibility and retained data
+### Compatibility and retained data
 
 The installed Pietto and ANTLR code identity is checked for compile, bundle
 load, and execution. The `0.1.2` version update changes the CLI fallback version,
@@ -833,7 +1327,7 @@ record made under `0.1.1` can therefore be refused under `0.1.2`. Pietto
 preserves the original bytes and does not migrate them; use the matching old
 environment when the old state must remain usable.
 
-## Support and durability limits
+### Support and durability limits
 
 Only CPython 3.13.13 on Linux x86-64, with the lock's exact artifacts on the
 qualified integration host, has native evidence for all three routes. Windows
@@ -854,7 +1348,7 @@ requirement for every source in compiled order, including guarded and refined
 sources. A saved close only resumes or awaits bounded cleanup; until it
 settles, remote state is `UNKNOWN` and no acknowledgement is claimed.
 
-## Included compiler and CLI repairs
+### Included compiler and CLI repairs
 
 - A single leading UTF-8 BOM is ignored without changing parsed AST or source
   locations; a second or non-leading BOM remains invalid, and the original
@@ -869,7 +1363,7 @@ settles, remote state is `UNKNOWN` and no acknowledgement is claimed.
   implicit conversion. This does not change the existing SQL three-valued
   behavior for comparisons with `null`.
 
-## Attribution and release boundary
+### Attribution and release boundary
 
 `THIRD_PARTY_NOTICES.md` records unbundled runtime and execution dependencies
 and separates wheel/sdist material from the GitHub source archive.

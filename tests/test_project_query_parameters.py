@@ -581,10 +581,7 @@ def test_a_relation_let_or_block_body_never_reads_a_parameterized_query(
         "    select:\n"
         "        id\n"
     )
-    assert _check(_project(tmp_path / "hiding", hiding)) == (
-        1,
-        [("PIE-S2001", 7, 5), ("PIE-S2333", 6, 1)],
-    )
+    assert _check(_project(tmp_path / "hiding", hiding)) == (1, [("PIE-S2001", 7, 5)])
 
 
 LET_INPUT = (

@@ -217,6 +217,60 @@ def test_existing_relation_name_that_is_not_input_fails_as_qualifier() -> None:
     ] == [("PIE-S2102", "Unknown field: orders.email")]
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    where item.price < 10\n    select:\n        id\n",
+            [("Unknown field: item.price", 4, 11)],
+        ),
+        (
+            "    select:\n        v = items.a.b\n        w = other.a\n",
+            [("Unknown field: items.a.b", 5, 13), ("Unknown field: other.a", 6, 13)],
+        ),
+        (
+            "    group by: item.cost\n    select:\n        n = count()\n",
+            [("Unknown field: item.cost", 4, 15)],
+        ),
+        (
+            "    select:\n        n = count(public.items.x)\n",
+            [("Unknown field: public.items.x", 5, 19)],
+        ),
+        (
+            "    select:\n        id\n    order by: other.id\n",
+            [("Unknown field: other.id", 6, 15)],
+        ),
+    ],
+)
+def test_invalid_qualified_references_fail_closed_over_a_source_without_a_shape(
+    body: str,
+    expected: list[tuple[str, int, int]],
+) -> None:
+    parse_result = parse_source(
+        'source items is postgres.table("shop.items")\n'
+        "query q:\n"
+        "    from items\n" + body,
+        path="qualified.pietto",
+    )
+    assert parse_result.diagnostics == ()
+    assert parse_result.ast is not None
+
+    semantic = analyze(parse_result.ast)
+
+    # Before: a row of unknown type also hid its input's name, so check passed
+    # and the SQL named a FROM entry that does not exist.
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in semantic.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == [("PIE-S2102", message, line, column) for message, line, column in expected]
+
+
 def test_connector_dotted_call_remains_static_connector_metadata() -> None:
     script, semantic, script_ir = _compile(_source("postgres.table", "public.users"))
     source_ast = cast(SourceDef, script.definitions[1])

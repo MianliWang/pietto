@@ -530,6 +530,51 @@ def test_a_def_belongs_to_its_module(
     ]
 
 
+def _uncallable(path: str, line: int, column: int, name: str, kind: str):
+    return (
+        "PIE-S2103",
+        path,
+        line,
+        column,
+        f"Unknown function: {name}; {name} is a {kind}, which cannot be called; "
+        "write a `def` instead",
+    )
+
+
+def test_a_call_of_a_modules_own_constraint_or_derive_says_it_cannot_be_called(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    declared = DEF_HEAD + (
+        'constraint valid(x: Text not null) -> Bool not null:\n    x like "%a%"\n'
+        "derive normalized(x: Text not null) -> Text not null:\n    lower(x)\n"
+        "export:\n    source rows\n"
+        "query q:\n    from rows\n    where valid(text)\n    select:\n        id\n"
+        "        m = normalized(text)\n"
+    )
+    # Another module does not declare the name, so it is only unknown there.
+    caller = (
+        'import "a.pietto":\n    source rows\n'
+        "query t:\n    from rows\n    where valid(text)\n    select:\n        id\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": declared, "b.pietto": caller}) == [
+        _uncallable("a.pietto", DEF_LINE + 8, 11, "valid", "constraint"),
+        _uncallable("a.pietto", DEF_LINE + 11, 13, "normalized", "derive"),
+        ("PIE-S2103", "b.pietto", 5, 11, "Unknown function: valid"),
+    ]
+
+
+def test_a_def_body_call_of_a_derive_says_it_cannot_be_called(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = DEF_HEAD + (
+        "derive normalized(x: Text not null) -> Text not null:\n    lower(x)\n"
+        "def f(x: Text not null) -> Text not null: return normalized(x)\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        _uncallable("a.pietto", DEF_LINE + 2, 50, "normalized", "derive")
+    ]
+
+
 def _mismatch(name: str, line: int, column: int, expected: str, got: str):
     return (
         "PIE-S2395",
@@ -710,7 +755,10 @@ def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_e
     lower_of_int = (
         "Invalid argument type for function lower at position 1: expected Text, got Int"
     )
-    not_numeric = "Invalid operands for operator +: expected numeric operands"
+    not_numeric = (
+        "Invalid operands for operator +: expected numeric operands; "
+        "string concatenation is not supported yet"
+    )
     written_in = spelling["I1"] != "i1"
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
         ("PIE-S2105", "a.pietto", DEF_LINE + 5, 14, not_numeric),

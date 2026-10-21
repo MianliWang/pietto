@@ -102,15 +102,20 @@ Current comparison handling is not Date/Timestamp-specific.
 
 The comparison family check in `operator-comparison-matrix-contract-v1.md`
 places `Date` and `Timestamp` in one temporal family. Known temporal operands
-compared with each other or with `Text` return `Bool UNKNOWN`; known temporal
-operands compared with numeric, `Bool`, or `UUID` operands report `PIE-S2105`
-and produce unknown value type. Current `between` handling applies the same
+compared with each other, or with a `Text` literal or a `let:` name bound to
+one, return `Bool UNKNOWN`; known temporal operands compared with numeric,
+`Bool`, `UUID`, `Bytes` or `Json` operands, an enum or a shape, or with any
+other `Text` operand, such as a field
+or a call (since a later defect fix), report `PIE-S2105` and produce unknown
+value type. Current `between` handling applies the same
 check to each bound and returns `Bool UNKNOWN` when all child value types are
 known and accepted.
 
 `Bool UNKNOWN` is Pietto `EffectiveNullability.UNKNOWN`: the value type is
 known to be `Bool`, but compile-time nullability is not proven. It is not SQL
-three-valued logic `UNKNOWN`.
+three-valued logic `UNKNOWN`. A `def` body check proves a comparison or
+`between` of `NON_NULL` operands `Bool NON_NULL`, as the operator and
+comparison matrix states.
 
 Slice 5 does not define a Date/Timestamp-specific comparison compatibility
 matrix, does not add temporal comparison rules, does not add casts, does not

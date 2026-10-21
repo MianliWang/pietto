@@ -1,5 +1,23 @@
 # Roadmap
 
+## Follow-up after the single-file JOIN demo
+
+The post-0.1.4 stability repair temporarily retains two conservative refusal
+classes. After the JOIN demo, restore acceptance for the cases whose previous
+SQL runs correctly:
+
+- D-11: the documented sound outer-JOIN aggregate cases, including those whose
+  0.1.4 project emission was VERIFIED. Preserve the protection against real
+  fan-out; restore the missing proofs for the sound cases.
+- D-12: the documented NULL-arithmetic cases that PostgreSQL or MySQL execute
+  correctly. Preserve rejection of ill-typed expressions while recovering
+  these accepted uses.
+
+These are deferred commitments, not dropped work or permission to restore
+incorrect SQL. The Pietto lead owns their follow-up after the JOIN demo;
+this stability batch does not implement that relaxation.
+
+
 Pietto is a readable, typed, modular SQL authoring compiler. Future work must
 be selected by current user/product need, not by an inherited phase number.
 Every substantive slice begins by identifying its authority roots, current

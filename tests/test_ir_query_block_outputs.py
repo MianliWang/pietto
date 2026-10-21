@@ -732,6 +732,78 @@ def test_every_clause_of_a_relation_reports_its_own_errors(
     ),
     ids=("on", "relationship", "none"),
 )
+def test_a_repeated_output_name_is_pie_s2305_after_the_clauses_before_it(
+    tmp_path: Path, join: str
+) -> None:
+    """A SELECT item that repeats an earlier output name is PIE-S2305 at the
+    item, after the errors of the clauses and items before it, as in a single
+    file, with or without JOIN inputs, also when a `let:` clause that is not
+    concrete or has an error, or a WHERE with an error, stops the relation.
+    Before, each such relation reported a bare PIE-S2333 or only the other
+    errors."""
+    queries = (
+        "    let:\n        k = null\n    select:\n        id\n        id = n\n",
+        "    let:\n        l1 = lower(1)\n    select:\n        id\n        id = n\n",
+        "    where lower(3) is not null\n    select:\n        x = lower(2)\n"
+        "        x = n\n",
+        "    let:\n        k = null\n    group by:\n        id\n    select:\n"
+        "        id\n        id = count()\n",
+        "    where lower(3) is not null\n    group by:\n        id\n    select:\n"
+        "        id\n        id = count()\n",
+    )
+    text = _STAGE_ERRORS_SOURCE + "".join(
+        f"query q{ordinal}:\n    from src\n{join}{body}"
+        for ordinal, body in enumerate(queries)
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(text, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    lines = text.splitlines()
+
+    def at(query: int, fragment: str) -> int:
+        start = lines.index(f"query q{query}:")
+        return (
+            start
+            + 1
+            + next(
+                index for index, line in enumerate(lines[start:]) if fragment in line
+            )
+        )
+
+    lower = (
+        "PIE-S2104",
+        "Invalid argument type for function lower at position 1: expected Text, "
+        "got Int",
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        ("PIE-S2305", "Duplicate projection field: id", at(0, "id = n"), 9),
+        (*lower, at(1, "l1 = lower(1)"), 14),
+        ("PIE-S2305", "Duplicate projection field: id", at(1, "id = n"), 9),
+        (*lower, at(2, "where lower(3)"), 11),
+        (*lower, at(2, "x = lower(2)"), 13),
+        ("PIE-S2305", "Duplicate projection field: x", at(2, "x = n"), 9),
+        ("PIE-S2305", "Duplicate projection field: id", at(3, "id = count()"), 9),
+        (*lower, at(4, "where lower(3)"), 11),
+        ("PIE-S2305", "Duplicate projection field: id", at(4, "id = count()"), 9),
+    ]
+
+
+@pytest.mark.parametrize(
+    "join",
+    (
+        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
+        "    inner join oth as r\n",
+        "",
+    ),
+    ids=("on", "relationship", "none"),
+)
 def test_a_where_beside_a_binding_error_is_a_condition_of_its_call_type(
     tmp_path: Path, join: str
 ) -> None:
@@ -770,6 +842,94 @@ def test_a_where_beside_a_binding_error_is_a_condition_of_its_call_type(
             "Expected Bool expression in where clause",
             lines.index("    where len(coalesce(null, null))") + 1,
             11,
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "join",
+    (
+        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
+        "    inner join oth as r\n",
+    ),
+    ids=("on", "relationship"),
+)
+def test_joined_reads_of_relations_bindings_and_unknown_fields_report_their_errors(
+    tmp_path: Path, join: str
+) -> None:
+    """In a relation with JOIN inputs, a WHERE or SELECT item that reads a
+    relation, a binding with an error of its own or a field that does not
+    resolve reports its own errors beside a `let:` error, and a field that
+    does not resolve is PIE-S2102 at the read, also in a `let:` binding, as
+    in a single file; an ORDER BY key that names only a SELECT output gets
+    the single-file hint. Before, each was hidden behind the binding's error,
+    and without one the relation reported a bare PIE-S2333."""
+    let = "    let:\n        l1 = lower(1)\n"
+    queries = (
+        let + "    where exists oth and lower(3) is not null\n    select:\n"
+        '        id\n        e = lower(2) if exists oth else "x"\n',
+        let + "    where coalesce(l1, lower(3)) is not null\n    select:\n"
+        "        id\n        o = coalesce(l1, lower(2))\n",
+        let + "    where nosuch == 1 and lower(3) is not null\n    select:\n"
+        "        id\n        o = coalesce(nosuch, lower(2))\n",
+        "    where nosuch == 1\n    select:\n        id\n        o = r.nosuch\n",
+        "    let:\n        l = nosuch\n        m = r.nosuch + 1\n    where l == 1\n"
+        "    select:\n        id\n",
+        "    select:\n        id\n        o = id\n    order by:\n        o\n",
+    )
+    text = _STAGE_ERRORS_SOURCE + "".join(
+        f"query q{ordinal}:\n    from src\n{join}{body}"
+        for ordinal, body in enumerate(queries)
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(text, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    lines = text.splitlines()
+
+    def at(query: int, fragment: str) -> int:
+        start = lines.index(f"query q{query}:")
+        return (
+            start
+            + 1
+            + next(
+                index for index, line in enumerate(lines[start:]) if fragment in line
+            )
+        )
+
+    lower = (
+        "PIE-S2104",
+        "Invalid argument type for function lower at position 1: expected Text, "
+        "got Int",
+    )
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ] == [
+        (*lower, at(0, "l1 = lower(1)"), 14),
+        (*lower, at(0, "where exists"), 26),
+        (*lower, at(0, "e = lower(2)"), 13),
+        (*lower, at(1, "l1 = lower(1)"), 14),
+        (*lower, at(1, "where coalesce"), 24),
+        (*lower, at(1, "o = coalesce"), 26),
+        (*lower, at(2, "l1 = lower(1)"), 14),
+        ("PIE-S2102", "Unknown field: nosuch", at(2, "where nosuch"), 11),
+        (*lower, at(2, "where nosuch"), 27),
+        ("PIE-S2102", "Unknown field: nosuch", at(2, "o = coalesce"), 22),
+        (*lower, at(2, "o = coalesce"), 30),
+        ("PIE-S2102", "Unknown field: nosuch", at(3, "where nosuch"), 11),
+        ("PIE-S2102", "Unknown field: r.nosuch", at(3, "o = r.nosuch"), 13),
+        ("PIE-S2102", "Unknown field: nosuch", at(4, "l = nosuch"), 13),
+        ("PIE-S2102", "Unknown field: r.nosuch", at(4, "m = r.nosuch"), 13),
+        (
+            "PIE-S2102",
+            "Unknown field: o; outside a grouped query an ORDER BY key cannot "
+            "name a SELECT output (restate its expression or bind it in `let:`)",
+            at(5, "order by:") + 1,
+            9,
         ),
     ]
 

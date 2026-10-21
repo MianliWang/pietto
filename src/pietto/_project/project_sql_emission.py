@@ -288,23 +288,26 @@ def _location(value):
 
 
 def _failure(outcome):
+    # Two producers may refuse the same subject at the same place for the same
+    # reason; the document lists each blocker once, at its first position.
+    blockers = {}
+    for blocker in outcome.blockers:
+        item = {
+            "code": blocker.code,
+            "reason": CODES[blocker.code],
+            "subject": {
+                "reference": _ref(blocker.subject),
+                "detail": blocker.detail,
+            },
+            "location": _location(blocker.location),
+            "related": [_location(location) for location in blocker.related],
+        }
+        blockers.setdefault(canonical(item), item)
     return {
         "format": FORMAT,
         "status": outcome.status,
         "artifact": None,
-        "blockers": [
-            {
-                "code": blocker.code,
-                "reason": CODES[blocker.code],
-                "subject": {
-                    "reference": _ref(blocker.subject),
-                    "detail": blocker.detail,
-                },
-                "location": _location(blocker.location),
-                "related": [_location(location) for location in blocker.related],
-            }
-            for blocker in outcome.blockers
-        ],
+        "blockers": list(blockers.values()),
         "diagnostics": [asdict(d) for d in outcome.diagnostics],
         "cli_errors": [asdict(error) for error in outcome.cli_errors],
     }

@@ -98,7 +98,8 @@ def syntax_diagnostics(
         diagnostics.append(
             availability_diagnostic(
                 definition.distinct_clause.span,
-                "Relational DISTINCT requires explicit-module completed semantics.",
+                f"SELECT DISTINCT is available only when {_EXPLICIT_MODULES} "
+                "completes it.",
             )
         )
     return tuple(diagnostics)

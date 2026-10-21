@@ -90,14 +90,17 @@ def scalar_read_types_within(
 def project_row_field_to_semantic_value_type(
     field: ProjectRowField,
     effective_nullability: ProjectRowFieldNullability,
+    *,
+    shapes: bool = False,
 ) -> ValueType:
-    """Adapt one exact Project field occurrence for the semantic type kernel."""
+    """Adapt one exact Project field occurrence for the semantic type kernel,
+    a shape too with ``shapes`` (`project_row_schema_to_semantic_row_schema`)."""
 
     if type(field) is not ProjectRowField:
         raise TypeError("Project field adaptation requires an exact row field.")
     if type(effective_nullability) is not ProjectRowFieldNullability:
         raise TypeError("Project field adaptation requires exact nullability.")
-    resolved_type = _semantic_resolved_type(field.resolved_type)
+    resolved_type = _semantic_resolved_type(field.resolved_type, shapes=shapes)
     if resolved_type.kind is TypeKind.UNKNOWN:
         return _UNKNOWN_PROJECT_FIELD_VALUE_TYPE
     return ValueType(
@@ -204,35 +207,44 @@ def reports_unfit_def_argument(
 
 def project_row_schema_to_semantic_row_schema(
     input_schema: ProjectRowSchema,
+    *,
+    shapes: bool = False,
 ) -> RowSchema:
-    """Convert a private project row schema into semantic row-schema facts."""
+    """Convert a private project row schema into semantic row-schema facts.
+
+    With ``shapes``, as for the input of a selected window, a field of a shape
+    is typed as that shape, as in a single file; elsewhere its type is unknown.
+    """
 
     fields: dict[str, RowField] = {}
     for name, field in input_schema.fields.items():
         fields[name] = RowField(
             name=name,
-            resolved_type=_semantic_resolved_type(field.resolved_type),
+            resolved_type=_semantic_resolved_type(field.resolved_type, shapes=shapes),
             nullability=_semantic_nullability(field.nullability),
             definition=field.field_def,
         )
     return RowSchema(fields=fields)
 
 
-def _semantic_resolved_type(resolved_type: ProjectResolvedType) -> ResolvedType:
+def _semantic_resolved_type(
+    resolved_type: ProjectResolvedType, *, shapes: bool = False
+) -> ResolvedType:
     if (
         resolved_type.kind is ProjectResolvedTypeKind.BUILTIN
         and resolved_type.name in _PROJECT_BUILTIN_TYPE_NAMES
     ):
         return ResolvedType(name=resolved_type.name, kind=TypeKind.BUILTIN)
-    if (
-        resolved_type.kind is ProjectResolvedTypeKind.ENUM
-        and resolved_type.symbol is not None
-    ):
-        # An enum, also through an alias of it, is that enum, as in a single
-        # file.
+    kind = {
+        ProjectResolvedTypeKind.ENUM: TypeKind.ENUM,
+        ProjectResolvedTypeKind.SHAPE: TypeKind.SHAPE if shapes else None,
+    }.get(resolved_type.kind)
+    if kind is not None and resolved_type.symbol is not None:
+        # An enum or shape, also through an alias of it, is that declaration,
+        # as in a single file.
         return ResolvedType(
             name=resolved_type.name,
-            kind=TypeKind.ENUM,
+            kind=kind,
             definition=resolved_type.symbol.definition,
         )
     return ResolvedType(name=resolved_type.name, kind=TypeKind.UNKNOWN)

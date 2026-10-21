@@ -541,7 +541,20 @@ ENUM_JOINED_READS = {
     ),
     "select_comparison": ("", '        v = c.status != "active"\n', []),
     "let_test": ("    let:\n        v = c.status is not null\n", "", []),
-    "order_comparison": ("", '    order by:\n        c.status >= "b"\n', []),
+    "order_comparison": ("", '    order by:\n        c.status >= "active"\n', []),
+    # Before: a literal that is not a label of the enum was not checked.
+    "order_comparison_not_a_label": (
+        "",
+        '    order by:\n        c.status >= "b"\n',
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator >=: expected comparable operands",
+                25,
+                9,
+            )
+        ],
+    ),
     "group_key": (ENUM_GROUPED, "        n = count()\n", []),
     "where_in": (
         '    where c.status in ("active")\n',
@@ -556,7 +569,23 @@ ENUM_JOINED_READS = {
             )
         ],
     ),
-    "where_between": ('    where c.status between "a" and "z"\n', "", []),
+    "where_between": (
+        '    where c.status between "active" and "suspended"\n',
+        "",
+        [],
+    ),
+    "where_between_not_labels": (
+        '    where c.status between "a" and "z"\n',
+        "",
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator between: expected comparable operands",
+                22,
+                11,
+            )
+        ],
+    ),
     "where_not_like": (
         '    where c.status not like "a%"\n',
         "",

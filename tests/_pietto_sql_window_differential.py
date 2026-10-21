@@ -21,6 +21,12 @@ SEEDS = ("0", "1", "7", "4294967295")
 SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 
 
+# The single-file refusal of a RANGE frame with an offset, for one target.
+_RANGE_OFFSET = (
+    "{} RANGE offsets are not supported in single-file emit-sql; use ROWS, RANGE "
+    "without an offset, or emit-sql --project with a nonnegative Int literal "
+    "offset and one non-null Int ORDER key stored in at most 32 bits"
+)
 # Filled from one reviewed predecessor observation; every matrix member must
 # consume this unchanged rather than regenerating an environment-local oracle.
 EXPECTED_COMMON_MANIFEST: dict[str, object] = {
@@ -238,18 +244,18 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         [
             "postgres_range_offset",
             "not_lowerable",
-            "PostgreSQL RANGE offsets require Phase 64 evidence",
-            [["frame_shape", "PostgreSQL RANGE offsets require Phase 64 evidence"]],
+            _RANGE_OFFSET.format("PostgreSQL"),
+            [["frame_shape", _RANGE_OFFSET.format("PostgreSQL")]],
             [
                 {
                     "code": "PIE-B1000",
                     "severity": "error",
                     "message": "PostgreSQL SQL emission is not implemented for RelationIR: result. "
-                    "PostgreSQL RANGE offsets require Phase 64 evidence",
+                    + _RANGE_OFFSET.format("PostgreSQL"),
                     "location": ["postgres_range_offset.pietto", 6, 1, 13, 26],
                 }
             ],
-            "f00690f9ac383af9eb951272e6100f708ef80d6053b10ccde033e3500664d359",
+            "5fd8a2370954cde63bf1239ab88d437b2c3207c63fbccee94a0742a8d6d3fc5f",
         ],
         [
             "mysql_groups",
@@ -318,18 +324,18 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         [
             "mysql_range_offset",
             "not_lowerable",
-            "MySQL RANGE offsets require Phase 64 evidence",
-            [["frame_shape", "MySQL RANGE offsets require Phase 64 evidence"]],
+            _RANGE_OFFSET.format("MySQL"),
+            [["frame_shape", _RANGE_OFFSET.format("MySQL")]],
             [
                 {
                     "code": "PIE-B1000",
                     "severity": "error",
-                    "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
-                    "RANGE offsets require Phase 64 evidence",
+                    "message": "MySQL SQL emission is not implemented for RelationIR: result. "
+                    + _RANGE_OFFSET.format("MySQL"),
                     "location": ["mysql_range_offset.pietto", 6, 1, 13, 26],
                 }
             ],
-            "292338d4f530084c8bb8bf9be520b04144d941a66456ca747269463f34b8c206",
+            "f50199d97604b1ffd0cf6a68fc338247303039fb750547a96132a75745c33ca2",
         ],
     ],
     "negative_project": {
@@ -428,8 +434,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
             "",
         ],
     ],
-    "observation_sha256": "c6cec55f171e7b16435564dbbfe0a08d949f5e0deb02ae5cdc5b88915052f5d7",
-    "observation_size": 46892,
+    "observation_sha256": "57ecb4c1735bbb5c1a20baddc8a01f0ed445d83819326465e2a352cdfcaf4285",
+    "observation_size": 48244,
 }
 
 

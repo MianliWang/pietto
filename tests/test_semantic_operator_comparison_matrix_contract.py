@@ -67,7 +67,11 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
         ("amount * price", "*", "numeric operands"),
         ("score + price", "+", "numeric operands"),
         ("price - score", "-", "numeric operands"),
-        ("status + status", "+", "numeric operands"),
+        (
+            "status + status",
+            "+",
+            "numeric operands; string concatenation is not supported yet",
+        ),
         ("active * amount", "*", "numeric operands"),
         ("score % amount", "%", "Int operands"),
         ("amount % score", "%", "Int operands"),
@@ -191,24 +195,36 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
 
 def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None:
     """A null operand of `+`, `-`, `*`, `/` or `%` takes the other operand's
-    type, which the operator must take, and the expression stays of unknown
-    type. Before, a null operand switched the operand check off, so
-    `status + null` passed and emitted SQL that PostgreSQL rejects."""
-    for expression in (
-        "amount + null",
-        "null - score",
-        "price * null",
-        "amount % null",
-        "null / price",
-        "null + null",
-        "-null",
+    type, which the operator must take, and the expression, always null, is
+    of the type the operator gives two operands of that type (a quotient with
+    a `Decimal` operand has none). Before, a null operand switched the operand
+    check off, so `status + null` passed and emitted SQL that PostgreSQL
+    rejects; and the expression stayed of unknown type, so `trim(null % f)`
+    passed too."""
+    for expression, type_name in (
+        ("amount + null", "Int"),
+        ("null - score", "Float"),
+        ("price * null", "Decimal"),
+        ("amount % null", "Int"),
     ):
+        value, diagnostics = expression_facts(expression)
+        assert (value.kind, value.resolved_type.name, value.nullability) == (
+            ValueTypeKind.KNOWN,
+            type_name,
+            EffectiveNullability.NULLABLE,
+        ), expression
+        assert diagnostics == (), expression
+    for expression in ("null / price", "null + null", "-null"):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
         assert diagnostics == (), expression
 
     for expression, operator, expected in (
-        ("status + null", "+", "numeric operands"),
+        (
+            "status + null",
+            "+",
+            "numeric operands; string concatenation is not supported yet",
+        ),
         ("null - active", "-", "numeric operands"),
         ("order_date * null", "*", "numeric operands"),
         ("score % null", "%", "Int operands"),
@@ -259,6 +275,52 @@ def test_membership_mixes_decimal_with_int_as_its_comparisons_do() -> None:
                 "expected same canonical membership operands",
             ),
         ), expression
+
+
+def test_a_null_option_hides_no_option_the_value_does_not_compare_with() -> None:
+    # Before: a null that operands of two types left untyped made the whole
+    # list of unknown type, so these passed `check` and PostgreSQL rejected
+    # `"id" IN (1, 'x', NULL)` (invalid input syntax for type bigint: "x").
+    # An option the value does not compare with is now refused beside such a
+    # null; one of the value's family that only the list rule refuses keeps
+    # the list of unknown type, as PostgreSQL runs `"amount" IN (2.5, NULL)`,
+    # and a null among options of one type is still typed by them.
+    source = (
+        "shape Row:\n    id: Int not null\n    amount: Decimal(12, 2) not null\n"
+        "    ratio: Float nullable\n    label: Text nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query q:\n    from rows\n    let:\n        k = null\n"
+        '    where id in ("x", null)\n'
+        "    select:\n"
+        '        a = id in (1, "x", null)\n'
+        "        b = amount in (2.5, null)\n"
+        "        c = ratio not in (1, null, null)\n"
+        '        d = id in ("x", k)\n'
+        '        e = label in ("a", null)\n'
+        "        f = amount in (1, null)\n"
+        "        g = id in (k, 2)\n"
+    )
+    script = parse_source(source).ast
+    assert script is not None
+    result = analyze(script)
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            f"Invalid operands for operator {operator}: "
+            "expected same canonical membership operands",
+            line,
+            column,
+        )
+        for operator, line, column in (
+            ("in", 11, 11),
+            ("in", 13, 13),
+            ("in", 16, 13),
+        )
+    ]
 
 
 _ALIAS_TYPES = (

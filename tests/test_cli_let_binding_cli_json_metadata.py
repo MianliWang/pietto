@@ -217,7 +217,7 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
             "        gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
-            "PIE-S2102",
+            "PIE-S2315",
         ),
         (
             "    from orders\n"
@@ -393,7 +393,7 @@ def test_unsupported_let_explain_json_fails_without_metadata(
     assert document["ok"] is False
     assert "metadata" not in document
     assert cast(dict[str, object], document["error"])["stage"] == "semantic"
-    assert "PIE-S2102" in [diagnostic["code"] for diagnostic in diagnostics]
+    assert "PIE-S2315" in [diagnostic["code"] for diagnostic in diagnostics]
     assert "let_scopes" not in json.dumps(document)
 
 

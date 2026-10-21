@@ -725,6 +725,38 @@ def test_single_file_join_binding_fields_say_why_they_are_unknown(
     ]
 
 
+def test_single_file_join_binding_read_over_sources_without_a_shape_fails() -> None:
+    semantic = analyze(
+        _parse(
+            'source orders is postgres.table("orders")\n'
+            'source customers is postgres.table("customers")\n'
+            "query joined:\n"
+            "    from orders\n"
+            "    inner join customers as customer:\n"
+            "        from orders\n"
+            "    select:\n"
+            "        id\n"
+            "        n = customer.name\n"
+        )
+    )
+
+    # Before: check passed and emission refused the JOIN with PIE-I1000. A
+    # target without a shape has no field known to it, so the message is bare.
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [
+        ("PIE-S2303", "Source orders has no bound shape; row schema is unknown", 1, 1),
+        (
+            "PIE-S2303",
+            "Source customers has no bound shape; row schema is unknown",
+            2,
+            1,
+        ),
+        ("PIE-S2102", "Unknown field: customer.name", 9, 13),
+    ]
+
+
 _SINGLE_FILE_JOIN_PREFIX = """shape ARow:
     id: Int not null
     b_id: Int not null

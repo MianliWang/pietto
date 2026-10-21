@@ -56,7 +56,11 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, SPECIAL_BUILTIN_FUNCTION_NAMES
-from pietto.semantic.expressions import always_null, infer_row_expression
+from pietto.semantic.expressions import (
+    DefBodyTypes,
+    always_null,
+    infer_row_expression,
+)
 from pietto.semantic.window_semantics import WINDOW_FUNCTION_NAMES
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -964,10 +968,13 @@ def _callee_order(defined: dict[str, FunctionDef]) -> list[FunctionDef]:
 def _check_body(
     function: FunctionDef, body: Expression, found: list[Diagnostic]
 ) -> None:
-    """Type the expanded body over the declared parameters. Its canonical type
-    is the declared result type, and it is never null when that says so. A
-    body that is always null fits only a nullable result; a body whose type
-    stays unknown without an error fits none."""
+    """Type the expanded body over the declared parameters, each argument of
+    a call in it fitting its parameter as it does anywhere else. Its canonical
+    type is the declared result type, and it is never null when that says so:
+    typed again, a comparison, `between` or `+`, `-`, `*` of non-null operands
+    is non-null (`DefBodyTypes`). A body that is always null fits only a
+    nullable result; a body whose type stays unknown without an error fits
+    none."""
 
     schema = RowSchema(
         fields={
@@ -1021,10 +1028,36 @@ def _check_body(
     elif (
         expected.nullability is EffectiveNullability.NON_NULL
         and actual.nullability is not EffectiveNullability.NON_NULL
+        and infer_row_expression(
+            body, schema, DefBodyTypes(), [], report_unknown_name=True
+        ).nullability
+        is not EffectiveNullability.NON_NULL
     ):
-        message = (
-            f"Def {function.name} body may be null, but its declared return "
-            "type is not null"
+        if actual.nullability is EffectiveNullability.NULLABLE and always_null(body):
+            # Such as `x + null`, typed as `x + x` is.
+            found.append(
+                _diagnostic(
+                    "PIE-S2402",
+                    f"Def {function.name} body is always null, but its declared "
+                    "return type is not null",
+                    function.body.span,
+                )
+            )
+            return
+        if actual.nullability is EffectiveNullability.NULLABLE:
+            message = (
+                f"Def {function.name} body may be null, but its declared return "
+                "type is not null"
+            )
+        else:
+            # Unknown nullability: the checker does not prove it either way.
+            message = (
+                f"Def {function.name} body is not proven non-null, but its "
+                "declared return type is not null; declare the result `nullable`"
+            )
+        message += (
+            "; a body is proven non-null when every value it reads is non-null, "
+            "except through `/`, `%`, `and`, `or`, `nullif` or `matches`"
         )
     else:
         return

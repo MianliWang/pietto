@@ -13,7 +13,7 @@ from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._project.project_table_function import table_function_diagnostics
 from pietto._project.project_values import ProjectValuesRelation, values_diagnostics
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, is_dataclass
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
@@ -97,7 +97,7 @@ from pietto._project.row_dependency_graph import (
 )
 from pietto._project.window_persistence import (
     _final_schema as _final_window_schema,
-    _window_enum_types,
+    _window_declared_types,
     _window_fact_matches_source,
 )
 from pietto._project.window_semantics import (
@@ -176,10 +176,12 @@ from pietto.semantic.model import (
 )
 from pietto.semantic.expressions import (
     _check_inlined_argument,
+    _window_literal_range_diagnostics,
     infer_row_expression,
     unknown_explained,
 )
 from pietto.semantic.predicate_checks import _check_bool_expression
+from pietto.semantic.relation_schemas import _duplicate_projection_diagnostic
 from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.nullability_formulas import SignatureResultFormula
 from pietto.semantic.window_analysis import (
@@ -2077,7 +2079,7 @@ def _reduce_window_outputs_to_state(
             definition=definition,
             base_schema=base_schema,
             window_result_facts=concrete_facts,
-            enum_types=_window_enum_types(input_schema),
+            declared_types=_window_declared_types(input_schema),
         )
         return ProjectRelationRowSchemaState(
             status=ProjectRelationRowSchemaStatus.CONCRETE,
@@ -2328,12 +2330,14 @@ def _expected_window_dependency_target(
             None,
         )
     let_scope = relation.let_scope_facts
+    # A binding of known type, also beside one that is not (`_window_let_facts`).
     if (
         type(direct_source) is NameExpr
         and let_scope is not None
-        and let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
         and direct_source.name in let_scope.binding_expressions
-        and direct_source.name in let_scope.value_types
+        and (let_type := let_scope.binding_value_types.get(direct_source.name))
+        is not None
+        and let_type.kind is ValueTypeKind.KNOWN
     ):
         return (
             ProjectRowDependencyNode(
@@ -3854,8 +3858,19 @@ def _select_facts(
     )
     facts: list[ProjectModuleSelectFact] = []
     contexts: list[ProjectModuleSelectExpressionFact] = []
+    output_names: set[str] = set()
     for ordinal, item in enumerate(definition.select_items):
-        expression_diagnostics: list[Diagnostic] = []
+        output_name = _projection_output_name(item)
+        # An item that repeats an earlier output name is PIE-S2305 there, ahead
+        # of its expression's errors, as in a single file; JOIN completion
+        # reports its own.
+        expression_diagnostics: list[Diagnostic] = (
+            [_duplicate_projection_diagnostic(item, output_name)]
+            if output_name in output_names and not definition.join_clauses
+            else []
+        )
+        if output_name is not None:
+            output_names.add(output_name)
         retained_types = expression_types
         if (
             input_schema is not None
@@ -3894,7 +3909,6 @@ def _select_facts(
                     if diagnostic.code != "PIE-S2102"
                 ]
             retained_types = failed_types
-        output_name = _projection_output_name(item)
         selected = (
             None
             if schema is None or output_name is None
@@ -4740,6 +4754,55 @@ def _window_project_targets(
     return tuple(targets)
 
 
+# The value or default of a window lacks a concrete type (`window_navigation_analysis`).
+_WINDOW_VALUE_TYPE_REASONS = frozenset(
+    {
+        "navigation value type must be concrete",
+        "navigation default type must be concrete",
+        "frame-value input type must be concrete",
+    }
+)
+
+
+def _analyze_window_reading_shapes(
+    input_schema: ProjectRowSchema | None,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    analyze: Callable[
+        [SemanticRowSchema], WindowExpressionAnalysis | WindowExpressionUnsupported
+    ],
+) -> tuple[SemanticRowSchema, WindowExpressionAnalysis | WindowExpressionUnsupported]:
+    """Analyze one selected window over its input, which types a field of a
+    shape as unknown, as other project reads do. Where then only the window's
+    value or default lacks a concrete type, analyze it again with each shape
+    field typed as its shape, as in a single file, so `lag(payload)` gives a
+    column of that shape while a partition or order by a shape field stays
+    PIE-S2103 (V-03P)."""
+
+    if input_schema is None:
+        semantic_input = SemanticRowSchema(is_unknown=True)
+        return semantic_input, analyze(semantic_input)
+    semantic_input = project_row_schema_to_semantic_row_schema(input_schema)
+    diagnostics_before, value_types_before = len(diagnostics), dict(value_types)
+    analysis = analyze(semantic_input)
+    if not (
+        isinstance(analysis, WindowExpressionUnsupported)
+        and analysis.reason in _WINDOW_VALUE_TYPE_REASONS
+        and any(
+            field.resolved_type.kind is ProjectResolvedTypeKind.SHAPE
+            for field in input_schema.fields.values()
+        )
+    ):
+        return semantic_input, analysis
+    del diagnostics[diagnostics_before:]
+    value_types.clear()
+    value_types.update(value_types_before)
+    semantic_input = project_row_schema_to_semantic_row_schema(
+        input_schema, shapes=True
+    )
+    return semantic_input, analyze(semantic_input)
+
+
 def _window_output_facts(
     *,
     owner: ProjectDeclarationOccurrence,
@@ -4778,9 +4841,8 @@ def _window_output_facts(
     if base_schema is None or base_schema.is_unknown:
         raise ValueError("Concrete window base state requires a concrete schema.")
 
-    semantic_input = project_row_schema_to_semantic_row_schema(input_schema)
     named_windows = _named_windows_by_name(definition)
-    enum_types = _window_enum_types(input_schema)
+    declared_types = _window_declared_types(input_schema)
     outputs: list[ProjectModuleWindowOutputFact] = []
     for ordinal, item in window_items:
         expression = cast(WindowExpr, item.expression)
@@ -4790,21 +4852,45 @@ def _window_output_facts(
         let_values, let_expressions, quiet = _window_let_facts(
             let_scope, named_windows, expression
         )
-        analysis = analyze_window_expression(
-            definition=definition,
-            item=item,
-            selected_output_ordinal=ordinal,
-            source_id=source_id,
-            input_schema=semantic_input,
-            field_qualifier=definition.from_clause.source_name,
-            value_types=value_types,
-            diagnostics=diagnostics,
-            let_value_types=let_values,
-            let_expressions=let_expressions,
-            named_window_namespace=named_window_namespace,
+        semantic_input, analysis = _analyze_window_reading_shapes(
+            input_schema,
+            value_types,
+            diagnostics,
+            lambda schema: analyze_window_expression(
+                definition=definition,
+                item=item,
+                selected_output_ordinal=ordinal,
+                source_id=source_id,
+                input_schema=schema,
+                field_qualifier=definition.from_clause.source_name,
+                value_types=value_types,
+                diagnostics=diagnostics,
+                let_value_types=let_values,
+                let_expressions=let_expressions,
+                named_window_namespace=named_window_namespace,
+            ),
         )
         if quiet:
             analysis = _quiet_let_reading_window(analysis, diagnostics)
+        elif type(analysis) is WindowExpressionAnalysis:
+            # A RANGE offset is checked as in a single file (PIE-S2104).
+            refused = _window_literal_range_diagnostics(
+                expression,
+                analysis,
+                semantic_input,
+                let_expressions or {},
+                set(),
+                units=frozenset({ast.WindowFrameUnit.RANGE}),
+                counts=False,
+            )
+            if refused:
+                diagnostics.extend(refused)
+                analysis = WindowExpressionUnsupported(
+                    occurrence=analysis.semantic_fact.occurrence,
+                    expression=expression,
+                    identity=expression.identity,
+                    reason="window RANGE offset is not a nonnegative Int literal",
+                )
         analysis = _project_window_analysis_boundary(item, analysis)
         signature = _find_window_signature(capabilities, expression.identity)
         project_fact: WindowResultProjectFact | None = None
@@ -4858,7 +4944,7 @@ def _window_output_facts(
                     selected_output_ordinal=ordinal,
                     source_id=source_id,
                     input_schema=input_schema,
-                    enum_types=enum_types,
+                    declared_types=declared_types,
                     base_schema=base_schema,
                     upstream_symbol=upstream_symbol,
                     let_scope_facts=let_scope,
@@ -4924,10 +5010,11 @@ def _window_let_facts(
     """The `let:` types and values a window computation reads, and whether its
     diagnostics are left out. A concrete scope gives every binding. In one
     whose let analysis ran but that has a binding of unknown type (such as
-    `k = null`) or with an error of its own, a computation that reads no
-    binding is analyzed as in a concrete one; one that reads a binding is not
-    analyzed, and the relation fails closed with the binding's own error or
-    PIE-S2333. Elsewhere no binding was analyzed."""
+    `k = null`) or with an error of its own, a computation that reads no such
+    binding is analyzed as in a concrete one, with the type of each binding
+    of known type; one that reads such a binding is not analyzed, and the
+    relation fails closed with the binding's own error or PIE-S2333.
+    Elsewhere no binding was analyzed."""
 
     if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE:
         return let_scope.value_types, let_scope.binding_expressions, False
@@ -4939,6 +5026,7 @@ def _window_let_facts(
     }:
         return None, None, False
     names = {binding.name for binding in let_scope.bindings}
+    reads_binding = False
     pending: list[object] = [expression.call.arguments, expression.spec]
     # A named use reads the window it names and that window's bases.
     window_names = [] if expression.base is None else [expression.base.name]
@@ -4956,7 +5044,10 @@ def _window_let_facts(
         node = pending.pop()
         if type(node) is NameExpr:
             if node.name in names:
-                return None, None, True
+                value_type = let_scope.binding_value_types.get(node.name)
+                if value_type is None or value_type.kind is not ValueTypeKind.KNOWN:
+                    return None, None, True
+                reads_binding = True
         elif type(node) is tuple:
             pending.extend(node)
         elif is_dataclass(node) and not isinstance(node, type):
@@ -4966,6 +5057,8 @@ def _window_let_facts(
                 if item.name != "span"
                 and not (type(node) is CallExpr and item.name == "callee")
             )
+    if reads_binding:
+        return let_scope.binding_value_types, let_scope.binding_expressions, False
     return MappingProxyType({}), MappingProxyType({}), False
 
 
@@ -4993,32 +5086,33 @@ def _unavailable_window_outputs(
             ProjectModuleCandidateBucketStatus.BLOCKED
         ),
     }[state.status]
-    semantic_input = (
-        SemanticRowSchema(is_unknown=True)
-        if input_schema is None
-        else project_row_schema_to_semantic_row_schema(input_schema)
-    )
     named_windows = _named_windows_by_name(definition)
     outputs: list[ProjectModuleWindowOutputFact] = []
     for ordinal, item in enumerate(definition.select_items):
         if type(item.expression) is not WindowExpr:
             continue
         diagnostics: list[Diagnostic] = []
+        value_types: dict[Expression, ValueType] = {}
         let_values, let_expressions, quiet = _window_let_facts(
             let_scope, named_windows, item.expression
         )
-        analysis = analyze_window_expression(
-            definition=definition,
-            item=item,
-            selected_output_ordinal=ordinal,
-            source_id=item.expression.span.path or owner.identity.module_path,
-            input_schema=semantic_input,
-            field_qualifier=definition.from_clause.source_name,
-            value_types={},
-            diagnostics=diagnostics,
-            let_value_types=let_values,
-            let_expressions=let_expressions,
-            named_window_namespace=named_window_namespace,
+        _, analysis = _analyze_window_reading_shapes(
+            input_schema,
+            value_types,
+            diagnostics,
+            lambda schema: analyze_window_expression(
+                definition=definition,
+                item=item,
+                selected_output_ordinal=ordinal,
+                source_id=item.expression.span.path or owner.identity.module_path,
+                input_schema=schema,
+                field_qualifier=definition.from_clause.source_name,
+                value_types=value_types,
+                diagnostics=diagnostics,
+                let_value_types=let_values,
+                let_expressions=let_expressions,
+                named_window_namespace=named_window_namespace,
+            ),
         )
         if quiet:
             analysis = _quiet_let_reading_window(analysis, diagnostics)

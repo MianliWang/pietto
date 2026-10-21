@@ -153,11 +153,17 @@ Current behavior, recorded after this scope lock: projection aliases are still
 output names only, so naming one in a later SELECT item or in an aggregate
 argument reports `PIE-S2102`. In single-file mode an aggregate argument that
 names a row `let:` binding is checked as the bound expression for `count`,
-`count_distinct`, `sum` and `avg`, while `min` and `max` of a `let:` name
-report `PIE-S2102`. Declared type aliases are no longer limited to direct input
-fields: in single-file mode an arithmetic, `not`, `and`/`or`, comparison,
-`between` or `in` operand and an aggregate argument read a type alias, an alias
-chain included, as the builtin type it expands to (see the
+`count_distinct`, `sum` and `avg`, while `min` and `max` accept no `let:` name:
+over an input row of known shape the argument of one that is a whole aliased
+SELECT item and reads a `let:` name is `PIE-S2315`, also where it is accepted
+with each name's value written in place (`max(w)` with `w = n`), unless it is
+`PIE-S2314` or reports only the errors of its bindings, and over a row of
+unknown shape it reads the name as a column of that row (see the
+[language reference](../language.md#aggregates-and-grouping)). Declared
+type aliases are no longer limited to direct input fields: in single-file mode
+an arithmetic, `not`, `and`/`or`, comparison, `between` or `in` operand and an
+aggregate argument read a type alias, an alias chain included, as the builtin
+type it expands to (see the
 [operator and comparison matrix](operator-comparison-matrix-contract-v1.md)).
 The [language reference](../language.md) covers the remaining positions.
 

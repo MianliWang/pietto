@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 from antlr4 import CommonTokenStream, InputStream
 
+import pietto.errors as errors
 import pietto.parser_api as parser_api
 from pietto.ast_builder import AstBuilder
 from pietto.errors import ParseCancelled
@@ -237,6 +238,16 @@ _ORDER = (
     "windows, satisfying:, qualify:, order by: and limit in that order."
 )
 _SHAPE = 'shape R:\n    a: Int not null\nsource r: R is postgres.table("r")\n'
+_SUBQUERY = (
+    "A subquery is not written in parentheses: declare it as a relation let "
+    "`let x:` at the start of the body and read it with `in x`, `exists x` or "
+    "`scalar x.c` (EXPLICIT_MODULES projects)."
+)
+_QUALIFY_BLOCK = "Write the `qualify:` condition in an indented block on the next line."
+_FROM = (
+    "A FROM reads a named relation: declare a subquery as a relation let `let x:` "
+    "at the start of the body and write `from x` (EXPLICIT_MODULES projects)."
+)
 
 
 def _query(body: str) -> str:
@@ -419,6 +430,20 @@ PRESENTATION_CASES = {
             )
         ],
     ),
+    "qualify_header_without_colon": (
+        _query(
+            "    select:\n        a\n        n = row_number() window:\n"
+            "            order by: a\n    qualify n <= 3\n"
+        ),
+        # A `qualify:` body is an indented block only: the qualify hint, not
+        # the clause-header hint.
+        [(10, 13, "Unexpected 'n'; expected ':'. " + _QUALIFY_BLOCK)],
+    ),
+    # Inside parentheses a header word heads no clause.
+    "header_word_inside_parentheses": (
+        _query("    select:\n        a\n        x = (let k = 1)\n"),
+        [(8, 18, "Unexpected 'k'; expected ')'.")],
+    ),
     "expression_set_and_line_break_hint": (
         _query("    where a > 1 and\n    select: a\n"),
         [
@@ -525,6 +550,113 @@ PRESENTATION_CASES = {
             ),
         ],
     ),
+    # A SQL subquery, CTE or VALUES list points to the Pietto project form.
+    "sql_subqueries_point_to_relation_lets": (
+        _query("    with x as (from r)\n    select: a\n")
+        + "query q2:\n    from (select a from r)\n    select: a\n"
+        + "query q3:\n    from r\n    where a in (select a from r)\n    select: a\n"
+        + "query q4:\n    from r\n    select: n = (SELECT count() FROM r)\n"
+        + "query q5:\n    values (1, 2)\n",
+        [
+            (
+                6,
+                5,
+                "Unknown clause 'with'; "
+                + _ORDER
+                + " Write a relation let `let x:` at the start of the body instead "
+                "of WITH (EXPLICIT_MODULES projects).",
+            ),
+            (9, 10, "Missing a name before '('. " + _FROM),
+            (13, 24, "Unexpected 'a'; expected ')' or ','. " + _SUBQUERY),
+            (17, 25, "Unexpected 'count'; expected ')'. " + _SUBQUERY),
+            (
+                19,
+                13,
+                "Unexpected '1'; expected a name. A VALUES body has a typed header, "
+                "`values(id: Int not null, label: Text nullable):`, and one row per "
+                "line below it (EXPLICIT_MODULES projects).",
+            ),
+        ],
+    ),
+    # Each of those hints holds only where its habit does: WITH starts a line,
+    # a clause header is never inside parentheses, and a parenthesized FROM
+    # gets the FROM hint whatever follows the parenthesis.
+    "sql_hints_hold_only_where_the_habit_does": (
+        "shape S:\n    t: Timestamp with time zone not null\n"
+        + _query("    where a in (let x)\n    select: a\n")
+        + "query q2:\n    from r\n    where exists (select * from r)\n"
+        + "    select: a\n"
+        + "query q3:\n    from (r)\n    select: a\n"
+        + "query q4:\n    from (SELECT a FROM r)\n    select: a\n",
+        [
+            (
+                2,
+                18,
+                "Unexpected 'with'; expected 'derive', 'ensure', '@' or end of line.",
+            ),
+            (8, 21, "Unexpected 'x'; expected ')' or ','."),
+            (12, 33, "Unexpected 'r'; expected ')' or ','. " + _SUBQUERY),
+            (15, 10, "Unexpected '('; expected a name. " + _FROM),
+            (18, 10, "Unexpected '('; expected a name. " + _FROM),
+        ],
+    ),
+    # Fields may be named select, from or with, so only a query in
+    # parentheses gets the subquery hint: `(select`, `(with x as`, or
+    # `(from x` with `as` or a relation clause, where the error is, and not
+    # in a call's or a cast's parentheses (`exists` and `scalar` read one).
+    "a_subquery_hint_needs_a_query_in_its_parenthesis": (
+        "shape E:\n    from: Int not null\n    to: Int not null\n"
+        "    with: Text not null\n    select: Int not null\n"
+        'source e: E is postgres.table("e")\n'
+        + "".join(
+            f"query q{number}:\n    from e\n{body}"
+            for number, body in enumerate(
+                (
+                    "    where (from > 1 and to < 3 4)\n    select: to\n",
+                    "    select: x = lower(with to)\n",
+                    "    select: x = coalesce(select 1)\n",
+                    "    select: x = cast(with to as Text)\n",
+                    "    where to in (from to)\n    select: to\n",
+                    "    where to in (with to)\n    select: to\n",
+                    "    where exists (from e where to > 1)\n    select: to\n",
+                    "    where to in (from e as f where to > 1)\n    select: to\n",
+                    "    where EXISTS (SELECT 1 FROM e)\n    select: to\n",
+                    "    select: x = scalar (select to from e)\n",
+                    "    where to in (with x as (select to from e) select to from x)\n"
+                    "    select: to\n",
+                ),
+                start=1,
+            )
+        ),
+        [
+            (9, 32, "Unexpected '4'; expected ')'."),
+            (13, 28, "Unexpected 'to'."),
+            (16, 33, "Unexpected '1'."),
+            (19, 27, "Unexpected 'to'."),
+            (22, 23, "Unexpected 'to'; expected ')' or ','."),
+            (26, 23, "Unexpected 'to'; expected ')' or ','."),
+            (30, 24, "Unexpected 'e'; expected ')' or ','. " + _SUBQUERY),
+            (34, 23, "Unexpected 'e'; expected ')' or ','. " + _SUBQUERY),
+            (38, 26, "Unexpected '1'; expected ')' or ','. " + _SUBQUERY),
+            (42, 32, "Unexpected 'to'. " + _SUBQUERY),
+            (45, 23, "Unexpected 'x'; expected ')' or ','. " + _SUBQUERY),
+        ],
+    ),
+    "double_pipe_is_no_concatenation_and_qualify_takes_a_block": (
+        _query('    select: b = "x" || "y"\n')
+        + "query q2:\n    from r\n    select: a\n    qualify a > 1\n"
+        + "query q3:\n    from r\n    select: a\n    qualify: a > 1\n",
+        [
+            (
+                6,
+                21,
+                "Unexpected '|'; expected ',' or end of line. String concatenation "
+                "with `||` is not supported yet.",
+            ),
+            (10, 13, "Unexpected 'a'; expected ':'. " + _QUALIFY_BLOCK),
+            (14, 14, "Unexpected 'a'; expected end of line. " + _QUALIFY_BLOCK),
+        ],
+    ),
     "unterminated_string_hides_its_follow_on_errors": (
         _query('    where lower(a == "paid\n    select: a\n'),
         [
@@ -567,6 +699,53 @@ def test_syntax_errors_name_the_problem_once_per_declaration(case: str) -> None:
         (item.code, item.location.line, item.location.column, item.message)
         for item in result.diagnostics
     ] == [("PIE-P1000", *item) for item in expected]
+
+
+def _message_lines(source: str) -> int:
+    """Lines run in pietto.errors while ``source`` is parsed on this thread, a
+    count of the message work that does not depend on the machine."""
+
+    lines = 0
+
+    def count(frame: Any, event: str, arg: object) -> Any:
+        nonlocal lines
+        if event == "line":
+            lines += 1
+        return count
+
+    def enter(frame: Any, event: str, arg: object) -> Any:
+        return count if frame.f_code.co_filename == errors.__file__ else None
+
+    previous = sys.gettrace()
+    sys.settrace(enter)
+    try:
+        result = parser_api._parse_source(source, path=None, cancel=Event())
+    finally:
+        sys.settrace(previous)
+    assert result.ast is None and len(result.diagnostics) == 1
+    return lines
+
+
+# One logical line on which every item is a syntax error of its own.
+_ERROR_LINES = {
+    "parenthesized": lambda n: _query(
+        "    where a in (" + "1 x, " * n + "1)\n    select: a\n"
+    ),
+    "plain": lambda n: _query("    select: " + "1 x, " * n + "a\n"),
+    "after_clause_words": lambda n: _query(
+        "    where a in (" + "let 1, " * n + "1)\n    select: a\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("line", sorted(_ERROR_LINES))
+def test_each_syntax_error_message_costs_the_same_on_a_long_line(line: str) -> None:
+    """Twice the errors on one line cost about twice the message work, as each
+    message reads a fixed number of tokens around its error."""
+
+    build = _ERROR_LINES[line]
+    work = _message_lines(build(100))
+    assert work * 3 // 2 < _message_lines(build(200)) <= work * 21 // 10
 
 
 def test_brace_blocks_report_only_the_braces() -> None:

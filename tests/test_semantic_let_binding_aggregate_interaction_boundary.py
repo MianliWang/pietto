@@ -41,7 +41,7 @@ SOURCE_PREFIX = (
             "        gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
-            "PIE-S2102",
+            "PIE-S2315",
         ),
         (
             "    from orders\n"
@@ -135,7 +135,7 @@ def test_unsupported_min_max_aggregate_let_never_reaches_successful_ir() -> None
         "        smallest = min(gross)\n"
     )
 
-    assert "PIE-S2102" in _error_codes(semantic)
+    assert "PIE-S2315" in _error_codes(semantic)
     assert semantic.diagnostics != ()
 
 
@@ -213,7 +213,7 @@ def test_unsupported_aggregate_let_emit_sql_json_and_output_fail_closed(
     assert document["ok"] is False
     assert document["artifacts"] == []
     assert document["output"] == {"path": str(missing_output), "written": False}
-    assert "PIE-S2102" in [diagnostic["code"] for diagnostic in diagnostics]
+    assert "PIE-S2315" in [diagnostic["code"] for diagnostic in diagnostics]
     assert not missing_output.exists()
 
     existing_output = tmp_path / "existing.sql"
@@ -233,7 +233,7 @@ def test_unsupported_aggregate_let_emit_sql_json_and_output_fail_closed(
         == 1
     )
     text_failure = capsys.readouterr()
-    assert "PIE-S2102" in text_failure.err
+    assert "PIE-S2315" in text_failure.err
     assert existing_output.read_text(encoding="utf-8") == "original SQL\n"
 
 
@@ -312,7 +312,7 @@ def test_unsupported_aggregate_let_explain_json_fails_without_metadata(
     assert document["ok"] is False
     assert "metadata" not in document
     assert cast(dict[str, object], document["error"])["stage"] == "semantic"
-    assert "PIE-S2102" in [diagnostic["code"] for diagnostic in diagnostics]
+    assert "PIE-S2315" in [diagnostic["code"] for diagnostic in diagnostics]
     assert "let_scopes" not in json.dumps(document)
 
 

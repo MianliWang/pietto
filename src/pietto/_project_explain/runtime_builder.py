@@ -185,13 +185,14 @@ def _location(
 def _project_error_diagnostic(
     error: ProjectDiscoveryError,
     kind: ProjectExplainLogicalPathKind,
+    suggestion: str | None = None,
 ) -> ProjectExplainDiagnostic:
     return ProjectExplainDiagnostic(
         code=error.kind.value,
         severity=Severity.ERROR,
         message=error.message,
         location=_location(error.path, kind),
-        suggestion=None,
+        suggestion=suggestion,
     )
 
 
@@ -420,6 +421,20 @@ def _build_project_explain_runtime(
     assert type(config) is ProjectConfig
     assert pinned_root is not None
     if config.schema_version != 4:
+        suggestion = (
+            "explain --project reads only a schema version 4 package-root "
+            "project; check --project and emit-sql --project read schema "
+            "version 2 projects, and changing schema_version alone does not "
+            "convert a project."
+        )
+        if config.schema_version == 3:
+            # Schema 4 is schema 3 with a required environment table, which
+            # may be empty.
+            suggestion += (
+                " This schema version 3 package-root project converts in one "
+                "step: set schema_version to 4 and add an empty "
+                "[capability_environment] table."
+            )
         return _failed(
             ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
             (
@@ -430,6 +445,7 @@ def _build_project_explain_runtime(
                         _CONFIG_PATH,
                     ),
                     ProjectExplainLogicalPathKind.PROJECT_RELATIVE,
+                    suggestion,
                 ),
             ),
         )

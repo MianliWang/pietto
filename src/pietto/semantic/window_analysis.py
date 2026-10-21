@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import TypeGuard, cast
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto.ast_nodes import (
@@ -103,6 +103,7 @@ from pietto.semantic.window_partition_analysis import bind_window_partition_fiel
 from pietto.semantic.window_input_analysis import (
     WindowInputScopeKind,
     build_window_input_scope,
+    computed_let_names,
 )
 
 __all__: tuple[str, ...] = ()
@@ -294,8 +295,13 @@ def analyze_window_expression(
     let_expressions: Mapping[str, Expression] | None = None,
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_extrema: bool = True,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
-    """Analyze one direct selected recognized window expression transiently."""
+    """Analyze one direct selected recognized window expression transiently.
+
+    Without ``let_extrema``, as in a single file, a grouped input's `min` and
+    `max` read no `let:` name, as in its output schema.
+    """
 
     return _analyze_recognized_window_expression(
         definition=definition,
@@ -310,6 +316,7 @@ def analyze_window_expression(
         let_expressions=let_expressions,
         named_window_namespace=named_window_namespace,
         type_expansions=type_expansions,
+        let_extrema=let_extrema,
     )
 
 
@@ -334,6 +341,7 @@ def _analyze_recognized_window_expression(
     let_expressions: Mapping[str, Expression] | None,
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_extrema: bool = True,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Keep the selected-output API as a compatibility wrapper."""
 
@@ -445,6 +453,7 @@ def _analyze_recognized_window_expression(
             let_value_types=let_value_types,
             let_expressions=let_expressions,
             type_expansions=type_expansions,
+            let_extrema=let_extrema,
         )
         if (
             input_scope.kind is WindowInputScopeKind.GROUPED_RESULT
@@ -472,6 +481,7 @@ def _analyze_recognized_window_expression(
         named_composition=named_composition,
         admission_failure=admission,
         type_expansions=type_expansions,
+        computed_let_names=computed_let_names(let_expressions or {}),
     )
     if type(computation) is WindowComputationUnsupported:
         return WindowExpressionUnsupported(
@@ -497,8 +507,14 @@ def analyze_window_computation(
     admission_failure: _WindowComputationAdmissionFailure | None = None,
     prepare_inputs: Callable[[WindowExpr], None] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    computed_let_names: frozenset[str] = frozenset(),
 ) -> WindowComputationAnalysis | WindowComputationUnsupported:
-    """Analyze one window computation without selected-output identity."""
+    """Analyze one window computation without selected-output identity.
+
+    A PARTITION BY or ORDER BY name in ``computed_let_names`` (the `let:`
+    names whose value is not a field reference) is no direct field, as its
+    value written in its place is not.
+    """
 
     if type(expression) is not WindowExpr:
         raise TypeError("window computation requires an exact WindowExpr")
@@ -523,6 +539,8 @@ def analyze_window_computation(
         raise TypeError("window computation admission failure must be exact")
     if prepare_inputs is not None and not callable(prepare_inputs):
         raise TypeError("window computation input preparation must be callable")
+    if type(computed_let_names) is not frozenset:
+        raise TypeError("window computation computed let names must be a frozenset")
 
     advance_policy = _ranking_policy(expression)
     distribution_definition = _distribution_definition(expression)
@@ -641,9 +659,7 @@ def analyze_window_computation(
     semantic_input = RowSchema() if input_schema is None else input_schema
     direct_partition_expressions: list[NameExpr | DottedNameExpr] = []
     for partition_expression in expression.spec.partition_by:
-        if type(partition_expression) is NameExpr:
-            direct_partition_expressions.append(partition_expression)
-        elif type(partition_expression) is DottedNameExpr:
+        if _direct_field(partition_expression, computed_let_names):
             direct_partition_expressions.append(partition_expression)
         else:
             return _unsupported_computation(
@@ -688,10 +704,9 @@ def analyze_window_computation(
 
     direct_order_items: list[OrderItem] = []
     for order_item in expression.spec.order_by:
-        if type(order_item) is not OrderItem or type(order_item.expression) not in {
-            NameExpr,
-            DottedNameExpr,
-        }:
+        if type(order_item) is not OrderItem or not _direct_field(
+            order_item.expression, computed_let_names
+        ):
             return _unsupported_computation(
                 expression=expression,
                 reason="window order expression must be a direct field",
@@ -1023,6 +1038,16 @@ def _distribution_definition(
         if expression.identity == identity and callee.name == identity.name:
             return definition
     return None
+
+
+def _direct_field(
+    expression: Expression, computed_let_names: frozenset[str]
+) -> TypeGuard[NameExpr | DottedNameExpr]:
+    """Whether a window specification item is a direct field reference."""
+
+    return type(expression) is DottedNameExpr or (
+        type(expression) is NameExpr and expression.name not in computed_let_names
+    )
 
 
 def _unsupported_computation(
