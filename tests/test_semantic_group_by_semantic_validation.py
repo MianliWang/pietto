@@ -553,3 +553,63 @@ def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     captured = capsys.readouterr()
     assert captured.err == ""
     return cast(dict[str, object], json.loads(captured.out))
+
+
+@pytest.mark.parametrize("use_let", [False, True])
+def test_join_group_keys_keep_self_join_occurrences_distinct(use_let: bool) -> None:
+    script = _parse(
+        SOURCE_PREFIX + "query grouped_orders:\n"
+        "    from orders\n"
+        "    cross join orders as peer:\n"
+        "        from orders\n"
+        + ("    let:\n        peer_key = peer.status\n" if use_let else "")
+        + "    group by:\n"
+        "        orders.status\n"
+        + ("        peer_key\n" if use_let else "        peer.status\n")
+        + "    select:\n"
+        "        original_status = orders.status\n"
+        "        peer_status = peer.status\n"
+        "        total = count()\n"
+        "    order by:\n"
+        "        peer_status\n"
+    )
+    result = analyze(script)
+    schema = result.model.relation_row_schemas[_relation(script)]
+
+    assert result.diagnostics == ()
+    assert list(schema.fields) == ["original_status", "peer_status", "total"]
+    assert not schema.is_unknown
+    _assert_field(
+        schema.fields["original_status"], "Text", EffectiveNullability.NON_NULL
+    )
+    _assert_field(schema.fields["peer_status"], "Text", EffectiveNullability.NON_NULL)
+    _assert_field(schema.fields["total"], "Int", EffectiveNullability.NON_NULL)
+
+
+def test_join_group_key_bare_and_qualified_reads_share_one_identity() -> None:
+    script = _parse(
+        SOURCE_PREFIX + "shape Label:\n"
+        "    label: Text not null\n"
+        'source labels: Label is postgres.table("labels")\n'
+        "query grouped_orders:\n"
+        "    from orders\n"
+        "    cross join labels as peer:\n"
+        "        from orders\n"
+        "    group by:\n"
+        "        label\n"
+        "        peer.label\n"
+        "    select:\n"
+        "        label\n"
+        "        total = count()\n"
+    )
+    result = analyze(script)
+    relation = _relation(script)
+    assert relation.group_by_clause is not None
+    later_key = relation.group_by_clause.items[1].key
+
+    assert _errors(result) == [("PIE-S2317", "Duplicate GROUP BY key: peer.label")]
+    diagnostic = result.diagnostics[0]
+    assert (diagnostic.location.line, diagnostic.location.column) == (
+        later_key.span.line,
+        later_key.span.column,
+    )

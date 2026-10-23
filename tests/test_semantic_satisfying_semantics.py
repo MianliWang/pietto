@@ -657,3 +657,37 @@ def _forbid_ir_and_sql(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
+
+
+@pytest.mark.parametrize("predicate", ['peer_status != "test"', 'status != "test"'])
+def test_join_satisfying_reads_grouped_outputs_and_recognizes_input_fields(
+    predicate: str,
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "query grouped_orders:\n"
+            "    from orders\n"
+            "    cross join orders as peer:\n"
+            "        from orders\n"
+            "    group by:\n"
+            "        peer.status\n"
+            "    select:\n"
+            "        peer_status = peer.status\n"
+            "        total = count()\n"
+            "    satisfying:\n"
+            f"        {predicate}\n"
+        )
+    )
+
+    if predicate.startswith("peer_status"):
+        assert result.diagnostics == ()
+        assert len(result.model.result_predicates) == 1
+    else:
+        assert _errors(result) == [
+            (
+                "PIE-S2325",
+                "Satisfying reference must use select output name, not input field: status",
+            )
+        ]
+        diagnostic = result.diagnostics[0]
+        assert (diagnostic.location.line, diagnostic.location.column) == (19, 9)

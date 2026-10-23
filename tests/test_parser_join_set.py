@@ -11,6 +11,7 @@ from _pietto_parser_layout import layout_free
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     BlockRelationDef,
+    JoinClause,
     JoinOnClause,
     JoinTraversalStep,
     SelectBody,
@@ -25,7 +26,7 @@ from pietto.ast_nodes import (
 )
 from pietto import cli
 from pietto.semantic import analyze
-from pietto.ir import build_ir
+from pietto.ir import RelationIR, build_ir
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.model import ProjectRelationRowSchemaReason
@@ -165,14 +166,23 @@ NEW_SOURCES = (
 
 
 @pytest.mark.parametrize("source", NEW_SOURCES)
-def test_single_file_and_legacy_ir_reject_new_semantics(source: str) -> None:
+def test_single_file_join_ir_and_set_refusal_follow_current_support(
+    source: str,
+) -> None:
     parsed = parse_source(source)
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = analyze(parsed.ast)
-    assert any(d.code == "PIE-S2334" for d in semantic.diagnostics)
     lowered = build_ir(parsed.ast, semantic.model)
-    assert lowered.ir is None
-    assert any(d.code == "PIE-I1000" for d in lowered.diagnostics)
+    if isinstance(parsed.ast.definitions[-1], SetRelationDef):
+        assert any(d.code == "PIE-S2334" for d in semantic.diagnostics)
+        assert lowered.ir is None
+        assert any(d.code == "PIE-I1000" for d in lowered.diagnostics)
+    else:
+        assert not semantic.diagnostics
+        assert lowered.ir is not None and not lowered.diagnostics
+        relation = lowered.ir.definitions[-1]
+        assert isinstance(relation, RelationIR)
+        assert len(relation.joins) == 1
 
 
 @pytest.mark.parametrize("source", NEW_SOURCES)
@@ -554,7 +564,7 @@ def test_scalar_multiline_continuation_is_joined_like_where() -> None:
 @pytest.mark.parametrize("dialect", ("postgres", "mysql"))
 @pytest.mark.parametrize("mode", ("loose", "checked", "strict"))
 @pytest.mark.parametrize("source", NEW_SOURCES)
-def test_public_emit_and_check_cannot_accept_new_forms(
+def test_public_join_emission_and_set_refusal_follow_dialect_support(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     dialect: str,
@@ -569,16 +579,25 @@ def test_public_emit_and_check_cannot_accept_new_forms(
         ["check", str(path), "--format", "json"],
         ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
     ):
-        assert cli.main(command) == 1
+        is_set = source in NEW_SOURCES[4:]
+        is_mysql_join = not is_set and command[0] == "emit-sql" and dialect == "mysql"
+        refused = is_set or is_mysql_join
+        assert cli.main(command) == int(refused)
         captured = capsys.readouterr()
         assert not captured.err
         document = json.loads(captured.out)
-        assert not document["ok"]
-        assert any(
-            d["code"] == "PIE-S2334" and d["severity"] == "error"
-            for d in document["diagnostics"]
-        )
-        assert not document.get("artifacts", [])
+        assert document["ok"] is not refused
+        if refused:
+            code = "PIE-S2334" if is_set else "PIE-B1000"
+            assert any(
+                d["code"] == code and d["severity"] == "error"
+                for d in document["diagnostics"]
+            )
+            assert not document.get("artifacts", [])
+        else:
+            assert not document["diagnostics"]
+            if command[0] == "emit-sql":
+                assert len(document["artifacts"]) == 1
 
 
 def test_corrupt_set_body_and_omitted_quantifier_spans_are_rejected() -> None:
@@ -843,3 +862,36 @@ def test_traversal_roles_are_authored_together_or_not_at_all() -> None:
             source_endpoint_role="l",
             target_endpoint_role=None,
         )
+
+
+def test_a_join_binding_name_keeps_its_own_span() -> None:
+    result = parse_source(
+        _joined(
+            "    inner join rhs as r\n"
+            "    left join rhs as second:\n        from lhs\n"
+            "    cross join rhs as r3: from lhs\n"
+        ),
+        path="as.pietto",
+    )
+    assert result.diagnostics == () and result.ast is not None
+    query = result.ast.definitions[-1]
+    assert isinstance(query, QueryDef)
+    assert [
+        None
+        if span is None
+        else (span.path, span.line, span.column, span.end_line, span.end_column)
+        for span in (clause.target_binding_span for clause in query.join_clauses)
+    ] == [
+        ("as.pietto", 11, 23, 11, 24),
+        ("as.pietto", 12, 22, 12, 28),
+        ("as.pietto", 14, 23, 14, 25),
+    ]
+    span = Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    built = JoinClause(
+        span=span,
+        kind=AuthoredJoinKind.INNER,
+        target_relation_name="rhs",
+        target_binding_name="r",
+        source_binding_name=None,
+    )
+    assert built.target_binding_span is None

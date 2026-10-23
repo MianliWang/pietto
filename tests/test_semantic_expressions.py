@@ -23,6 +23,7 @@ from pietto.ast_nodes import (
     MembershipExpr,
     NameExpr,
     Script,
+    SourceDef,
     TableDef,
     UnaryExpr,
 )
@@ -32,10 +33,20 @@ from pietto.parser_api import parse_source
 from pietto.semantic import (
     CheckMode,
     EffectiveNullability,
+    ResolvedType,
+    RowField,
+    RowSchema,
     SemanticResult,
     TypeKind,
     ValueTypeKind,
     analyze,
+)
+from pietto.semantic.expressions import type_relation_expressions
+from pietto.semantic.row_lookup import (
+    bare_candidates,
+    bare_field,
+    has_bare_field,
+    qualified_field,
 )
 
 SOURCE = (
@@ -1992,3 +2003,184 @@ def test_unknown_expression_is_rejected_before_cached_inference() -> None:
             [],
             report_unknown_name=False,
         )
+
+
+def _int_field(name: str) -> RowField:
+    return RowField(
+        name=name,
+        resolved_type=ResolvedType(name="Int", kind=TypeKind.BUILTIN),
+        nullability=EffectiveNullability.NON_NULL,
+    )
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        RowSchema(fields={"id": _int_field("id"), "amount": _int_field("amount")}),
+        RowSchema(is_unknown=True),
+    ],
+)
+def test_row_lookups_are_the_name_lookups_they_replace_on_a_row_that_is_not_joined(
+    row: RowSchema,
+) -> None:
+    for name in ("id", "amount", "missing", "rows.id"):
+        assert bare_candidates(row, name) == tuple(
+            field for key, field in row.fields.items() if key == name
+        )
+        assert bare_field(row, name) is row.fields.get(name)
+        assert has_bare_field(row, name) is (name in row.fields)
+    for parts in (
+        ("rows", "id"),
+        ("rows", "missing"),
+        ("other", "id"),
+        ("id",),
+        ("rows", "id", "amount"),
+    ):
+        for qualifier in ("rows", ""):
+            assert qualified_field(row, parts, qualifier) is (
+                row.fields.get(parts[1])
+                if len(parts) == 2 and parts[0] == qualifier
+                else None
+            )
+
+
+def test_row_lookups_over_a_joined_row_read_bindings_and_every_bare_candidate() -> None:
+    order_id, amount, customer_id, name = (
+        _int_field("orders.id"),
+        _int_field("orders.amount"),
+        _int_field("customer.id"),
+        _int_field("customer.name"),
+    )
+    row = RowSchema(
+        fields={
+            "orders.id": order_id,
+            "orders.amount": amount,
+            "customer.id": customer_id,
+            "customer.name": name,
+        },
+        joined=True,
+    )
+
+    # A bare name reads the one binding that has it; two make it ambiguous.
+    assert bare_candidates(row, "id") == (order_id, customer_id)
+    assert bare_field(row, "id") is None
+    assert has_bare_field(row, "id") is True
+    assert bare_candidates(row, "name") == (name,)
+    assert bare_field(row, "name") is name
+    assert has_bare_field(row, "name") is True
+    for missing in ("missing", "orders", "orders.id", ""):
+        assert bare_candidates(row, missing) == ()
+        assert bare_field(row, missing) is None
+        assert has_bare_field(row, missing) is False
+    # A two-part read names a binding, whatever the FROM input is called.
+    assert qualified_field(row, ("orders", "id"), "orders") is order_id
+    assert qualified_field(row, ("customer", "id"), "orders") is customer_id
+    assert qualified_field(row, ("customer", "amount"), "orders") is None
+    assert qualified_field(row, ("customers", "id"), "orders") is None
+    assert qualified_field(row, ("customer",), "orders") is None
+    assert qualified_field(row, ("customer", "id", "x"), "orders") is None
+    assert qualified_field(row, ("customer", "id"), "") is None
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+def test_join_tail_expressions_use_unique_fields_and_outer_nullability(
+    mode: CheckMode,
+) -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "shape Tag:\n"
+            "    rank: Int not null\n"
+            "    label: Text not null\n"
+            'source tags: Tag is postgres.table("tags")\n'
+            "def echo(x: Text nullable) -> Text nullable: return x\n"
+            "table projected:\n"
+            "    from users\n"
+            "    left join tags as tag:\n"
+            "        from users\n"
+            "        on users.count == tag.rank\n"
+            "    let:\n"
+            "        copied = tag.label\n"
+            "    where label is null\n"
+            "    select:\n"
+            "        user_count = users.count\n"
+            "        tag_rank = tag.rank\n"
+            "        caption = label\n"
+            "        echoed = echo(copied)\n"
+            "    order by:\n"
+            "        label\n"
+        ),
+        mode_override=mode,
+    )
+    table = _table(result)
+    schema = result.model.relation_row_schemas[table]
+
+    assert result.diagnostics == ()
+    assert not schema.is_unknown
+    assert not schema.joined
+    assert [
+        (name, field.resolved_type.name, field.nullability)
+        for name, field in schema.fields.items()
+    ] == [
+        ("user_count", "Int", EffectiveNullability.NON_NULL),
+        ("tag_rank", "Int", EffectiveNullability.NULLABLE),
+        ("caption", "Text", EffectiveNullability.NULLABLE),
+        ("echoed", "Text", EffectiveNullability.NULLABLE),
+    ]
+    assert (
+        result.model.expression_value_types[
+            _where_expression(result)
+        ].resolved_type.name
+        == "Bool"
+    )
+
+
+def test_relation_expression_typing_uses_the_supplied_joined_input_row() -> None:
+    script = _parse(
+        Q1_SOURCE + "table projected:\n"
+        "    from users\n"
+        "    where extra > 0\n"
+        "    select:\n"
+        "        extra = users.count\n"
+        "        peer_count = peer.extra\n"
+        "        computed = extra + 1\n"
+        "    order by:\n"
+        "        extra\n"
+    )
+    source = next(item for item in script.definitions if isinstance(item, SourceDef))
+    table = script.definitions[-1]
+    assert isinstance(table, TableDef)
+    joined = RowSchema(
+        fields={
+            "users.count": _int_field("users.count"),
+            "peer.extra": RowField(
+                name="peer.extra",
+                resolved_type=ResolvedType(name="Int", kind=TypeKind.BUILTIN),
+                nullability=EffectiveNullability.NULLABLE,
+            ),
+        },
+        joined=True,
+    )
+    value_types, diagnostics, windows, named_windows = type_relation_expressions(
+        script,
+        from_resolutions={table.from_clause: source},
+        source_row_schemas={source: RowSchema(fields={"count": _int_field("count")})},
+        relation_row_schemas={},
+        joined_inputs={table: joined},
+    )
+
+    assert diagnostics == []
+    assert windows == named_windows == {}
+    assert [
+        (
+            value_types[item.expression].resolved_type.name,
+            value_types[item.expression].nullability,
+        )
+        for item in table.select_items
+    ] == [
+        ("Int", EffectiveNullability.NON_NULL),
+        ("Int", EffectiveNullability.NULLABLE),
+        ("Int", EffectiveNullability.UNKNOWN),
+    ]
+    assert table.order_by_clause is not None
+    order_type = value_types[table.order_by_clause.items[0].expression]
+    assert order_type.nullability is EffectiveNullability.NULLABLE

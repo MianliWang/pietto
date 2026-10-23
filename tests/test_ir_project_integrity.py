@@ -1087,6 +1087,8 @@ def test_verification_analysis_are_hash_seed_cwd_independent_and_public_zero_del
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     for path in (
         REPO_ROOT / "src/pietto/__init__.py",

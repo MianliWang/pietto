@@ -779,6 +779,8 @@ def test_inspection_serialization_is_hash_seed_cwd_independent_and_public_zero_d
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     for path in (
         REPO_ROOT / "src/pietto/__init__.py",

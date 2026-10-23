@@ -780,6 +780,8 @@ def test_builder_is_hash_seed_cwd_independent_and_public_sql_relation_ir_zero_de
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     for path in (
         REPO_ROOT / "src/pietto/__init__.py",

@@ -195,35 +195,35 @@ their one line.
 
 ## Single files and projects
 
-`check FILE`, `explain FILE` and `emit-sql FILE --dialect ...` read one file. A
-table or query there reads one relation with `from` and may add a row `let:`
-block, `where`, grouping and aggregates, `satisfying`, window calls, `order by`
-and `limit`.
+`check FILE`, `explain FILE` and `emit-sql FILE --dialect ...` read one file.
+A table or query reads a relation with `from` and may add row `let:` bindings,
+`where`, grouping and aggregates, `satisfying`, window calls, `order by` and
+`limit`. Single-file `check` and PostgreSQL `emit-sql` also support INNER,
+LEFT, RIGHT, FULL, CROSS, SEMI and ANTI JOINs, binding-field reads and guarded
+aggregation over JOIN rows, within the [single-file JOIN limits](#single-file-joins).
+MySQL emission refuses each JOIN relation with PIE-B1000 and keeps the file's
+other artifacts. Single-file `explain` refuses each JOIN relation with
+PIE-I1000 at stage `ir`: Semantic Metadata Artifact v1 describes one input
+per relation. Its JSON envelope stays unchanged.
 
 The following forms need an explicit-module project (`schema_version = 2`, see
-[Projects and packages](project-package.md#schema-compatibility)): JOIN kinds
-other than an `inner` or `left` relationship traversal, a JOIN `on` condition,
+[Projects and packages](project-package.md#schema-compatibility)):
 `select distinct:`, set operations (`union`, `intersect`, `except`), relation
 lets (`let NAME:`), query header parameters, typed VALUES bodies,
 `generate_series`, and `exists`, `scalar` and `in` relation reads.
 `check --project` checks them, and `emit-sql --project` emits one selected
 table or query for one dialect under an emission contract, within the target
-limits and contract premises described below. Single-file commands
-refuse them with an ERROR: PIE-S2334 for the JOIN forms, DISTINCT and set
-operations, and PIE-S2345 to PIE-S2352 for relation lets, header parameters,
-VALUES bodies, relation reads, `capture` lines and table functions. Each of
-these messages says that the form is available in EXPLICIT_MODULES projects
-(schema version 2). A LEGACY_FLAT project check refuses them the same
-way, and there, as in a single file, a table or query whose `from` reads a set
-operation reports PIE-S2334 at that `from`.
-An `inner` or `left` relationship traversal passes
-single-file `check` only while its target, `from` binding and `via` steps
-resolve (PIE-S2301 at the JOIN for an unknown target; PIE-S2335 at the VIA step
-for an unknown relationship or role, and otherwise at the JOIN) and nothing
-reads its joined binding (a read such as `customer.id` is PIE-S2102, whose
-message says that JOIN binding fields are not available in single-file mode),
-and single-file `explain` and `emit-sql` then refuse it with PIE-I1000; JOIN
-SQL needs `emit-sql --project`.
+limits and contract premises described below. Single-file commands refuse
+these forms with an ERROR: PIE-S2334 for DISTINCT and set operations, and
+PIE-S2345 to PIE-S2352 for relation lets, header parameters, VALUES bodies,
+relation reads, `capture` lines and table functions. A set-operation input is
+PIE-S2334 at its `from` or JOIN.
+
+LEGACY_FLAT project checks keep their existing boundaries: JOIN kinds other
+than INNER/LEFT relationship traversal and JOIN-local `on` remain unavailable,
+and omitted relationship sources and VIA roles are not inferred. The
+single-file JOIN support does not widen LEGACY_FLAT, PACKAGE_ROOT or the
+EXPLICIT_MODULES project's target and execution contracts.
 
 Common SQL forms map to these project forms:
 
@@ -238,12 +238,14 @@ Common SQL forms map to these project forms:
 
 A single file that passes `check` can still fail to emit. `check` stops after
 semantic analysis. `explain` and `emit-sql` also build IR, which refuses an
-authored `qualify:` block and a relationship JOIN with PIE-I1000. `emit-sql
---dialect X` then asks the X backend, which refuses with PIE-B1000 forms it
-does not support, for example `ignore nulls` and `from last` on both backends,
+authored `qualify:` block with PIE-I1000. `explain` separately refuses JOIN
+relations as described above. `emit-sql --dialect X` then asks the X backend,
+which refuses with PIE-B1000 forms it does not support, for example `ignore nulls` and `from last` on both backends,
 GROUPS and EXCLUDE frames on MySQL, and a source whose connector is not
-`X.table`. PostgreSQL also refuses a table or query that another relation of
-the file reads when one of its outputs is `null` itself, such as `v = null`, a
+`X.table`. MySQL refuses every JOIN relation; PostgreSQL refuses the two
+FULL JOIN cases described below. PostgreSQL also refuses a table or query
+that another relation of the file reads through `from` or as a JOIN target
+when one of its outputs is `null` itself, such as `v = null`, a
 `let:` name bound to `null` or a `def` call that is `null` once written in, or
 a conditional, `coalesce` or `nullif` whose every value is such a `null`, such
 as `v = null if b else null` or `c = coalesce(null, null)`, as PostgreSQL
@@ -321,7 +323,7 @@ Tables and queries share this ordered clause shape:
 
 ```text
 from
-inner/left join (zero or more)
+inner/left/right/full/cross/semi/anti join (zero or more)
 let (optional)
 where (optional)
 group by (optional)
@@ -357,7 +359,8 @@ bare constants; a computed constant such
 as `1 + 1` sorts nothing and is accepted. In a query with aggregates and no
 GROUP BY, a key that reads an input field outside an aggregate is PIE-S2380
 too, also from a source without a shape, where any name that no `let:` binds
-is an input field. A grouped
+is an input field. A JOIN relation with an aggregate and no GROUP BY instead
+refuses the entire ORDER BY clause with PIE-S2334. A grouped
 key stays PIE-S2321. When a SELECT item would capture a bare
 input field key (an output of the same name, which MySQL compares
 case-insensitively; on PostgreSQL any unaliased computed item, which it
@@ -395,6 +398,107 @@ PIE-B1003.
 Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
+
+### Single-file JOINs
+
+Each JOIN introduces a distinct input occurrence with an `as` binding, even
+when it reads the same relation as another input. The FROM binding is the
+relation's name. Bindings must be unique and may not equal the FROM binding
+(PIE-S2335 at the `as` name). A written JOIN `from` names an earlier visible
+binding. Unknown, forward, duplicate and hidden bindings fail closed.
+
+All seven kinds are available to single-file `check`. A relationship JOIN
+uses no `on`, with zero or one `via` step; one `via` may also have an `on`
+refinement. An `on` without VIA is a general row predicate and never infers a
+relationship. CROSS takes neither `on` nor VIA. A JOIN with `on` and every
+CROSS JOIN must write `from` (PIE-S2378). The existing header and block forms
+apply, including `: from b`, `: via r` and `: via r: s -> t`.
+
+A relationship JOIN without `from` considers every visible earlier binding
+whose relation has a declared relationship to its target, including unusable
+relationships; no binding wins by proximity. It needs one source binding and
+one usable direction. A VIA step with omitted roles needs one direction
+ending at the target, and an omitted source needs one earlier binding of that
+direction's source relation. A self relationship needs explicit endpoint
+roles. The relationship's `on` must be made only of `==` equalities between
+fields of its two endpoints, with types other than `Decimal`, `Json`, `Any`,
+`Bytes`, a shape or an unknown type, aliases expanded. Missing, ambiguous or
+unusable relationships report PIE-S2335 with candidates or reasons; a
+relationship with declaration errors adds no JOIN diagnostic.
+
+The FROM input and JOIN targets may be sources, tables or queries of the same
+file, with known row fields. A relationship JOIN requires both endpoint
+relations to be sources. To join a table or query, write `from` and `on`
+without VIA, or use CROSS. An unshaped source, including one reached through
+other relations, is refused with PIE-S2334 at the JOIN that introduces it (the
+first JOIN for an unknown FROM row). A JOIN cycle is PIE-S2302 at the closing
+read. Output schemas propagate through both FROM and JOIN dependencies.
+
+Use `binding.field` for a qualified field, or a bare field name when exactly
+one visible binding has it. Ambiguity is PIE-S2335 and lists qualified
+alternatives in input order. A target's relation name is not its binding:
+after `join customers as customer`, write `customer.id`; an unknown or hidden
+field is PIE-S2102, with a reason for a relation-name qualifier or a SEMI/ANTI
+binding. Row `let:` values, inlined `def` arguments, WHERE, SELECT, GROUP BY
+and ungrouped ORDER BY use this row scope. A `let:` name cannot equal a visible
+field, any binding or a binding's relation name (PIE-S2329). Grouped ORDER BY
+and `satisfying` read selected outputs under their existing rules. Selected
+column names remain the authored alias or the field's final name.
+
+A JOIN's `on` sees visible earlier inputs and its own target, including a
+SEMI/ANTI target, before that JOIN adds any NULLs. It cannot read later or
+hidden targets, current row `let:` names or SELECT outputs. Aggregates are
+PIE-S2335 there; a non-Bool predicate is PIE-S2202 (`Expected Bool expression
+in JOIN ON`), and an otherwise unexplained unknown predicate type is
+PIE-S2202 (`JOIN ON expression type is unavailable; the fields it reads need
+known types.`). Nullable Bool is allowed: only TRUE matches; FALSE and NULL
+do not. Operand errors keep their scalar diagnostic codes.
+
+JOINs operate on the accumulated left row in source order. LEFT makes the
+target's fields nullable; RIGHT makes every accumulated-left row input
+nullable; FULL does both. CROSS adds every pair without changing nullability.
+INNER proves the fields in its relationship equalities non-null, and can
+prove direct field leaves of top-level AND conjuncts in `on`: a Bool field,
+a comparison's field operand, or `field is not null`. OR gives no such proof.
+An earlier outer JOIN's null-extension is retained: a later INNER JOIN never
+clears that nullable status, and WHERE does not refine it. These types reach
+output schemas and `def` argument checks (PIE-S2395).
+
+SEMI keeps each left occurrence once when some target row matches; ANTI keeps
+it once when none matches. Equal-valued left occurrences remain distinct and
+repeated target matches do not multiply them. Their target fields are visible
+only in their own `on`, never in the output or later JOINs; their bindings
+remain reserved. Neither kind adds NULLs or refines the left fields.
+
+PostgreSQL writes one flat SELECT per relation. Every input is aliased by its
+binding and every field is qualified. Sources use their `postgres.table`
+name; tables and queries use their artifact name. ON writes relationship
+equalities in declared order, source side first, then the authored `on` as
+one part. A single part is bare; several are parenthesized and joined by AND.
+CROSS has no ON. SEMI and ANTI become correlated EXISTS and NOT EXISTS filters
+on the left rows. INNER, LEFT, CROSS, SEMI and ANTI keep pending filters in
+place; the next RIGHT adds them after its own ON parts and clears them.
+Filters still pending at the end precede the authored WHERE, in JOIN order.
+GROUP BY, HAVING, ORDER BY and LIMIT then use the existing tail format.
+
+PostgreSQL FULL JOIN requires every condition leaf, after splitting AND, to
+be an equality between an earlier input's field and its target's field, both
+of builtin Int type after alias expansion. Otherwise it reports PIE-B1000.
+A FULL JOIN with a pending SEMI/ANTI filter is also PIE-B1000: there must be a
+RIGHT JOIN between that filter and FULL to consume it. These refusals and
+MySQL's JOIN refusal are once per relation; other artifacts remain and the
+command exits 1. PostgreSQL's existing all-NULL CASE/COALESCE/NULLIF condition
+guard applies to JOIN ON and EXISTS conditions too.
+
+Selected windows and named windows over JOIN rows, more than one VIA step,
+and ORDER BY after an aggregate without GROUP BY remain PIE-S2334 in every
+check mode. Single-file QUALIFY remains untyped and refused at IR with
+PIE-I1000. Aggregates over JOIN rows follow the conservative rule in
+[Aggregates and grouping](#aggregates-and-grouping). DISTINCT, relation lets,
+LATERAL capture, set inputs, VALUES and table functions retain their separate
+project-only boundaries.
+
+### JOINs in explicit-module projects
 
 `from` names the base relation. Authored relationship traversal may then add
 `inner join` or `left join` clauses with mandatory target bindings:
@@ -500,12 +604,10 @@ written `from` with zero `via` lines whose source has several relationship
 directions to the target keeps its one PIE-S2333 at the table or query, which
 is reported only when nothing else explains the relation; its message adds the
 candidate list of each such JOIN. A JOIN with `on` and a CROSS JOIN still name
-their source with `from` (PIE-S2378). Single-file checks and LEGACY_FLAT
-project checks do not infer an omitted `from` or omitted VIA roles. A
-single-file check still checks the JOIN parts that are written (PIE-S2301 and
-PIE-S2335) and skips the omitted ones and the VIA path they would decide, so
-such a JOIN passes `check` when its written parts are valid; single-file
-`explain` and `emit-sql` refuse JOINs with PIE-I1000 either way.
+their source with `from` (PIE-S2378). LEGACY_FLAT project checks do not infer
+an omitted `from` or omitted VIA roles: they check written parts and skip the
+omitted ones and the VIA path those parts would decide. Single-file checks
+instead apply the resolution and limits described above.
 
 Zero `via` lines use exact direct-relationship shorthand. One or more lines
 name an explicit ordered path as `via relationship: source_role -> target_role`,
@@ -564,8 +666,9 @@ SELECT-tail scopes cannot reference them. Their dependencies and binding names
 remain reserved. Left keys/FD/grain follow subset transfer, with no new nulling,
 fanout, coverage or ordering claim; UNKNOWN right grain alone does not make left
 grain UNKNOWN. This retention rule does not prove at-most-one right match.
-Single-file/LEGACY_FLAT/PACKAGE_ROOT and legacy IR/SQL retain their existing
-rejection boundaries; a successful project check is not SQL capability.
+LEGACY_FLAT and PACKAGE_ROOT retain their existing rejection boundaries;
+the single-file path has the separate subset described above. A successful
+project check is not SQL capability.
 Current JOIN roots are retained in private combined query-block IR and its
 VERIFIED-only inspection. Project Explain keeps its separate schema boundary.
 
@@ -758,9 +861,10 @@ Historical Project row facts and single-relation IR retain
 `AUTHORED_JOIN_DEFERRED`. The completed EXPLICIT_MODULES path adds combined JOIN
 rows, joined scalar lookup, null-extension evidence, final outputs and private
 Query-block IR, and project SQL emission (`emit-sql --project`) emits the
-JOINs. The single-file legacy Script IR has no JOIN lowering: single-file
-`explain` and `emit-sql` reject an authored JOIN that passes `check` with
-`PIE-I1000`. Join-free behavior is unchanged.
+JOINs. Single-file Script IR separately retains JOIN input occurrences,
+conditions and binding-qualified fields for PostgreSQL emission. Single-file
+`explain` keeps its one-input metadata boundary and reports PIE-I1000 at each
+JOIN relation. Join-free behavior is unchanged.
 
 ## Relation blocks and relation references
 
@@ -2136,6 +2240,50 @@ aggregation over an unknown input row available to SQL emission: even
 PIE-B1000, or with PIE-I1000 for a grouped window. A relation that reads one
 over such a source also reads its outputs as of unknown type.
 
+A single-file aggregate over JOIN rows must not read rows that a JOIN may
+repeat. `count()` without an argument counts joined rows and needs no proof.
+Every other aggregate, including `min`, `max` and `count_distinct`, must pass
+the following conservative rule; a failure is PIE-S2381 at the aggregate
+call in every check mode.
+
+Start with the input occurrences the argument reads, following `let:` values,
+and each source input whose declared unique key is entirely in GROUP BY and
+whose key fields are all `not null` in the source shape. Field-renaming
+`let:` keys count; computed keys do not. Close that set using only these
+relationship dependencies:
+
+- An INNER or LEFT relationship JOIN adds its target when its source is in
+  the set and its matched target fields contain a declared unique key of the
+  target source. The key may have nullable fields; one VIA plus ON retains this
+  forward dependency.
+- An INNER relationship JOIN without ON also adds its source when its target
+  is in the set and its matched source fields contain a declared source key.
+  A VIA plus ON has no reverse dependency.
+
+The set must then contain the FROM input and every row-producing JOIN target;
+SEMI and ANTI targets are excluded. RIGHT, FULL, CROSS and ON-only JOINs add
+no dependencies, even when the ON equates a declared key. Keys are taken only
+from source shapes, never inferred through tables or queries. Outer NULL
+extension does not justify a RIGHT/FULL dependency: one NULL left part may
+match several preserved target rows. Group protection uses the source's
+non-null key so a NULL-extended part remains one fixed value within a group;
+later INNER refinement does not turn a nullable source key into a strict key.
+
+PIE-S2381 names repeated JOINs in source order and offers a unique-key or
+grouping remedy only when that remedy closes the rule. For example:
+
+```text
+An aggregate may read rows repeated by JOIN customer; declare a unique key on customers.id (matched by JOIN customer), or group by a unique key of customer whose fields are all not null
+```
+
+GROUP BY accepts fields and `let:` names that rename fields. Self-join keys
+such as `customers.id` and `peer.id` remain distinct; a bare and qualified
+read of the same field remain one key. SELECT aggregates must be directly
+aliased. `satisfying` and grouped ORDER BY read their selected outputs.
+ORDER BY after an ungrouped aggregate is PIE-S2334 even when fan-out is safe.
+This rule does not widen the existing aggregate argument/type domain or
+admit selected windows over JOIN rows.
+
 In an explicit-module project a JOIN must not let an aggregate see one input
 row several times. A JOIN repeats the rows of one side when the other side may
 match a row more than once, and in a chain of JOINs a later JOIN can repeat
@@ -2293,6 +2441,11 @@ key, such an alias included, is PIE-S2333 at the table or query rather than an
 unknown field.
 
 ## Windows
+
+A single-file relation with JOINs currently refuses each selected window call
+and each named window declaration with PIE-S2334. The following single-file
+window forms apply to relations without JOINs; projects keep their own
+completion and target limits.
 
 Direct selected window expressions use an indented `window` specification:
 
@@ -2535,40 +2688,45 @@ relationships are checked:
 - the two endpoint names differ (PIE-S2603, at the later endpoint);
 - in each `and`-joined equality `role.field == role.field` of `on`, the role is
   one of the two endpoint names and the field is a field of that endpoint's
-  relation; and when the equality compares the two endpoints and neither field
-  is `Decimal`, `Json`, `Any` or `Bytes`, the two fields have the same type
-  after alias expansion (`Int` and `Float` are different types; enums compare
-  by declaration, so same-named enums of two modules differ and the message
-  names each module, for example `Status from a.pietto`). Otherwise the check
+  relation; and when the equality compares the two endpoints and neither
+  field's type is `Decimal`, `Json`, `Any`, `Bytes`, a shape or unknown, the
+  two fields have the same type after alias expansion (`Int` and `Float` are
+  different types; enums compare by declaration, so same-named enums of two
+  modules differ and the message names each module, for example
+  `Status from a.pietto`). Otherwise the check
   reports PIE-S2604 at the operand, or at the equality when the types differ,
   for example `Unknown relationship condition endpoint role: custx`,
   `Unknown relationship condition field: customer.region_id` or
   `Incompatible relationship condition operands: customer.name (Text) == region.id (Int)`.
-  An equality within one endpoint and a `Decimal`, `Json`, `Any` or `Bytes`
-  equality are not type-checked, and other condition forms such as `<`, `or`
-  or a literal are not checked at all.
+  An equality within one endpoint and a `Decimal`, `Json`, `Any`, `Bytes`,
+  shape or unknown-typed equality are not type-checked, and other condition
+  forms such as `<`, `or` or a literal are not checked at all.
 
 A JOIN `via` a relationship needs an `on` made only of such equalities over
-field types other than `Decimal`, `Json`, `Any` and `Bytes`. With no `on`, with
-another condition form such as `<`, `or`, a literal or an equality within one
-endpoint, with a `Decimal`, `Json`, `Any` or `Bytes` equality, or with one of
-the errors above, an EXPLICIT_MODULES project check reports an INNER or LEFT
-JOIN through the relationship as PIE-S2333 at the table or query when the JOIN
-writes `from` and the roles of each VIA step, and at the JOIN, naming the
-relationship and why it cannot be used, when it omits `from` or VIA roles. A
+field types other than `Decimal`, `Json`, `Any`, `Bytes`, a shape or an
+unknown type. With no `on`, with another condition form such as `<`, `or`, a
+literal or an equality within one endpoint, with a `Decimal`, `Json`, `Any`,
+`Bytes`, shape or unknown-typed equality, or with one of the errors above, an
+EXPLICIT_MODULES project check reports an INNER or LEFT JOIN through the
+relationship as PIE-S2333 at the table or query when the JOIN writes `from`
+and the roles of each VIA step, and at the JOIN, naming the relationship and
+why it cannot be used, when it omits `from` or VIA roles. A
 RIGHT, FULL, SEMI or ANTI JOIN through it reports PIE-S2334 and PIE-S2335 at
 the JOIN, and that PIE-S2333 at the JOIN as well when it omits `from` or VIA
-roles. Single-file checks do not check whether a JOIN can use a relationship:
-an INNER or LEFT JOIN through it passes `check`, and a RIGHT, FULL, SEMI or
-ANTI JOIN reports its PIE-S2334 at the JOIN in any case. The forms that are not
-errors still pass `check` while no query uses the relationship. A declaration
-alone infers no same-name fields, keys or cardinality and adds no JOIN or SQL.
-A LEGACY_FLAT project (`schema_version = 1`) checks relationship declarations
-and the JOINs through them as single-file checks do, except in the tables and
-queries whose semantic checks it skips, such as one that reads a JOIN binding
-field (see [Projects and packages](project-package.md#schema-compatibility)).
+roles. Single-file checks also verify relationship usability: the JOIN
+reports PIE-S2335 for an unusable match, and PIE-S2334 when a table or query
+would be a relationship endpoint. A declaration with its own PIE-S2601 to
+PIE-S2604 adds no JOIN diagnostic. Forms that are not declaration errors still
+pass `check` while no query uses the relationship. A declaration alone infers
+no same-name fields, keys or cardinality and adds no JOIN or SQL.
+A LEGACY_FLAT project (`schema_version = 1`) keeps its prior declaration
+checks and JOIN admission: it does not infer omitted sources or VIA roles
+or check relationship usability as the single-file JOIN path now does; JOIN
+kinds other than INNER/LEFT and JOIN-local ON remain unavailable (see
+[Projects and packages](project-package.md#schema-compatibility)).
 
-A JOIN through a relationship cannot yet read the rows of a `from` input that
+In an EXPLICIT_MODULES project, a JOIN through a relationship cannot yet read
+the rows of a `from` input that
 has `let:` bindings, GROUP BY, `satisfying` or a computed SELECT output, such as
 a grouped or windowed query, or that reads such a relation or a relation let
 through a chain of `from` inputs. When the FROM input of a table or query is
@@ -2587,9 +2745,10 @@ Relationship declarations have a separate namespace. In an EXPLICIT_MODULES
 project a relationship traversal of any JOIN kind (`inner`, `left`, `right`,
 `full`, `semi` or `anti`) resolves through them, and project SQL emission
 (`emit-sql --project`) writes the relationship's field match as the JOIN
-condition, inside `EXISTS` or `NOT EXISTS` for SEMI and ANTI. The single-file
-legacy Script IR has no relationship JOIN lowering: single-file `explain` and
-`emit-sql` refuse a relationship JOIN with `PIE-I1000`.
+condition, inside `EXISTS` or `NOT EXISTS` for SEMI and ANTI. Single-file
+PostgreSQL emission also writes the admitted one-step relationship match,
+under the single-file JOIN limits above. MySQL refuses its JOIN relations
+with PIE-B1000; single-file `explain` refuses them with PIE-I1000.
 
 ## Diagnostics, IR, SQL, and output
 

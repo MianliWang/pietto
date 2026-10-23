@@ -480,6 +480,8 @@ def test_pipeline_is_hash_seed_cwd_independent_private_and_immutable(
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     assert getattr(pipeline.ProjectIRPipelineResult, "__dataclass_params__").frozen
     assert hasattr(pipeline.ProjectIRPipelineResult, "__slots__")

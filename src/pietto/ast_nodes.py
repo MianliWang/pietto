@@ -697,7 +697,8 @@ class JoinClause(Node):
     """One authored JOIN with independently retained VIA and optional ON.
 
     A JOIN written without ``from`` leaves ``source_binding_name`` absent
-    (None) for semantic inference.
+    (None) for semantic inference. ``target_binding_span`` locates the ``as``
+    name; a clause built by hand may leave it absent.
     """
 
     kind: AuthoredJoinKind
@@ -706,6 +707,7 @@ class JoinClause(Node):
     source_binding_name: str | None
     traversal_steps: tuple[JoinTraversalStep, ...] = ()
     on_clause: JoinOnClause | None = None
+    target_binding_span: Span | None = None
 
     def __post_init__(self) -> None:
         if type(self.kind) is not AuthoredJoinKind:

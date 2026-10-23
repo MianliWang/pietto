@@ -38,6 +38,7 @@ SQL_FIXTURES = frozenset(
         "emit_sql_grouped_decimal_aggregate.sql",
         "emit_sql_grouped_count_field_aggregate.sql",
         "emit_sql_group_by_aggregate.sql",
+        "emit_sql_join_mvp.sql",
         "emit_sql_compatibility_expressions.sql",
         "emit_sql_compatibility_literals_identifiers.sql",
         "emit_sql_compatibility_ordering_metadata.sql",
@@ -146,6 +147,7 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_group_by_aggregate.sql": (
         "tests/fixtures/phase21/postgres_group_by_aggregate.pietto",
     ),
+    "emit_sql_join_mvp.sql": ("tests/fixtures/postgres/join_mvp.pietto",),
     "emit_sql_compatibility_expressions.sql": (
         "tests/fixtures/postgres/compatibility_expressions.pietto",
     ),
@@ -181,6 +183,7 @@ REFERENCE_TESTS = (
     Path("tests/test_sql_count_field_sql.py"),
     Path("tests/test_sql_count_distinct_sql.py"),
     Path("tests/test_sql_decimal_aggregate_sql.py"),
+    Path("tests/test_sql_join_emission.py"),
     Path("tests/test_project_explain_json.py"),
 )
 

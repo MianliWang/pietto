@@ -28,6 +28,8 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 _ENDPOINT_RELATIONS = (SourceDef, TableDef, QueryDef)
+# A SEMI or ANTI JOIN binding is visible only to its own `on`.
+_HIDING_KINDS = frozenset({AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI})
 
 
 _KNOWN_DEFINITIONS = frozenset(
@@ -66,17 +68,83 @@ def resolve_relation_inputs(
         if isinstance(target, (SourceDef, TableDef, QueryDef)):
             resolutions[from_clause] = target
         elif isinstance(target, SetRelationDef):
-            diagnostics.append(
-                availability_diagnostic(
-                    from_clause.span,
-                    "Set-operation inputs are available only when "
-                    f"{_EXPLICIT_MODULES} completes them: {target.name}",
-                )
-            )
+            diagnostics.append(_set_operation_input_diagnostic(from_clause, target))
         else:
             diagnostics.append(_unknown_relation_diagnostic(from_clause))
 
     return resolutions, diagnostics
+
+
+def join_target(
+    clause: JoinClause,
+    relation_symbols: Mapping[str, Definition],
+) -> RelationDefinition | Diagnostic:
+    """Return the relation a JOIN reads, or why it reads none, at the JOIN.
+
+    A name that is no relation is PIE-S2301 and a set operation keeps the
+    availability diagnostic of a FROM input that names one.
+    """
+
+    target = relation_symbols.get(clause.target_relation_name)
+    if isinstance(target, _ENDPOINT_RELATIONS):
+        return target
+    if isinstance(target, SetRelationDef):
+        return _set_operation_input_diagnostic(clause, target)
+    return _join_diagnostic(
+        clause, "PIE-S2301", f"Unknown relation: {clause.target_relation_name}"
+    )
+
+
+def written_join_source(
+    definition: TableDef | QueryDef,
+    position: int,
+    *,
+    hidden_bindings: bool = False,
+) -> int | Diagnostic:
+    """Find the binding that the written `from` of JOIN ``position`` names.
+
+    The result is the input ordinal of the one visible earlier binding with
+    that name (0 for the FROM input, k for the target of JOIN k), or the
+    PIE-S2335 at the JOIN when the name is ambiguous, is the binding this
+    JOIN introduces, is bound only by a later JOIN or is unknown. A SEMI or
+    ANTI binding is not visible to later JOINs; with ``hidden_bindings`` a
+    name that only such an earlier binding has says so instead.
+    """
+
+    clause = definition.join_clauses[position]
+    name = clause.source_binding_name
+    earlier = definition.join_clauses[:position]
+    matches = [0] if definition.from_clause.source_name == name else []
+    matches += [
+        ordinal
+        for ordinal, item in enumerate(earlier, start=1)
+        if item.target_binding_name == name and item.kind not in _HIDING_KINDS
+    ]
+    hidden = [
+        item.kind
+        for item in earlier
+        if item.target_binding_name == name and item.kind in _HIDING_KINDS
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        message = f"Ambiguous JOIN source binding: {name}"
+    elif hidden_bindings and hidden:
+        kind = "a SEMI" if hidden[0] is AuthoredJoinKind.SEMI else "an ANTI"
+        message = (
+            f"JOIN source binding is {kind} JOIN binding, which later JOINs "
+            f"cannot read: {name}"
+        )
+    elif name == clause.target_binding_name:
+        message = f"JOIN source binding is the binding this JOIN introduces: {name}"
+    elif any(
+        item.target_binding_name == name
+        for item in definition.join_clauses[position + 1 :]
+    ):
+        message = f"JOIN source binding is bound only by a later JOIN: {name}"
+    else:
+        message = f"Unknown JOIN source binding: {name}"
+    return _join_diagnostic(clause, "PIE-S2335", message)
 
 
 def check_join_references(
@@ -102,16 +170,6 @@ def check_join_references(
     for definition in script.definitions:
         if not isinstance(definition, (TableDef, QueryDef)):
             continue
-        from_name = definition.from_clause.source_name
-        # (binding name, relation name, visible to later JOINs)
-        bindings = [(from_name, from_name, True)] + [
-            (
-                clause.target_binding_name,
-                clause.target_relation_name,
-                clause.kind not in (AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI),
-            )
-            for clause in definition.join_clauses
-        ]
         for position, clause in enumerate(definition.join_clauses):
             if unsupported_join(clause):
                 continue
@@ -123,8 +181,7 @@ def check_join_references(
                         f"Unknown relation: {clause.target_relation_name}",
                     )
                 )
-            name = clause.source_binding_name
-            if name is None:
+            if clause.source_binding_name is None:
                 # Single-file checks do not infer an omitted JOIN source.
                 diagnostics.extend(
                     _via_diagnostics(
@@ -132,36 +189,16 @@ def check_join_references(
                     )
                 )
                 continue
-            matches = [
-                relation
-                for binding, relation, visible in bindings[: position + 1]
-                if binding == name and visible
-            ]
-            if not matches:
-                # bindings[position + 1] is the binding this JOIN introduces.
-                later = any(
-                    binding == name for binding, _, _ in bindings[position + 2 :]
-                )
-                diagnostics.append(
-                    _join_diagnostic(
-                        clause,
-                        "PIE-S2335",
-                        (
-                            f"JOIN source binding is the binding this JOIN introduces: {name}"
-                            if name == clause.target_binding_name
-                            else f"JOIN source binding is bound only by a later JOIN: {name}"
-                            if later
-                            else f"Unknown JOIN source binding: {name}"
-                        ),
-                    )
-                )
-            elif len(matches) > 1:
-                diagnostics.append(
-                    _join_diagnostic(
-                        clause, "PIE-S2335", f"Ambiguous JOIN source binding: {name}"
-                    )
-                )
-            source_relation = matches[0] if len(matches) == 1 else None
+            source = written_join_source(definition, position)
+            if isinstance(source, Diagnostic):
+                diagnostics.append(source)
+                source_relation = None
+            elif source == 0:
+                source_relation = definition.from_clause.source_name
+            else:
+                source_relation = definition.join_clauses[
+                    source - 1
+                ].target_relation_name
             diagnostics.extend(
                 _via_diagnostics(
                     clause,
@@ -273,6 +310,14 @@ def _via_diagnostics(
             )
         )
     return diagnostics
+
+
+def _set_operation_input_diagnostic(node: Node, target: SetRelationDef) -> Diagnostic:
+    return availability_diagnostic(
+        node.span,
+        "Set-operation inputs are available only when "
+        f"{_EXPLICIT_MODULES} completes them: {target.name}",
+    )
 
 
 def _join_diagnostic(node: Node, code: str, message: str) -> Diagnostic:

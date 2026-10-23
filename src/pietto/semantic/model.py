@@ -8,10 +8,15 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping, TypeVar
 
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
+    ComparisonExpr,
     Definition,
+    DottedNameExpr,
     Expression,
     FieldDef,
     FromClause,
+    JoinClause,
+    JoinTraversalStep,
     LetBinding,
     LetClause,
     Node,
@@ -115,10 +120,15 @@ class RowField:
 
 @dataclass(frozen=True, slots=True)
 class RowSchema:
-    """An ordered readonly row schema, optionally marked unknown."""
+    """An ordered readonly row schema, optionally marked unknown.
+
+    ``joined`` marks the input row of a single-file JOIN relation, whose keys
+    are ``"<binding>.<field>"``.
+    """
 
     fields: Mapping[str, RowField] = field(default_factory=lambda: _readonly_mapping())
     is_unknown: bool = False
+    joined: bool = False
 
     def __post_init__(self) -> None:
         """Copy row fields into an immutable mapping."""
@@ -185,6 +195,72 @@ class LetScopeSemanticInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class JoinFieldRef:
+    """One field of one input occurrence of a JOIN relation."""
+
+    input: int  # input ordinal: 0 = FROM, k = target of JOIN k
+    field: str  # field name in that input's row
+
+
+@dataclass(frozen=True, slots=True)
+class JoinInputInfo:
+    """One input occurrence of a JOIN relation: the FROM input or a JOIN target."""
+
+    ordinal: int
+    binding: str  # FROM: the relation name; JOIN: the `as` name
+    relation: SourceDef | TableDef | QueryDef
+    clause: JoinClause | None  # None for the FROM input
+    visible: bool  # False for SEMI and ANTI targets
+
+
+@dataclass(frozen=True, slots=True)
+class JoinEqualityInfo:
+    """One relationship equality of a JOIN, oriented source side first."""
+
+    left: JoinFieldRef  # source side (input < target)
+    right: JoinFieldRef  # target side
+    left_type: ValueType  # source field type, nullability before this JOIN
+    right_type: ValueType  # target field type, its schema's nullability
+    comparison: ComparisonExpr  # the relationship conjunct, declared order
+    left_operand: DottedNameExpr  # the conjunct operand of the source side
+    right_operand: DottedNameExpr  # the conjunct operand of the target side
+
+
+@dataclass(frozen=True, slots=True)
+class JoinInfo:
+    """One resolved JOIN clause of a JOIN relation."""
+
+    ordinal: int  # 1-based, source order
+    clause: JoinClause
+    kind: AuthoredJoinKind
+    mode: str  # "M1" | "M2" | "M3" | "M4" | "M5"
+    source_input: int  # resolved source occurrence (< target_input)
+    source_inferred: bool  # True when `from` was omitted
+    target_input: int  # == ordinal in the MVP
+    relationship: str | None  # M1, M2, M4: the relationship name
+    step: JoinTraversalStep | None  # M2, M4: the `via` step
+    equalities: tuple[JoinEqualityInfo, ...]  # oriented source = target; () for M3, M5
+    condition: Expression | None  # M3, M4: clause.on_clause.expression (typed)
+    null_extends: tuple[int, ...]  # inputs this JOIN null-extends, ascending
+
+
+@dataclass(frozen=True, slots=True)
+class RelationJoinsInfo:
+    """The resolved JOIN facts of one JOIN-clean single-file relation."""
+
+    inputs: tuple[JoinInputInfo, ...]
+    joins: tuple[JoinInfo, ...]
+    row_schema: RowSchema  # the tail row: joined=True, keys "binding.field"
+    # every resolved NameExpr/DottedNameExpr
+    field_reads: Mapping[Expression, JoinFieldRef]
+
+    def __post_init__(self) -> None:
+        """Copy the resolved field reads into an immutable mapping."""
+
+        object.__setattr__(self, "field_reads", _readonly_mapping(self.field_reads))
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
@@ -242,6 +318,10 @@ class SemanticModel:
     let_scopes: Mapping[
         TableDef | QueryDef,
         LetScopeSemanticInfo,
+    ] = field(default_factory=lambda: _readonly_mapping())
+    relation_joins: Mapping[
+        TableDef | QueryDef,
+        RelationJoinsInfo,
     ] = field(default_factory=lambda: _readonly_mapping())
     relationships: tuple[RelationshipSemanticInfo, ...] = ()
 
@@ -390,6 +470,11 @@ class SemanticModel:
             _readonly_mapping(self.result_predicates),
         )
         object.__setattr__(self, "let_scopes", _readonly_mapping(self.let_scopes))
+        object.__setattr__(
+            self,
+            "relation_joins",
+            _readonly_mapping(self.relation_joins),
+        )
 
     def decimal_precision_scale_for(
         self,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pietto._flat_relational_admission import unsupported_join
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from pietto.ast_nodes import (
     CallExpr,
@@ -50,7 +50,10 @@ from pietto.semantic.group_by import (
     unknown_to_aggregate,
     unread_let_diagnostics,
 )
-from pietto.semantic.let_bindings import admitted_relation_let_expressions
+from pietto.semantic.let_bindings import (
+    admitted_relation_let_expressions,
+    join_reserved_let_names,
+)
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -61,9 +64,13 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
+from pietto.semantic.row_lookup import bare_field, has_bare_field, qualified_field
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
+JoinedInputBuilder = Callable[
+    [DerivedRelation, Callable[[RelationDefinition], RowSchema]], RowSchema | None
+]
 
 _UNKNOWN_RESOLVED_TYPE = ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN)
 
@@ -80,6 +87,7 @@ def propagate_relation_schemas(
     | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     reported_errors: frozenset[Diagnostic] | None = None,
+    joined_input_builder: JoinedInputBuilder | None = None,
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
     """Propagate stable projection names through table and query relations."""
 
@@ -90,10 +98,16 @@ def propagate_relation_schemas(
     def infer(definition: DerivedRelation) -> RowSchema:
         if definition in schemas:
             return schemas[definition]
-        if any(unsupported_join(clause) for clause in definition.join_clauses):
+        joined = joined_input_builder is not None and bool(definition.join_clauses)
+        if not joined and any(
+            unsupported_join(clause) for clause in definition.join_clauses
+        ):
             schemas[definition] = _unknown_schema()
             return schemas[definition]
         if definition in cyclic_relations:
+            if joined:
+                schemas[definition] = _unknown_schema()
+                return schemas[definition]
             schema, relation_diagnostics = _project_schema(
                 definition,
                 _unknown_schema(),
@@ -110,13 +124,15 @@ def propagate_relation_schemas(
             return _unknown_schema()
 
         visiting.add(definition)
-        target = from_resolutions.get(definition.from_clause)
-        if isinstance(target, SourceDef):
-            input_schema = source_row_schemas[target]
-        elif isinstance(target, (TableDef, QueryDef)):
-            input_schema = infer(target)
+        if joined and joined_input_builder is not None:
+            input_schema = joined_input_builder(definition, schema_of)
+            if input_schema is None:
+                visiting.remove(definition)
+                schemas[definition] = _unknown_schema()
+                return schemas[definition]
         else:
-            input_schema = _unknown_schema()
+            target = from_resolutions.get(definition.from_clause)
+            input_schema = _unknown_schema() if target is None else schema_of(target)
 
         schema, relation_diagnostics = _project_schema(
             definition,
@@ -132,6 +148,11 @@ def propagate_relation_schemas(
         diagnostics.extend(relation_diagnostics)
         return schema
 
+    def schema_of(definition: RelationDefinition) -> RowSchema:
+        if isinstance(definition, SourceDef):
+            return source_row_schemas[definition]
+        return infer(definition)
+
     for definition in script.definitions:
         if isinstance(definition, (TableDef, QueryDef)):
             infer(definition)
@@ -142,6 +163,8 @@ def propagate_relation_schemas(
 def reads_relation_input(
     definition: DerivedRelation,
     cyclic_relations: set[DerivedRelation],
+    *,
+    joined_input_builder: JoinedInputBuilder | None = None,
 ) -> bool:
     """Whether propagation projects a relation from its input's schema.
 
@@ -149,9 +172,11 @@ def reads_relation_input(
     Unknown input instead, and one with an unsupported join is Unknown itself.
     """
 
-    return definition not in cyclic_relations and not any(
-        unsupported_join(clause) for clause in definition.join_clauses
-    )
+    if definition in cyclic_relations:
+        return False
+    if joined_input_builder is not None and definition.join_clauses:
+        return joined_input_builder(definition, lambda _: _unknown_schema()) is not None
+    return not any(unsupported_join(clause) for clause in definition.join_clauses)
 
 
 def project_relation_schema(
@@ -161,10 +186,13 @@ def project_relation_schema(
     mode: CheckMode,
     expression_value_types: Mapping[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType],
+    joined_input_builder: JoinedInputBuilder | None = None,
 ) -> RowSchema:
     """Project one relation's schema from the schema it reads, as propagation does."""
 
-    if any(unsupported_join(clause) for clause in definition.join_clauses):
+    if not reads_relation_input(
+        definition, set(), joined_input_builder=joined_input_builder
+    ):
         return _unknown_schema()
     return _project_schema(
         definition,
@@ -260,7 +288,7 @@ def _project_schema(
                 # let or a typed name is a computed output; only a name that is
                 # none of these is unknown.
                 if (
-                    expression.name in input_schema.fields
+                    has_bare_field(input_schema, expression.name)
                     or (item.alias is not None and expression.name in let_names)
                     or _has_known_expression_type(
                         expression,
@@ -305,7 +333,13 @@ def _let_expansions_for_definition(
 ) -> Mapping[str, Expression] | None:
     if relation_let_expressions is not None:
         return relation_let_expressions.get(definition)
-    return admitted_relation_let_expressions(definition, input_schema)
+    return admitted_relation_let_expressions(
+        definition,
+        input_schema,
+        reserved_names=(
+            join_reserved_let_names(definition) if input_schema.joined else frozenset()
+        ),
+    )
 
 
 def _aggregate_projection_diagnostics(
@@ -513,7 +547,7 @@ def _projection_input_field(
 
     expression = item.expression
     if item.alias is None and isinstance(expression, NameExpr):
-        return input_schema.fields.get(expression.name)
+        return bare_field(input_schema, expression.name)
     if isinstance(expression, DottedNameExpr):
         return _qualified_projection_input_field(
             definition,
@@ -528,14 +562,11 @@ def _qualified_projection_input_field(
     expression: DottedNameExpr,
     input_schema: RowSchema,
 ) -> RowField | None:
-    """Resolve a two-part projection against the sole relation input."""
+    """Resolve a two-part projection against the visible input bindings."""
 
-    if (
-        len(expression.parts) != 2
-        or expression.parts[0] != definition.from_clause.source_name
-    ):
-        return None
-    return input_schema.fields.get(expression.parts[1])
+    return qualified_field(
+        input_schema, expression.parts, definition.from_clause.source_name
+    )
 
 
 def _projected_row_field(output_name: str, input_field: RowField) -> RowField:

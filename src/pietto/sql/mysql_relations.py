@@ -48,6 +48,8 @@ def render_mysql_relation(
 ) -> str:
     """Render a minimal relation using a MySQL source or relation-name input."""
 
+    if relation.joins:
+        raise MySqlRenderError("MySQL JOIN emission is not available yet")
     quote_identifier(relation.name, context="relation identifier")
     input_sql, input_reference = _relation_input_sql(
         relation,

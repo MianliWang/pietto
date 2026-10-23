@@ -688,6 +688,7 @@ def test_existing_public_semantic_ir_and_project_ir_shapes_are_unchanged() -> No
         "named_window_namespaces",
         "result_predicates",
         "let_scopes",
+        "relation_joins",
         "relationships",
     )
     assert tuple(item.name for item in fields(RelationIR)) == (
@@ -704,6 +705,8 @@ def test_existing_public_semantic_ir_and_project_ir_shapes_are_unchanged() -> No
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     assert tuple(item.name for item in fields(ScriptIR)) == ("definitions",)
     assert tuple(item.name for item in ProjectIRLogicalOperatorKind) == (

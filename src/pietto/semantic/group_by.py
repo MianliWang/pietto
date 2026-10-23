@@ -67,6 +67,8 @@ from pietto.semantic.model import (
     ValueTypeKind,
 )
 
+from pietto.semantic.row_lookup import bare_field, qualified_field
+
 GROUP_BY_DEFERRED_CODE = "PIE-S2316"
 GROUP_BY_DEFERRED_MESSAGE = (
     "GROUP BY lowering gate is retired; valid GROUP BY lowers to SQL"
@@ -373,14 +375,11 @@ def _resolve_input_field(
     input_schema: RowSchema,
 ) -> RowField | None:
     if isinstance(expression, NameExpr):
-        return input_schema.fields.get(expression.name)
+        return bare_field(input_schema, expression.name)
     if isinstance(expression, DottedNameExpr):
-        if (
-            len(expression.parts) != 2
-            or expression.parts[0] != definition.from_clause.source_name
-        ):
-            return None
-        return input_schema.fields.get(expression.parts[1])
+        return qualified_field(
+            input_schema, expression.parts, definition.from_clause.source_name
+        )
     return None
 
 

@@ -935,7 +935,22 @@ def test_repeated_condition_operands_check_in_every_join_kind(
     # A repeated operand narrows the match only; every JOIN kind and VIA+ON
     # refinement completes as with one equality (it used to crash for
     # INNER/LEFT VIA).
-    if kind is None or (kind in {"inner", "left"} and not refinement):
+    if kind in {"inner", "left"} and not refinement and endpoint == "order_view":
+        project, single_file = _checked_both_ways(tmp_path, source)
+        assert project == ()
+        assert [
+            (d.code, d.message, d.location.line, d.location.column) for d in single_file
+        ] == [
+            (
+                "PIE-S2334",
+                "A relationship JOIN through a table or query is not available "
+                "in single files yet: JOIN cust reads order_view; write `from` "
+                "and `on` instead.",
+                22,
+                5,
+            )
+        ]
+    elif kind is None or (kind in {"inner", "left"} and not refinement):
         assert _checked_both_ways(tmp_path, source) == ((), ())
     else:
         assert _project_diagnostics(tmp_path, {"main.pietto": source}) == ()

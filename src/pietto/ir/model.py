@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import StrEnum
 
 from pietto.errors import Diagnostic
@@ -61,6 +61,7 @@ class FieldId:
 
     owner: SymbolId | None
     name: str
+    input: int | None = None  # input ordinal in a JOIN relation, else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +368,71 @@ class RelationSourceIR:
     target: SymbolId
     name: str
     span: SourceSpan
+
+
+class RelationInputRoleIR(StrEnum):
+    """How an input occurrence enters a JOIN relation."""
+
+    FROM = "from"
+    TARGET = "target"  # HOP is added with multi-hop VIA (post-MVP)
+
+
+@dataclass(frozen=True, slots=True)
+class RelationInputIR:
+    """One input occurrence of a JOIN relation: the FROM input or a JOIN target."""
+
+    ordinal: int
+    role: RelationInputRoleIR
+    target: SymbolId  # SymbolId(RELATION, <relation name>)
+    binding: str  # the SQL alias
+    visible: bool  # False for SEMI and ANTI targets
+    span: SourceSpan  # FROM clause span, or the JoinClause span
+
+
+class JoinKindIR(StrEnum):
+    """The kinds of a lowered JOIN."""
+
+    INNER = "inner"
+    LEFT = "left"
+    RIGHT = "right"
+    FULL = "full"
+    CROSS = "cross"
+    SEMI = "semi"
+    ANTI = "anti"
+
+
+@dataclass(frozen=True, slots=True)
+class JoinEqualityIR:
+    """One relationship equality of a JOIN hop, source side first."""
+
+    left: FieldRefIR  # source side
+    right: FieldRefIR  # target side
+
+
+@dataclass(frozen=True, slots=True)
+class JoinHopIR:
+    """One relationship hop of a JOIN with its equalities."""
+
+    relationship: str
+    left_input: int
+    right_input: int
+    equalities: tuple[JoinEqualityIR, ...]
+    span: SourceSpan  # the `via` step, or the JoinClause for M1
+
+
+@dataclass(frozen=True, slots=True)
+class JoinIR:
+    """One lowered JOIN of a relation, in source order."""
+
+    ordinal: int
+    kind: JoinKindIR
+    source_input: int
+    source_inferred: bool
+    target_input: int
+    hops: tuple[JoinHopIR, ...]  # M1, M2, M4: one hop; M3, M5: ()
+    condition: ExpressionIR | None  # M3, M4: the lowered `on`, typed Bool
+    null_extends: tuple[int, ...]
+    span: SourceSpan  # the JoinClause
 
 
 @dataclass(frozen=True, slots=True)
@@ -892,6 +958,165 @@ class LimitIR:
     span: SourceSpan
 
 
+_EXISTENCE_JOIN_KINDS = frozenset({JoinKindIR.SEMI, JoinKindIR.ANTI})
+# IR values that never hold a field reference.
+_FIELDLESS_TYPES = frozenset({SourceSpan, SymbolId, TypeRefIR})
+
+
+def _field_refs(*values: object) -> list[FieldRefIR]:
+    """Every field reference inside the given IR values.
+
+    Malformed IR, such as a list or an unset field, is walked as far as it goes:
+    the SQL emitters report it, not relation construction.
+    """
+
+    found: list[FieldRefIR] = []
+    pending = list(values)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, FieldRefIR):
+            found.append(value)
+        elif isinstance(value, tuple | list):
+            pending.extend(value)
+        elif is_dataclass(value) and type(value) not in _FIELDLESS_TYPES:
+            pending.extend(getattr(value, item.name, None) for item in fields(value))
+    return found
+
+
+def _input_of(reference: FieldRefIR) -> int | None:
+    return getattr(getattr(reference, "field", None), "input", None)
+
+
+def _check_join_invariants(relation: RelationIR) -> None:
+    """Raise ValueError for the first JOIN invariant the relation violates."""
+
+    inputs, joins = relation.inputs, relation.joins
+    tail = (
+        relation.projections,
+        relation.filter,
+        relation.group_keys,
+        relation.order_by,
+        relation.result_predicate,
+        relation.named_windows,
+    )
+    # 1. Inputs and joins come together; join-free fields name no input.
+    if inputs or joins:
+        mismatched = not joins or len(inputs) != len(joins) + 1
+    else:
+        mismatched = any(_input_of(item) is not None for item in _field_refs(tail))
+    if mismatched:
+        raise ValueError(
+            "relation inputs must be one more than its joins; "
+            "join-free fields name no input"
+        )
+    if not joins:
+        return
+    # 2. The relation's source as FROM, then one target per JOIN, with unique
+    #    bindings.
+    if (
+        any(item.ordinal != ordinal for ordinal, item in enumerate(inputs))
+        or inputs[0].role is not RelationInputRoleIR.FROM
+        or inputs[0].target != relation.source.target
+        or inputs[0].binding != relation.source.name
+        or inputs[0].span != relation.source.span
+        or any(item.role is not RelationInputRoleIR.TARGET for item in inputs[1:])
+        or len({item.binding for item in inputs}) != len(inputs)
+    ):
+        raise ValueError(
+            "relation inputs must be its source as FROM then JOIN targets "
+            "in ordinal order, uniquely bound"
+        )
+    # 3. Each JOIN reads an earlier input that is visible before it.
+    hidden: set[int] = set()
+    for ordinal, join in enumerate(joins, start=1):
+        if (
+            join.ordinal != ordinal
+            or join.target_input != ordinal
+            or not 0 <= join.source_input < ordinal
+            or join.source_input in hidden
+        ):
+            raise ValueError(
+                "relation joins must be in ordinal order and read an earlier "
+                "visible input"
+            )
+        if join.kind in _EXISTENCE_JOIN_KINDS:
+            hidden.add(ordinal)
+    # 4. CROSS has nothing to match on; every other JOIN has something.
+    for join in joins:
+        matches = bool(join.hops) or join.condition is not None
+        if join.kind == JoinKindIR.CROSS:
+            invalid = matches or bool(join.null_extends)
+        else:
+            invalid = not matches
+        if invalid:
+            raise ValueError(
+                "CROSS joins must have no hops, condition or null extension; "
+                "others need a hop or condition"
+            )
+    # 5. At most one hop, from the source to the target, by equalities that all
+    #    run that way.
+    for join in joins:
+        if len(join.hops) > 1 or any(
+            hop.left_input != join.source_input
+            or hop.right_input != join.target_input
+            or not hop.equalities
+            or not all(
+                _input_of(equality.left) == hop.left_input
+                and _input_of(equality.right) == hop.right_input
+                for equality in hop.equalities
+            )
+            for hop in join.hops
+        ):
+            raise ValueError(
+                "relation joins must have at most one hop, from source input "
+                "to target input by equalities that all run that way"
+            )
+    # 6. Null extension per kind; SEMI and ANTI targets are not row inputs.
+    rows = [0]
+    for join in joins:
+        expected = {
+            JoinKindIR.LEFT: (join.target_input,),
+            JoinKindIR.RIGHT: tuple(rows),
+            JoinKindIR.FULL: (*rows, join.target_input),
+        }.get(join.kind, ())
+        if join.null_extends != expected:
+            raise ValueError("relation join null extensions must match the join kind")
+        if join.kind not in _EXISTENCE_JOIN_KINDS:
+            rows.append(join.target_input)
+    # 7. SEMI and ANTI targets are hidden; every other input is visible.
+    if tuple(item.visible for item in inputs) != (
+        True,
+        *(join.kind not in _EXISTENCE_JOIN_KINDS for join in joins),
+    ):
+        raise ValueError(
+            "relation inputs must be visible except SEMI and ANTI join targets"
+        )
+    # 8. Every field reference names a readable input, that input's relation as
+    #    owner and its binding as qualifier.
+    readable = {ordinal for ordinal, item in enumerate(inputs) if item.visible}
+    regions: list[tuple[object, set[int]]] = [(tail, readable)]
+    visible_before = {0}
+    for join in joins:
+        regions.append(
+            ((join.condition, join.hops), visible_before | {join.target_input})
+        )
+        if join.kind not in _EXISTENCE_JOIN_KINDS:
+            visible_before = visible_before | {join.target_input}
+    for values, allowed in regions:
+        for reference in _field_refs(values):
+            ordinal = _input_of(reference)
+            if (
+                ordinal is None
+                or ordinal not in allowed
+                or getattr(reference.field, "owner", None) != inputs[ordinal].target
+                or getattr(reference, "qualifier", None) != (inputs[ordinal].binding,)
+            ):
+                raise ValueError(
+                    "relation field references must name a visible input, be owned "
+                    "by its relation and qualify with its binding"
+                )
+
+
 @dataclass(frozen=True, slots=True)
 class RelationIR(DefinitionIR):
     """A lowered table or query relation."""
@@ -909,6 +1134,8 @@ class RelationIR(DefinitionIR):
     group_keys: tuple[FieldRefIR, ...] = ()
     result_predicate: ResultPredicateIR | None = None
     named_windows: tuple[NamedWindowDeclarationIR, ...] = ()
+    inputs: tuple[RelationInputIR, ...] = ()
+    joins: tuple[JoinIR, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(
@@ -957,6 +1184,7 @@ class RelationIR(DefinitionIR):
                 or target.name != named_use.reference_spelling
             ):
                 raise ValueError("named window call must retain its exact relation use")
+        _check_join_invariants(self)
 
 
 @dataclass(frozen=True, slots=True)

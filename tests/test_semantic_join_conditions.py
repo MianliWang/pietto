@@ -26,10 +26,26 @@ from pietto._project.project_relationship_paths import ProjectRelationshipJoinSh
 from pietto._project.model import ProjectRowFieldNullability
 from pietto.ast_nodes import AuthoredJoinKind
 from pietto.parser_api import parse_source
+from pietto.semantic.analyzer import analyze_project_namespace
 from pietto.semantic import analyze
 from pietto.ir import build_ir
 from pietto.semantic.model import EffectiveNullability, CheckMode
 from pietto import cli
+from pietto.ast_nodes import QueryDef
+from pietto.semantic import joins
+from pietto.semantic.model import (
+    ResolvedType,
+    RowField,
+    RowSchema,
+    TypeKind,
+    ValueType,
+)
+from _pietto_semantic_joins import (
+    JOIN_PREFIX,
+    located,
+    resolve_by_declaration,
+    run_joins,
+)
 
 
 @pytest.mark.parametrize(
@@ -442,14 +458,17 @@ def test_field_reference_and_proof_constructors_enforce_membership(
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_single_file_check_and_direct_legacy_ir_remain_negative(
+def test_single_file_check_accepts_on_and_direct_legacy_ir_remains_negative(
     mode: CheckMode,
 ) -> None:
     parsed = parse_source(_source("lhs.id == r.id"))
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = analyze(parsed.ast, mode_override=mode)
-    assert any(d.code == "PIE-S2334" for d in semantic.diagnostics)
-    lowered = build_ir(parsed.ast, semantic.model)
+    assert semantic.diagnostics == ()
+    assert len(semantic.model.relation_joins) == 1
+    legacy = analyze_project_namespace(parsed.ast)
+    assert legacy.model.relation_joins == {}
+    lowered = build_ir(parsed.ast, legacy.model)
     assert lowered.ir is None
     assert any(d.code == "PIE-I1000" for d in lowered.diagnostics)
 
@@ -618,7 +637,7 @@ def test_project_check_modes_admit_only_completed_explicit_module_conditions(
 
 @pytest.mark.parametrize("dialect", ("postgres", "mysql"))
 @pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_public_sql_check_negatives_and_no_partial_artifact(
+def test_public_join_check_and_postgres_sql_admission(
     tmp_path: Path, capsys, dialect: str, mode: CheckMode
 ) -> None:
     path = tmp_path / "main.pietto"
@@ -626,16 +645,21 @@ def test_public_sql_check_negatives_and_no_partial_artifact(
         f"mode {mode.value}\n"
         + _source("lhs.id == r.id").replace("postgres.table", f"{dialect}.table")
     )
-    for command in (
-        ["check", str(path), "--format", "json"],
-        ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
-    ):
-        assert cli.main(command) == 1
-        captured = capsys.readouterr()
-        assert not captured.err
-        document = json.loads(captured.out)
+    assert cli.main(["check", str(path), "--format", "json"]) == 0
+    captured = capsys.readouterr()
+    assert not captured.err
+    assert json.loads(captured.out)["ok"]
+    assert cli.main(
+        ["emit-sql", str(path), "--dialect", dialect, "--format", "json"]
+    ) == (0 if dialect == "postgres" else 1)
+    captured = capsys.readouterr()
+    assert not captured.err
+    document = json.loads(captured.out)
+    if dialect == "postgres":
+        assert document["ok"]
+    else:
         assert not document["ok"] and not document.get("artifacts", [])
-        assert any(d["code"] == "PIE-S2334" for d in document["diagnostics"])
+        assert any(d["code"] == "PIE-B1000" for d in document["diagnostics"])
 
 
 def test_package_root_boundary_precedes_condition_analysis(tmp_path: Path) -> None:
@@ -651,3 +675,263 @@ def test_package_root_boundary_precedes_condition_analysis(tmp_path: Path) -> No
         "does not use project source selection" in error.message
         for error in parsed.errors
     )
+
+
+# The `on` of JOIN c is at line 25, column 12: a hidden SEMI binding, a later
+# binding, a `let:` name and an unused def around it.
+_ON_TEMPLATE = (
+    JOIN_PREFIX + "query q:\n    from orders\n    semi join regions as gone:\n"
+    "        from orders\n        on gone.id == orders.amount\n"
+    "    inner join customers as c:\n        from orders\n        on {}\n"
+    "    cross join regions as later: from orders\n"
+    "    let:\n        big = 1\n    select:\n        x = orders.id\n"
+    "def inc(x: Int not null) -> Int nullable: return x + 1\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    (
+        ("gone.id == 1", "JOIN ON reference is unknown: gone.id"),
+        ("customers.id == 1", "JOIN ON reference is unknown: customers.id"),
+        ("c.nope == 1", "JOIN ON reference is unknown: c.nope"),
+        ("c.name.x == 1", "JOIN ON reference is unknown: c.name.x"),
+        ("big == 1", "JOIN ON reference is unknown: big"),
+        ("label == 1", "JOIN ON reference is unknown: label"),
+        ("later.id == 1", "JOIN ON reference is forward: later.id"),
+        ("id == 1", "JOIN ON reference is ambiguous: id; write orders.id or c.id"),
+    ),
+)
+def test_single_file_join_on_references_resolve_against_the_on_row(
+    condition: str, expected: str
+) -> None:
+    run = run_joins(_ON_TEMPLATE.format(condition))
+    checks, _ = run.checks()
+    assert run.diagnostics == []
+    assert located(checks.reads) == [("PIE-S2335", expected, 25, 12)]
+    # The failed reference explains the condition's unknown type.
+    assert (checks.diagnostics, checks.facts) == ((), {})
+
+
+def test_single_file_join_on_reads_are_typed_from_their_own_row() -> None:
+    run = run_joins(_ON_TEMPLATE.format("c.id == orders.customer_id and later.id == 1"))
+    checks, _ = run.checks()
+    assert located(checks.reads) == [
+        ("PIE-S2335", "JOIN ON reference is forward: later.id", 25, 43)
+    ]
+    run = run_joins(_ON_TEMPLATE.format("c.id == orders.customer_id"))
+    checks, value_types = run.checks()
+    query = run.relation("q")
+    info = checks.facts[query]
+    assert (checks.diagnostics, checks.reads) == ((), ())
+    semi, inner, cross = query.join_clauses
+    assert semi.on_clause is not None and inner.on_clause is not None
+    condition = inner.on_clause.expression
+    assert [join.condition for join in info.joins] == [
+        semi.on_clause.expression,
+        condition,
+        None,
+    ]
+    assert [(join.mode, join.null_extends) for join in info.joins] == [
+        ("M3", ()),
+        ("M3", ()),
+        ("M5", ()),
+    ]
+    assert sorted(
+        (leaf.span.line, leaf.span.column, read.input, read.field)
+        for leaf, read in info.field_reads.items()
+    ) == [
+        (22, 12, 1, "id"),
+        (22, 23, 0, "amount"),
+        (25, 12, 2, "id"),
+        (25, 20, 0, "customer_id"),
+        (30, 13, 0, "id"),
+    ]
+    assert value_types[condition] == ValueType(
+        ResolvedType("Bool", TypeKind.BUILTIN), EffectiveNullability.UNKNOWN
+    )
+    assert all(read in value_types for read in info.field_reads if read.span.line < 30)
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    (
+        pytest.param(
+            "count() > 1",
+            ("PIE-S2335", "Aggregate expressions are unavailable in JOIN ON."),
+            id="aggregate",
+        ),
+        pytest.param(
+            "orders.amount + 1",
+            ("PIE-S2202", "Expected Bool expression in JOIN ON"),
+            id="not_bool",
+        ),
+        pytest.param(
+            'orders.id == "x"',
+            (
+                "PIE-S2105",
+                "Invalid operands for operator ==: expected comparable operands",
+            ),
+            id="operands_once",
+        ),
+        pytest.param(
+            "inc(orders.customer_id) == c.id",
+            (
+                "PIE-S2395",
+                "Invalid argument for def inc at position 1 (x): expected Int "
+                "not null, got Int nullable",
+            ),
+            id="def_argument_reads_the_on_row",
+        ),
+    ),
+)
+def test_single_file_join_on_typing_reports_each_error_once(
+    condition: str, expected: tuple[str, str]
+) -> None:
+    run = run_joins(_ON_TEMPLATE.format(condition))
+    checks, _ = run.checks()
+    assert located(checks.diagnostics) == [(*expected, 25, 12)]
+    assert (checks.reads, checks.facts) == ((), {})
+    clean = run_joins(_ON_TEMPLATE.format("inc(c.id) == orders.id")).checks()[0]
+    assert (clean.diagnostics, clean.reads) == ((), ())
+    assert len(clean.facts) == 1
+
+
+_UNAVAILABLE = (
+    "PIE-S2202",
+    "JOIN ON expression type is unavailable; the fields it reads need known types.",
+    22,
+    12,
+)
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    (
+        pytest.param("o.v", [_UNAVAILABLE], id="unknown_condition"),
+        pytest.param("o.v == orders.id", [_UNAVAILABLE], id="comparison"),
+        pytest.param("o.v is not null", [_UNAVAILABLE], id="null_test"),
+        pytest.param("inc(o.v) == orders.id", [_UNAVAILABLE], id="def_argument"),
+        pytest.param(
+            "upper(o.v)",
+            [("PIE-S2202", "Expected Bool expression in JOIN ON", 22, 12)],
+            id="known_not_bool",
+        ),
+        pytest.param(
+            'o.v == orders.id and orders.id == "x"',
+            [
+                (
+                    "PIE-S2105",
+                    "Invalid operands for operator ==: expected comparable operands",
+                    22,
+                    33,
+                )
+            ],
+            id="operand_error",
+        ),
+        pytest.param("o.w == orders.id", [], id="known_field"),
+    ),
+)
+def test_single_file_join_on_that_reads_a_field_of_unknown_type_is_refused(
+    condition: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    run = run_joins(
+        JOIN_PREFIX + "query q:\n    from orders\n    inner join odd as o:\n"
+        f"        from orders\n        on {condition}\n"
+        "    select:\n        x = orders.id\n"
+        "table odd:\n    from orders\n    select:\n        v = orders.id\n"
+        "        w = orders.id\n"
+        "def inc(x: Int not null) -> Int nullable: return x + 1\n"
+    )
+    odd = run.relation("odd")
+    unknown = ResolvedType("<unknown>", TypeKind.UNKNOWN)
+    integer = ResolvedType("Int", TypeKind.BUILTIN)
+    rows = {
+        **run.model.relation_row_schemas,
+        odd: RowSchema(
+            fields={
+                "v": RowField("v", unknown, EffectiveNullability.UNKNOWN),
+                "w": RowField("w", integer, EffectiveNullability.NON_NULL),
+            }
+        ),
+    }
+    checks, _ = run.checks(rows)
+    # One diagnostic per `on`: a known non-Bool type or an operand error
+    # inside it is reported instead of the unknown type.
+    assert located(checks.diagnostics) == expected
+    assert checks.reads == ()
+    assert list(checks.facts) == ([] if expected else [run.relation("q")])
+    assert isinstance(run.relation("q"), QueryDef)
+
+
+_N = EffectiveNullability.NULLABLE.value
+_NN = EffectiveNullability.NON_NULL.value
+
+
+@pytest.mark.parametrize(
+    ("join", "proven"),
+    (
+        pytest.param(
+            "        from orders\n"
+            "        on orders.customer_id == c.id and c.region_id is not null "
+            "and c.active\n",
+            {"orders.customer_id", "c.region_id", "c.active"},
+            id="comparison_null_test_and_bool_field",
+        ),
+        pytest.param(
+            "        from orders\n        on orders.customer_id == c.id or c.active\n",
+            set(),
+            id="disjunction",
+        ),
+        pytest.param(
+            "        from orders\n        on orders.customer_id > 0\n",
+            {"orders.customer_id"},
+            id="earlier_input_against_a_literal",
+        ),
+        pytest.param(
+            "        from orders\n        on c.region_id is null\n",
+            set(),
+            id="null_test",
+        ),
+        pytest.param(
+            "        from orders\n        via order_customer\n        on c.region_id > 0\n",
+            {"orders.customer_id", "c.region_id"},
+            id="relationship_and_on",
+        ),
+    ),
+)
+def test_single_file_inner_join_proofs_make_fields_non_null(
+    monkeypatch: pytest.MonkeyPatch, join: str, proven: set[str]
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        JOIN_PREFIX
+        + "query q:\n    from orders\n    inner join customers as c:\n"
+        + join
+        + "    select:\n        x = orders.id\n"
+    )
+    rows = run.rows("q")
+    assert rows is not None
+    nullable = {"orders.customer_id", "c.region_id", "c.active"} - proven
+    assert {
+        key for key, field in rows.tail.fields.items() if field.nullability.value == _N
+    } == nullable
+    assert all(
+        field.nullability.value == _NN
+        for key, field in rows.tail.fields.items()
+        if key not in nullable
+    )
+
+
+def test_single_file_join_proof_needs_one_binding_for_its_field() -> None:
+    run = run_joins(
+        JOIN_PREFIX + "query q:\n    from customers\n"
+        "    inner join customers as peer:\n        from customers\n"
+        "        on region_id is not null\n    select:\n        x = customers.id\n"
+    )
+    rows = run.rows("q")
+    assert rows is not None
+    assert (
+        rows.tail.fields["customers.region_id"].nullability.value,
+        rows.tail.fields["peer.region_id"].nullability.value,
+    ) == (_N, _N)

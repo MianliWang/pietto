@@ -151,7 +151,7 @@ def test_existing_join_precedence_and_definition_error_order_are_preserved() -> 
         result = build_ir(parsed.ast, analyze(parsed.ast).model)
         assert result.ir is None
         assert all(d.code == "PIE-I1000" for d in result.diagnostics)
-        assert "binary JOIN lowering" in result.diagnostics[-1].message
+        assert "resolved JOIN facts" in result.diagnostics[-1].message
         assert len(result.diagnostics) == (1 if predicate is None else 2)
         if predicate is not None:
             assert "QUALIFY" in result.diagnostics[0].message

@@ -40,6 +40,7 @@ from pietto._project.project_current_join_inputs import ProjectCurrentPreMatchIn
 from pietto import cli
 from pietto.semantic.model import CheckMode
 from pietto.parser_api import parse_source
+from pietto.semantic.analyzer import analyze_project_namespace
 from pietto.semantic import analyze
 from pietto.ir import build_ir
 from _pietto_project_join_full import (
@@ -55,6 +56,7 @@ from _pietto_project_join_output import (
     _output,
     _tail_source,
 )
+from _pietto_semantic_joins import JOIN_PREFIX, located, run_joins
 
 
 type Row = tuple[int, int | None]
@@ -784,8 +786,11 @@ def test_legacy_ir_rejects_while_combined_ir_retains_existence_inputs(
     parsed = parse_source(source)
     assert parsed.ast is not None
     semantic = analyze(parsed.ast)
-    assert any(d.code == "PIE-S2334" for d in semantic.diagnostics)
-    lowered = build_ir(parsed.ast, semantic.model)
+    assert semantic.diagnostics == ()
+    assert len(semantic.model.relation_joins) == 1
+    legacy = analyze_project_namespace(parsed.ast)
+    assert any(d.code == "PIE-S2334" for d in legacy.diagnostics)
+    lowered = build_ir(parsed.ast, legacy.model)
     assert lowered.ir is None
     assert any(d.code == "PIE-I1000" for d in lowered.diagnostics)
     completed = _completed(tmp_path, source)
@@ -1069,3 +1074,58 @@ def test_prefix_cannot_graft_consumed_right_role_with_identical_field_evidence(
                 (first.use.target_binding, field) for _, field in second.prefix.origins
             ),
         )
+
+
+@pytest.mark.parametrize(("kind", "article"), (("semi", "a SEMI"), ("anti", "an ANTI")))
+def test_single_file_later_join_cannot_start_from_an_existence_binding(
+    kind: str, article: str
+) -> None:
+    run = run_joins(
+        JOIN_PREFIX + f"query q:\n    from orders\n    {kind} join customers as s:\n"
+        "        from orders\n        on s.id == orders.customer_id\n"
+        "    cross join regions as r: from s\n    select:\n        x = orders.id\n"
+    )
+    assert located(run.diagnostics) == [
+        (
+            "PIE-S2335",
+            f"JOIN source binding is {article} JOIN binding, which later JOINs "
+            "cannot read: s",
+            23,
+            5,
+        )
+    ]
+    assert run.structures == {}
+
+
+@pytest.mark.parametrize("kind", ("semi", "anti"))
+def test_single_file_existence_binding_is_read_only_by_its_own_on(kind: str) -> None:
+    run = run_joins(
+        JOIN_PREFIX + f"query q:\n    from orders\n    {kind} join customers as s:\n"
+        "        from orders\n        on s.id == orders.customer_id\n"
+        "    inner join regions as r:\n        from orders\n"
+        '        on r.id == s.region_id and r.label != ""\n'
+        "    select:\n        n = s.name\n        name\n        label\n"
+    )
+    checks, _ = run.checks()
+    # The tail row holds no field of s, so a bare `name` is no binding read.
+    assert located(checks.reads) == [
+        (
+            "PIE-S2102",
+            f"Unknown field: s.name; s is a {kind.upper()} JOIN binding, which only its own `on` can read",
+            27,
+            13,
+        ),
+        ("PIE-S2335", "JOIN ON reference is unknown: s.region_id", 25, 20),
+    ]
+    rows = run.rows("q")
+    assert rows is not None
+    assert list(rows.tail.fields) == [
+        "orders.id",
+        "orders.customer_id",
+        "orders.amount",
+        "r.id",
+        "r.label",
+    ]
+    assert list(rows.on[0].fields)[-4:] == ["s.id", "s.name", "s.region_id", "s.active"]
+    assert "s.id" not in rows.on[1].fields
+    assert checks.facts == {}

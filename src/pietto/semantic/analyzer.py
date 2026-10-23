@@ -6,13 +6,12 @@ from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import fields, is_dataclass, replace
 from heapq import heappop, heappush
 from typing import TYPE_CHECKING, cast
 
 from pietto.ast_nodes import (
-    AuthoredJoinKind,
     BetweenExpr,
     BinaryExpr,
     CastExpr,
@@ -73,8 +72,18 @@ from pietto.semantic.inline_functions import (
     drop_repeated_call_diagnostics,
     inline_functions,
 )
+from pietto.semantic.join_fanout import join_fanout_diagnostics
+from pietto.semantic.joins import (
+    JoinStructure,
+    build_join_structures,
+    check_join_semantics,
+    join_input_row,
+    join_post_pass,
+    joined_input_rows,
+)
 from pietto.semantic.let_bindings import (
     analyze_relation_let_bindings,
+    join_reserved_let_names,
     let_expansion_diagnostics,
 )
 from pietto.semantic.model import (
@@ -94,6 +103,7 @@ from pietto.semantic.model import (
 from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_limits import check_relation_limits
 from pietto.semantic.relation_schemas import (
+    JoinedInputBuilder,
     project_relation_schema,
     propagate_relation_schemas,
     reads_relation_input,
@@ -109,6 +119,7 @@ from pietto.semantic.source_connectors import (
     check_table_names,
 )
 from pietto.semantic.satisfying import check_satisfying_clauses
+from pietto.semantic.row_lookup import bare_field, qualified_field
 from pietto.semantic.sources import check_sources
 from pietto.semantic.type_aliases import expand_type_aliases
 
@@ -399,12 +410,30 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
         relation_symbols,
     )
     diagnostics.extend(relation_diagnostics)
-    diagnostics.extend(check_join_references(script, relation_symbols))
+    if single_file:
+        structures, join_resolutions, join_diagnostics = build_join_structures(
+            script,
+            relation_symbols=relation_symbols,
+            relationships=relationships,
+            source_row_schemas=source_row_schemas,
+            type_expansions=type_expansions,
+        )
+        diagnostics.extend(join_diagnostics)
+    else:
+        structures = {}
+        join_resolutions = None
+        diagnostics.extend(check_join_references(script, relation_symbols))
     cyclic_relations, cycle_diagnostics = check_relation_cycles(
         script,
         from_resolutions,
+        join_resolutions=join_resolutions,
     )
     diagnostics.extend(cycle_diagnostics)
+    structures = {
+        definition: structure
+        for definition, structure in structures.items()
+        if definition not in cyclic_relations
+    }
     (
         relation_row_schemas,
         schema_diagnostics,
@@ -421,6 +450,7 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
         cyclic_relations=cyclic_relations,
         type_expansions=type_expansions,
         single_file=single_file,
+        join_structures=structures,
     )
     diagnostics.extend(schema_diagnostics)
     diagnostics.extend(
@@ -469,20 +499,30 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
                 script, (*connector_expression_diagnostics, *connector_diagnostics)
             )
         )
+    joined_inputs = (
+        joined_input_rows(
+            script.definitions,
+            structures,
+            source_row_schemas=source_row_schemas,
+            relation_row_schemas=relation_row_schemas,
+        )
+        if single_file
+        else None
+    )
+    relation_let_expressions = _relation_let_expressions_for_satisfying(let_scopes)
     result_predicates, satisfying_diagnostics = check_satisfying_clauses(
         script,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
-        relation_let_expressions=_relation_let_expressions_for_satisfying(
-            let_scopes,
-        ),
+        relation_let_expressions=relation_let_expressions,
         relation_let_value_types={
             definition: scope.value_types for definition, scope in let_scopes.items()
         },
         type_expansions=type_expansions,
         record_unknown=True,
         projection_value_types=expression_value_types,
+        joined_inputs=joined_inputs,
     )
     diagnostics.extend(satisfying_diagnostics)
     diagnostics.extend(
@@ -506,12 +546,36 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
         relation_row_schemas=relation_row_schemas,
         expression_value_types=expression_value_types,
         decimal_precision_scales=decimal_precision_scales,
+        joined_inputs=joined_inputs,
     )
+
+    checks = None
+    if single_file:
+        checks = check_join_semantics(
+            script,
+            structures,
+            relation_symbols=relation_symbols,
+            source_row_schemas=source_row_schemas,
+            relation_row_schemas=relation_row_schemas,
+            expression_value_types=expression_value_types,
+            type_expansions=type_expansions,
+        )
+        diagnostics.extend(checks.diagnostics)
+        for definition, info in checks.facts.items():
+            diagnostics.extend(
+                join_fanout_diagnostics(
+                    definition,
+                    info,
+                    type_symbols=type_symbols,
+                    source_row_schemas=source_row_schemas,
+                    let_expressions=relation_let_expressions.get(definition, {}),
+                )
+            )
 
     diagnostics.extend(
         diagnostic
         for definition in script.definitions
-        for diagnostic in syntax_diagnostics(definition)
+        for diagnostic in syntax_diagnostics(definition, allow_joins=single_file)
     )
     return SemanticResult(
         script=script,
@@ -533,24 +597,13 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
             named_window_namespaces=named_window_namespaces,
             result_predicates=result_predicates,
             let_scopes=let_scopes,
+            relation_joins={} if checks is None else checks.facts,
             relationships=relationships,
         ),
         diagnostics=tuple(
             sorted(
-                _explain_join_binding_fields(
-                    script,
-                    diagnostics,
-                    {
-                        name: (
-                            source_row_schemas.get(definition)
-                            if isinstance(definition, SourceDef)
-                            else relation_row_schemas.get(definition)
-                        )
-                        for name, definition in relation_symbols.items()
-                        if isinstance(definition, (SourceDef, TableDef, QueryDef))
-                    },
-                )
-                if single_file
+                join_post_pass(diagnostics, checks)
+                if checks is not None
                 else _without_relations_only_projects_type(script, diagnostics),
                 key=_diagnostic_order,
             )
@@ -703,71 +756,6 @@ def _within(location: SourceLocation, span: Span) -> bool:
     )
 
 
-def _explain_join_binding_fields(
-    script: Script,
-    diagnostics: list[Diagnostic],
-    relation_schemas: Mapping[str, RowSchema | None],
-) -> list[Diagnostic]:
-    """Say why a single-file JOIN binding field is unknown; keep code and span.
-
-    Only a field the JOIN target has, on a binding a project exposes.
-    """
-
-    names: dict[SourceLocation, str] = {}
-    for definition in script.definitions:
-        if not isinstance(definition, (TableDef, QueryDef)):
-            continue
-        # A project exposes the fields of every JOIN binding but SEMI and ANTI;
-        # a binding name written twice has no single target and gets no hint.
-        written = [clause.target_binding_name for clause in definition.join_clauses]
-        bindings = {
-            clause.target_binding_name: relation_schemas.get(
-                clause.target_relation_name
-            )
-            for clause in definition.join_clauses
-            if clause.kind not in (AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI)
-            and clause.target_binding_name != definition.from_clause.source_name
-            and written.count(clause.target_binding_name) == 1
-        }
-        pending: list[object] = [definition] if bindings else []
-        while pending:
-            value = pending.pop()
-            if type(value) is tuple:
-                pending.extend(value)
-            elif (
-                type(value) is DottedNameExpr
-                and len(value.parts) == 2
-                and (schema := bindings.get(value.parts[0])) is not None
-                and not schema.is_unknown
-                and value.parts[1] in schema.fields
-            ):
-                span = value.span
-                location = SourceLocation(
-                    path=span.path,
-                    line=span.line,
-                    column=span.column,
-                    end_line=span.end_line,
-                    end_column=span.end_column,
-                )
-                names[location] = ".".join(value.parts)
-            elif isinstance(value, Node):
-                pending.extend(getattr(value, field.name) for field in fields(value))
-    return [
-        replace(
-            diagnostic,
-            message=(
-                f"{diagnostic.message}; JOIN binding fields are not available in "
-                "single-file mode (use an EXPLICIT_MODULES project)"
-            ),
-        )
-        if diagnostic.code == "PIE-S2102"
-        and diagnostic.location in names
-        and diagnostic.message == f"Unknown field: {names[diagnostic.location]}"
-        else diagnostic
-        for diagnostic in diagnostics
-    ]
-
-
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
 
@@ -780,6 +768,7 @@ def _decimal_expression_precision_scales(
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
     expression_value_types: Mapping[Expression, ValueType],
     decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale],
+    joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
 ) -> dict[Expression, DecimalPrecisionScale]:
     """Collect private Decimal precision facts for safe direct field leaves."""
 
@@ -792,6 +781,7 @@ def _decimal_expression_precision_scales(
             from_resolutions=from_resolutions,
             source_row_schemas=source_row_schemas,
             relation_row_schemas=relation_row_schemas,
+            joined_inputs=joined_inputs,
         )
         if definition.let_clause is not None:
             for binding in definition.let_clause.bindings:
@@ -840,9 +830,12 @@ def _relation_input_schema(
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
 ) -> RowSchema:
     """Return a relation input schema for private post-analysis fact collection."""
 
+    if joined_inputs is not None and definition in joined_inputs:
+        return joined_inputs[definition]
     target = from_resolutions.get(definition.from_clause)
     if isinstance(target, SourceDef):
         return source_row_schemas[target]
@@ -926,13 +919,9 @@ def _direct_expression_row_field(
     if input_schema.is_unknown:
         return None
     if isinstance(expression, NameExpr):
-        return input_schema.fields.get(expression.name)
-    if (
-        isinstance(expression, DottedNameExpr)
-        and len(expression.parts) == 2
-        and expression.parts[0] == field_qualifier
-    ):
-        return input_schema.fields.get(expression.parts[1])
+        return bare_field(input_schema, expression.name)
+    if isinstance(expression, DottedNameExpr):
+        return qualified_field(input_schema, expression.parts, field_qualifier)
     return None
 
 
@@ -969,6 +958,7 @@ def _analyze_relation_schema_expressions(
     cyclic_relations: set[DerivedRelation],
     type_expansions: Mapping[TypeExpr, ResolvedType],
     single_file: bool,
+    join_structures: Mapping[DerivedRelation, JoinStructure],
 ) -> tuple[
     dict[DerivedRelation, RowSchema],
     list[Diagnostic],
@@ -980,12 +970,32 @@ def _analyze_relation_schema_expressions(
 ]:
     """Refine relation schemas from computed projection expression types."""
 
+    def build_joined_input(
+        definition: DerivedRelation,
+        schema_of: Callable[[RelationDefinition], RowSchema],
+    ) -> RowSchema | None:
+        structure = join_structures.get(definition)
+        return None if structure is None else join_input_row(structure, schema_of)
+
+    joined_input_builder: JoinedInputBuilder | None = (
+        build_joined_input if single_file else None
+    )
+    reserved_names = (
+        {
+            definition: join_reserved_let_names(definition)
+            for definition in script.definitions
+            if isinstance(definition, (TableDef, QueryDef)) and definition.join_clauses
+        }
+        if single_file
+        else None
+    )
     relation_row_schemas, _ = propagate_relation_schemas(
         script,
         mode=mode,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
+        joined_input_builder=joined_input_builder,
         type_expansions=type_expansions,
     )
     derived_relation_count = sum(
@@ -1005,14 +1015,29 @@ def _analyze_relation_schema_expressions(
     positions = {definition: index for index, definition in enumerate(ordered)}
     readers: dict[DerivedRelation, list[DerivedRelation]] = {}
     for definition in ordered:
-        target = from_resolutions.get(definition.from_clause)
-        if isinstance(target, (TableDef, QueryDef)):
-            readers.setdefault(target, []).append(definition)
+        targets = [from_resolutions.get(definition.from_clause)]
+        if definition in join_structures:
+            targets.extend(
+                item.relation for item in join_structures[definition].inputs[1:]
+            )
+        for target in dict.fromkeys(targets):
+            if isinstance(target, (TableDef, QueryDef)):
+                readers.setdefault(target, []).append(definition)
     temporary_value_types: dict[Expression, ValueType] = {}
     typed: dict[DerivedRelation, tuple[Expression, ...]] = {}
     retyped = ordered
     for _ in range(iteration_limit):
-        for definition in retyped:
+        for definition in dict.fromkeys(retyped):
+            joined_inputs = (
+                joined_input_rows(
+                    (definition,),
+                    join_structures,
+                    source_row_schemas=source_row_schemas,
+                    relation_row_schemas=relation_row_schemas,
+                )
+                if single_file
+                else None
+            )
             for expression in typed.pop(definition, ()):
                 del temporary_value_types[expression]
             (
@@ -1025,6 +1050,8 @@ def _analyze_relation_schema_expressions(
                 source_row_schemas=source_row_schemas,
                 relation_row_schemas=relation_row_schemas,
                 allow_unaliased_selected_let_outputs=not single_file,
+                joined_inputs=joined_inputs,
+                reserved_let_names=reserved_names,
                 type_expansions=type_expansions,
             )
             relation_value_types, _, _, _ = type_relation_expressions(
@@ -1039,12 +1066,13 @@ def _analyze_relation_schema_expressions(
                 type_expansions=type_expansions,
                 let_diagnostics=temporary_let_diagnostics,
                 single_file=single_file,
+                joined_inputs=joined_inputs,
                 let_part_types=temporary_let_value_types,
             )
             relation_value_types.update(temporary_let_value_types)
             typed[definition] = tuple(relation_value_types)
             temporary_value_types.update(relation_value_types)
-        pending = sorted(positions[definition] for definition in retyped)
+        pending = sorted({positions[definition] for definition in retyped})
         queued = set(pending)
         retyped = []
         stabilized = True
@@ -1056,8 +1084,22 @@ def _analyze_relation_schema_expressions(
                     from_resolutions=from_resolutions,
                     source_row_schemas=source_row_schemas,
                     relation_row_schemas=relation_row_schemas,
+                    joined_inputs=(
+                        joined_input_rows(
+                            (definition,),
+                            join_structures,
+                            source_row_schemas=source_row_schemas,
+                            relation_row_schemas=relation_row_schemas,
+                        )
+                        if single_file
+                        else None
+                    ),
                 )
-                if reads_relation_input(definition, cyclic_relations)
+                if reads_relation_input(
+                    definition,
+                    cyclic_relations,
+                    joined_input_builder=joined_input_builder,
+                )
                 else RowSchema(is_unknown=True)
             )
             schema = project_relation_schema(
@@ -1065,6 +1107,7 @@ def _analyze_relation_schema_expressions(
                 input_schema,
                 mode=mode,
                 expression_value_types=temporary_value_types,
+                joined_input_builder=joined_input_builder,
                 type_expansions=type_expansions,
             )
             previous = relation_row_schemas[definition]
@@ -1077,7 +1120,11 @@ def _analyze_relation_schema_expressions(
                 retyped.append(reader)
                 position = positions[reader]
                 if (
-                    reads_relation_input(reader, cyclic_relations)
+                    reads_relation_input(
+                        reader,
+                        cyclic_relations,
+                        joined_input_builder=joined_input_builder,
+                    )
                     and position not in queued
                 ):
                     queued.add(position)
@@ -1085,12 +1132,24 @@ def _analyze_relation_schema_expressions(
         if stabilized:
             break
 
+    joined_inputs = (
+        joined_input_rows(
+            script.definitions,
+            join_structures,
+            source_row_schemas=source_row_schemas,
+            relation_row_schemas=relation_row_schemas,
+        )
+        if single_file
+        else None
+    )
     let_scopes, let_value_types, let_diagnostics = analyze_relation_let_bindings(
         script.definitions,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
         allow_unaliased_selected_let_outputs=not single_file,
+        joined_inputs=joined_inputs,
+        reserved_let_names=reserved_names,
         type_expansions=type_expansions,
     )
     (
@@ -1109,6 +1168,7 @@ def _analyze_relation_schema_expressions(
         type_expansions=type_expansions,
         let_diagnostics=let_diagnostics,
         single_file=single_file,
+        joined_inputs=joined_inputs,
         let_part_types=let_value_types,
     )
     relation_value_types.update(let_value_types)
@@ -1133,6 +1193,7 @@ def _analyze_relation_schema_expressions(
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
+        joined_input_builder=joined_input_builder,
         expression_value_types=relation_value_types,
         type_expansions=type_expansions,
         reported_errors=frozenset(relation_expression_diagnostics),

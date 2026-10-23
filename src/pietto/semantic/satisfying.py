@@ -41,6 +41,7 @@ from pietto.semantic.expressions import (
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
+from pietto.semantic.group_by import _effective_group_key_expression
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -51,6 +52,7 @@ from pietto.semantic.model import (
     ValueTypeKind,
     SatisfyingResultPredicateInfo,
 )
+from pietto.semantic.row_lookup import bare_field, has_bare_field, qualified_field
 
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = SourceDef | TableDef | QueryDef
@@ -92,6 +94,7 @@ def check_satisfying_clauses(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     record_unknown: bool = False,
     projection_value_types: Mapping[Expression, ValueType] | None = None,
+    joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
 ) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
     """Validate parsed satisfying clauses and collect lowering facts.
 
@@ -127,16 +130,19 @@ def check_satisfying_clauses(
             if relation_let_value_types is None
             else relation_let_value_types.get(definition, {})
         )
-        input_schema = _input_schema(
-            definition,
-            from_resolutions=from_resolutions,
-            source_row_schemas=source_row_schemas,
-            relation_row_schemas=relation_row_schemas,
-        )
+        input_schema = (joined_inputs or {}).get(definition)
+        if input_schema is None:
+            input_schema = _input_schema(
+                definition,
+                from_resolutions=from_resolutions,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+            )
         output_scope = _satisfying_output_scope(
             definition,
             input_schema=input_schema,
             relation_row_schemas=relation_row_schemas,
+            let_expansions=let_expansions if input_schema.joined else None,
         )
         relation_diagnostics: list[Diagnostic] = []
         expression_value_types: dict[Expression, ValueType] = {}
@@ -243,11 +249,21 @@ def _satisfying_output_scope(
     *,
     input_schema: RowSchema,
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    let_expansions: Mapping[str, Expression] | None,
 ) -> dict[str, _SatisfyingOutput]:
     group_key_identities = {
         identity
         for item in _group_by_items(definition)
-        if (identity := _field_identity(definition, item.key, input_schema)) is not None
+        if (
+            identity := _field_identity(
+                definition,
+                _effective_group_key_expression(
+                    item.key, let_expansions=let_expansions, let_stack=frozenset()
+                ),
+                input_schema,
+            )
+        )
+        is not None
     }
     schema = relation_row_schemas.get(definition, RowSchema(is_unknown=True))
     scope: dict[str, _SatisfyingOutput] = {}
@@ -333,15 +349,12 @@ def _field_identity(
     if input_schema.is_unknown:
         return None
     if isinstance(expression, NameExpr):
-        field = input_schema.fields.get(expression.name)
+        field = bare_field(input_schema, expression.name)
         return None if field is None else field.name
     if isinstance(expression, DottedNameExpr):
-        if (
-            len(expression.parts) != 2
-            or expression.parts[0] != definition.from_clause.source_name
-        ):
-            return None
-        field = input_schema.fields.get(expression.parts[1])
+        field = qualified_field(
+            input_schema, expression.parts, definition.from_clause.source_name
+        )
         return None if field is None else field.name
     return None
 
@@ -669,7 +682,7 @@ def _name_value_type(
 
 
 def _is_input_field(name: str, input_schema: RowSchema) -> bool:
-    return not input_schema.is_unknown and name in input_schema.fields
+    return not input_schema.is_unknown and has_bare_field(input_schema, name)
 
 
 def _builtin_value_type(

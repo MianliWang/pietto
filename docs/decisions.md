@@ -329,3 +329,15 @@ S19 已实际完成并发布：源 head `6ac82d682ea70056ffbecd64a9f53f72491a51c
 截至 S19，实际已完成 24 个 Slice；S20 是唯一剩余的审计 Slice。Phase70 仅在 S20 的一笔普通 FF 提交及其自然 exact-head CI 成功后，以 25 个实际 Slice 闭合；该 CI 成功后不再追加收尾文档提交。历史规划图仍为原 20 行路线、24 节点、47 条边；S04r、S04w、S05g、S05j 是授权扩展，S04a/S04b 是原 S04 的实际拆分，不据此改造历史 DAG 指标。
 
 截至 S19 的保守修复核账为 causal 121、focused 107、diagnostic 156、scope 6；当前上限为 causal 225、focused 180、diagnostic 270、scope 9。上限来自接近上限时所有者一次性增加 50%，并保留历史 UNKNOWN 与此前计数，不把本段当作追溯性授权重写。Phase71 仍未开始，须自行通过 phase-initiation gate；本段不授予其实现、预算或产品语义。
+
+## Single-file JOIN MVP — approved scope (2026-10-20)
+
+所有者批准先交付 PostgreSQL 优先的单文件 JOIN MVP。MVP-1 包含七种 JOIN、显式或推断的单步关系匹配、ON、绑定字段与外连接 NULL 语义；MVP-2 增加 GROUP BY、聚合、SATISFYING 和分组排序。当前集成同时包含两组能力；这项范围决定不代表验证、golden 审核或发布已经完成。
+
+每个输入位置有独立身份，自连接不按关系名合并；裸字段须唯一，关系与来源推断保留全部候选，不按最近位置挑选。SEMI/ANTI 的目标只供自己的 ON 读取。LEFT/RIGHT/FULL 引入的 NULL 扩展身份保留，后续 INNER 或 WHERE 不清除它；INNER 自身的有效匹配证据可以收紧此前未被外连接扩展的字段。
+
+聚合采用保守的源键闭包：聚合实参读取的输入与按源声明的非空唯一键分组的输入共同覆盖全部产行因子；INNER/LEFT 关系匹配提供前向键依赖，只有不带 ON 的 INNER 提供反向依赖。RIGHT/FULL、CROSS 与纯 ON 不提供依赖，派生关系不传播键。`count()` 豁免，`min`、`max` 与 `count_distinct` 不豁免。未覆盖时在调用处报 PIE-S2381，并只给出能闭合证明的修复建议；不能用外连接的 NULL 部分证明唯一目标。
+
+PostgreSQL 使用现有单一 SELECT 尾部。SEMI/ANTI 变为 EXISTS/NOT EXISTS，下一次 RIGHT 把待处理过滤放入自己的 ON；仍有过滤待处理的 FULL 拒绝。原生 FULL 只接受两侧 Int 字段相等的 AND 条件。MySQL 按关系报 PIE-B1000 并保留其他产物；单文件 EXPLAIN 继续使用一个输入的 Semantic Metadata Artifact v1，在每个 JOIN 关系报 PIE-I1000，不扩充 JSON。
+
+暂不开放 JOIN 上的窗口、多步 VIA、未知字段集合输入、通过 table/query 的关系匹配、非分组聚合后的 ORDER BY、MySQL JOIN 发射与 JOIN EXPLAIN v2。QUALIFY、DISTINCT、集合、关系 let、LATERAL capture、VALUES、表函数及头参数保持各自既有边界。LEGACY_FLAT、PACKAGE_ROOT、EXPLICIT_MODULES、无 JOIN 输出与显式执行/resource 契约不因本次实现放宽；共享内核提取和项目行为变更需要后续独立授权。

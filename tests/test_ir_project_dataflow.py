@@ -830,6 +830,8 @@ def test_new_carriers_are_hash_seed_and_cwd_independent_and_private(
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     for path in (
         REPO_ROOT / "src/pietto/__init__.py",

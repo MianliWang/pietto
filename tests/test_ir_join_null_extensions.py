@@ -33,7 +33,7 @@ from pietto._project.project_query_block_ir import (
 )
 from pietto import cli
 from pietto.ast_nodes import AuthoredJoinKind
-from pietto.ir import build_ir
+from pietto.ir import RelationIR, build_ir
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import CheckMode
@@ -727,7 +727,7 @@ def test_real_project_check_json_succeeds_for_each_kind_and_mode(
 
 
 @pytest.mark.parametrize("kind", ("cross", "right", "full"))
-def test_legacy_ir_rejects_while_combined_ir_retains_current_joins(
+def test_single_file_and_combined_ir_retain_current_joins(
     tmp_path: Path, kind: str
 ) -> None:
     predicate = None if kind == "cross" else "lhs.id == r.id"
@@ -735,10 +735,13 @@ def test_legacy_ir_rejects_while_combined_ir_retains_current_joins(
     parsed = parse_source(source)
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = analyze(parsed.ast)
-    assert any(diagnostic.code == "PIE-S2334" for diagnostic in semantic.diagnostics)
+    assert not semantic.diagnostics
     lowered = build_ir(parsed.ast, semantic.model)
-    assert lowered.ir is None
-    assert any(diagnostic.code == "PIE-I1000" for diagnostic in lowered.diagnostics)
+    assert lowered.ir is not None and not lowered.diagnostics
+    relation = lowered.ir.definitions[-1]
+    assert isinstance(relation, RelationIR)
+    assert len(relation.inputs) == 2
+    assert len(relation.joins) == 1
     completed = _completed(tmp_path, source)
     assert completed.ok
     from pietto._project.project_query_block_ir_verification import (

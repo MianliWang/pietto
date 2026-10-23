@@ -70,6 +70,7 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
+from pietto.semantic.row_lookup import bare_field, has_bare_field, qualified_field
 
 if TYPE_CHECKING:
     from pietto._inline_argument import InlinedArgument
@@ -307,7 +308,7 @@ def _typed_beside_unknown(
             if (
                 lets
                 and name in lets
-                and name not in row_schema.fields
+                and not has_bare_field(row_schema, name)
                 and name not in expanded
             ):
                 expanded.add(name)
@@ -615,7 +616,7 @@ def _written_form(
             return form, True, argument.always_null, argument.size, argument.levels
         if (
             type(node) is NameExpr
-            and node.name not in row_schema.fields
+            and not has_bare_field(row_schema, node.name)
             and reads_let(node.name)
         ):
             written = lets.written.get(node.name)
@@ -840,7 +841,7 @@ def _reads_let_in_argument(
             argument
             and type(node) is NameExpr
             and node.name in lets
-            and node.name not in row_schema.fields
+            and not has_bare_field(row_schema, node.name)
         ):
             return True
         pending.extend((child, argument) for child in _captured_field_children(node))
@@ -1203,6 +1204,7 @@ def type_relation_expressions(
     let_diagnostics: Sequence[Diagnostic] = (),
     single_file: bool = True,
     let_part_types: Mapping[Expression, ValueType] | None = None,
+    joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
 ) -> tuple[
     dict[Expression, ValueType],
     list[Diagnostic],
@@ -1237,12 +1239,14 @@ def type_relation_expressions(
     for definition in script.definitions:
         if not isinstance(definition, (TableDef, QueryDef)):
             continue
-        input_schema = _input_schema(
-            definition,
-            from_resolutions=from_resolutions,
-            source_row_schemas=source_row_schemas,
-            relation_row_schemas=relation_row_schemas,
-        )
+        input_schema = (joined_inputs or {}).get(definition)
+        if input_schema is None:
+            input_schema = _input_schema(
+                definition,
+                from_resolutions=from_resolutions,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+            )
         let_value_types = relation_let_value_types.get(definition)
         let_expressions = relation_let_expressions.get(definition)
         rejected_lets = set(rejected_let_names(definition, let_value_types))
@@ -1266,9 +1270,17 @@ def type_relation_expressions(
                     bare_value_types=let_value_types,
                     type_expansions=type_expansions,
                 )
+        # Phase A already refuses these windows; an unknown JOIN row must not
+        # add a window-input cascade while other expressions still get checked.
+        join_windows_refused = (
+            single_file
+            and bool(definition.join_clauses)
+            and joined_inputs is not None
+            and definition in joined_inputs
+        )
         named_window_namespace_failed = False
         named_window_namespace = None
-        if definition.named_windows:
+        if definition.named_windows and not join_windows_refused:
             from pietto.semantic.window_analysis import (
                 named_window_resolution_diagnostics,
             )
@@ -1337,7 +1349,7 @@ def type_relation_expressions(
             )
         for selected_output_ordinal, item in enumerate(definition.select_items):
             if type(item.expression) is WindowExpr:
-                if named_window_namespace_failed:
+                if join_windows_refused or named_window_namespace_failed:
                     continue
                 from pietto.semantic.window_analysis import (
                     analyze_window_expression,
@@ -1463,7 +1475,7 @@ def type_relation_expressions(
                     and item.expression.name not in rejected_lets
                     and item.expression.name not in (order_bare_value_types or {})
                     and not input_schema.is_unknown
-                    and item.expression.name not in input_schema.fields
+                    and not has_bare_field(input_schema, item.expression.name)
                 ):
                     diagnostics.append(
                         _order_by_output_name_diagnostic(
@@ -1614,7 +1626,7 @@ def _reads_erroneous_let(
     expanded: set[str] = set()
     while pending:
         node = pending.pop()
-        if type(node) is NameExpr and node.name not in input_schema.fields:
+        if type(node) is NameExpr and not has_bare_field(input_schema, node.name):
             if node.name in erroneous_lets:
                 return True
             if node.name in let_expressions and node.name not in expanded:
@@ -1677,7 +1689,7 @@ def _let_chain(
         type(expression) is NameExpr
         and let_expressions
         and expression.name in let_expressions
-        and expression.name not in row_schema.fields
+        and not has_bare_field(row_schema, expression.name)
         and expression.name not in expanded
     ):
         expanded.add(expression.name)
@@ -1745,7 +1757,7 @@ def _reads_input_field_outside_aggregate(
     while pending:
         node = pending.pop()
         if type(node) is NameExpr:
-            if node.name in input_schema.fields:
+            if has_bare_field(input_schema, node.name):
                 return True
             if node.name in let_expressions:
                 if node.name not in expanded:
@@ -4344,7 +4356,7 @@ def _null_reads(
                 if (
                     bindings is None
                     or name not in bindings
-                    or name in row_schema.fields
+                    or has_bare_field(row_schema, name)
                     or (type(bindings) is LetValues and name in bindings.erroneous)
                 ):
                     continue
@@ -4798,7 +4810,7 @@ def _name_value_type(
             None if bare_value_types is None else bare_value_types.get(expression.name)
         )
         return _UNKNOWN_VALUE_TYPE if value_type is None else value_type
-    field = row_schema.fields.get(expression.name)
+    field = bare_field(row_schema, expression.name)
     if field is not None:
         if field.resolved_type.kind is TypeKind.UNKNOWN:
             return _UNKNOWN_VALUE_TYPE
@@ -4825,20 +4837,24 @@ def _qualified_name_value_type(
     field_qualifier: str,
     report_unknown: bool,
 ) -> ValueType:
-    """Resolve one two-part field reference against the sole relation input.
+    """Resolve one two-part field reference against the visible input bindings.
 
     A row of unknown type hides its fields, not the name of its input: a read
     such as `other.a` or `items.a.b` is unknown there as over a known row.
     """
 
-    if len(expression.parts) != 2 or expression.parts[0] != field_qualifier:
+    if (
+        len(expression.parts) != 2
+        or (not row_schema.joined and expression.parts[0] != field_qualifier)
+        or (row_schema.joined and field_qualifier == "")
+    ):
         if report_unknown:
             diagnostics.append(_unknown_field_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
     if row_schema.is_unknown:
         return _UNKNOWN_VALUE_TYPE
 
-    field = row_schema.fields.get(expression.parts[1])
+    field = qualified_field(row_schema, expression.parts, field_qualifier)
     if field is None:
         if report_unknown:
             diagnostics.append(_unknown_field_diagnostic(expression))

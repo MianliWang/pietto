@@ -37,7 +37,11 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
-from pietto.semantic.let_bindings import analyze_relation_let_bindings
+from pietto.semantic.let_bindings import (
+    admitted_relation_let_expressions,
+    analyze_relation_let_bindings,
+    join_reserved_let_names,
+)
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -1102,3 +1106,163 @@ def test_slice5_scope_dependency_and_contract_are_exact() -> None:
             name.endswith(".project_scalar_namespaces")
             for name in REPOSITORY_FACTS.python(REPO_ROOT / relative).imported_modules
         )
+
+
+JOIN_LET_SOURCE = (
+    "shape Order:\n"
+    "    id: Int not null\n"
+    "    customer_id: Int nullable\n"
+    "shape Customer:\n"
+    "    id: Int not null\n"
+    "    name: Text not null\n"
+    "shape Region:\n"
+    "    id: Int not null\n"
+    "    label: Text not null\n"
+    'source orders: Order is postgres.table("orders")\n'
+    'source customers: Customer is postgres.table("customers")\n'
+    'source regions: Region is postgres.table("regions")\n'
+    "query joined:\n"
+    "    from orders\n"
+    "    left join customers as customer:\n"
+    "        from orders\n"
+    "        on orders.customer_id == customer.id\n"
+    "    semi join regions as region:\n"
+    "        from customer\n"
+    "        on customer.id == region.id\n"
+    "    anti join customers as lost\n"
+    "    let:\n"
+    "        name = 1\n"
+    "        id = 2\n"
+    "        customer = 3\n"
+    "        customers = 4\n"
+    "        region = 5\n"
+    "        regions = 6\n"
+    "        lost = 7\n"
+    "        label = 8\n"
+    "        total = 9\n"
+    "    select:\n"
+    "        order_id = orders.id\n"
+)
+
+
+def _join_let_row(*fields: tuple[str, str], joined: bool = False) -> RowSchema:
+    return RowSchema(
+        fields={
+            name: RowField(
+                name=name,
+                resolved_type=ResolvedType(name=type_name, kind=TypeKind.BUILTIN),
+                nullability=EffectiveNullability.NON_NULL,
+            )
+            for name, type_name in fields
+        },
+        joined=joined,
+    )
+
+
+def _join_let_analysis(
+    *, joined: bool
+) -> tuple[QueryDef, list[str], list[tuple[str, str, int, int]]]:
+    parsed = parse_source(JOIN_LET_SOURCE, path="join-lets.pietto")
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    orders = cast(SourceDef, parsed.ast.definitions[-4])
+    definition = cast(QueryDef, parsed.ast.definitions[-1])
+    # The tail row: FROM and the LEFT JOIN binding; SEMI and ANTI ones are hidden.
+    tail_row = _join_let_row(
+        ("orders.id", "Int"),
+        ("orders.customer_id", "Int"),
+        ("customer.id", "Int"),
+        ("customer.name", "Text"),
+        joined=True,
+    )
+    scopes, _, diagnostics = analyze_relation_let_bindings(
+        parsed.ast.definitions,
+        from_resolutions={definition.from_clause: orders},
+        source_row_schemas={
+            orders: _join_let_row(("id", "Int"), ("customer_id", "Int"))
+        },
+        relation_row_schemas={},
+        joined_inputs={definition: tail_row} if joined else None,
+        reserved_let_names=(
+            {definition: join_reserved_let_names(definition)} if joined else None
+        ),
+    )
+    return (
+        definition,
+        list(scopes[definition].value_types),
+        [
+            (
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.location.line,
+                diagnostic.location.column,
+            )
+            for diagnostic in diagnostics
+        ],
+    )
+
+
+def test_join_let_names_cannot_shadow_a_visible_field_binding_or_relation() -> None:
+    definition, admitted, diagnostics = _join_let_analysis(joined=True)
+
+    assert join_reserved_let_names(definition) == {
+        "orders",
+        "customer",
+        "customers",
+        "region",
+        "regions",
+        "lost",
+    }
+    # `label` is a field of the hidden SEMI binding only, so it stays free.
+    assert admitted == ["label", "total"]
+    assert diagnostics == [
+        ("PIE-S2329", "Let binding cannot shadow input field: name", 23, 9),
+        ("PIE-S2329", "Let binding cannot shadow input field: id", 24, 9),
+        ("PIE-S2329", "Let binding cannot shadow input relation: customer", 25, 9),
+        ("PIE-S2329", "Let binding cannot shadow input relation: customers", 26, 9),
+        ("PIE-S2329", "Let binding cannot shadow input relation: region", 27, 9),
+        ("PIE-S2329", "Let binding cannot shadow input relation: regions", 28, 9),
+        ("PIE-S2329", "Let binding cannot shadow input relation: lost", 29, 9),
+    ]
+
+
+def test_join_let_names_keep_the_from_input_rules_without_the_join_keywords() -> None:
+    _, admitted, diagnostics = _join_let_analysis(joined=False)
+
+    assert admitted == [
+        "name",
+        "customer",
+        "customers",
+        "region",
+        "regions",
+        "lost",
+        "label",
+        "total",
+    ]
+    assert diagnostics == [
+        ("PIE-S2329", "Let binding cannot shadow input field: id", 24, 9),
+    ]
+
+
+def test_admitted_join_lets_leave_out_the_reserved_names() -> None:
+    parsed = parse_source(JOIN_LET_SOURCE, path="join-lets.pietto")
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    definition = cast(QueryDef, parsed.ast.definitions[-1])
+    tail_row = _join_let_row(("customer.name", "Text"), joined=True)
+
+    assert list(
+        admitted_relation_let_expressions(
+            definition,
+            tail_row,
+            reserved_names=join_reserved_let_names(definition),
+        )
+    ) == ["id", "label", "total"]
+    assert list(admitted_relation_let_expressions(definition, tail_row)) == [
+        "id",
+        "customer",
+        "customers",
+        "region",
+        "regions",
+        "lost",
+        "label",
+        "total",
+    ]

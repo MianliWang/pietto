@@ -58,7 +58,7 @@ def availability_diagnostic(span: Span, message: str) -> Diagnostic:
 
 
 def syntax_diagnostics(
-    definition: Definition, *, allow_distinct: bool = False
+    definition: Definition, *, allow_distinct: bool = False, allow_joins: bool = False
 ) -> tuple[Diagnostic, ...]:
     if type(definition) not in _KNOWN_DEFINITIONS:
         return (
@@ -77,7 +77,7 @@ def syntax_diagnostics(
     if not isinstance(definition, (TableDef, QueryDef)):
         return ()
     diagnostics = []
-    for clause in definition.join_clauses:
+    for clause in () if allow_joins else definition.join_clauses:
         if clause.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}:
             diagnostics.append(
                 availability_diagnostic(

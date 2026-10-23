@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
@@ -104,6 +105,9 @@ from pietto.semantic.window_semantics import (
     WindowExpressionAnalysis,
 )
 
+if TYPE_CHECKING:
+    from pietto.ir.joins import JoinReads
+
 _UNKNOWN_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN),
     nullability=EffectiveNullability.UNKNOWN,
@@ -192,6 +196,7 @@ def lower_expr(
     field_qualifier: str | None = None,
     let_expansions: Mapping[str, Expression] | None = None,
     window_input_expressions: Mapping[str, ExpressionIR] | None = None,
+    join_reads: JoinReads | None = None,
 ) -> ExpressionLoweringResult:
     """Lower one typed expression without re-running semantic analysis."""
 
@@ -229,6 +234,7 @@ def lower_expr(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions or {},
                 let_stack=frozenset(),
+                join_reads=join_reads,
             )
     except (_LetExpansionLoweringError, _WindowExpressionLoweringError) as error:
         return ExpressionLoweringResult(
@@ -638,6 +644,7 @@ def _lower_expr_node(
     field_qualifier: str | None,
     let_expansions: Mapping[str, Expression],
     let_stack: frozenset[str],
+    join_reads: JoinReads | None = None,
 ) -> ExpressionIR:
     """Recursively copy one expression into parser-independent IR."""
 
@@ -676,6 +683,11 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack | frozenset((expression.name,)),
+                join_reads=join_reads,
+            )
+        if join_reads is not None:
+            return join_reads.field_ref(
+                expression, span=lower_span(expression.span), value_type=value_type
             )
         field = None
         if expression.name in fields:
@@ -687,6 +699,10 @@ def _lower_expr_node(
             **common,
         )
     if isinstance(expression, DottedNameExpr):
+        if join_reads is not None:
+            return join_reads.field_ref(
+                expression, span=lower_span(expression.span), value_type=value_type
+            )
         field = None
         if (
             len(expression.parts) == 2
@@ -718,6 +734,7 @@ def _lower_expr_node(
                             let_expansions,
                         ),
                         let_stack=frozenset(),
+                        join_reads=join_reads,
                     )
                     for argument in expression.arguments
                 ),
@@ -738,6 +755,7 @@ def _lower_expr_node(
                     field_qualifier=field_qualifier,
                     let_expansions=let_expansions,
                     let_stack=let_stack,
+                    join_reads=join_reads,
                 )
                 for argument in expression.arguments
             ),
@@ -754,6 +772,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             **common,
         )
@@ -767,6 +786,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             condition=_lower_expr_node(
                 expression.condition,
@@ -776,6 +796,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             when_false=_lower_expr_node(
                 expression.when_false,
@@ -785,6 +806,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             **common,
         )
@@ -798,6 +820,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             options=tuple(
                 _lower_expr_node(
@@ -808,6 +831,7 @@ def _lower_expr_node(
                     field_qualifier=field_qualifier,
                     let_expansions=let_expansions,
                     let_stack=let_stack,
+                    join_reads=join_reads,
                 )
                 for option in expression.options
             ),
@@ -824,6 +848,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             target=lower_canonical_type_ref(expression.target, semantic_model),
             **common,
@@ -838,6 +863,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -848,6 +874,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             **common,
         )
@@ -861,6 +888,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -871,6 +899,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             **common,
         )
@@ -884,6 +913,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             lower=_lower_expr_node(
                 expression.lower,
@@ -893,6 +923,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             upper=_lower_expr_node(
                 expression.upper,
@@ -902,6 +933,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             **common,
         )
@@ -915,6 +947,7 @@ def _lower_expr_node(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                join_reads=join_reads,
             ),
             negated=expression.negated,
             **common,

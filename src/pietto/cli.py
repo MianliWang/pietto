@@ -16,6 +16,7 @@ from typing import IO, NoReturn
 import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
 import pietto.ir as ir_api
+from pietto.ir.diagnostics import join_explain_diagnostics
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
 from pietto import cli_json
@@ -835,6 +836,15 @@ def _run_explain(
             stage="ir",
             diagnostics=diagnostics,
             fallback_message="IR builder produced no IR",
+        )
+
+    refusals = join_explain_diagnostics(ir_result.ir)
+    if refusals:
+        return _render_explain_failure(
+            path=path,
+            output_format=output_format,
+            stage="ir",
+            diagnostics=(*diagnostics, *refusals),
         )
 
     artifact = build_semantic_metadata_artifact(

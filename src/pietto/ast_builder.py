@@ -919,6 +919,7 @@ class AstBuilder(PiettoVisitor):
             source_binding_name=None if source is None else source.getText(),
             traversal_steps=tuple(self.visit(step) for step in steps),
             on_clause=None if on_clause is None else self.visit(on_clause),
+            target_binding_span=self._span(identifiers[1]),
         )
 
     def visitJoinOnClause(self, ctx: _AntlrContext) -> JoinOnClause:

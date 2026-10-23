@@ -1545,7 +1545,17 @@ def test_project_and_single_file_checks_refuse_range_offsets_alike(
         ("PIE-S2104", "error", message, line, column)
         for line, column in ((17, 13), (20, 13), (31, 13))
     ]
-    assert single_file == expected
+    assert single_file == [
+        *expected[:2],
+        (
+            "PIE-S2334",
+            "error",
+            "Window functions over JOIN rows are available only when an "
+            "EXPLICIT_MODULES project (schema version 2) completes them.",
+            31,
+            13,
+        ),
+    ]
     assert project == [*expected, ("PIE-S2104", "error", message, 41, 18)]
 
 

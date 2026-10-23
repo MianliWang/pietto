@@ -29,6 +29,7 @@ from pietto.sql.expressions import (
     render_window_call_sql,
     render_window_components_sql,
 )
+from pietto.sql.joins import render_conjunction_sql, render_join_sql
 from pietto.sql.render import quote_identifier, quote_qualified_identifier
 from pietto.sql.window_strategy import (
     NamedWindowLoweringDecision,
@@ -47,15 +48,30 @@ def render_relation_sql(
     """Render a minimal relation using a source table or relation-name input."""
 
     input_name = _relation_input_name(
-        relation,
+        relation.source.target,
         sources=sources,
         relations=relations,
+    )
+    join_lines, conjuncts = (
+        render_join_sql(
+            relation,
+            [
+                _relation_input_name(item.target, sources=sources, relations=relations)
+                for item in relation.inputs
+            ],
+        )
+        if relation.joins
+        else ((), ())
     )
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
     if any(
         is_untyped_null(projection.expression) for projection in relation.projections
-    ) and any(other.source.target == relation.symbol for other in relations.values()):
+    ) and any(
+        other.source.target == relation.symbol
+        or any(item.target == relation.symbol for item in other.inputs)
+        for other in relations.values()
+    ):
         raise ValueError(
             "PostgreSQL types a NULL output that another relation reads as text, "
             "which Pietto leaves untyped"
@@ -76,14 +92,18 @@ def render_relation_sql(
         NamedWindowLoweringStrategy.NOT_LOWERABLE
     ):
         raise ValueError(named_decision.reason)
-    # A qualified field already aliases the input with its Pietto name; else
-    # a captured key is qualified with the table's own name and FROM is kept.
-    alias = relation.source.name if _relation_uses_qualified_fields(relation) else None
-    relation = qualify_alias_captured_order_fields(
-        relation,
-        qualifier=alias or input_name[-1],
-        mysql=False,
-    )
+    alias = None
+    if not relation.joins:
+        # A qualified field already aliases the input with its Pietto name; else
+        # a captured key is qualified with the table's own name and FROM is kept.
+        alias = (
+            relation.source.name if _relation_uses_qualified_fields(relation) else None
+        )
+        relation = qualify_alias_captured_order_fields(
+            relation,
+            qualifier=alias or input_name[-1],
+            mysql=False,
+        )
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"
@@ -92,11 +112,13 @@ def render_relation_sql(
     lines = [
         "SELECT",
         projection_sql,
-        f"FROM {_render_input(input_name, alias)}",
+        *(join_lines or (f"FROM {_render_input(input_name, alias)}",)),
     ]
     if relation.filter is not None:
         refuse_text_null_condition(relation.filter.expression)
-        lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
+        conjuncts = (*conjuncts, render_expression_sql(relation.filter.expression))
+    if conjuncts:
+        lines.append(f"WHERE {render_conjunction_sql(conjuncts)}")
     if relation.group_keys:
         lines.extend(
             (
@@ -231,17 +253,17 @@ def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
 
 
 def _relation_input_name(
-    relation: RelationIR,
+    target: SymbolId,
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
 ) -> tuple[str, ...]:
     """Resolve an input to static table metadata or a relation artifact name."""
 
-    source = sources.get(relation.source.target)
+    source = sources.get(target)
     if source is not None:
         return _postgres_table_name(source)
-    upstream = relations.get(relation.source.target)
+    upstream = relations.get(target)
     if upstream is not None:
         return (upstream.name,)
     raise ValueError(

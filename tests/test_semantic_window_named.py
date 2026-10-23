@@ -1139,6 +1139,8 @@ def test_named_window_ir_stays_private_and_target_neutral() -> None:
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )
     assert not hasattr(ir_model, "NamedWindowIR")
     assert hasattr(ir_model, "NamedWindowDeclarationIR")

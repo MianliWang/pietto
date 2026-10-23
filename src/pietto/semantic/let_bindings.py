@@ -48,6 +48,7 @@ from pietto.semantic.model import (
     RowSchema,
     ValueType,
 )
+from pietto.semantic.row_lookup import has_bare_field
 
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = (
@@ -77,12 +78,18 @@ def analyze_relation_let_bindings(
     relation_row_schemas: RelationInputSchemas,
     allow_unaliased_selected_let_outputs: bool = False,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
+    reserved_let_names: Mapping[DerivedRelation, frozenset[str]] | None = None,
 ) -> tuple[
     dict[DerivedRelation, LetScopeSemanticInfo],
     dict[Expression, ValueType],
     list[Diagnostic],
 ]:
-    """Validate relation-local let clauses and return private value scopes."""
+    """Validate relation-local let clauses and return private value scopes.
+
+    A relation in ``joined_inputs`` reads that row instead of its FROM input,
+    and a let binding cannot take a name ``reserved_let_names`` gives it.
+    """
 
     scopes: dict[DerivedRelation, LetScopeSemanticInfo] = {}
     value_types: dict[Expression, ValueType] = {}
@@ -93,17 +100,20 @@ def analyze_relation_let_bindings(
             continue
         if definition.let_clause is None:
             continue
-        input_schema = _input_schema(
-            definition,
-            from_resolutions=from_resolutions,
-            source_row_schemas=source_row_schemas,
-            relation_row_schemas=relation_row_schemas,
-        )
+        input_schema = (joined_inputs or {}).get(definition)
+        if input_schema is None:
+            input_schema = _input_schema(
+                definition,
+                from_resolutions=from_resolutions,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+            )
         scope, relation_values, relation_diagnostics = _analyze_relation_let_clause(
             definition,
             input_schema,
             allow_unaliased_selected_let_outputs=(allow_unaliased_selected_let_outputs),
             type_expansions=type_expansions,
+            reserved_names=(reserved_let_names or {}).get(definition, frozenset()),
         )
         scopes[definition] = scope
         value_types.update(relation_values)
@@ -115,12 +125,16 @@ def analyze_relation_let_bindings(
 def admitted_relation_let_expressions(
     definition: DerivedRelation,
     input_schema: RowSchema,
+    *,
+    reserved_names: frozenset[str] = frozenset(),
 ) -> dict[str, Expression]:
     """Return relation-local let expressions admitted into the private scope."""
 
     if definition.let_clause is None:
         return {}
-    invalid_names = _invalid_binding_names(definition, input_schema, [])
+    invalid_names = _invalid_binding_names(
+        definition, input_schema, [], reserved_names=reserved_names
+    )
     expressions: dict[str, Expression] = {}
     seen_names: set[str] = set()
     for binding in definition.let_clause.bindings:
@@ -128,6 +142,18 @@ def admitted_relation_let_expressions(
             expressions[binding.name] = binding.expression
         seen_names.add(binding.name)
     return expressions
+
+
+def join_reserved_let_names(definition: DerivedRelation) -> frozenset[str]:
+    """The names a single-file JOIN relation's let bindings cannot take.
+
+    Every binding, SEMI and ANTI ones included, and every binding's relation.
+    """
+
+    names = {definition.from_clause.source_name}
+    for clause in definition.join_clauses:
+        names.update((clause.target_binding_name, clause.target_relation_name))
+    return frozenset(names)
 
 
 # Single-file IR inlines every `let:` binding at each read, so the size and
@@ -311,6 +337,7 @@ def _analyze_relation_let_clause(
     *,
     allow_unaliased_selected_let_outputs: bool = False,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    reserved_names: frozenset[str] = frozenset(),
 ) -> tuple[LetScopeSemanticInfo, dict[Expression, ValueType], list[Diagnostic]]:
     assert definition.let_clause is not None
 
@@ -327,6 +354,7 @@ def _analyze_relation_let_clause(
         input_schema,
         diagnostics,
         allow_unaliased_selected_let_outputs=allow_unaliased_selected_let_outputs,
+        reserved_names=reserved_names,
     )
 
     for binding in definition.let_clause.bindings:
@@ -377,6 +405,7 @@ def _invalid_binding_names(
     diagnostics: list[Diagnostic],
     *,
     allow_unaliased_selected_let_outputs: bool = False,
+    reserved_names: frozenset[str] = frozenset(),
 ) -> set[str]:
     assert definition.let_clause is not None
 
@@ -396,7 +425,7 @@ def _invalid_binding_names(
             continue
         seen_names.add(binding.name)
 
-        if binding.name in input_schema.fields:
+        if has_bare_field(input_schema, binding.name):
             diagnostics.append(
                 _invalid_let_name_diagnostic(
                     binding,
@@ -406,7 +435,10 @@ def _invalid_binding_names(
             )
             invalid_names.add(binding.name)
             continue
-        if binding.name == definition.from_clause.source_name:
+        if (
+            binding.name == definition.from_clause.source_name
+            or binding.name in reserved_names
+        ):
             diagnostics.append(
                 _invalid_let_name_diagnostic(
                     binding,

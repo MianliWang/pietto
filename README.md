@@ -38,10 +38,15 @@ the explicit Python API, never from a Pietto CLI command.
   grouping, and bounded window expressions.
 - Deterministic parser, semantic, and backend diagnostics with source locations
   where the relevant stage has them.
-- Single-file `check`, `explain`, and `emit-sql` commands, with applicable JSON
-  output, for tables and queries over one relation; JOINs, set operations,
-  DISTINCT, relation lets, relation reads, query header parameters, typed
-  VALUES bodies and `generate_series` need an explicit-module project.
+- Single-file `check`, `explain`, and `emit-sql` commands with applicable JSON
+  output. `check` and PostgreSQL emission support all seven JOIN kinds,
+  binding-field reads and aggregates guarded against fan-out, within the
+  [single-file JOIN limits](docs/language.md#single-file-joins). MySQL refuses
+  each JOIN relation while keeping other artifacts; `explain` refuses JOIN
+  relations because its metadata format has one input per relation.
+- Set operations, DISTINCT, relation lets, relation reads, query header
+  parameters, typed VALUES bodies and `generate_series` require an
+  explicit-module project. LEGACY_FLAT keeps its existing JOIN boundaries.
 - Explicit-project `emit-sql` for one selected table or query, one selected
   dialect and an explicit emission contract, producing the versioned
   `pietto.sql-emission.v1` artifact (`pietto.sql-emission.v2` for a VERIFIED

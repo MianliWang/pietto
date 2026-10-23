@@ -1205,4 +1205,6 @@ def test_private_public_sql_and_script_relation_ir_remain_unchanged() -> None:
         "group_keys",
         "result_predicate",
         "named_windows",
+        "inputs",
+        "joins",
     )

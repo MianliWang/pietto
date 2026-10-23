@@ -68,8 +68,9 @@ single file, an ungrouped ORDER BY key reads input fields and `let:` bindings
 but no SELECT output other than a selected window result named alone, so with
 `x = n + 1` and a window result `w` selected the key `w` passes, while
 `w + 1`, `-w`, `x` and `x + 1` are PIE-S2102. The check does not yet type what
-only explicit-module projects type: JOIN binding fields, a computed `let:`
-group key and an aggregate of a `let:` name in a relation with GROUP BY. It
+explicit-module projects type: JOIN binding fields (which single-file checks
+also type), a computed `let:` group key and an aggregate of a `let:` name in a
+relation with GROUP BY. It
 reports nothing more inside a table or query that reads a field of one of its
 JOIN bindings or reads a `let:` name in a GROUP BY key or in an aggregate of a
 relation with GROUP BY, or that reads such a relation with `from` or a JOIN,

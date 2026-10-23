@@ -40,15 +40,45 @@ from pietto._project.project_ir_verification import (
 )
 from pietto.ast_nodes import (
     AuthoredJoinKind,
+    ComparisonExpr,
+    DottedNameExpr,
     JoinClause,
     JoinTraversalStep,
+    NameExpr,
     QueryDef,
     Script,
+    SourceDef,
     TableDef,
 )
 from pietto.ir import build_ir
 from pietto.parser_api import parse_source
-from pietto.semantic import analyze
+from pietto.semantic import (
+    CheckMode,
+    EffectiveNullability,
+    ResolvedType,
+    RowField,
+    RowSchema,
+    SemanticModel,
+    TypeKind,
+    ValueType,
+    analyze,
+)
+from pietto.semantic.analyzer import analyze_project_namespace
+from pietto.semantic.model import (
+    JoinEqualityInfo,
+    JoinFieldRef,
+    JoinInfo,
+    JoinInputInfo,
+    RelationJoinsInfo,
+)
+from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic import joins
+from _pietto_semantic_joins import (
+    JOIN_PREFIX,
+    located,
+    resolve_by_declaration,
+    run_joins,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -358,7 +388,9 @@ def test_join_grammar_ast_occurrences_spans_order_and_compatibility() -> None:
 
 
 @pytest.mark.parametrize("kind", ("mark", "single"))
-def test_unsupported_join_kinds_and_join_local_on_fail_closed(kind: str) -> None:
+def test_unsupported_join_kinds_fail_closed_and_join_local_on_is_admitted(
+    kind: str,
+) -> None:
     source = (
         "query result:\n"
         "    from orders\n"
@@ -370,13 +402,17 @@ def test_unsupported_join_kinds_and_join_local_on_fail_closed(kind: str) -> None
     result = parse_source(source, path=f"{kind}.pietto")
     assert result.ast is None and result.diagnostics
     on_result = parse_source(
-        source.replace(f"{kind} join", "inner join").replace(
-            "        from orders\n", "        from orders\n        on id == id\n"
-        ),
+        JOIN_PREFIX
+        + source.replace(f"{kind} join", "inner join")
+        .replace(
+            "        from orders\n",
+            "        from orders\n        on orders.id == customer.id\n",
+        )
+        .replace("        id\n", "        orders.id\n"),
         path="join-on.pietto",
     )
     assert on_result.ast is not None and not on_result.diagnostics
-    assert any(d.code == "PIE-S2334" for d in analyze(on_result.ast).diagnostics)
+    assert analyze(on_result.ast).diagnostics == ()
 
 
 def test_join_bearing_semantics_and_project_ir_are_deferred_without_global_failure(
@@ -561,7 +597,7 @@ def test_explicit_role_continuity_start_and_end_failures_never_choose_paths(
         assert not hasattr(built.use_set.index, "find_path")
 
 
-def test_legacy_ir_and_joined_scalar_namespace_fail_closed() -> None:
+def test_legacy_ir_join_namespace_fails_closed() -> None:
     prefix = (
         "shape Order:\n"
         "    id: Int not null\n"
@@ -579,21 +615,16 @@ def test_legacy_ir_and_joined_scalar_namespace_fail_closed() -> None:
         "        id\n"
     )
     script = _parse(source)
-    semantic = analyze(script)
+    semantic = analyze_project_namespace(script)
     assert semantic.diagnostics == ()
     result = build_ir(script, semantic.model)
     assert result.ir is None
     assert tuple((item.code, item.message) for item in result.diagnostics) == (
         (
             "PIE-I1000",
-            "Missing semantic fact required for IR lowering: binary JOIN lowering for an authored relationship traversal",
+            "Missing semantic fact required for IR lowering: resolved JOIN facts",
         ),
     )
-    scalar = analyze(_parse(source.replace("        id\n", "        customer.id\n", 1)))
-    assert [
-        (item.code, item.message, item.location.line, item.location.column)
-        for item in scalar.diagnostics
-    ] == [("PIE-S2102", f"Unknown field: customer.id{_JOIN_BINDING}", 12, 9)]
 
 
 _COMPLETES = "only when an EXPLICIT_MODULES project (schema version 2) completes"
@@ -606,15 +637,12 @@ _COMPLETES = "only when an EXPLICIT_MODULES project (schema version 2) completes
             "query q:\n    from orders\n    right join customers as customer:\n"
             "        from orders\n        on orders.id == customer.id\n"
             "    select:\n        x = orders.id\n",
-            [
-                (f"RIGHT JOIN is available {_COMPLETES} it.", 10, 5),
-                (f"JOIN-local ON is available {_COMPLETES} it.", 12, 9),
-            ],
+            [],
         ),
         (
             "query q:\n    from orders\n    cross join customers as customer:\n"
             "        from orders\n    select:\n        x = orders.id\n",
-            [(f"CROSS JOIN is available {_COMPLETES} it.", 10, 5)],
+            [],
         ),
         (
             "query both:\n    union all:\n        from orders\n        from orders\n"
@@ -626,7 +654,7 @@ _COMPLETES = "only when an EXPLICIT_MODULES project (schema version 2) completes
         ),
     ),
 )
-def test_single_file_join_and_set_refusals_point_to_explicit_modules(
+def test_single_file_joins_are_admitted_and_set_refusals_remain(
     body: str,
     expected: list[tuple[str, int, int]],
 ) -> None:
@@ -648,81 +676,35 @@ def test_single_file_join_and_set_refusals_point_to_explicit_modules(
     ] == expected
 
 
-_JOIN_BINDING = (
-    "; JOIN binding fields are not available in single-file mode "
-    "(use an EXPLICIT_MODULES project)"
-)
-
-
+@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize(
-    ("body", "expected"),
+    "tail",
     (
-        (
-            "    select:\n        n = customer.name\n",
-            [("customer.name", 13, 13)],
-        ),
-        (
-            '    where customer.name == "x"\n    select:\n        id\n',
-            [("customer.name", 12, 11)],
-        ),
-        (
-            "    group by:\n        customer.name\n    select:\n        n = count()\n",
-            [("customer.name", 13, 9)],
-        ),
-        (
-            "    let:\n        nm = customer.name\n    select:\n        id\n",
-            [("customer.name", 13, 14)],
-        ),
-        (
-            "    select:\n        id\n    order by:\n        customer.name\n",
-            [("customer.name", 15, 9)],
-        ),
-        (
-            "    select:\n        id\n        r = row_number() window:\n"
-            "            partition by:\n                customer.name\n"
-            "            order by:\n                id\n",
-            [("customer.name", 16, 17)],
-        ),
-        (
-            "    select:\n        a = customer.nope\n        b = orders.nope\n",
-            [("customer.nope", 13, 13), ("orders.nope", 14, 13)],
-        ),
-        ("    select:\n        name\n", [("name", 13, 9)]),
+        "    select:\n        n = customer.name\n",
+        '    where customer.name == "x"\n    select:\n        orders.id\n',
+        "    group by:\n        customer.name\n    select:\n        n = count()\n",
+        "    let:\n        nm = customer.name\n    select:\n        n = nm\n",
+        "    select:\n        orders.id\n    order by:\n        customer.name\n",
+        "    select:\n        name\n",
     ),
 )
-def test_single_file_join_binding_fields_say_why_they_are_unknown(
-    body: str,
-    expected: list[tuple[str, int, int]],
+def test_single_file_join_binding_fields_resolve_in_each_clause(
+    mode: CheckMode, tail: str
 ) -> None:
     semantic = analyze(
         _parse(
-            "shape Order:\n"
-            "    id: Int not null\n"
-            "shape Customer:\n"
-            "    id: Int not null\n"
-            "    name: Text not null\n"
-            'source orders: Order is postgres.table("orders")\n'
-            'source customers: Customer is postgres.table("customers")\n'
-            "query joined:\n"
-            "    from orders\n"
-            "    inner join customers as customer:\n"
-            "        from orders\n" + body
-        )
+            JOIN_PREFIX + "query q:\n    from orders\n"
+            "    inner join customers as customer\n" + tail
+        ),
+        mode_override=mode,
     )
-    assert [
-        (item.code, item.message, item.location.line, item.location.column)
-        for item in semantic.diagnostics
-    ] == [
-        (
-            "PIE-S2102",
-            f"Unknown field: {name}"
-            # A field the JOIN target lacks, such as customer.nope, stays bare.
-            + (_JOIN_BINDING if name in ("customer.id", "customer.name") else ""),
-            line,
-            column,
-        )
-        for name, line, column in expected
-    ]
+    assert semantic.diagnostics == ()
+    query = cast(QueryDef, semantic.model.relation_symbols["q"])
+    info = semantic.model.relation_joins[query]
+    assert info.row_schema.joined
+    assert any(
+        read.input == 1 and read.field == "name" for read in info.field_reads.values()
+    )
 
 
 def test_single_file_join_binding_read_over_sources_without_a_shape_fails() -> None:
@@ -740,8 +722,6 @@ def test_single_file_join_binding_read_over_sources_without_a_shape_fails() -> N
         )
     )
 
-    # Before: check passed and emission refused the JOIN with PIE-I1000. A
-    # target without a shape has no field known to it, so the message is bare.
     assert [
         (item.code, item.message, item.location.line, item.location.column)
         for item in semantic.diagnostics
@@ -753,7 +733,20 @@ def test_single_file_join_binding_read_over_sources_without_a_shape_fails() -> N
             2,
             1,
         ),
-        ("PIE-S2102", "Unknown field: customer.name", 9, 13),
+        (
+            "PIE-S2334",
+            "A JOIN over orders, whose fields are not known, is not available "
+            "in single files yet; give source orders a shape.",
+            5,
+            5,
+        ),
+        (
+            "PIE-S2334",
+            "A JOIN over customers, whose fields are not known, is not available "
+            "in single files yet; give source customers a shape.",
+            5,
+            5,
+        ),
     ]
 
 
@@ -791,7 +784,14 @@ query joined:
         (
             "    left join c_rows as c:\n        from a_rows\n"
             "        via ab: a -> b\n        via bc: b -> c\n",
-            [],
+            [
+                (
+                    "PIE-S2334",
+                    f"A JOIN with more than one `via` step is available {_COMPLETES} it.",
+                    22,
+                    5,
+                )
+            ],
         ),
         (
             "    inner join b_rows as b:\n        from a_rows\n"
@@ -819,13 +819,11 @@ query joined:
             "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n",
             [
                 (
-                    "PIE-S2334",
-                    "SEMI JOIN is available only when an EXPLICIT_MODULES project "
-                    "(schema version 2) completes it.",
-                    22,
+                    "PIE-S2335",
+                    "JOIN source binding is a SEMI JOIN binding, which later JOINs cannot read: b",
+                    25,
                     5,
                 ),
-                ("PIE-S2335", "Unknown JOIN source binding: b", 25, 5),
             ],
         ),
         (
@@ -844,7 +842,10 @@ query joined:
             "    inner join b_rows as b:\n        from a_rows\n"
             "    inner join b_rows as b:\n        from a_rows\n"
             "    inner join c_rows as c:\n        from b\n        via bc: b -> c\n",
-            [("PIE-S2335", "Ambiguous JOIN source binding: b", 26, 5)],
+            [
+                ("PIE-S2335", "Duplicate JOIN binding name: b", 24, 26),
+                ("PIE-S2335", "Ambiguous JOIN source binding: b", 26, 5),
+            ],
         ),
         (
             "    inner join nowhere as n:\n        from a_rows\n",
@@ -874,9 +875,8 @@ query joined:
             "        via ab: a -> b\n        via ab: a -> b\n",
             [
                 (
-                    "PIE-S2335",
-                    "JOIN VIA steps do not connect: a step ends at b_rows and the "
-                    "next starts at a_rows",
+                    "PIE-S2334",
+                    f"A JOIN with more than one `via` step is available {_COMPLETES} it.",
                     22,
                     5,
                 )
@@ -919,52 +919,6 @@ def test_single_file_join_reads_resolve_their_target_binding_and_via_steps(
         (item.code, item.message, item.location.line, item.location.column)
         for item in semantic.diagnostics
     ] == expected
-
-
-@pytest.mark.parametrize(
-    ("join", "field", "hinted"),
-    (
-        ("right join customers as customer", "customer.name", True),
-        ("full join customers as customer", "customer.name", True),
-        ("cross join customers as customer", "customer.name", True),
-        # A project does not expose SEMI or ANTI binding fields either.
-        ("semi join customers as customer", "customer.name", False),
-        ("anti join customers as customer", "customer.name", False),
-        # A binding named like the FROM input is not singled out.
-        ("inner join customers as orders", "orders.nope", False),
-        # Nor is a binding name two JOINs share: it has no single target.
-        (
-            "inner join customers as customer:\n        from orders\n"
-            "    left join customers as customer",
-            "customer.name",
-            False,
-        ),
-    ),
-)
-def test_join_binding_hint_follows_the_kinds_a_project_exposes(
-    join: str, field: str, hinted: bool
-) -> None:
-    on = (
-        ""
-        if join.startswith(("cross", "inner"))
-        else "        on orders.id == customer.id\n"
-    )
-    semantic = analyze(
-        _parse(
-            "shape Order:\n"
-            "    id: Int not null\n"
-            "shape Customer:\n"
-            "    id: Int not null\n"
-            "    name: Text not null\n"
-            'source orders: Order is postgres.table("orders")\n'
-            'source customers: Customer is postgres.table("customers")\n'
-            f"query joined:\n    from orders\n    {join}:\n        from orders\n"
-            f"{on}    select:\n        n = {field}\n"
-        )
-    )
-    assert [
-        item.message for item in semantic.diagnostics if item.code == "PIE-S2102"
-    ] == [f"Unknown field: {field}" + (_JOIN_BINDING if hinted else "")]
 
 
 def test_project_ir_constructor_rejects_a_forged_join_marker(
@@ -1429,28 +1383,33 @@ def test_an_explicit_direct_join_names_its_ambiguous_directions(
 
 
 def test_single_file_check_treats_an_inferred_join_like_its_explicit_form() -> None:
-    """Single-file checks do not resolve JOIN sources or roles either way."""
+    """Inferred and written relationship paths resolve to the same JOIN inputs."""
     head = _INFERENCE.split("query chain_inferred:")[0]
     for body in (
         "query q:\n    from employees\n    inner join departments as d\n"
-        "    left join sites as s: via located_at\n    select:\n        id\n",
+        "    left join sites as s: via located_at\n    select:\n        employees.id\n",
         "query q:\n    from employees\n    inner join departments as d:\n"
         "        from employees\n    left join sites as s:\n        from d\n"
-        "        via located_at: departments -> sites\n    select:\n        id\n",
+        "        via located_at: departments -> sites\n    select:\n        employees.id\n",
     ):
         script = _parse(head + body)
         semantic = analyze(script)
         assert semantic.diagnostics == ()
-        assert [item.code for item in build_ir(script, semantic.model).diagnostics] == [
-            "PIE-I1000"
-        ]
+        query = cast(QueryDef, semantic.model.relation_symbols["q"])
+        assert tuple(
+            join.relationship for join in semantic.model.relation_joins[query].joins
+        ) == (
+            "works_in",
+            "located_at",
+        )
+        assert build_ir(script, semantic.model).diagnostics == ()
     # The written parts of an inferred JOIN are still checked.
     written = _parse(
         head + "query q:\n    from employees\n    inner join departments as d\n"
-        "    left join sites as s: via nosuch\n    select:\n        id\n"
+        "    left join sites as s: via nosuch\n    select:\n        employees.id\n"
     )
     assert [(d.code, d.message) for d in analyze(written).diagnostics] == [
-        ("PIE-S2335", "Unknown relationship in JOIN VIA: nosuch")
+        ("PIE-S2335", "JOIN s: `via nosuch` names no relationship of this module")
     ]
 
 
@@ -1916,8 +1875,7 @@ def test_a_failing_via_step_of_an_inferred_join_is_named_at_the_join(
 def test_a_failing_via_step_keeps_its_explicit_and_single_file_reports(
     tmp_path: Path,
 ) -> None:
-    """The written form keeps its bare relation-level PIE-S2333; a single-file
-    check reports the step itself."""
+    """Project failure stays relation-level; inferred single-file paths name the JOIN."""
     written = _STEPS.format(
         on_join="",
         join="departments as d:\n        from employees\n        via works_in: emp -> nope",
@@ -1930,11 +1888,11 @@ def test_a_failing_via_step_keeps_its_explicit_and_single_file_reports(
     for join, message in (
         (
             "departments as d: via workz_in",
-            "Unknown relationship in JOIN VIA: workz_in",
+            "JOIN d: `via workz_in` names no relationship of this module",
         ),
         (
             "departments as d: via works_in: emp -> nope",
-            "Unknown endpoint role in JOIN VIA works_in: nope",
+            "JOIN d: relationship works_in has no endpoint role nope; its roles are emp and dep",
         ),
     ):
         text = _STEPS.format(on_join="", join=join)
@@ -1948,6 +1906,1383 @@ def test_a_failing_via_step_keeps_its_explicit_and_single_file_reports(
                 "PIE-S2335",
                 message,
                 text.split("\n").index(header) + 1,
-                header.index("via") + 1,
+                5,
             )
         ]
+
+
+_JOIN_FACT_SOURCE = """shape Order:
+    id: Int not null
+    customer_id: Int not null
+shape Customer:
+    id: Int not null
+    name: Text not null
+source orders: Order is postgres.table("orders")
+source customers: Customer is postgres.table("customers")
+relationship order_customer:
+    endpoint o: orders
+    endpoint c: customers
+    on o.customer_id == c.id
+query result:
+    from orders
+    inner join customers as customer:
+        from orders
+        via order_customer: o -> c
+    select:
+        customer.name
+"""
+
+
+def test_single_file_join_facts_copy_their_reads_and_default_to_no_joins() -> None:
+    script = _parse(_JOIN_FACT_SOURCE)
+    orders = cast(SourceDef, script.definitions[2])
+    customers = cast(SourceDef, script.definitions[3])
+    query = cast(QueryDef, script.definitions[4])
+    join = query.join_clauses[0]
+    base_match = script.relationships[0].base_match
+    assert base_match is not None
+    comparison = cast(ComparisonExpr, base_match.expression)
+    read = query.select_items[0].expression
+    integer = ResolvedType("Int", TypeKind.BUILTIN)
+    non_null = EffectiveNullability.NON_NULL
+    row = RowSchema(
+        fields={
+            key: RowField(name=key, resolved_type=resolved, nullability=non_null)
+            for key, resolved in (
+                ("orders.id", integer),
+                ("orders.customer_id", integer),
+                ("customer.id", integer),
+                ("customer.name", ResolvedType("Text", TypeKind.BUILTIN)),
+            )
+        },
+        joined=True,
+    )
+    equality = JoinEqualityInfo(
+        left=JoinFieldRef(input=0, field="customer_id"),
+        right=JoinFieldRef(input=1, field="id"),
+        left_type=ValueType(integer, non_null),
+        right_type=ValueType(integer, non_null),
+        comparison=comparison,
+        left_operand=cast(DottedNameExpr, comparison.left),
+        right_operand=cast(DottedNameExpr, comparison.right),
+    )
+    reads = {read: JoinFieldRef(input=1, field="name")}
+    info = RelationJoinsInfo(
+        inputs=(
+            JoinInputInfo(
+                ordinal=0, binding="orders", relation=orders, clause=None, visible=True
+            ),
+            JoinInputInfo(
+                ordinal=1,
+                binding="customer",
+                relation=customers,
+                clause=join,
+                visible=True,
+            ),
+        ),
+        joins=(
+            JoinInfo(
+                ordinal=1,
+                clause=join,
+                kind=AuthoredJoinKind.INNER,
+                mode="M2",
+                source_input=0,
+                source_inferred=False,
+                target_input=1,
+                relationship="order_customer",
+                step=join.traversal_steps[0],
+                equalities=(equality,),
+                condition=None,
+                null_extends=(),
+            ),
+        ),
+        row_schema=row,
+        field_reads=reads,
+    )
+    reads.clear()
+    model = SemanticModel(mode=CheckMode.CHECKED, relation_joins={query: info})
+
+    assert dict(info.field_reads) == {read: JoinFieldRef(input=1, field="name")}
+    assert dict(model.relation_joins) == {query: info}
+    read_only = "'mappingproxy' object does not support item assignment"
+    with pytest.raises(TypeError, match=read_only):
+        info.field_reads[read] = JoinFieldRef(input=0, field="id")  # type: ignore[index]
+    with pytest.raises(TypeError, match=read_only):
+        model.relation_joins[query] = info  # type: ignore[index]
+    assert tuple(row.fields) == (
+        "orders.id",
+        "orders.customer_id",
+        "customer.id",
+        "customer.name",
+    )
+    assert (row.joined, RowSchema().joined) == (True, False)
+    assert SemanticModel(mode=CheckMode.CHECKED).relation_joins == {}
+
+
+_COMPLETED = "only when an EXPLICIT_MODULES project (schema version 2) completes"
+_SELECT_ID = "    select:\n        x = orders.id\n"
+_SHAPELESS = (
+    "A JOIN over {}, whose fields are not known, is not available in single "
+    "files yet; give source events a shape."
+)
+
+
+def _joined_query(body: str) -> str:
+    return JOIN_PREFIX + "query q:\n" + body
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        pytest.param(
+            "    from orders\n    right join nowhere as n:\n        from orders\n"
+            "        on orders.id == n.id\n" + _SELECT_ID,
+            [("PIE-S2301", "Unknown relation: nowhere", 20, 5)],
+            id="unknown_target",
+        ),
+        pytest.param(
+            "    from orders\n    inner join both as b: from orders\n"
+            + _SELECT_ID
+            + "query both:\n    union all:\n        from orders\n        from orders\n",
+            [
+                (
+                    "PIE-S2334",
+                    f"Set-operation inputs are available {_COMPLETED} them: both",
+                    20,
+                    5,
+                )
+            ],
+            id="set_operation_target",
+        ),
+        pytest.param(
+            "    from orders\n    cross join customers as orders: from orders\n"
+            + _SELECT_ID,
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN binding cannot have the FROM input's name: orders",
+                    20,
+                    29,
+                )
+            ],
+            id="binding_named_like_from",
+        ),
+        pytest.param(
+            "    from orders\n    semi join customers as c: from orders\n"
+            "    cross join regions as c: from orders\n" + _SELECT_ID,
+            [("PIE-S2335", "Duplicate JOIN binding name: c", 21, 27)],
+            id="binding_named_like_a_semi_binding",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r: from nowhere\n" + _SELECT_ID,
+            [("PIE-S2335", "Unknown JOIN source binding: nowhere", 20, 5)],
+            id="unknown_source",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r: from r\n" + _SELECT_ID,
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN source binding is the binding this JOIN introduces: r",
+                    20,
+                    5,
+                )
+            ],
+            id="own_binding_as_source",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r: from c\n"
+            "    cross join customers as c: from orders\n" + _SELECT_ID,
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN source binding is bound only by a later JOIN: c",
+                    20,
+                    5,
+                )
+            ],
+            id="later_binding_as_source",
+        ),
+        pytest.param(
+            "    from orders\n    cross join customers as c: from orders\n"
+            "    cross join customers as c: from orders\n"
+            "    cross join regions as r: from c\n" + _SELECT_ID,
+            [
+                ("PIE-S2335", "Duplicate JOIN binding name: c", 21, 29),
+                ("PIE-S2335", "Ambiguous JOIN source binding: c", 22, 5),
+            ],
+            id="ambiguous_source",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r:\n        from orders\n"
+            "        on r.id == orders.id\n" + _SELECT_ID,
+            [("PIE-S2336", "CROSS JOIN cannot have ON or VIA.", 20, 5)],
+            id="cross_with_on",
+        ),
+        pytest.param(
+            "    from orders\n    inner join regions as r:\n        from orders\n"
+            "        via order_customer\n        via customer_region\n"
+            "        on r.id == 1\n" + _SELECT_ID,
+            [
+                (
+                    "PIE-S2336",
+                    "JOIN-local ON refinement requires exactly one VIA step.",
+                    20,
+                    5,
+                )
+            ],
+            id="several_steps_with_on",
+        ),
+        pytest.param(
+            "    from orders\n    right join regions as r:\n        from orders\n"
+            "        via order_customer\n        via customer_region\n" + _SELECT_ID,
+            [("PIE-S2336", "This JOIN kind requires a direct binary input.", 20, 5)],
+            id="several_steps_of_a_right_join",
+        ),
+        pytest.param(
+            "    from orders\n    left join regions as r:\n        from orders\n"
+            "        via order_customer\n        via customer_region\n" + _SELECT_ID,
+            [
+                (
+                    "PIE-S2334",
+                    f"A JOIN with more than one `via` step is available {_COMPLETED} it.",
+                    20,
+                    5,
+                )
+            ],
+            id="several_steps",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r: from orders\n"
+            "    select:\n        n = row_number() window:\n            order by:\n"
+            "                orders.id\n",
+            [
+                (
+                    "PIE-S2334",
+                    f"Window functions over JOIN rows are available {_COMPLETED} them.",
+                    22,
+                    13,
+                )
+            ],
+            id="window_call",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r: from orders\n"
+            + _SELECT_ID
+            + "    window w:\n        order by:\n            orders.id\n",
+            [
+                (
+                    "PIE-S2334",
+                    f"Window functions over JOIN rows are available {_COMPLETED} them.",
+                    23,
+                    5,
+                )
+            ],
+            id="named_window",
+        ),
+        pytest.param(
+            "    from orders\n    cross join regions as r: from orders\n"
+            "    select:\n        n = count()\n    order by:\n        orders.id\n",
+            [
+                (
+                    "PIE-S2334",
+                    "ORDER BY is not available after an ungrouped aggregate over JOIN rows: "
+                    "the result has one row; remove `order by`.",
+                    23,
+                    5,
+                )
+            ],
+            id="aggregate_order_by",
+        ),
+        pytest.param(
+            "    from tracked\n    cross join events as e: from tracked\n"
+            "    select:\n        x = 1\n"
+            "table tracked:\n    from events\n    select:\n        id\n"
+            'source events is postgres.table("events")\n',
+            [
+                ("PIE-S2334", _SHAPELESS.format("tracked"), 20, 5),
+                ("PIE-S2334", _SHAPELESS.format("events"), 20, 5),
+            ],
+            id="inputs_without_a_shape",
+        ),
+        pytest.param(
+            "    from events\n    cross join events as again: from events\n"
+            '    select:\n        x = 1\nsource events is postgres.table("events")\n',
+            # One for the FROM input and one for the target, as for two sources.
+            [
+                ("PIE-S2334", _SHAPELESS.format("events"), 20, 5),
+                ("PIE-S2334", _SHAPELESS.format("events"), 20, 5),
+            ],
+            id="self_join_without_a_shape",
+        ),
+        pytest.param(
+            "    from orders\n    cross join nowhere as orders:\n        from nobody\n"
+            "        on orders.id == 1\n" + _SELECT_ID,
+            [
+                ("PIE-S2301", "Unknown relation: nowhere", 20, 5),
+                (
+                    "PIE-S2335",
+                    "JOIN binding cannot have the FROM input's name: orders",
+                    20,
+                    27,
+                ),
+                ("PIE-S2336", "CROSS JOIN cannot have ON or VIA.", 20, 5),
+            ],
+            id="written_parts_beside_an_unknown_target",
+        ),
+    ),
+)
+def test_single_file_join_structure_refuses_each_written_part(
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    expected: list[tuple[str, str, int, int]],
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(_joined_query(body))
+    assert located(run.diagnostics) == expected
+    assert run.structures == {}
+
+
+def test_single_file_join_structure_resolves_each_input_and_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        _joined_query(
+            "    from orders\n"
+            "    inner join customers as c\n"
+            "    left join regions as r: via customer_region: customers -> regions\n"
+            "    semi join customers as s:\n        from orders\n"
+            '        via order_customer\n        on s.name != ""\n'
+            "    right join regions as r2:\n        from c\n"
+            "        on r2.id == c.region_id\n"
+            "    cross join regions as r3: from orders\n" + _SELECT_ID
+        )
+    )
+    query = run.relation("q")
+    structure = run.structures[query]
+    assert run.diagnostics == []
+    assert [
+        (item.ordinal, item.binding, item.relation.name, item.visible)
+        for item in structure.inputs
+    ] == [
+        (0, "orders", "orders", True),
+        (1, "c", "customers", True),
+        (2, "r", "regions", True),
+        (3, "s", "customers", False),
+        (4, "r2", "regions", True),
+        (5, "r3", "regions", True),
+    ]
+    assert structure.inputs[0].clause is None
+    assert all(
+        item.clause is clause
+        for item, clause in zip(structure.inputs[1:], query.join_clauses, strict=True)
+    )
+    assert [
+        (
+            join.ordinal,
+            join.clause is query.join_clauses[join.ordinal - 1],
+            join.mode,
+            join.source_input,
+            join.source_inferred,
+            None if join.relationship is None else join.relationship.relationship,
+        )
+        for join in structure.joins
+    ] == [
+        (1, True, "M1", 0, True, "order_customer"),
+        (2, True, "M2", 1, True, "customer_region"),
+        (3, True, "M4", 0, False, "order_customer"),
+        (4, True, "M3", 1, False, None),
+        (5, True, "M5", 0, False, None),
+    ]
+
+
+def test_single_file_join_structure_takes_the_relationship_resolution_as_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _joined_query(
+        "    from orders\n    inner join customers as c\n" + _SELECT_ID
+    )
+    calls: list[str] = []
+
+    def silent(clause: Any, **_: Any) -> tuple[Diagnostic, ...]:
+        calls.append(clause.target_binding_name)
+        return ()
+
+    monkeypatch.setattr(joins, "resolve_join_relationship", silent)
+    run = run_joins(source)
+    # A relationship whose own declaration errors decide the JOIN: no
+    # structure and nothing more reported.
+    assert (run.diagnostics, run.structures, calls) == ([], {}, ["c"])
+    reported = Diagnostic(
+        code="PIE-S2335",
+        severity=Severity.ERROR,
+        message="stand-in",
+        location=SourceLocation(path=None, line=1, column=1),
+    )
+    monkeypatch.setattr(
+        joins, "resolve_join_relationship", lambda clause, **_: (reported,)
+    )
+    run = run_joins(source)
+    assert (run.diagnostics, run.structures) == ([reported], {})
+
+
+def test_single_file_join_structure_resolves_no_relationship_from_a_failed_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        joins,
+        "resolve_join_relationship",
+        lambda clause, **_: calls.append(clause.target_binding_name) or (),
+    )
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    inner join nowhere as n: from orders\n"
+            "    inner join customers as c\n    inner join regions as r: from n\n"
+            + _SELECT_ID
+        )
+    )
+    assert located(run.diagnostics) == [
+        ("PIE-S2301", "Unknown relation: nowhere", 20, 5)
+    ]
+    assert (calls, run.structures) == ([], {})
+    unresolved = run_joins(
+        _joined_query(
+            "    from nowhere\n    cross join regions as r: from nowhere\n"
+            "    select:\n        x = 1\n"
+        )
+    )
+    # The FROM input's own PIE-S2301 is the error; JOIN analysis adds none.
+    assert (unresolved.diagnostics, unresolved.structures) == ([], {})
+
+
+_N = EffectiveNullability.NULLABLE.value
+_NN = EffectiveNullability.NON_NULL.value
+_ORDERS = {"orders.id": _NN, "orders.customer_id": _N, "orders.amount": _NN}
+_NULLABLE_ORDERS = dict.fromkeys(_ORDERS, _N)
+
+
+def _customers(binding: str, *nullable: str) -> dict[str, str]:
+    row = {"id": _NN, "name": _NN, "region_id": _N, "active": _N}
+    row.update(dict.fromkeys(nullable, _N))
+    return {f"{binding}.{name}": value for name, value in row.items()}
+
+
+def _nullability(row: RowSchema) -> dict[str, str]:
+    return {key: field.nullability.value for key, field in row.fields.items()}
+
+
+@pytest.mark.parametrize(
+    ("joins_text", "expected", "extends"),
+    (
+        pytest.param(
+            "    inner join customers as c\n",
+            {**_ORDERS, "orders.customer_id": _NN, **_customers("c")},
+            [()],
+            id="inner_relationship_equality",
+        ),
+        pytest.param(
+            "    left join customers as c\n",
+            {**_ORDERS, **_customers("c", "id", "name")},
+            [(1,)],
+            id="left",
+        ),
+        pytest.param(
+            "    right join customers as c:\n        from orders\n"
+            "        on orders.customer_id == c.id\n",
+            {**_NULLABLE_ORDERS, **_customers("c")},
+            [(0,)],
+            id="right",
+        ),
+        pytest.param(
+            "    full join customers as c:\n        from orders\n"
+            "        on orders.customer_id == c.id\n",
+            {**_NULLABLE_ORDERS, **_customers("c", "id", "name")},
+            [(0, 1)],
+            id="full",
+        ),
+        pytest.param(
+            "    cross join regions as r: from orders\n",
+            {**_ORDERS, "r.id": _NN, "r.label": _NN},
+            [()],
+            id="cross",
+        ),
+        pytest.param(
+            "    semi join customers as s:\n        from orders\n"
+            "        on orders.customer_id == s.id\n",
+            _ORDERS,
+            [()],
+            id="semi",
+        ),
+        pytest.param(
+            "    anti join customers as s:\n        from orders\n"
+            "        on orders.customer_id == s.id\n",
+            _ORDERS,
+            [()],
+            id="anti",
+        ),
+        pytest.param(
+            "    semi join customers as s:\n        from orders\n"
+            "        on orders.customer_id == s.id\n"
+            "    right join regions as r:\n        from orders\n"
+            "        on r.id == orders.amount\n",
+            {**_NULLABLE_ORDERS, "r.id": _NN, "r.label": _NN},
+            [(), (0,)],
+            id="right_after_semi",
+        ),
+        pytest.param(
+            "    left join customers as c:\n        from orders\n"
+            "        on orders.customer_id == c.id\n"
+            "    inner join regions as r:\n        from c\n"
+            '        on c.region_id == r.id and c.name != ""\n',
+            {**_ORDERS, **_customers("c", "id", "name"), "r.id": _NN, "r.label": _NN},
+            [(1,), ()],
+            id="extension_outlasts_a_later_inner_join",
+        ),
+    ),
+)
+def test_single_file_joined_rows_follow_each_join_kind(
+    monkeypatch: pytest.MonkeyPatch,
+    joins_text: str,
+    expected: dict[str, str],
+    extends: list[tuple[int, ...]],
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(_joined_query("    from orders\n" + joins_text + _SELECT_ID))
+    assert run.diagnostics == []
+    rows = run.rows("q")
+    assert rows is not None and rows.tail.joined and not rows.tail.is_unknown
+    assert _nullability(rows.tail) == expected
+    assert all(field.name == key for key, field in rows.tail.fields.items())
+    checks, _ = run.checks()
+    facts = checks.facts[run.relation("q")]
+    assert [join.null_extends for join in facts.joins] == extends
+
+
+def test_single_file_join_on_rows_read_the_rows_before_each_join() -> None:
+    run = run_joins(
+        _joined_query(
+            "    from orders\n"
+            "    left join customers as c:\n        from orders\n"
+            "        on orders.customer_id == c.id\n"
+            "    inner join regions as r:\n        from c\n"
+            "        on c.region_id == r.id\n" + _SELECT_ID
+        )
+    )
+    rows = run.rows("q")
+    assert rows is not None
+    first, second = rows.on
+    assert _nullability(first) == {**_ORDERS, **_customers("c")}
+    assert _nullability(second) == {
+        **_ORDERS,
+        **_customers("c", "id", "name"),
+        "r.id": _NN,
+        "r.label": _NN,
+    }
+    assert first.joined and second.joined
+    customer_name = second.fields["c.name"]
+    assert (customer_name.resolved_type.name, customer_name.definition) == (
+        "Text",
+        run.model.source_row_schemas[
+            cast(SourceDef, run.model.relation_symbols["customers"])
+        ]
+        .fields["name"]
+        .definition,
+    )
+    structure = run.structures[run.relation("q")]
+    unknown = RowSchema(is_unknown=True)
+    assert joins.join_rows(structure, lambda relation: unknown) is None
+    assert joins.join_input_row(structure, lambda relation: unknown) == unknown
+    assert joins.join_input_row(structure, run.schema_of) == rows.tail
+
+
+def test_single_file_join_reads_resolve_against_the_visible_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        _joined_query(
+            "    from orders\n"
+            "    inner join customers as customer\n"
+            "    let:\n        big = amount > 10\n"
+            '    where big and customer.name != ""\n'
+            "    select:\n        order_id = orders.id\n        name\n"
+            "    order by:\n        customer.id desc\n"
+        )
+    )
+    checks, _ = run.checks()
+    query = run.relation("q")
+    info = checks.facts[query]
+    assert (checks.diagnostics, checks.reads) == ((), ())
+    assert sorted(
+        (
+            leaf.span.line,
+            leaf.span.column,
+            ".".join(leaf.parts) if isinstance(leaf, DottedNameExpr) else leaf.name,
+            read.input,
+            read.field,
+        )
+        for leaf, read in info.field_reads.items()
+        if isinstance(leaf, (DottedNameExpr, NameExpr))
+    ) == [
+        (22, 15, "amount", 0, "amount"),
+        (23, 19, "customer.name", 1, "name"),
+        (25, 20, "orders.id", 0, "id"),
+        (26, 9, "name", 1, "name"),
+        (28, 9, "customer.id", 1, "id"),
+    ]
+    rows = run.rows("q")
+    assert len(info.field_reads) == 5
+    assert rows is not None and info.row_schema == rows.tail
+    assert [(item.ordinal, item.binding) for item in info.inputs] == [
+        (0, "orders"),
+        (1, "customer"),
+    ]
+    (join,) = info.joins
+    (equality,) = join.equalities
+    relationship = run.script.relationships[0].base_match
+    assert relationship is not None
+    comparison = cast(ComparisonExpr, relationship.expression)
+    integer = ResolvedType("Int", TypeKind.BUILTIN)
+    assert join == JoinInfo(
+        ordinal=1,
+        clause=query.join_clauses[0],
+        kind=AuthoredJoinKind.INNER,
+        mode="M1",
+        source_input=0,
+        source_inferred=True,
+        target_input=1,
+        relationship="order_customer",
+        step=None,
+        equalities=(
+            JoinEqualityInfo(
+                left=JoinFieldRef(input=0, field="customer_id"),
+                right=JoinFieldRef(input=1, field="id"),
+                left_type=ValueType(integer, EffectiveNullability.NULLABLE),
+                right_type=ValueType(integer, EffectiveNullability.NON_NULL),
+                comparison=comparison,
+                left_operand=cast(DottedNameExpr, comparison.left),
+                right_operand=cast(DottedNameExpr, comparison.right),
+            ),
+        ),
+        condition=None,
+        null_extends=(),
+    )
+    assert equality.left_operand is comparison.left
+
+
+def test_single_file_self_join_reads_keep_their_inputs_apart() -> None:
+    run = run_joins(
+        _joined_query(
+            "    from customers\n    left join customers as peer:\n"
+            "        from customers\n"
+            "        on peer.region_id == customers.region_id\n"
+            "    select:\n        customer_id = customers.id\n        peer_id = peer.id\n"
+        )
+    )
+    checks, _ = run.checks()
+    info = checks.facts[run.relation("q")]
+    assert sorted(
+        (leaf.span.line, leaf.span.column, read.input, read.field)
+        for leaf, read in info.field_reads.items()
+    ) == [
+        (22, 12, 1, "region_id"),
+        (22, 30, 0, "region_id"),
+        (24, 23, 0, "id"),
+        (25, 19, 1, "id"),
+    ]
+    assert info.joins[0].null_extends == (1,)
+
+
+def test_single_file_join_reads_inside_def_arguments_resolve() -> None:
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    cross join regions as r: from orders\n"
+            "    where inc(r.id) > 1\n"
+            "    select:\n        bumped = inc(orders.amount)\n"
+            "def inc(x: Int not null) -> Int nullable: return x + 1\n"
+        )
+    )
+    checks, _ = run.checks()
+    info = checks.facts[run.relation("q")]
+    assert sorted(
+        (leaf.span.line, leaf.span.column, read.input, read.field)
+        for leaf, read in info.field_reads.items()
+    ) == [(21, 15, 1, "id"), (23, 22, 0, "amount")]
+
+
+def test_single_file_join_equalities_follow_the_written_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        _joined_query(
+            "    from customers\n"
+            "    inner join customers as peer: via referral: referee -> referrer\n"
+            "    select:\n        x = customers.id\n"
+            "relationship referral:\n    endpoint referrer: customers\n"
+            "    endpoint referee: customers\n    on referrer.region_id == referee.id\n"
+        )
+    )
+    checks, _ = run.checks()
+    (join,) = checks.facts[run.relation("q")].joins
+    (equality,) = join.equalities
+    comparison = equality.comparison
+    # The source plays `referee`, the right operand of the declared conjunct.
+    assert (join.mode, join.source_inferred, join.step) == (
+        "M2",
+        True,
+        run.relation("q").join_clauses[0].traversal_steps[0],
+    )
+    assert (equality.left, equality.right) == (
+        JoinFieldRef(input=0, field="id"),
+        JoinFieldRef(input=1, field="region_id"),
+    )
+    assert (equality.left_operand, equality.right_operand) == (
+        comparison.right,
+        comparison.left,
+    )
+    assert (equality.left_type.nullability, equality.right_type.nullability) == (
+        EffectiveNullability.NON_NULL,
+        EffectiveNullability.NULLABLE,
+    )
+
+
+def test_single_file_join_reads_that_fail_say_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        _joined_query(
+            "    from orders\n"
+            "    inner join customers as customer\n"
+            "    where id > 1\n"
+            "    select:\n"
+            "        nope = customer.nope\n"
+            "        rel = customers.name\n"
+            "        other = elsewhere.x\n"
+            "        deep = customer.name.x\n"
+            "        bare = nothing\n"
+        )
+    )
+    checks, _ = run.checks()
+    assert located(checks.reads) == [
+        ("PIE-S2335", "Ambiguous field: id; write orders.id or customer.id", 21, 11),
+        ("PIE-S2102", "Unknown field: customer.nope", 23, 16),
+        (
+            "PIE-S2102",
+            "Unknown field: customers.name; customers names a relation, not a binding: write customer.name",
+            24,
+            15,
+        ),
+        ("PIE-S2102", "Unknown field: elsewhere.x", 25, 17),
+        ("PIE-S2102", "Unknown field: customer.name.x", 26, 16),
+    ]
+    assert (checks.facts, checks.diagnostics) == ({}, ())
+    # Each failed read keeps exactly its own diagnostic, at the read; a bare
+    # name that no binding has, and every other code, stay as they are.
+    at = {read.message: read.location for read in checks.reads}
+    elsewhere = SourceLocation(path="joins.pietto", line=27, column=16)
+
+    def found(code: str, message: str, location: SourceLocation) -> Diagnostic:
+        return Diagnostic(
+            code=code, severity=Severity.ERROR, message=message, location=location
+        )
+
+    ambiguous = at["Ambiguous field: id; write orders.id or customer.id"]
+    nope = at["Unknown field: customer.nope"]
+    before = [
+        found("PIE-S2102", "Unknown field: id", ambiguous),
+        found("PIE-S2105", "stand-in", ambiguous),
+        found("PIE-S2102", "Unknown field: customer.nope", nope),
+        found("PIE-S2102", "Unknown field: customer.nope", nope),
+        found("PIE-S2102", "Unknown field: nothing", elsewhere),
+    ]
+    assert joins.join_post_pass(before, checks) == [
+        before[1],
+        before[4],
+        *checks.reads,
+    ]
+
+
+def test_single_file_join_post_pass_drops_reads_of_relations_it_does_not_analyse() -> (
+    None
+):
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    cross join regions as r: from orders\n"
+            "    select:\n        n = row_number() window:\n            order by:\n"
+            "                orders.id\n"
+            "query plain:\n    from orders\n    select:\n        x = orders.id\n"
+        )
+    )
+    checks, _ = run.checks()
+    query = run.relation("q")
+    assert checks.unanalysed == (query.span,)
+
+    def at(code: str, line: int, column: int) -> Diagnostic:
+        return Diagnostic(
+            code=code,
+            severity=Severity.ERROR,
+            message="stand-in",
+            location=SourceLocation(path="joins.pietto", line=line, column=column),
+        )
+
+    before = [
+        at("PIE-S2102", 22, 9),
+        at("PIE-S2380", 24, 17),
+        at("PIE-S2334", 22, 13),
+        at("PIE-S2102", 28, 13),
+    ]
+    assert joins.join_post_pass(before, checks) == [before[2], before[3]]
+
+
+def test_single_file_join_with_an_unknown_input_row_says_so_unless_explained() -> None:
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    cross join tally as t: from orders\n"
+            + _SELECT_ID
+            + "table tally:\n    from orders\n    select:\n        id\n"
+        )
+    )
+    tally = run.relation("tally")
+    query = run.relation("q")
+    rows = {**run.model.relation_row_schemas, tally: RowSchema(is_unknown=True)}
+    checks, _ = run.checks(rows)
+    assert (checks.facts, checks.reads, checks.unanalysed) == ({}, (), (query.span,))
+    unexplained = [
+        (
+            "PIE-S2334",
+            "A JOIN over tally, whose fields are not known, is not available in "
+            "single files yet.",
+            20,
+            5,
+        )
+    ]
+    assert located(joins.join_post_pass([], checks)) == unexplained
+    # An ERROR inside a relation it reads explains the unknown row.
+    explained = Diagnostic(
+        code="PIE-S2102",
+        severity=Severity.ERROR,
+        message="stand-in",
+        location=SourceLocation(path="joins.pietto", line=24, column=5),
+    )
+    assert joins.join_post_pass([explained], checks) == [explained]
+    warning = replace(explained, severity=Severity.WARNING)
+    assert located(joins.join_post_pass([warning], checks))[1:] == unexplained
+    orders = cast(SourceDef, run.model.relation_symbols["orders"])
+    sources = {**run.model.source_row_schemas, orders: RowSchema(is_unknown=True)}
+    from_checks = joins.check_join_semantics(
+        run.script,
+        run.structures,
+        relation_symbols=run.model.relation_symbols,
+        source_row_schemas=sources,
+        relation_row_schemas=run.model.relation_row_schemas,
+        expression_value_types={},
+        type_expansions=run.model.type_expansions,
+    )
+    assert located(joins.join_post_pass([], from_checks)) == [
+        (
+            "PIE-S2334",
+            "A JOIN over orders, whose fields are not known, is not available in "
+            "single files yet.",
+            20,
+            5,
+        )
+    ]
+
+
+def test_single_file_join_over_a_join_relation_whose_row_is_unknown_says_so_once() -> (
+    None
+):
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    cross join middle as m: from orders\n"
+            + _SELECT_ID
+            + "table middle:\n    from orders\n    cross join tally as t: from orders\n"
+            "    select:\n        y = orders.id\n"
+            "table tally:\n    from orders\n    select:\n        id\n"
+        )
+    )
+    query, middle, tally = (run.relation(name) for name in ("q", "middle", "tally"))
+    unknown = RowSchema(is_unknown=True)
+    checks, _ = run.checks(
+        {**run.model.relation_row_schemas, tally: unknown, middle: unknown}
+    )
+    assert run.diagnostics == []
+    assert (checks.facts, checks.unanalysed) == ({}, (query.span, middle.span))
+    # middle says why its row is unknown; q, which reads middle, adds nothing.
+    assert located(joins.join_post_pass([], checks)) == [
+        (
+            "PIE-S2334",
+            "A JOIN over tally, whose fields are not known, is not available in "
+            "single files yet.",
+            25,
+            5,
+        )
+    ]
+
+
+def test_single_file_join_input_rows_are_built_for_the_given_relations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    semi join customers as s: from orders\n"
+            "    cross join regions as r: from orders\n"
+            + _SELECT_ID
+            + "query bad:\n    from orders\n    cross join nowhere as n: from orders\n"
+            + _SELECT_ID
+            + "query plain:\n    from orders\n"
+            + _SELECT_ID
+            + "query derived:\n    from orders\n    cross join tally as t: from orders\n"
+            + _SELECT_ID
+            + "table tally:\n    from orders\n    select:\n        total = orders.amount\n"
+        )
+    )
+    query, bad, derived, tally = (
+        run.relation(name) for name in ("q", "bad", "derived", "tally")
+    )
+    total = RowField(
+        "total", ResolvedType("Int", TypeKind.BUILTIN), EffectiveNullability.NULLABLE
+    )
+    sources = run.model.source_row_schemas
+    relations = {
+        **run.model.relation_row_schemas,
+        tally: RowSchema(fields={"total": total}),
+    }
+    every = joins.joined_input_rows(
+        run.script.definitions,
+        run.structures,
+        source_row_schemas=sources,
+        relation_row_schemas=relations,
+    )
+    assert list(every) == [query, bad, derived]
+    assert every[bad] == RowSchema(is_unknown=True)
+    assert list(every[query].fields) == [
+        "orders.id",
+        "orders.customer_id",
+        "orders.amount",
+        "r.id",
+        "r.label",
+    ]
+    # One relation builds only its own row; a table input's row is the
+    # relation row it is given.
+    only = joins.joined_input_rows(
+        (derived,),
+        run.structures,
+        source_row_schemas=sources,
+        relation_row_schemas=relations,
+    )
+    assert list(only) == [derived]
+    assert only[derived] == every[derived]
+    assert list(only[derived].fields)[3:] == ["t.total"]
+    assert only[derived].fields["t.total"] == replace(total, name="t.total")
+
+
+def test_single_file_join_structures_resolve_every_join_target_for_cycles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
+    run = run_joins(
+        _joined_query(
+            "    from orders\n    inner join customers as c\n"
+            "    cross join tally as t: from orders\n"
+            + _SELECT_ID
+            + "query bad:\n    from nowhere\n    cross join q as again: from nowhere\n"
+            "    cross join missing as m: from nowhere\n"
+            "    cross join both as b: from nowhere\n"
+            + _SELECT_ID
+            + "table tally:\n    from orders\n    select:\n        id\n"
+            "query both:\n    union all:\n        from orders\n        from orders\n"
+        )
+    )
+    query, bad = run.relation("q"), run.relation("bad")
+    assert located(run.diagnostics) == [
+        ("PIE-S2301", "Unknown relation: missing", 27, 5),
+        (
+            "PIE-S2334",
+            f"Set-operation inputs are available {_COMPLETED} them: both",
+            28,
+            5,
+        ),
+    ]
+    assert list(run.structures) == [query]
+    # Every JOIN whose target is a relation, in a relation with a structure
+    # or not, in definition and JOIN order.
+    assert list(run.join_resolutions) == [*query.join_clauses, bad.join_clauses[0]]
+    assert [relation.name for relation in run.join_resolutions.values()] == [
+        "customers",
+        "tally",
+        "q",
+    ]
+    assert run.join_resolutions[bad.join_clauses[0]] is query
+
+
+def test_single_file_join_facts_fail_closed_on_a_pair_the_rows_lack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def misread(clause: JoinClause, **arguments: Any) -> object:
+        resolved = resolve_by_declaration(clause, **arguments)
+        assert not isinstance(resolved, tuple)
+        ((_, target_field, comparison, source_operand, target_operand),) = (
+            resolved.pairs
+        )
+        return replace(
+            resolved,
+            pairs=(("nope", target_field, comparison, source_operand, target_operand),),
+        )
+
+    monkeypatch.setattr(joins, "resolve_join_relationship", misread)
+    run = run_joins(
+        _joined_query("    from orders\n    inner join customers as c\n" + _SELECT_ID)
+    )
+    checks, _ = run.checks()
+    assert (run.diagnostics, list(run.structures)) == ([], [run.relation("q")])
+    # No facts, so IR refuses the relation; nothing is reported at check.
+    assert (checks.facts, checks.diagnostics, checks.reads) == ({}, (), ())
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    inner join customers as customer\n"
+            '    where customer.name == "x"\n'
+            "    select:\n        n = row_number() window:\n"
+            "            order by:\n                orders.id\n",
+            [
+                (
+                    "PIE-S2334",
+                    "Window functions over JOIN rows are available only when "
+                    "an EXPLICIT_MODULES project (schema version 2) completes them.",
+                    23,
+                    13,
+                )
+            ],
+        ),
+        (
+            "    inner join customers as customer\n"
+            '    where customer.name == "x"\n'
+            "    select:\n        n = count()\n"
+            "    order by:\n        customer.name\n",
+            [
+                (
+                    "PIE-S2334",
+                    "ORDER BY is not available after an ungrouped aggregate over JOIN rows: "
+                    "the result has one row; remove `order by`.",
+                    24,
+                    5,
+                )
+            ],
+        ),
+        (
+            "    cross join q as customer: from orders\n"
+            '    where customer.name == "x"\n'
+            "    select:\n        name = customer.name\n",
+            [("PIE-S2302", "Relation cycle detected: q -> q", 20, 5)],
+        ),
+    ),
+)
+def test_join_phase_a_and_cycles_suppress_only_unavailable_row_reads(
+    mode: CheckMode, body: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    result = analyze(
+        _parse(JOIN_PREFIX + "query q:\n    from orders\n" + body), mode_override=mode
+    )
+    assert located(result.diagnostics) == expected
+    query = cast(QueryDef, result.model.relation_symbols["q"])
+    assert query not in result.model.relation_joins
+    assert result.model.relation_row_schemas[query].is_unknown
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+def test_join_dependency_fixpoint_types_forward_derived_targets(
+    mode: CheckMode,
+) -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from orders
+    cross join second as target: from orders
+    select:
+        n = target.plus + 1
+query reader:
+    from q
+    select:
+        n
+table second:
+    from first
+    select:
+        plus = base + 1
+table first:
+    from customers
+    select:
+        base = id + 1
+"""
+        ),
+        mode_override=mode,
+    )
+    assert result.diagnostics == ()
+    for name, field in (
+        ("q", "n"),
+        ("reader", "n"),
+        ("second", "plus"),
+        ("first", "base"),
+    ):
+        relation = cast(TableDef | QueryDef, result.model.relation_symbols[name])
+        schema = result.model.relation_row_schemas[relation]
+        assert not schema.is_unknown
+        assert schema.fields[field].resolved_type.name == "Int"
+        assert schema.fields[field].nullability is EffectiveNullability.UNKNOWN
+    query = cast(QueryDef, result.model.relation_symbols["q"])
+    assert result.model.relation_joins[query].inputs[1].relation.name == "second"
+
+
+def test_join_fixpoint_keeps_self_join_occurrences_distinct() -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from projected
+    cross join projected as peer: from projected
+    select:
+        left_value = projected.value
+        right_value = peer.value
+table projected:
+    from orders
+    select:
+        value = amount + 1
+"""
+        )
+    )
+    assert result.diagnostics == ()
+    query = cast(QueryDef, result.model.relation_symbols["q"])
+    info = result.model.relation_joins[query]
+    assert [info.field_reads[item.expression] for item in query.select_items] == [
+        JoinFieldRef(input=0, field="value"),
+        JoinFieldRef(input=1, field="value"),
+    ]
+    assert tuple(result.model.relation_row_schemas[query].fields) == (
+        "left_value",
+        "right_value",
+    )
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+def test_join_group_keys_keep_self_join_identity_through_let_and_outputs(
+    mode: CheckMode,
+) -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from customers
+    cross join customers as peer: from customers
+    let:
+        peer_key = peer.id
+    group by:
+        customers.id
+        peer_key
+    select:
+        customer_id = customers.id
+        other_id = peer.id
+        n = count()
+    satisfying:
+        n > 0
+    order by:
+        other_id
+"""
+        ),
+        mode_override=mode,
+    )
+    assert result.diagnostics == ()
+    query = cast(QueryDef, result.model.relation_symbols["q"])
+    assert query.group_by_clause is not None and query.let_clause is not None
+    info = result.model.relation_joins[query]
+    assert info.field_reads[query.group_by_clause.items[0].key] == JoinFieldRef(
+        input=0, field="id"
+    )
+    assert info.field_reads[query.let_clause.bindings[0].expression] == JoinFieldRef(
+        input=1, field="id"
+    )
+    assert tuple(result.model.relation_row_schemas[query].fields) == (
+        "customer_id",
+        "other_id",
+        "n",
+    )
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+def test_join_analyzer_runs_fanout_refusal_after_resolving_reads(
+    mode: CheckMode,
+) -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from orders
+    cross join customers as customer: from orders
+    select:
+        n = count(orders.amount)
+"""
+        ),
+        mode_override=mode,
+    )
+    assert located(result.diagnostics) == [
+        (
+            "PIE-S2381",
+            "An aggregate may read rows repeated by JOIN customer; "
+            "group by a unique key of customer whose fields are all not null",
+            22,
+            13,
+        )
+    ]
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+@pytest.mark.parametrize("kind", ("semi", "anti"))
+def test_join_hidden_binding_reason_is_one_diagnostic_per_read(
+    mode: CheckMode, kind: str
+) -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + f"""query q:
+    from orders
+    {kind} join customers as customer:
+        from orders
+        on customer.id == orders.customer_id
+    select:
+        n = customer.name
+"""
+        ),
+        mode_override=mode,
+    )
+    assert located(result.diagnostics) == [
+        (
+            "PIE-S2102",
+            f"Unknown field: customer.name; customer is a {kind.upper()} JOIN binding, "
+            "which only its own `on` can read",
+            24,
+            13,
+        )
+    ]
+
+
+def test_join_relation_name_hint_lists_every_visible_binding_in_order() -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from orders
+    cross join customers as first: from orders
+    cross join customers as second: from orders
+    select:
+        n = customers.name
+"""
+        )
+    )
+    assert located(result.diagnostics) == [
+        (
+            "PIE-S2102",
+            "Unknown field: customers.name; customers names a relation, not a binding: "
+            "write first.name or second.name",
+            23,
+            13,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "field", "nullable"),
+    (
+        ("inner", "orders.customer_id", False),
+        ("left", "customer.id", True),
+        ("right", "orders.id", True),
+        ("full", "customer.id", True),
+    ),
+)
+def test_join_output_nullability_reaches_def_parameter_checks(
+    kind: str, field: str, nullable: bool
+) -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + f"""query q:
+    from orders
+    {kind} join customers as customer:
+        from orders
+        on orders.customer_id == customer.id
+    select:
+        n = inc({field})
+def inc(x: Int not null) -> Int nullable: return x + 1
+"""
+        )
+    )
+    assert located(result.diagnostics) == (
+        [
+            (
+                "PIE-S2395",
+                "Invalid argument for def inc at position 1 (x): "
+                "expected Int not null, got Int nullable",
+                24,
+                13,
+            )
+        ]
+        if nullable
+        else []
+    )
+
+
+def test_join_cycle_is_found_even_when_its_written_combination_is_invalid() -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from orders
+    cross join q as peer:
+        from orders
+        on peer.id == orders.id
+    select:
+        id = peer.id
+"""
+        )
+    )
+    assert located(result.diagnostics) == [
+        ("PIE-S2302", "Relation cycle detected: q -> q", 20, 5),
+        ("PIE-S2336", "CROSS JOIN cannot have ON or VIA.", 20, 5),
+    ]
+
+
+@pytest.mark.parametrize("mode", tuple(CheckMode))
+def test_refused_join_window_keeps_unrelated_scalar_errors(mode: CheckMode) -> None:
+    result = analyze(
+        _parse(
+            JOIN_PREFIX
+            + """query q:
+    from orders
+    cross join customers as customer: from orders
+    select:
+        n = row_number() window:
+            order by:
+                orders.id
+        bad = frob(1)
+"""
+        ),
+        mode_override=mode,
+    )
+    assert located(result.diagnostics) == [
+        (
+            "PIE-S2334",
+            "Window functions over JOIN rows are available only when "
+            "an EXPLICIT_MODULES project (schema version 2) completes them.",
+            22,
+            13,
+        ),
+        ("PIE-S2103", "Unknown function: frob", 25, 15),
+    ]

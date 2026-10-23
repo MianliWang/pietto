@@ -37,6 +37,14 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
+from pietto.ir.joins import (
+    JoinLoweringError,
+    JoinReads,
+    join_relation_facts,
+    lower_join_inputs,
+    lower_joins,
+    report_join_invariants,
+)
 from pietto.ir.lowering import (
     lower_canonical_type_ref,
     lower_expr,
@@ -58,6 +66,7 @@ from pietto.ir.model import (
     EnumIR,
     ExpressionIR,
     FilterIR,
+    FieldId,
     FieldRefIR,
     IrResult,
     LimitIR,
@@ -120,7 +129,7 @@ _KNOWN_DEFINITIONS = frozenset(
 @dataclass(frozen=True, slots=True)
 class _GroupedOrderExpression:
     expression: ExpressionIR
-    field_identity: str | None = None
+    field_identity: FieldId | None = None
 
 
 def build_ir(
@@ -135,9 +144,9 @@ def build_ir(
     for definition in script.definitions:
         try:
             lowered = _lower_definition(definition, semantic_model)
-        except _MissingSemanticFact as error:
+        except (_MissingSemanticFact, JoinLoweringError) as error:
             diagnostic = missing_semantic_fact_diagnostic(error.node, error.message)
-            if error.suggestion is not None:
+            if isinstance(error, _MissingSemanticFact) and error.suggestion is not None:
                 # A form that project emission lowers is named in user terms.
                 diagnostic = replace(
                     diagnostic, message=error.message, suggestion=error.suggestion
@@ -446,11 +455,7 @@ def _lower_relation(
 ) -> RelationIR:
     """Lower one minimal table or query from existing semantic facts."""
 
-    if definition.join_clauses:
-        raise _MissingSemanticFact(
-            definition,
-            "binary JOIN lowering for an authored relationship traversal",
-        )
+    join_info = join_relation_facts(definition, semantic_model)
     if definition.qualify_clause is not None:
         raise _MissingSemanticFact(
             definition.qualify_clause,
@@ -467,11 +472,36 @@ def _lower_relation(
     if schema is None:
         raise _MissingSemanticFact(definition, "relation row schema")
 
-    input_schema = _relation_schema(target, semantic_model)
+    input_schema = (
+        _relation_schema(target, semantic_model)
+        if join_info is None
+        else join_info.row_schema
+    )
     target_symbol = _symbol(SymbolNamespace.RELATION, target.name)
     row_schema = lower_row_schema(schema, semantic_model)
     output_fields = {field.name: field for field in row_schema.fields}
     let_expansions = _let_expansions(definition, semantic_model)
+    join_reads = (
+        None
+        if join_info is None
+        else JoinReads(lower_join_inputs(definition, join_info), join_info.field_reads)
+    )
+    joins = (
+        ()
+        if join_info is None or join_reads is None
+        else lower_joins(
+            join_info,
+            join_reads,
+            semantic_model,
+            lower_condition=lambda expression: _require_lowered_expression(
+                expression,
+                semantic_model,
+                fields={},
+                field_owner=target_symbol,
+                join_reads=join_reads,
+            ),
+        )
+    )
 
     filter_ir = None
     if definition.where_clause is not None:
@@ -482,6 +512,7 @@ def _lower_relation(
             field_owner=target_symbol,
             field_qualifier=target.name,
             let_expansions=let_expansions,
+            join_reads=join_reads,
         )
         filter_ir = FilterIR(
             expression=expression,
@@ -495,6 +526,7 @@ def _lower_relation(
         target_symbol=target_symbol,
         field_qualifier=target.name,
         let_expansions=let_expansions,
+        join_reads=join_reads,
     )
     projections = _lower_projections(
         definition,
@@ -504,6 +536,7 @@ def _lower_relation(
         output_fields=output_fields,
         group_keys=group_keys,
         let_expansions=let_expansions,
+        join_reads=join_reads,
     )
     order_by = _lower_order_by(
         definition,
@@ -513,6 +546,7 @@ def _lower_relation(
         projections=projections,
         group_keys=group_keys,
         let_expansions=let_expansions,
+        join_reads=join_reads,
     )
     limit = _lower_limit(definition)
     result_predicate = _lower_result_predicate(
@@ -521,6 +555,7 @@ def _lower_relation(
         input_schema=input_schema,
         target_symbol=target_symbol,
         let_expansions=let_expansions,
+        join_reads=join_reads,
     )
     namespace = semantic_model.named_window_namespaces.get(definition)
     if definition.named_windows and namespace is None:
@@ -553,29 +588,32 @@ def _lower_relation(
             window_input_expressions=window_input_expressions,
         )
     )
-    return RelationIR(
-        symbol=_symbol(SymbolNamespace.RELATION, definition.name),
-        name=definition.name,
-        kind=(
-            RelationKindIR.TABLE
-            if isinstance(definition, TableDef)
-            else RelationKindIR.QUERY
-        ),
-        source=RelationSourceIR(
-            target=target_symbol,
-            name=target.name,
-            span=lower_span(definition.from_clause.span),
-        ),
-        filter=filter_ir,
-        projections=projections,
-        row_schema=row_schema,
-        span=lower_span(definition.span),
-        order_by=order_by,
-        limit=limit,
-        group_keys=group_keys,
-        result_predicate=result_predicate,
-        named_windows=named_windows,
-    )
+    with report_join_invariants(definition):
+        return RelationIR(
+            symbol=_symbol(SymbolNamespace.RELATION, definition.name),
+            name=definition.name,
+            kind=(
+                RelationKindIR.TABLE
+                if isinstance(definition, TableDef)
+                else RelationKindIR.QUERY
+            ),
+            source=RelationSourceIR(
+                target=target_symbol,
+                name=target.name,
+                span=lower_span(definition.from_clause.span),
+            ),
+            filter=filter_ir,
+            projections=projections,
+            row_schema=row_schema,
+            span=lower_span(definition.span),
+            order_by=order_by,
+            limit=limit,
+            group_keys=group_keys,
+            result_predicate=result_predicate,
+            named_windows=named_windows,
+            inputs=() if join_reads is None else join_reads.inputs,
+            joins=joins,
+        )
 
 
 def _lower_group_keys(
@@ -586,40 +624,43 @@ def _lower_group_keys(
     target_symbol: SymbolId,
     field_qualifier: str,
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> tuple[FieldRefIR, ...]:
     """Lower accepted unique GROUP BY keys from semantic row facts."""
 
     clause = definition.group_by_clause
-    if clause is None or input_schema.is_unknown:
+    if clause is None or (join_reads is None and input_schema.is_unknown):
         return ()
 
     group_keys: list[FieldRefIR] = []
-    seen_identities: set[str] = set()
+    seen_identities: set[FieldId | None] = set()
     for item in clause.items:
         effective_key = _effective_group_key_expression(
             item.key,
             let_expansions=let_expansions,
             let_stack=frozenset(),
         )
-        field = _group_key_field(
-            effective_key,
-            input_schema=input_schema,
-            field_qualifier=field_qualifier,
-        )
-        if field is None:
-            continue
-        identity = field.name
-        if identity in seen_identities:
-            continue
-        seen_identities.add(identity)
-        group_keys.append(
-            lower_group_key_ref(
+        if join_reads is not None:
+            key = join_reads.group_key_ref(
+                effective_key, semantic_model, row_schema=input_schema
+            )
+        else:
+            field = _group_key_field(
+                effective_key,
+                input_schema=input_schema,
+                field_qualifier=field_qualifier,
+            )
+            if field is None:
+                continue
+            key = lower_group_key_ref(
                 effective_key,
                 semantic_model,
                 field=field,
                 field_owner=target_symbol,
             )
-        )
+        if key.field not in seen_identities:
+            seen_identities.add(key.field)
+            group_keys.append(key)
     return tuple(group_keys)
 
 
@@ -672,6 +713,7 @@ def _lower_order_by(
     projections: tuple[ProjectionIR, ...],
     group_keys: tuple[FieldRefIR, ...],
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> tuple[OrderItemIR, ...]:
     """Lower input-scope or grouped result-scope sorting expressions."""
 
@@ -686,6 +728,7 @@ def _lower_order_by(
             projections=projections,
             group_keys=group_keys,
             let_expansions=let_expansions,
+            join_reads=join_reads,
         )
     return tuple(
         OrderItemIR(
@@ -696,6 +739,7 @@ def _lower_order_by(
                 field_owner=target_symbol,
                 field_qualifier=target_symbol.name,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             ),
             direction=_lower_order_direction(item.direction),
             span=lower_span(item.span),
@@ -712,6 +756,7 @@ def _lower_grouped_order_by(
     projections: tuple[ProjectionIR, ...],
     group_keys: tuple[FieldRefIR, ...],
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> tuple[OrderItemIR, ...]:
     clause = definition.order_by_clause
     if clause is None:
@@ -734,6 +779,7 @@ def _lower_grouped_order_by(
                 input_schema=input_schema,
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             )
         )
         if expression is None:
@@ -769,7 +815,7 @@ def _grouped_order_output_expressions(
         ):
             output_expressions[projection.name] = _GroupedOrderExpression(
                 expression,
-                field_identity=expression.field.name,
+                field_identity=expression.field,
             )
             continue
         if isinstance(expression, WindowCallIR):
@@ -821,7 +867,10 @@ def _grouped_window_input_expressions(
             (
                 output.expression
                 for output in outputs.values()
-                if output.field_identity == field.name
+                if output.field_identity
+                == FieldId(
+                    _symbol(SymbolNamespace.RELATION, field_qualifier), field.name
+                )
             ),
             None,
         )
@@ -837,6 +886,7 @@ def _grouped_order_let_expression(
     input_schema: RowSchema,
     field_qualifier: str,
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> ExpressionIR | None:
     if expression.name not in let_expansions:
         return None
@@ -847,15 +897,21 @@ def _grouped_order_let_expression(
     )
     if effective_expression is None:
         return None
-    field = _group_key_field(
-        effective_expression,
-        input_schema=input_schema,
-        field_qualifier=field_qualifier,
-    )
-    if field is None:
-        return None
+    if join_reads is not None:
+        identity = join_reads.field_id(effective_expression)
+    else:
+        field = _group_key_field(
+            effective_expression,
+            input_schema=input_schema,
+            field_qualifier=field_qualifier,
+        )
+        if field is None:
+            return None
+        identity = FieldId(
+            _symbol(SymbolNamespace.RELATION, field_qualifier), field.name
+        )
     for output in output_expressions.values():
-        if output.field_identity == field.name:
+        if output.field_identity == identity:
             return output.expression
     return None
 
@@ -930,6 +986,7 @@ def _lower_result_predicate(
     input_schema: RowSchema,
     target_symbol: SymbolId,
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> ResultPredicateIR | None:
     clause = definition.satisfying_clause
     if clause is None:
@@ -945,6 +1002,7 @@ def _lower_result_predicate(
             input_schema=input_schema,
             target_symbol=target_symbol,
             let_expansions=let_expansions,
+            join_reads=join_reads,
         ),
         span=lower_span(clause.span),
     )
@@ -958,6 +1016,7 @@ def _lower_satisfying_expression(
     input_schema: RowSchema,
     target_symbol: SymbolId,
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> ExpressionIR:
     if isinstance(expression, NameExpr):
         output_expression = predicate_info.output_expressions.get(expression.name)
@@ -970,6 +1029,7 @@ def _lower_satisfying_expression(
             field_owner=target_symbol,
             field_qualifier=target_symbol.name,
             let_expansions=let_expansions,
+            join_reads=join_reads,
         )
     if isinstance(expression, CallExpr):
         output_expression = _satisfying_aggregate_let_output_expression(
@@ -989,6 +1049,7 @@ def _lower_satisfying_expression(
             field_owner=target_symbol,
             field_qualifier=target_symbol.name,
             let_expansions=let_expansions,
+            join_reads=join_reads,
         )
 
     span, value_type = _satisfying_expression_common(
@@ -1011,6 +1072,7 @@ def _lower_satisfying_expression(
                 input_schema=input_schema,
                 target_symbol=target_symbol,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             ),
             operator=expression.operator,
             right=_lower_satisfying_expression(
@@ -1020,6 +1082,7 @@ def _lower_satisfying_expression(
                 input_schema=input_schema,
                 target_symbol=target_symbol,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             ),
             span=span,
             value_type=value_type,
@@ -1033,6 +1096,7 @@ def _lower_satisfying_expression(
                 input_schema=input_schema,
                 target_symbol=target_symbol,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             ),
             operator=expression.operator,
             right=_lower_satisfying_expression(
@@ -1042,6 +1106,7 @@ def _lower_satisfying_expression(
                 input_schema=input_schema,
                 target_symbol=target_symbol,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             ),
             span=span,
             value_type=value_type,
@@ -1139,6 +1204,7 @@ def _lower_projections(
     output_fields: Mapping[str, RowFieldIR],
     group_keys: tuple[FieldRefIR, ...],
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> tuple[ProjectionIR, ...]:
     """Lower projections with order-independent grouped window inputs."""
 
@@ -1151,6 +1217,7 @@ def _lower_projections(
                 target_symbol=target_symbol,
                 output_fields=output_fields,
                 let_expansions=let_expansions,
+                join_reads=join_reads,
             )
             for item in definition.select_items
         )
@@ -1166,6 +1233,7 @@ def _lower_projections(
             target_symbol=target_symbol,
             output_fields=output_fields,
             let_expansions=let_expansions,
+            join_reads=join_reads,
         )
 
     window_input_expressions = _grouped_window_input_expressions(
@@ -1185,6 +1253,7 @@ def _lower_projections(
             target_symbol=target_symbol,
             output_fields=output_fields,
             let_expansions=let_expansions,
+            join_reads=join_reads,
             window_input_expressions=window_input_expressions,
         )
 
@@ -1203,6 +1272,7 @@ def _lower_projection(
     output_fields: Mapping[str, RowFieldIR],
     let_expansions: Mapping[str, Expression],
     window_input_expressions: Mapping[str, ExpressionIR] | None = None,
+    join_reads: JoinReads | None = None,
 ) -> ProjectionIR:
     """Lower one projection using existing semantic output-name behavior."""
 
@@ -1213,6 +1283,7 @@ def _lower_projection(
         field_owner=target_symbol,
         field_qualifier=target_symbol.name,
         let_expansions=let_expansions,
+        join_reads=join_reads,
         window_input_expressions=window_input_expressions,
     )
     output_name = _projection_output_name(item)
@@ -1247,6 +1318,7 @@ def _require_lowered_expression(
     field_qualifier: str | None = None,
     let_expansions: Mapping[str, Expression] | None = None,
     window_input_expressions: Mapping[str, ExpressionIR] | None = None,
+    join_reads: JoinReads | None = None,
 ) -> ExpressionIR:
     """Lower a relation expression or convert its diagnostic into IR failure."""
 
@@ -1257,6 +1329,7 @@ def _require_lowered_expression(
         field_owner=field_owner,
         field_qualifier=field_qualifier,
         let_expansions=let_expansions,
+        join_reads=join_reads,
         window_input_expressions=window_input_expressions,
     )
     if result.expression is None:

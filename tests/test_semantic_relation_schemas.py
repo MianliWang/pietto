@@ -305,7 +305,15 @@ def test_unknown_from_target_produces_unknown_schema_without_field_cascade() -> 
     )
     query = _relation(result, "output", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2301"]
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [("PIE-S2301", "Unknown relation: missing_relation", 2, 5)]
     assert result.model.relation_row_schemas[query].is_unknown is True
 
 
@@ -511,3 +519,76 @@ def _assert_no_antlr_nodes(value: object) -> None:
     elif isinstance(value, (list, tuple)):
         for item in value:
             _assert_no_antlr_nodes(item)
+
+
+@pytest.mark.parametrize("target_first", [False, True])
+def test_join_target_projection_types_propagate_through_forward_dependencies(
+    target_first: bool,
+) -> None:
+    target = (
+        "table named_users:\n"
+        "    from users\n"
+        "    select:\n"
+        "        uid = id\n"
+        "        address = upper(email)\n"
+    )
+    consumer = (
+        "table matched_users:\n"
+        "    from users\n"
+        "    inner join named_users as peer:\n"
+        "        from users\n"
+        "        on users.id == peer.uid\n"
+        "    select:\n"
+        "        address = peer.address\n"
+    )
+    result = analyze(
+        _parse(
+            SOURCE
+            + (target + consumer if target_first else consumer + target)
+            + "query output:\n"
+            "    from matched_users\n"
+            "    select:\n"
+            "        address\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    for name in ("named_users", "matched_users", "output"):
+        relation = result.model.relation_symbols[name]
+        assert isinstance(relation, (TableDef, QueryDef))
+        schema = result.model.relation_row_schemas[relation]
+        assert not schema.is_unknown
+        assert not schema.joined
+        assert schema.fields["address"].name == "address"
+        assert schema.fields["address"].resolved_type.name == "Text"
+        assert schema.fields["address"].nullability is EffectiveNullability.NULLABLE
+
+
+def test_refused_join_has_no_projected_fields_for_downstream_let_shadowing() -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table refused:\n"
+            "    from users\n"
+            "    inner join missing as peer:\n"
+            "        from users\n"
+            "    select:\n"
+            "        out = users.id\n"
+            "query output:\n"
+            "    from refused\n"
+            "    let:\n"
+            "        out = 1\n"
+            "    select:\n"
+            "        value = out\n"
+        )
+    )
+    relation = _relation(result, "refused", TableDef)
+    assert result.model.relation_row_schemas[relation] == RowSchema(is_unknown=True)
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [("PIE-S2301", "Unknown relation: missing", 7, 5)]

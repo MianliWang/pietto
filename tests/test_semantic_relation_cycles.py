@@ -5,13 +5,23 @@ from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
+import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
-from pietto.ast_nodes import QueryDef, Script, SourceDef, TableDef
+from pietto.ast_nodes import (
+    FromClause,
+    JoinClause,
+    QueryDef,
+    Script,
+    SourceDef,
+    TableDef,
+)
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
+from pietto.semantic.analyzer import analyze_project_namespace
+from pietto.semantic.relation_cycles import check_relation_cycles
 
 SOURCE = (
     'shape Row:\n    id: UUID not null\nsource rows: Row is postgres.table("rows")\n'
@@ -264,3 +274,234 @@ def _assert_no_antlr_nodes(value: object) -> None:
     elif isinstance(value, (list, tuple)):
         for item in value:
             _assert_no_antlr_nodes(item)
+
+
+def test_a_join_target_closes_a_cycle_at_the_join_only_with_join_edges() -> None:
+    script = _parse(
+        SOURCE + "table second:\n"
+        "    from first\n"
+        "    select:\n"
+        "        id\n"
+        "table first:\n"
+        "    from rows\n"
+        "    inner join second as peer\n"
+        "    select:\n"
+        "        id\n"
+    )
+    from_resolutions, join_resolutions = _resolutions(script)
+
+    assert check_relation_cycles(script, from_resolutions) == (set(), [])
+    cyclic, diagnostics = check_relation_cycles(
+        script, from_resolutions, join_resolutions=join_resolutions
+    )
+
+    assert cyclic == set(script.definitions[2:])
+    assert _located(diagnostics) == [
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: second -> first -> second",
+            (10, 5, 10, 30),
+        )
+    ]
+
+
+def test_every_join_that_closes_a_cycle_reports_it_in_join_order() -> None:
+    script = _parse(
+        SOURCE + "table loop:\n"
+        "    from rows\n"
+        "    inner join loop as again:\n"
+        "        from rows\n"
+        "        on rows.id == again.id\n"
+        "    left join rows as other: from loop\n"
+        "    cross join missing as gone: from loop\n"
+        "    semi join loop as twice\n"
+        "    select:\n"
+        "        id\n"
+    )
+    from_resolutions, join_resolutions = _resolutions(script)
+
+    cyclic, diagnostics = check_relation_cycles(
+        script, from_resolutions, join_resolutions=join_resolutions
+    )
+
+    # A source target and an unresolved target are no dependency edges.
+    assert cyclic == {script.definitions[2]}
+    assert _located(diagnostics) == [
+        ("PIE-S2302", Severity.ERROR, "Relation cycle detected: loop -> loop", span)
+        for span in ((6, 5, 8, 31), (11, 5, 11, 28))
+    ]
+
+
+def test_join_edges_are_followed_after_the_from_edge() -> None:
+    script = _parse(
+        SOURCE + "table hub:\n"
+        "    from back_from\n"
+        "    inner join back_join as peer\n"
+        "    select:\n"
+        "        id\n"
+        "table back_from:\n"
+        "    from hub\n"
+        "    select:\n"
+        "        id\n"
+        "table back_join:\n"
+        "    from hub\n"
+        "    select:\n"
+        "        id\n"
+    )
+    from_resolutions, join_resolutions = _resolutions(script)
+
+    cyclic, diagnostics = check_relation_cycles(
+        script, from_resolutions, join_resolutions=join_resolutions
+    )
+
+    assert cyclic == set(script.definitions[2:])
+    assert _located(diagnostics) == [
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: hub -> back_from -> hub",
+            (10, 5, 10, 13),
+        ),
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: hub -> back_join -> hub",
+            (14, 5, 14, 13),
+        ),
+    ]
+
+
+FIGURE_EIGHT = {
+    "a": "table a:\n    from b\n    cross join c as x: from b\n    select:\n        id\n",
+    "b": "table b:\n    from a\n    select:\n        id\n",
+    "c": "query c:\n    from rows\n    cross join b as y: from rows\n"
+    "    select:\n        id\n",
+    "d": "table d:\n    from c\n    select:\n        id\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("order", "cycles"),
+    [
+        ("abcd", [("a -> b -> a", (10, 5, 10, 11))]),
+        (
+            "cabd",
+            [("b -> a -> b", (10, 5, 10, 11)), ("c -> b -> a -> c", (11, 5, 11, 30))],
+        ),
+    ],
+)
+def test_every_relation_on_a_cycle_is_cyclic_whatever_the_definition_order(
+    order: str, cycles: list[tuple[str, tuple[int, int, int, int]]]
+) -> None:
+    script = _parse(SOURCE + "".join(FIGURE_EIGHT[name] for name in order))
+    from_resolutions, join_resolutions = _resolutions(script)
+
+    cyclic, diagnostics = check_relation_cycles(
+        script, from_resolutions, join_resolutions=join_resolutions
+    )
+
+    # Query c is on the cycle a -> c -> b -> a, which no report names when a
+    # is written first; d only reads the cycle.
+    assert {definition.name for definition in cyclic} == {"a", "b", "c"}
+    assert _located(diagnostics) == [
+        ("PIE-S2302", Severity.ERROR, f"Relation cycle detected: {path}", span)
+        for path, span in cycles
+    ]
+
+
+@pytest.mark.parametrize(
+    ("order", "path", "span"),
+    [
+        ("abcd", "a -> b -> a", (10, 5, 10, 11)),
+        ("cabd", "a -> b -> a", (15, 5, 15, 11)),
+        ("dcba", "b -> a -> b", (18, 5, 18, 11)),
+    ],
+)
+def test_without_join_edges_every_cycle_is_reported_with_all_its_relations(
+    order: str, path: str, span: tuple[int, int, int, int]
+) -> None:
+    script = _parse(SOURCE + "".join(FIGURE_EIGHT[name] for name in order))
+    from_resolutions, _ = _resolutions(script)
+
+    cyclic, diagnostics = check_relation_cycles(script, from_resolutions)
+
+    # Without JOIN edges, as a project namespace analysis calls it, every
+    # relation reads one input: the one cycle is reported, names all of its
+    # relations, and c and d are not cyclic, whatever the order.
+    assert {definition.name for definition in cyclic} == {"a", "b"}
+    assert _located(diagnostics) == [
+        ("PIE-S2302", Severity.ERROR, f"Relation cycle detected: {path}", span)
+    ]
+
+
+INNER_EIGHT = {
+    "a": "table a:\n    from b\n    inner join c as x\n    select:\n        id\n",
+    "b": "table b:\n    from a\n    select:\n        id\n",
+    "c": "query c:\n    from rows\n    inner join b as y\n    select:\n        id\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("order", "span"), [("abc", (10, 5, 10, 11)), ("cab", (15, 5, 15, 11))]
+)
+def test_a_project_namespace_analysis_reports_only_the_from_cycle(
+    order: str, span: tuple[int, int, int, int]
+) -> None:
+    script = _parse(SOURCE + "".join(INNER_EIGHT[name] for name in order))
+
+    # A LEGACY_FLAT check passes no JOIN edges, so of the cycles a -> b -> a
+    # and a -> c -> b -> a it reports only the one that FROM closes.
+    assert _located(list(analyze_project_namespace(script).diagnostics)) == [
+        ("PIE-S2302", Severity.ERROR, "Relation cycle detected: a -> b -> a", span)
+    ]
+
+
+def _resolutions(
+    script: Script,
+) -> tuple[
+    dict[FromClause, SourceDef | TableDef | QueryDef],
+    dict[JoinClause, SourceDef | TableDef | QueryDef],
+]:
+    relations = {
+        definition.name: definition
+        for definition in script.definitions
+        if isinstance(definition, (SourceDef, TableDef, QueryDef))
+    }
+    derived = [
+        definition
+        for definition in script.definitions
+        if isinstance(definition, (TableDef, QueryDef))
+    ]
+    return (
+        {
+            definition.from_clause: relations[definition.from_clause.source_name]
+            for definition in derived
+            if definition.from_clause.source_name in relations
+        },
+        {
+            clause: relations[clause.target_relation_name]
+            for definition in derived
+            for clause in definition.join_clauses
+            if clause.target_relation_name in relations
+        },
+    )
+
+
+def _located(
+    diagnostics: list[Diagnostic],
+) -> list[tuple[str, Severity, str, tuple[int, int, int | None, int | None]]]:
+    return [
+        (
+            diagnostic.code,
+            diagnostic.severity,
+            diagnostic.message,
+            (
+                diagnostic.location.line,
+                diagnostic.location.column,
+                diagnostic.location.end_line,
+                diagnostic.location.end_column,
+            ),
+        )
+        for diagnostic in diagnostics
+    ]
